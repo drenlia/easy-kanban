@@ -1,14 +1,15 @@
-import React, { useState, useCallback, useRef, useEffect } from 'react';
+import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { createPortal } from 'react-dom';
 import { Plus, MoreVertical, X, GripVertical, Archive } from 'lucide-react';
-import { Column, Task, TeamMember, PriorityOption, CurrentUser, Tag } from '../types';
+import { Column, Task, TeamMember, PriorityOption, CurrentUser, Tag, ColumnVisibilityWarning } from '../types';
 import { TaskViewMode } from '../utils/userPreferences';
 import TaskCard from './TaskCard';
 import { useSortable, SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { useDroppable } from '@dnd-kit/core';
 import { parseFinishedColumnNames } from '../utils/columnUtils';
+import { KanbanChromeTooltip } from './KanbanChromeTooltip';
 
 interface KanbanColumnProps {
   column: Column;
@@ -25,8 +26,10 @@ interface KanbanColumnProps {
     isCrossColumn?: boolean;
   } | null;
   onAddTask: (columnId: string) => void;
-  columnWarnings?: {[columnId: string]: string};
+  columnWarnings?: Record<string, ColumnVisibilityWarning>;
   onDismissColumnWarning?: (columnId: string) => void;
+  onClearFiltersForHiddenTask?: () => void;
+  onAssignCreatedTaskToSprint?: (columnId: string, taskId: string, sprintId: string) => Promise<void>;
   onRemoveTask: (taskId: string) => void;
   onEditTask: (task: Task) => void;
   onCopyTask: (task: Task) => void;
@@ -87,6 +90,8 @@ export default function KanbanColumn({
   onAddTask,
   columnWarnings,
   onDismissColumnWarning,
+  onClearFiltersForHiddenTask,
+  onAssignCreatedTaskToSprint,
   onRemoveTask,
   onEditTask,
   onCopyTask,
@@ -133,12 +138,36 @@ export default function KanbanColumn({
   selectedSprintId = null,
   availableSprints
 }: KanbanColumnProps) {
-  const { t } = useTranslation(['tasks', 'common']);
+  const { t, i18n } = useTranslation(['tasks', 'common']);
   const [isEditing, setIsEditing] = useState(false);
+  const [sprintAssignBusy, setSprintAssignBusy] = useState(false);
   const [title, setTitle] = useState(column.title);
   const [isFinished, setIsFinished] = useState(column.is_finished || false);
   const [isArchived, setIsArchived] = useState(column.is_archived || false);
   const [showMenu, setShowMenu] = useState(false);
+
+  const visibilityWarning = columnWarnings?.[column.id];
+  const hiddenTaskFilterList = useMemo(() => {
+    if (!visibilityWarning) return '';
+    const w = visibilityWarning;
+    const parts: string[] = [];
+    if (w.reasons.search) parts.push(t('column.filterTypes.searchFilters'));
+    if (w.reasons.sprint) parts.push(t('column.filterTypes.sprintSelection'));
+    if (w.reasons.members) parts.push(t('column.filterTypes.memberFilters'));
+    const andW = t('column.and');
+    if (parts.length === 0) return '';
+    if (parts.length === 1) return parts[0];
+    if (parts.length === 2) return `${parts[0]} ${andW} ${parts[1]}`;
+    return `${parts.slice(0, -1).join(', ')}, ${andW} ${parts[parts.length - 1]}`;
+  }, [visibilityWarning, t, i18n.language]);
+
+  const selectedSprintName = useMemo(() => {
+    if (!visibilityWarning?.selectedSprintId || !availableSprints?.length) {
+      return visibilityWarning?.selectedSprintId || '';
+    }
+    const sp = availableSprints.find((s: { id: string; name?: string }) => s.id === visibilityWarning.selectedSprintId);
+    return sp?.name || visibilityWarning.selectedSprintId;
+  }, [visibilityWarning?.selectedSprintId, availableSprints]);
 
   // Initialize state when editing starts (but only once per edit session)
   useEffect(() => {
@@ -657,37 +686,75 @@ export default function KanbanColumn({
         </div>
       )}
 
-      {/* Column Warning Message */}
-      {columnWarnings && columnWarnings[column.id] && (
-        <div className="mb-3 bg-yellow-100 dark:bg-yellow-900 border border-yellow-400 dark:border-yellow-600 text-yellow-800 dark:text-yellow-200 px-3 py-2 rounded-md text-sm font-medium flex items-start justify-between">
-          <div className="flex items-start gap-2">
-            <span className="text-yellow-600">⚠️</span>
-            <div className="whitespace-pre-line">
-              {columnWarnings[column.id].split('\n').map((line, index) => {
-                const tipLabel = t('column.tip');
-                const tipMarker = `**${tipLabel}**`;
-                if (line.includes(tipMarker)) {
-                  const parts = line.split(tipMarker);
-                  return (
-                    <div key={index}>
-                      {parts[0]}
-                      <span className="font-bold">{tipLabel}</span>
-                      {parts[1]}
-                    </div>
-                  );
-                }
-                return <div key={index}>{line}</div>;
-              })}
+      {/* Column warning: new task hidden by sprint / filters — strings from i18n so language switches apply */}
+      {visibilityWarning && (
+        <div className="mb-3 bg-yellow-100 dark:bg-yellow-900 border border-yellow-400 dark:border-yellow-600 text-yellow-800 dark:text-yellow-200 px-3 py-2 rounded-md text-sm flex flex-col gap-2">
+          <div className="flex items-start justify-between gap-2">
+            <div className="flex items-start gap-2 min-w-0">
+              <span className="text-yellow-600 flex-shrink-0">⚠️</span>
+              <p className="font-medium leading-snug">
+                {t('column.taskHiddenByFilters', { filterList: hiddenTaskFilterList })}
+              </p>
             </div>
+            {onDismissColumnWarning && (
+              <KanbanChromeTooltip label={t('column.dismissWarning')} wrapperClassName="flex-shrink-0">
+                <button
+                  type="button"
+                  onClick={() => onDismissColumnWarning(column.id)}
+                  className="text-yellow-600 hover:text-yellow-800 transition-colors"
+                >
+                  <X size={16} />
+                </button>
+              </KanbanChromeTooltip>
+            )}
           </div>
-          {onDismissColumnWarning && (
-            <button
-              onClick={() => onDismissColumnWarning(column.id)}
-              className="ml-2 text-yellow-600 hover:text-yellow-800 transition-colors flex-shrink-0"
-              title={t('column.dismissWarning')}
-            >
-              <X size={16} />
-            </button>
+          {visibilityWarning.showSprintPrompt && visibilityWarning.selectedSprintId && (
+            <div className="pl-7 flex flex-col gap-2 sm:flex-row sm:items-center sm:flex-wrap">
+              <p className="text-sm flex-1 min-w-0">
+                {t('column.sprintAssignPrompt', { sprintName: selectedSprintName })}
+              </p>
+              <div className="flex gap-2 flex-shrink-0">
+                <button
+                  type="button"
+                  disabled={sprintAssignBusy}
+                  onClick={async () => {
+                    if (!onAssignCreatedTaskToSprint || !visibilityWarning.selectedSprintId) return;
+                    setSprintAssignBusy(true);
+                    try {
+                      await onAssignCreatedTaskToSprint(
+                        column.id,
+                        visibilityWarning.taskId,
+                        visibilityWarning.selectedSprintId
+                      );
+                    } finally {
+                      setSprintAssignBusy(false);
+                    }
+                  }}
+                  className="px-2.5 py-1 rounded-md bg-yellow-700 text-white text-xs font-medium hover:bg-yellow-800 disabled:opacity-50"
+                >
+                  {t('column.yesAssignToSprint')}
+                </button>
+                <button
+                  type="button"
+                  disabled={sprintAssignBusy}
+                  onClick={() => onDismissColumnWarning?.(column.id)}
+                  className="px-2.5 py-1 rounded-md border border-yellow-600 text-yellow-900 dark:text-yellow-100 text-xs font-medium hover:bg-yellow-200/50 dark:hover:bg-yellow-800/50"
+                >
+                  {t('column.noKeepUnassigned')}
+                </button>
+              </div>
+            </div>
+          )}
+          {visibilityWarning.showClearFilters && onClearFiltersForHiddenTask && (
+            <div className="pl-7">
+              <button
+                type="button"
+                onClick={() => onClearFiltersForHiddenTask()}
+                className="px-2.5 py-1 rounded-md bg-white/80 dark:bg-yellow-950/40 border border-yellow-500 text-yellow-900 dark:text-yellow-100 text-xs font-medium hover:bg-yellow-50 dark:hover:bg-yellow-900/60"
+              >
+                {t('column.clearFiltersButton')}
+              </button>
+            </div>
           )}
         </div>
       )}
@@ -696,13 +763,14 @@ export default function KanbanColumn({
         <div className="flex items-center gap-2 flex-1">
           {/* Tiny drag handle for admins only */}
           {isAdmin && (
-            <div
-              {...listeners}
-              className="cursor-grab active:cursor-grabbing p-1 rounded hover:bg-gray-200 transition-colors opacity-50 hover:opacity-100"
-              title={t('column.clickToEditDragToReorder')}
-            >
-              <GripVertical size={12} className="text-gray-400" />
-            </div>
+            <KanbanChromeTooltip label={t('column.clickToEditDragToReorder')}>
+              <div
+                {...listeners}
+                className="cursor-grab active:cursor-grabbing p-1 rounded hover:bg-gray-200 transition-colors opacity-50 hover:opacity-100"
+              >
+                <GripVertical size={12} className="text-gray-400" />
+              </div>
+            </KanbanChromeTooltip>
           )}
           {isEditing ? (
             <form onSubmit={handleTitleSubmit} className="flex-1 space-y-3" onClick={(e) => e.stopPropagation()}>
@@ -808,71 +876,76 @@ export default function KanbanColumn({
             </form>
           ) : (
             <>
-              <h3
-                data-column-title
-                className={`text-lg font-semibold text-gray-700 dark:text-gray-100 select-none ${
+              <KanbanChromeTooltip
+                label={
                   isAdmin && showColumnDeleteConfirm === null
-                    ? 'cursor-pointer hover:text-gray-900 dark:hover:text-white' 
-                    : 'cursor-default'
-                }`}
-                onClick={() => {
-                  if (isAdmin) {
-                    setShouldSelectAll(true);
-                    setIsEditing(true);
-                  }
-                }}
-                title={
-                  isAdmin && showColumnDeleteConfirm === null 
                     ? t('column.clickToEditDragToReorder')
                     : isAdmin && showColumnDeleteConfirm !== null
-                    ? t('column.draggingDisabledDuringConfirmation')
-                    : draggedTask
-                    ? t('column.hoverToEnterCrossBoard')
-                    : t('column.columnTitle')
+                      ? t('column.draggingDisabledDuringConfirmation')
+                      : draggedTask
+                        ? t('column.hoverToEnterCrossBoard')
+                        : t('column.columnTitle')
                 }
+                wrapperClassName="flex-1 min-w-0"
               >
-                {column.title}
-              </h3>
-              <button
-                data-column-header
-                onClick={handleAddTask}
-                disabled={isSubmitting || !isOnline}
-                title={!isOnline ? t('column.networkOffline') : t('column.addTask')}
-                className={`p-1 rounded-full transition-colors ${
-                  !isSubmitting && isOnline
-                    ? 'text-gray-500 hover:bg-gray-200 hover:text-gray-700'
-                    : 'text-gray-400 cursor-not-allowed'
-                }`}
-                data-tour-id="add-task-button"
-              >
-                <Plus size={18} />
-              </button>
+                <h3
+                  data-column-title
+                  className={`text-lg font-semibold text-gray-700 dark:text-gray-100 select-none ${
+                    isAdmin && showColumnDeleteConfirm === null
+                      ? 'cursor-pointer hover:text-gray-900 dark:hover:text-white'
+                      : 'cursor-default'
+                  }`}
+                  onClick={() => {
+                    if (isAdmin) {
+                      setShouldSelectAll(true);
+                      setIsEditing(true);
+                    }
+                  }}
+                >
+                  {column.title}
+                </h3>
+              </KanbanChromeTooltip>
+              <KanbanChromeTooltip label={!isOnline ? t('column.networkOffline') : t('column.addTask')}>
+                <button
+                  data-column-header
+                  onClick={handleAddTask}
+                  disabled={isSubmitting || !isOnline}
+                  className={`p-1 rounded-full transition-colors ${
+                    !isSubmitting && isOnline
+                      ? 'text-gray-500 hover:bg-gray-200 hover:text-gray-700'
+                      : 'text-gray-400 cursor-not-allowed'
+                  }`}
+                  data-tour-id="add-task-button"
+                >
+                  <Plus size={18} />
+                </button>
+              </KanbanChromeTooltip>
             </>
           )}
         </div>
         
         {/* Archive Icon - visible to all users */}
         {!!column.is_archived && (
-          <div title={t('column.archivedColumn')} className="mr-1">
-            <Archive 
-              size={16} 
-              className="text-orange-500 dark:text-orange-400" 
-            />
-          </div>
+          <KanbanChromeTooltip label={t('column.archivedColumn')} wrapperClassName="mr-1">
+            <span className="inline-flex">
+              <Archive size={16} className="text-orange-500 dark:text-orange-400" />
+            </span>
+          </KanbanChromeTooltip>
         )}
         
         {/* Column Management Menu - Admin Only */}
         {isAdmin && (
           <div className="relative column-menu-container flex items-center gap-1">
-            <button
-              onClick={() => setShowMenu(!showMenu)}
-              className="p-1 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full transition-colors"
-              disabled={isSubmitting}
-              title={t('column.columnManagementOptions')}
-              data-tour-id="column-management-menu"
-            >
-              <MoreVertical size={18} className="text-gray-500 dark:text-gray-400" />
-            </button>
+            <KanbanChromeTooltip label={t('column.columnManagementOptions')}>
+              <button
+                onClick={() => setShowMenu(!showMenu)}
+                className="p-1 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full transition-colors"
+                disabled={isSubmitting}
+                data-tour-id="column-management-menu"
+              >
+                <MoreVertical size={18} className="text-gray-500 dark:text-gray-400" />
+              </button>
+            </KanbanChromeTooltip>
             
             {showMenu && (
               <div className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg z-[200]">
@@ -978,13 +1051,17 @@ export default function KanbanColumn({
                 zIndex: draggedColumn ? 1 : 'auto',
               }}
             >
+              {/* Top/bottom hit targets only while dragging a task — fixed h-16 in flow caused a permanent gap under headers */}
+              {draggedTask && !draggedColumn && (
+                <>
+                  <TaskTopDropZone columnId={column.id} />
+                  <BottomDropZone columnId={column.id} />
+                </>
+              )}
               <div>
                 {renderTaskList()}
               </div>
             </div>
-            
-            {/* Dedicated bottom drop zone for reliable bottom drops */}
-            <BottomDropZone columnId={column.id} />
           </SortableContext>
         )}
       </div>
@@ -1032,7 +1109,26 @@ export default function KanbanColumn({
   );
 }
 
-// Dedicated bottom drop zone component for reliable collision detection (invisible to user)
+// Top drop zone: absolute so it does not push the first card down; only mounted during task drag
+const TaskTopDropZone: React.FC<{ columnId: string }> = ({ columnId }) => {
+  const { setNodeRef } = useDroppable({
+    id: `${columnId}-task-top`,
+    data: {
+      type: 'column-top',
+      columnId
+    }
+  });
+
+  return (
+    <div
+      ref={setNodeRef}
+      className="pointer-events-auto absolute inset-x-0 top-0 z-10 h-14 w-full"
+      aria-hidden
+    />
+  );
+};
+
+// Bottom drop zone: absolute at bottom of column body — no extra spacer when idle
 const BottomDropZone: React.FC<{ columnId: string }> = ({ columnId }) => {
   const { setNodeRef } = useDroppable({
     id: `${columnId}-bottom`,
@@ -1042,11 +1138,11 @@ const BottomDropZone: React.FC<{ columnId: string }> = ({ columnId }) => {
     }
   });
 
-  // Invisible drop zone - only for collision detection, no visual feedback
   return (
     <div
       ref={setNodeRef}
-      className="h-16 w-full"
+      className="pointer-events-auto absolute inset-x-0 bottom-0 z-10 h-16 w-full"
+      aria-hidden
     />
   );
 };

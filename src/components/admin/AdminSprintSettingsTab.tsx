@@ -8,11 +8,42 @@ import { getSprintUsage, deleteSprint } from '../../api';
 interface PlanningPeriod {
   id: string;
   name: string;
-  start_date: string;
-  end_date: string;
+  start_date: string | null;
+  end_date: string | null;
   is_active: boolean;
   description: string | null;
   created_at: string;
+}
+
+/** `<input type="date">` only accepts YYYY-MM-DD; PostgreSQL JSON often sends ISO datetimes. */
+function toDateInputValue(value: string | null | undefined): string {
+  if (!value) return '';
+  const m = String(value).match(/^(\d{4}-\d{2}-\d{2})/);
+  return m ? m[1] : '';
+}
+
+/** Local calendar YYYY-MM-DD for `<input type="date">`. */
+function formatLocalYmd(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+/**
+ * Default sprint range: work week starts Monday.
+ * - Start: today if Monday, otherwise the next Monday (upcoming sprint boundary).
+ * - End: Friday after two full Mon–Fri weeks (start + 11 calendar days).
+ */
+function getDefaultNewSprintDates(now = new Date()): { start_date: string; end_date: string } {
+  const d = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const day = d.getDay(); // 0 Sun .. 6 Sat
+  const daysUntilMonday = day === 0 ? 1 : day === 1 ? 0 : 8 - day;
+  d.setDate(d.getDate() + daysUntilMonday);
+  const start = new Date(d);
+  const end = new Date(d);
+  end.setDate(end.getDate() + 11); // second Friday after start Monday
+  return { start_date: formatLocalYmd(start), end_date: formatLocalYmd(end) };
 }
 
 const AdminSprintSettingsTab: React.FC = () => {
@@ -34,6 +65,15 @@ const AdminSprintSettingsTab: React.FC = () => {
 
   useEffect(() => {
     fetchSprints();
+  }, []);
+
+  // Other tabs / browsers: sprint WebSocket triggers `sprints-updated` on this window too
+  useEffect(() => {
+    const onSprintsUpdated = () => {
+      void fetchSprints();
+    };
+    window.addEventListener('sprints-updated', onSprintsUpdated);
+    return () => window.removeEventListener('sprints-updated', onSprintsUpdated);
   }, []);
 
   // Handle click outside to close delete confirmation
@@ -84,11 +124,12 @@ const AdminSprintSettingsTab: React.FC = () => {
   };
 
   const handleCreate = () => {
+    const { start_date, end_date } = getDefaultNewSprintDates();
     setIsCreating(true);
     setFormData({
       name: '',
-      start_date: '',
-      end_date: '',
+      start_date,
+      end_date,
       is_active: false,
       description: ''
     });
@@ -98,9 +139,9 @@ const AdminSprintSettingsTab: React.FC = () => {
     setEditingId(sprint.id);
     setFormData({
       name: sprint.name,
-      start_date: sprint.start_date,
-      end_date: sprint.end_date,
-      is_active: sprint.is_active,
+      start_date: toDateInputValue(sprint.start_date),
+      end_date: toDateInputValue(sprint.end_date),
+      is_active: Boolean(sprint.is_active),
       description: sprint.description || ''
     });
   };
@@ -169,54 +210,56 @@ const AdminSprintSettingsTab: React.FC = () => {
   };
 
   const handleDelete = async (id: string, event?: React.MouseEvent<HTMLButtonElement>) => {
+    // Capture button geometry before any await — after await, React's synthetic event
+    // target is cleared, so the confirmation portal (which requires positions) never mounted.
+    let position: { top: number; left: number; maxHeight?: number } | null = null;
+    const target = event?.currentTarget;
+    if (target) {
+      const buttonRect = target.getBoundingClientRect();
+      const viewportHeight = window.innerHeight;
+      const modalHeight = 150;
+      const spacing = 5;
+
+      let top = buttonRect.bottom + window.scrollY + spacing;
+      let left = buttonRect.left + window.scrollX;
+      let maxHeight: number | undefined;
+
+      if (buttonRect.bottom + modalHeight > viewportHeight) {
+        top = buttonRect.top + window.scrollY - modalHeight - spacing;
+        if (top < window.scrollY) {
+          top = window.scrollY + spacing;
+          maxHeight = viewportHeight - (top - window.scrollY) - spacing * 2;
+        }
+      }
+
+      const modalWidth = 250;
+      if (left + modalWidth > window.innerWidth) {
+        left = window.innerWidth - modalWidth - spacing;
+      }
+      if (left < 0) {
+        left = spacing;
+      }
+
+      position = { top, left, maxHeight };
+    }
+
     try {
-      // Fetch usage count for this sprint
       const usageData = await getSprintUsage(id);
       setSprintUsageCounts(prev => ({ ...prev, [id]: usageData.count }));
-      
-      // Calculate position for confirmation modal
-      if (event && event.currentTarget) {
-        const buttonRect = event.currentTarget.getBoundingClientRect();
-        const viewportHeight = window.innerHeight;
-        const modalHeight = 150; // Approximate modal height
-        const spacing = 5;
-        
-        let top = buttonRect.bottom + window.scrollY + spacing;
-        let left = buttonRect.left + window.scrollX;
-        let maxHeight: number | undefined;
-        
-        // Check if modal would go below viewport
-        if (buttonRect.bottom + modalHeight > viewportHeight) {
-          // Position above button instead
-          top = buttonRect.top + window.scrollY - modalHeight - spacing;
-          // Ensure it doesn't go above viewport
-          if (top < window.scrollY) {
-            top = window.scrollY + spacing;
-            maxHeight = viewportHeight - (top - window.scrollY) - spacing * 2;
-          }
-        }
-        
-        // Ensure modal doesn't go off right edge
-        const modalWidth = 250; // Approximate modal width
-        if (left + modalWidth > window.innerWidth) {
-          left = window.innerWidth - modalWidth - spacing;
-        }
-        
-        // Ensure modal doesn't go off left edge
-        if (left < 0) {
-          left = spacing;
-        }
-        
-        setDeleteButtonPositions(prev => ({ ...prev, [id]: { top, left, maxHeight } }));
-      }
-      
-      setShowDeleteSprintConfirm(id);
     } catch (error) {
       console.error('Failed to get sprint usage:', error);
-      // Still show confirmation even if usage count fails
       setSprintUsageCounts(prev => ({ ...prev, [id]: 0 }));
-      setShowDeleteSprintConfirm(id);
     }
+
+    const fallbackPosition = {
+      top: window.scrollY + Math.max(16, window.innerHeight / 2 - 75),
+      left: window.scrollX + Math.max(16, window.innerWidth / 2 - 125)
+    };
+    setDeleteButtonPositions(prev => ({
+      ...prev,
+      [id]: position ?? fallbackPosition
+    }));
+    setShowDeleteSprintConfirm(id);
   };
 
   const confirmDeleteSprint = async (id: string) => {
@@ -301,10 +344,20 @@ const AdminSprintSettingsTab: React.FC = () => {
     }
   };
 
-  const formatDate = (dateString: string) => {
+  const formatDate = (dateString: string | null | undefined) => {
+    // Handle null/undefined dates
+    if (!dateString) {
+      return '-';
+    }
+
+    const ymd = toDateInputValue(dateString);
+    if (!ymd) return '-';
+
     // Parse as local date to avoid timezone offset issues
-    const [year, month, day] = dateString.split('-').map(Number);
+    const [year, month, day] = ymd.split('-').map(Number);
+    if (!year || !month || !day) return '-';
     const date = new Date(year, month - 1, day); // month is 0-indexed
+    if (Number.isNaN(date.getTime())) return '-';
     return date.toLocaleDateString('en-US', {
       year: 'numeric',
       month: 'short',

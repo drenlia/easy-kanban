@@ -118,6 +118,28 @@ export async function getTranslator(db) {
 }
 
 /**
+ * Get translation function for a specific language (not from database)
+ * @param {string} lang - Language code ('en' or 'fr')
+ * @returns {Function} Translation function bound to the specified language
+ */
+export function getTranslatorForLanguage(lang = 'en') {
+  return (key, params = {}) => t(key, params, lang);
+}
+
+/**
+ * Get bilingual translations (both English and French)
+ * @param {string} key - Translation key
+ * @param {Object} params - Parameters to replace in the translation
+ * @returns {Object} Object with 'en' and 'fr' translations
+ */
+export function getBilingualTranslation(key, params = {}) {
+  return {
+    en: t(key, params, 'en'),
+    fr: t(key, params, 'fr')
+  };
+}
+
+/**
  * Get default board column names based on APP_LANGUAGE
  * @param {Object} db - Database instance
  * @returns {Array} Array of column objects with id and title

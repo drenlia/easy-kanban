@@ -45,6 +45,7 @@ const AdminLicensingTab: React.FC<AdminLicensingTabProps> = ({ currentUser, sett
   const [licenseInfo, setLicenseInfo] = useState<LicenseInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [buildTime, setBuildTime] = useState<string | null>(null);
   
   // Subscription management state
   const [isOwner, setIsOwner] = useState(false);
@@ -53,7 +54,21 @@ const AdminLicensingTab: React.FC<AdminLicensingTabProps> = ({ currentUser, sett
   useEffect(() => {
     fetchLicenseInfo();
     checkOwnership();
+    fetchBuildTime();
   }, []);
+
+  const fetchBuildTime = async () => {
+    try {
+      const response = await fetch('/api/version', { cache: 'no-store' });
+      if (!response.ok) return;
+      const data = await response.json();
+      if (data?.buildTime) {
+        setBuildTime(data.buildTime);
+      }
+    } catch (err) {
+      console.error('Failed to fetch build time:', err);
+    }
+  };
 
   // Fetch WEBSITE_URL - check settings prop first, then fetch directly if needed
   useEffect(() => {
@@ -517,7 +532,9 @@ const AdminLicensingTab: React.FC<AdminLicensingTabProps> = ({ currentUser, sett
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{t('licensing.lastUpdated')}</span>
-                <span className="text-sm text-gray-500 dark:text-gray-400">{new Date().toLocaleString()}</span>
+                <span className="text-sm text-gray-500 dark:text-gray-400">
+                  {buildTime ? new Date(buildTime).toLocaleString() : '—'}
+                </span>
               </div>
             </div>
           </div>

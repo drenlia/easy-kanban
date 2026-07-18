@@ -1,9 +1,16 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { Columns, Task, TeamMember, Board } from '../types';
+import { Columns, Task, TeamMember, Board, Priority } from '../types';
 import { SavedFilterView, getSavedFilterView } from '../api';
 import { TaskViewMode, ViewMode, loadUserPreferences, updateUserPreference } from '../utils/userPreferences';
 import { filterTasks, hasActiveFilters } from '../utils/taskUtils';
 import { SYSTEM_MEMBER_ID } from '../constants/appConstants';
+
+// Extend Window interface for justUpdatedFromWebSocket flag
+declare global {
+  interface Window {
+    justUpdatedFromWebSocket?: boolean;
+  }
+}
 
 interface UseTaskFiltersProps {
   columns: Columns;
@@ -51,6 +58,13 @@ export const useTaskFilters = ({
   const [currentFilterView, setCurrentFilterView] = useState<SavedFilterView | null>(null);
   const [sharedFilterViews, setSharedFilterViews] = useState<SavedFilterView[]>([]);
   const [filteredColumns, setFilteredColumns] = useState<Columns>({});
+  
+  // CRITICAL: Use a ref to always access the latest columns value
+  // This prevents stale closure issues when filtering is delayed
+  const columnsRef = useRef<Columns>(columns);
+  useEffect(() => {
+    columnsRef.current = columns;
+  }, [columns]);
 
   // Update viewModeRef when viewMode changes
   useEffect(() => {
@@ -59,12 +73,27 @@ export const useTaskFilters = ({
 
   // Enhanced filtering effect with watchers/collaborators/requesters support
   useEffect(() => {
-    const performFiltering = () => {
+    // Delay filtering only when WebSocket/optimistic batch paths set justUpdatedFromWebSocket.
+    // Do NOT infer batches from task-count deltas — board switches (e.g. 73→3 tasks) look the
+    // same and wrongly blanked the board for ~400ms.
+    let timeoutId: NodeJS.Timeout | null = null;
+    
+    // CRITICAL: Refactor performFiltering to accept columns as parameter to avoid stale closure
+    const performFiltering = (columnsToFilter: Columns = columns) => {
+      // CRITICAL: Don't filter if columns is empty - might be during batch update
+      if (!columnsToFilter || Object.keys(columnsToFilter).length === 0) {
+        return;
+      }
+      
+      // Do not bail when all columns have zero tasks — that is valid (e.g. newly created board).
+      // Previously we returned here, which left filteredColumns stuck on the previous board until
+      // another event forced a refresh.
+      
       // Always filter by selectedMembers if any are selected, or if any checkboxes are checked
       const isFiltering = isSearchActive || selectedMembers.length > 0 || includeAssignees || includeWatchers || includeCollaborators || includeRequesters;
       
       if (!isFiltering) {
-        setFilteredColumns(columns);
+        setFilteredColumns(columnsToFilter);
         return;
       }
 
@@ -161,7 +190,7 @@ export const useTaskFilters = ({
 
       const filteredColumns: any = {};
       
-      for (const [columnId, column] of Object.entries(columns)) {
+      for (const [columnId, column] of Object.entries(columnsToFilter)) {
         let columnTasks = column.tasks;
 
         // FIRST: Apply sprint filtering (if a sprint is selected)
@@ -204,10 +233,50 @@ export const useTaskFilters = ({
         };
       }
       
+      // Always commit filteredColumns (including all-empty boards). Skipping when both counts
+      // were 0 left filteredColumns showing the previous board's tasks after create-board / switch.
       setFilteredColumns(filteredColumns);
     };
 
-    performFiltering();
+    if (window.justUpdatedFromWebSocket) {
+      // Delay filtering to let batch update complete
+      // The batch update processes all updates in a single setColumns call, but React state updates
+      // are asynchronous, so we need to wait longer to ensure the state has fully settled
+      // We use a longer delay to ensure the batch update's setColumns has been applied
+      timeoutId = setTimeout(() => {
+        // CRITICAL: The effect will re-run when columns changes, so we don't need to manually
+        // read from the ref here. Instead, we should just let the effect run again naturally.
+        // But to ensure we have the latest data, we'll use a callback pattern to force
+        // the effect to re-evaluate with the latest columns value.
+        // 
+        // Actually, the best approach is to just let the effect run again when columns changes.
+        // The delay is just to prevent it from running too early. But we need to ensure
+        // we're using the latest columns value.
+        //
+        // Since the effect depends on `columns`, when columns changes (from batch update),
+        // the effect will run again. But we're delaying it, so we need to ensure we read
+        // the latest value. The ref should be updated by now, but let's also check the
+        // current columns value from the closure to be safe.
+        //
+        // Always use the latest columns from the ref (updated every render). Never prefer an
+        // older snapshot just because it had more tasks — that resurrected the previous board's
+        // tasks on a new empty board after switching.
+        const columnsToUse = columnsRef.current;
+        
+        if (!columnsToUse || Object.keys(columnsToUse).length === 0) {
+          return;
+        }
+        
+        performFiltering(columnsToUse);
+      }, 400); // 400ms delay - enough for batch update to complete and React state to settle
+      
+      return () => {
+        if (timeoutId) clearTimeout(timeoutId);
+      };
+    } else {
+      // Run filtering immediately
+      performFiltering();
+    }
   }, [columns, searchFilters.text, searchFilters.dateFrom, searchFilters.dateTo, searchFilters.dueDateFrom, searchFilters.dueDateTo, searchFilters.selectedPriorities, searchFilters.selectedTags, searchFilters.projectId, searchFilters.taskId, isSearchActive, selectedMembers, includeAssignees, includeWatchers, includeCollaborators, includeRequesters, selectedSprintId, members, boards]);
 
   // Helper function to quickly check if a task should be included (synchronous checks only for WebSocket updates)
@@ -358,6 +427,36 @@ export const useTaskFilters = ({
     updateCurrentUserPreference('currentFilterViewId', view?.id || null);
   };
 
+  /**
+   * Clear search + member selections so a newly created task can appear (does not change sprint selection).
+   * Resets role chips to the same defaults as new users (assignees on) so TeamMembers does not show
+   * "no filter options selected".
+   */
+  const clearVisibilityObstructingFilters = useCallback(() => {
+    const emptyFilters = {
+      text: '',
+      dateFrom: '',
+      dateTo: '',
+      dueDateFrom: '',
+      dueDateTo: '',
+      selectedMembers: [],
+      selectedPriorities: [] as Priority[],
+      selectedTags: [] as string[],
+      projectId: '',
+      taskId: '',
+    };
+    setSearchFilters(emptyFilters);
+    setIsSearchActive(false);
+    setSelectedMembers([]);
+    setIncludeAssignees(true);
+    setIncludeWatchers(false);
+    setIncludeCollaborators(false);
+    setIncludeRequesters(false);
+    setCurrentFilterView(null);
+    // Cookie + DB: caller must await saveUserPreferences(mergeClearedKanbanVisibilityFilters(...))
+    // so one atomic write wins over smart-merge-on-load (many racing updateUserPreference PUTs used to lose).
+  }, []);
+
   const handleMemberToggle = (memberId: string) => {
     const newSelectedMembers = selectedMembers.includes(memberId) 
       ? selectedMembers.filter(id => id !== memberId)
@@ -500,6 +599,7 @@ export const useTaskFilters = ({
     handleToggleCollaborators,
     handleToggleRequesters,
     handleToggleSystem,
+    clearVisibilityObstructingFilters,
   };
 };
 

@@ -108,7 +108,6 @@ const TaskDependencyArrows: React.FC<TaskDependencyArrowsProps> = ({
 
   // Use relationships from props (auto-synced via polling) - KEEP THIS IMPROVEMENT
   useEffect(() => {
-    
     if (ganttTasks.length === 0) {
       setLocalRelationships([]);
       return;
@@ -116,9 +115,12 @@ const TaskDependencyArrows: React.FC<TaskDependencyArrowsProps> = ({
 
     // Filter to only show relationships between visible tasks
     const visibleTaskIds = new Set(ganttTasks.map(t => t.id));
-    const visibleRelationships = relationships.filter(rel => 
-      visibleTaskIds.has(rel.task_id) && visibleTaskIds.has(rel.to_task_id)
-    );
+    const visibleRelationships = relationships.filter(rel => {
+      // Support both camelCase (from API) and snake_case (from optimistic updates)
+      const taskId = rel.taskId || rel.task_id;
+      const toTaskId = rel.toTaskId || rel.to_task_id;
+      return visibleTaskIds.has(taskId) && visibleTaskIds.has(toTaskId);
+    });
 
     setLocalRelationships(visibleRelationships);
   }, [ganttTasks, relationships]);
@@ -164,7 +166,6 @@ const TaskDependencyArrows: React.FC<TaskDependencyArrowsProps> = ({
   // Calculate arrows based on relationships using actual task positions from DOM
   // Smart update: only recalculate arrows for tasks that have actually moved
   useEffect(() => {
-    
     if (!localRelationships || !ganttTasks || taskPositions.size === 0) {
       return;
     }
@@ -175,8 +176,11 @@ const TaskDependencyArrows: React.FC<TaskDependencyArrowsProps> = ({
       const arrowsById = new Map(prevArrows.map(a => [a.id, a]));
 
       localRelationships.forEach((rel) => {
-        const fromTask = ganttTasks.find(t => t.id === rel.task_id);
-        const toTask = ganttTasks.find(t => t.id === rel.to_task_id);
+        // Support both camelCase (from API) and snake_case (from optimistic updates)
+        const taskId = rel.taskId || rel.task_id;
+        const toTaskId = rel.toTaskId || rel.to_task_id;
+        const fromTask = ganttTasks.find(t => t.id === taskId);
+        const toTask = ganttTasks.find(t => t.id === toTaskId);
 
         if (!fromTask || !toTask) {
           return;
@@ -185,7 +189,7 @@ const TaskDependencyArrows: React.FC<TaskDependencyArrowsProps> = ({
         // Only show parent->child arrows (finish-to-start dependencies)
         if (rel.relationship === 'parent') {
           // Create unique pair identifier to prevent duplicates
-          const pairKey = `${rel.task_id}-${rel.to_task_id}`;
+          const pairKey = `${taskId}-${toTaskId}`;
           if (processedPairs.has(pairKey)) {
             return;
           }
@@ -221,8 +225,8 @@ const TaskDependencyArrows: React.FC<TaskDependencyArrowsProps> = ({
             const arrow = {
               id: arrowId,
               relationshipId: rel.id,
-              fromTaskId: rel.task_id,
-              toTaskId: rel.to_task_id,
+              fromTaskId: taskId,
+              toTaskId: toTaskId,
               relationship: rel.relationship as any,
               fromPosition: fromPosWithId,
               toPosition: toPosWithId,

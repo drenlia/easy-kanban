@@ -31,7 +31,8 @@ import { createDefaultAvatar, getRandomColor } from './utils/avatarGenerator.js'
 import { initActivityLogger, logActivity, logCommentActivity } from './services/activityLogger.js';
 import { initReportingLogger } from './services/reportingLogger.js';
 import * as reportingLogger from './services/reportingLogger.js';
-import { initNotificationService, getNotificationService } from './services/notificationService.js';
+// Note: Email notification service (initNotificationService/getNotificationService) 
+// is not yet implemented - pub/sub notifications use notificationService directly
 import { initNotificationThrottler, getNotificationThrottler } from './services/notificationThrottler.js';
 import { initializeScheduler, manualTriggers } from './jobs/scheduler.js';
 import { TAG_ACTIONS, COMMENT_ACTIONS } from './constants/activityActions.js';
@@ -65,9 +66,12 @@ import settingsRouter from './routes/settings.js';
 // import adminNotificationQueueRouter from './routes/adminNotificationQueue.js';
 import taskRelationsRouter from './routes/taskRelations.js';
 import activityRouter from './routes/activity.js';
+import testNotificationsRouter from './routes/testNotifications.js';
 
 // Import real-time services
 import redisService from './services/redisService.js';
+import postgresNotificationService from './services/postgresNotificationService.js';
+import notificationService from './services/notificationService.js';
 import websocketService from './services/websocketService.js';
 
 // Import storage utilities
@@ -97,7 +101,7 @@ if (!isMultiTenant()) {
   await initializeInstanceStatus(defaultDb);
   initActivityLogger(defaultDb);
   initReportingLogger(defaultDb);
-  initNotificationService(defaultDb);
+  // initNotificationService(defaultDb); // Email notification service not yet implemented
   initNotificationThrottler(defaultDb);
   initializeScheduler(defaultDb);
   
@@ -255,13 +259,35 @@ app.use(express.urlencoded({ limit: '100mb', extended: true }));
 // This code is kept for backward compatibility but won't be used when vite preview is active
 if (process.env.NODE_ENV === 'production' && !process.env.VITE_PREVIEW_RUNNING) {
   const distPath = path.join(__dirname, '../dist');
-  // Serve static assets (JS, CSS, images, etc.)
-  app.use(express.static(distPath, {
-    maxAge: '1y', // Cache static assets for 1 year
-    etag: true,
-    lastModified: true
-  }));
-  console.log(`📦 Serving static files from: ${distPath}`);
+  const assetsPath = path.join(distPath, 'assets');
+  // Hashed JS/CSS chunks live under /assets — safe to cache long-term (filename changes each build).
+  if (fs.existsSync(assetsPath)) {
+    app.use(
+      '/assets',
+      express.static(assetsPath, {
+        maxAge: '1y',
+        immutable: true,
+        etag: true,
+        lastModified: true
+      })
+    );
+  }
+  // Other dist files (favicon, etc.). Do NOT long-cache any HTML: stale HTML references removed
+  // chunks after deploy → 404 on /assets/*.js or failed dynamic import(). SPA shell uses catch-all below.
+  app.use(
+    express.static(distPath, {
+      maxAge: 0,
+      etag: true,
+      lastModified: true,
+      index: false,
+      setHeaders: (res, filePath) => {
+        if (filePath.endsWith('.html')) {
+          res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+        }
+      }
+    })
+  );
+  console.log(`📦 Serving static files from: ${distPath} (/assets immutable 1y, HTML revalidated)`);
 }
 
 // Tenant routing middleware (must be before routes that need database)
@@ -373,6 +399,8 @@ app.use('/api/files', filesRouter);
 app.use('/api/attachments', filesRouter);
 app.use('/api/debug', lazyRouteLoader('./routes/debug.js'));
 app.use('/health', healthRouter);
+// Alias for probes and scripts that expect /api/health (same handler as /health)
+app.use('/api/health', healthRouter);
 // Mount ready endpoint at both /ready and /api/ready for flexibility
 app.get('/ready', readyHandler);
 app.get('/api/ready', readyHandler);
@@ -392,6 +420,7 @@ app.use('/api/tasks', taskRelationsRouter);
 app.use('/api/activity', activityRouter);
 app.use('/api/user', activityRouter);
 app.use('/api/user', usersRouter); // User settings routes
+app.use('/api/test', testNotificationsRouter); // Test endpoints for notifications
 
 // Admin Portal API routes (external access using INSTANCE_TOKEN) - Lazy loaded
 app.use('/api/admin-portal', lazyRouteLoader('./routes/adminPortal.js'));
@@ -459,8 +488,12 @@ app.get('/api/version', async (req, res) => {
 app.get('/*splat', (req, res) => {
   // Skip API routes, file serving routes, and source file requests
   // NOTE: /assets/ should NOT be blocked - it's served by express.static middleware above
-  if (req.path.startsWith('/api/') || 
-      req.path.startsWith('/attachments/') || 
+  // Missing hashed chunks must 404 — never fall through to index.html (breaks debugging and confuses import()).
+  if (req.path.startsWith('/assets/')) {
+    return res.status(404).type('text/plain').send('Not Found');
+  }
+  if (req.path.startsWith('/api/') ||
+      req.path.startsWith('/attachments/') ||
       req.path.startsWith('/avatars/') ||
       req.path.startsWith('/src/') ||
       req.path.startsWith('/node_modules/')) {
@@ -468,7 +501,9 @@ app.get('/*splat', (req, res) => {
   }
   
   // For all other routes (including /project/, /task/, etc.), serve the React app
-  res.sendFile(path.join(__dirname, '../dist/index.html'));
+  const htmlPath = path.join(__dirname, '../dist/index.html');
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+  res.sendFile(htmlPath);
 });
 
 // ================================
@@ -484,8 +519,16 @@ const server = http.createServer(app);
 // This ensures the Redis adapter is configured before any connections are accepted
 async function initializeServices() {
   try {
-    // Initialize Redis
+    // Initialize Redis (still needed for Socket.IO adapter in multi-pod deployments)
     await redisService.connect();
+    
+    // Initialize PostgreSQL Notification Service (LISTEN/NOTIFY for realtime events)
+    let pool = null;
+    if (defaultDb && defaultDb.constructor.name === 'PostgresDatabase' && defaultDb.pool) {
+      pool = defaultDb.pool;
+    }
+    await postgresNotificationService.connect(pool);
+    console.log('✅ PostgreSQL Notification Service initialized');
     
     // Initialize WebSocket (now async due to Redis adapter setup)
     // CRITICAL: This must happen BEFORE server.listen() to ensure adapter is ready
@@ -499,7 +542,7 @@ async function initializeServices() {
       // In single-tenant mode, broadcast version from default database
       if (defaultDb) {
         const appVersion = await getAppVersion(defaultDb);
-        redisService.publish('version-updated', { version: appVersion }, null);
+        notificationService.publish('version-updated', { version: appVersion }, null);
         console.log(`📦 Broadcasting app version: ${appVersion}${versionInfo.versionChanged ? ' (version changed - notifying users)' : ''}`);
       }
       // In multi-tenant mode, version updates are broadcast per-tenant when databases are initialized

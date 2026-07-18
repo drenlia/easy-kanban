@@ -3,16 +3,23 @@ import { dbTransaction } from '../utils/dbAsync.js';
 import crypto from 'crypto';
 import bcrypt from 'bcrypt';
 import { authenticateToken, requireRole } from '../middleware/auth.js';
-import { wrapQuery } from '../utils/queryLogger.js';
 import { avatarUpload } from '../config/multer.js';
 import { getLicenseManager } from '../config/license.js';
 import { createDefaultAvatar, getRandomColor } from '../utils/avatarGenerator.js';
-import { getNotificationService } from '../services/notificationService.js';
-import redisService from '../services/redisService.js';
+// Note: Email notification service (getNotificationService) is not yet implemented
+// import { getNotificationService } from '../services/notificationService.js';
+import notificationService from '../services/notificationService.js';
 import { getTranslator } from '../utils/i18n.js';
 import { getTenantId, getRequestDatabase } from '../middleware/tenantRouting.js';
+// MIGRATED: Import sqlManager modules
+import { users as userQueries, tasks as taskQueries, adminUsers as adminUserQueries, auth as authQueries, helpers } from '../utils/sqlManager/index.js';
 
 const router = express.Router();
+
+// Helper to get the actual notification system being used (for accurate logging)
+const getNotificationSystem = () => {
+  return 'PostgreSQL';
+};
 
 // Get all users (admin only)
 router.get('/', authenticateToken, requireRole(['admin']), async (req, res) => {
@@ -25,15 +32,8 @@ router.get('/', authenticateToken, requireRole(['admin']), async (req, res) => {
       'Expires': '0'
     });
     
-    const users = await wrapQuery(db.prepare(`
-      SELECT u.*, GROUP_CONCAT(r.name) as roles, m.name as member_name, m.color as member_color
-      FROM users u
-      LEFT JOIN user_roles ur ON u.id = ur.user_id
-      LEFT JOIN roles r ON ur.role_id = r.id
-      LEFT JOIN members m ON u.id = m.user_id
-      GROUP BY u.id
-      ORDER BY u.created_at DESC
-    `), 'SELECT').all();
+    // MIGRATED: Get all users with roles and member info using sqlManager
+    const users = await userQueries.getAllUsersWithRolesAndMembers(db);
 
     const transformedUsers = users.map(user => ({
       id: user.id,
@@ -59,7 +59,7 @@ router.get('/', authenticateToken, requireRole(['admin']), async (req, res) => {
   }
 });
 
-// Admin member name update endpoint (MUST come before /:userId route)
+// Admin member name update endpoint (MUST come before /:userid route)
 router.put('/:userId/member-name', authenticateToken, requireRole(['admin']), async (req, res) => {
   try {
     const db = getRequestDatabase(req);
@@ -77,11 +77,8 @@ router.put('/:userId/member-name', authenticateToken, requireRole(['admin']), as
       return res.status(400).json({ error: t('errors.displayNameTooLong') });
     }
     
-    // Check for duplicate display name (excluding current user)
-    const existingMember = await wrapQuery(
-      db.prepare('SELECT id FROM members WHERE LOWER(name) = LOWER(?) AND user_id != ?'), 
-      'SELECT'
-    ).get(trimmedDisplayName, userId);
+    // MIGRATED: Check for duplicate display name using sqlManager
+    const existingMember = await userQueries.checkMemberNameExists(db, trimmedDisplayName, userId);
     
     if (existingMember) {
       return res.status(400).json({ error: t('errors.displayNameTaken') });
@@ -89,31 +86,30 @@ router.put('/:userId/member-name', authenticateToken, requireRole(['admin']), as
     
     console.log('🏷️ Updating member name for user:', userId, 'to:', trimmedDisplayName);
     
-    // Get member info before update for Redis publishing
-    const member = await wrapQuery(db.prepare('SELECT id, color FROM members WHERE user_id = ?'), 'SELECT').get(userId);
+    // MIGRATED: Get member info before update using sqlManager
+    const member = await userQueries.getMemberByUserIdWithColor(db, userId);
     
     if (!member) {
       console.log('❌ No member found for user:', userId);
       return res.status(404).json({ error: 'Member not found' });
     }
     
-    // Update the member's name in the members table
-    const updateMemberStmt = await wrapQuery(db.prepare('UPDATE members SET name = ? WHERE user_id = ?'), 'UPDATE');
-    const result = updateMemberStmt.run(trimmedDisplayName, userId);
+    // MIGRATED: Update the member's name using sqlManager
+    const result = await userQueries.updateMemberName(db, userId, trimmedDisplayName);
     
     if (result.changes === 0) {
       console.log('❌ No member found for user:', userId);
       return res.status(404).json({ error: 'Member not found' });
     }
     
-    // Publish to Redis for real-time updates
-    console.log('📤 Publishing member-updated to Redis for name change');
-    await redisService.publish('member-updated', {
+    // Publish notification for real-time updates (uses PostgreSQL or Redis based on DB_TYPE)
+    console.log(`📤 Publishing member-updated via ${getNotificationSystem()} for name change`);
+    await notificationService.publish('member-updated', {
       memberId: member.id,
       member: { id: member.id, name: trimmedDisplayName, color: member.color },
       timestamp: new Date().toISOString()
     }, getTenantId(req));
-    console.log('✅ Member-updated published to Redis');
+    console.log(`✅ Member-updated published via ${getNotificationSystem()}`);
     
     console.log('✅ Member name updated successfully');
     res.json({ 
@@ -122,7 +118,16 @@ router.put('/:userId/member-name', authenticateToken, requireRole(['admin']), as
     });
   } catch (error) {
     console.error('Member name update error:', error);
-    res.status(500).json({ error: 'Failed to update member name' });
+    console.error('Error details:', {
+      message: error.message,
+      stack: error.stack,
+      userId: req.params.userId,
+      displayName: req.body.displayName
+    });
+    res.status(500).json({ 
+      error: 'Failed to update member name',
+      details: error.message 
+    });
   }
 });
 
@@ -139,8 +144,8 @@ router.put('/:userId', authenticateToken, requireRole(['admin']), async (req, re
   }
 
   try {
-    // Get current user status to check if they're being activated
-    const currentUser = await wrapQuery(db.prepare('SELECT is_active FROM users WHERE id = ?'), 'SELECT').get(userId);
+    // MIGRATED: Get current user status using sqlManager
+    const currentUser = await userQueries.getUserByIdForAdmin(db, userId);
     if (!currentUser) {
       return res.status(404).json({ error: 'User not found' });
     }
@@ -166,24 +171,21 @@ router.put('/:userId', authenticateToken, requireRole(['admin']), async (req, re
       }
     }
 
-    // Check if email already exists for another user
-    const existingUser = await wrapQuery(db.prepare('SELECT id FROM users WHERE email = ? AND id != ?'), 'SELECT').get(email, userId);
+    // MIGRATED: Check if email already exists using sqlManager
+    const existingUser = await userQueries.checkEmailExists(db, email, userId);
     if (existingUser) {
       return res.status(400).json({ error: 'Email already exists' });
     }
 
-    // Update user
-    await wrapQuery(db.prepare(`
-      UPDATE users SET email = ?, first_name = ?, last_name = ?, is_active = ? 
-      WHERE id = ?
-    `), 'UPDATE').run(email, firstName, lastName, isActive ? 1 : 0, userId);
+    // MIGRATED: Update user using sqlManager
+    await userQueries.updateUser(db, userId, { email, firstName, lastName, isActive });
 
     // Note: Member name is updated separately via /api/admin/users/:userId/member-name
     // This allows for custom display names that differ from firstName + lastName
 
-    // Publish to Redis for real-time updates
-    console.log('📤 Publishing user-updated to Redis');
-    await redisService.publish('user-updated', {
+    // Publish notification for real-time updates (uses PostgreSQL or Redis based on DB_TYPE)
+    console.log(`📤 Publishing user-updated via ${getNotificationSystem()}`);
+    await notificationService.publish('user-updated', {
       user: { 
         id: userId, 
         email, 
@@ -218,35 +220,27 @@ router.put('/:userId/role', authenticateToken, requireRole(['admin']), async (re
       return res.status(400).json({ error: 'Cannot change your own admin role' });
     }
 
-    // Get current role
-    const currentRoles = await wrapQuery(db.prepare(`
-      SELECT r.name FROM roles r 
-      JOIN user_roles ur ON r.id = ur.role_id 
-      WHERE ur.user_id = ?
-    `), 'SELECT').all(userId);
+    // MIGRATED: Get current role using sqlManager
+    const currentRole = await userQueries.getUserRole(db, userId);
 
-    if (currentRoles.length > 0 && currentRoles[0].name !== role) {
-      // Remove current role
-      await wrapQuery(db.prepare('DELETE FROM user_roles WHERE user_id = ?'), 'DELETE').run(userId);
+    if (currentRole !== role) {
+      // MIGRATED: Remove current role using sqlManager
+      await userQueries.deleteUserRoles(db, userId);
       
-      // Assign new role
-      const roleId = await wrapQuery(db.prepare('SELECT id FROM roles WHERE name = ?'), 'SELECT').get(role)?.id;
-      if (roleId) {
-        await wrapQuery(db.prepare('INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)'), 'INSERT').run(userId, roleId);
+      // MIGRATED: Assign new role using sqlManager
+      const roleObj = await userQueries.getRoleByName(db, role);
+      if (roleObj) {
+        await userQueries.addUserRole(db, userId, roleObj.id);
       }
 
-      // Update the user's updated_at timestamp
-      await wrapQuery(db.prepare(`
-        UPDATE users 
-        SET updated_at = datetime('now')
-        WHERE id = ?
-      `), 'UPDATE').run(userId);
+      // MIGRATED: Update the user's updated_at timestamp using sqlManager
+      await userQueries.updateUserTimestamp(db, userId);
 
       console.log(`🔄 User ${userId} role changed to ${role} - no logout required`);
       
-      // Publish to Redis for real-time updates
-      console.log('📤 Publishing user-role-updated to Redis');
-      await redisService.publish('user-role-updated', {
+      // Publish notification for real-time updates
+      console.log(`📤 Publishing user-role-updated via ${getNotificationSystem()}`);
+      await notificationService.publish('user-role-updated', {
         userId: userId,
         role: role,
         timestamp: new Date().toISOString()
@@ -330,13 +324,11 @@ router.post('/', authenticateToken, requireRole(['admin']), async (req, res) => 
   // Priority: 1) APP_URL from database, 2) baseUrl from request body, 3) Construct from tenantId, 4) Fallback
   let baseUrl = baseUrlFromBody;
   if (!baseUrl) {
-    const appUrlSetting = await wrapQuery(
-      db.prepare('SELECT value FROM settings WHERE key = ?'),
-      'SELECT'
-    ).get('APP_URL');
+    // MIGRATED: Get APP_URL setting using sqlManager
+    const appUrlSetting = await helpers.getSetting(db, 'APP_URL');
     
-    if (appUrlSetting?.value) {
-      baseUrl = appUrlSetting.value.replace(/\/$/, '');
+    if (appUrlSetting && String(appUrlSetting).trim()) {
+      baseUrl = String(appUrlSetting).replace(/\/$/, '');
     } else {
       // Construct from tenantId if available (multi-tenant mode)
       const tenantId = req.tenantId;
@@ -390,8 +382,8 @@ router.post('/', authenticateToken, requireRole(['admin']), async (req, res) => 
       }
     }
     
-    // Check if email already exists
-    const existingUser = await wrapQuery(db.prepare('SELECT id FROM users WHERE email = ?'), 'SELECT').get(email);
+    // MIGRATED: Check if email already exists using sqlManager
+    const existingUser = await userQueries.checkEmailExists(db, email);
     if (existingUser) {
       return res.status(400).json({ error: `User with email ${email} already exists` });
     }
@@ -402,17 +394,13 @@ router.post('/', authenticateToken, requireRole(['admin']), async (req, res) => 
     // Hash password
     const passwordHash = await bcrypt.hash(password, 10);
     
-    // Create user (active if specified, otherwise inactive and requires email verification)
-    const userIsActive = isActive ? 1 : 0;
-    await wrapQuery(db.prepare(`
-      INSERT INTO users (id, email, password_hash, first_name, last_name, is_active, auth_provider) 
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `), 'INSERT').run(userId, email, passwordHash, firstName, lastName, userIsActive, 'local');
+    // MIGRATED: Create user using sqlManager
+    await userQueries.createUser(db, userId, email, passwordHash, firstName, lastName, isActive, 'local');
     
-    // Assign role
-    const roleId = await wrapQuery(db.prepare('SELECT id FROM roles WHERE name = ?'), 'SELECT').get(role)?.id;
-    if (roleId) {
-      await wrapQuery(db.prepare('INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)'), 'INSERT').run(userId, roleId);
+    // MIGRATED: Assign role using sqlManager
+    const roleObj = await userQueries.getRoleByName(db, role);
+    if (roleObj) {
+      await userQueries.addUserRole(db, userId, roleObj.id);
     }
     
     // Create team member automatically with custom display name if provided and random color
@@ -437,16 +425,16 @@ router.post('/', authenticateToken, requireRole(['admin']), async (req, res) => 
     }
     
     const memberColor = getRandomColor(); // Random color from palette
-    await wrapQuery(db.prepare('INSERT INTO members (id, name, color, user_id) VALUES (?, ?, ?, ?)'), 'INSERT')
-      .run(memberId, memberName, memberColor, userId);
+    // MIGRATED: Create member using auth.createMemberForUser (includes user_id)
+    await authQueries.createMemberForUser(db, memberId, memberName, memberColor, userId);
     
     // Generate default avatar SVG for new local users with matching background color
     // Use tenant-specific path if in multi-tenant mode
     const tenantId = getTenantId(req);
     const avatarPath = createDefaultAvatar(memberName, userId, memberColor, tenantId);
     if (avatarPath) {
-      // Update user with default avatar path
-      await wrapQuery(db.prepare('UPDATE users SET avatar_path = ? WHERE id = ?'), 'UPDATE').run(avatarPath, userId);
+      // MIGRATED: Update user with default avatar path using sqlManager
+      await userQueries.updateUserAvatar(db, userId, avatarPath);
     }
     
     // Only generate invitation token and send email if user is not active
@@ -458,28 +446,33 @@ router.post('/', authenticateToken, requireRole(['admin']), async (req, res) => 
       const inviteToken = crypto.randomBytes(32).toString('hex');
       const tokenExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours from now
       
-      // Store invitation token
-      await wrapQuery(db.prepare(`
-        INSERT INTO user_invitations (id, user_id, token, expires_at, created_at) 
-        VALUES (?, ?, ?, ?, datetime('now'))
-      `), 'INSERT').run(
+      // MIGRATED: Store invitation token using sqlManager
+      await adminUserQueries.createUserInvitation(
+        db,
         crypto.randomUUID(),
         userId,
         inviteToken,
         tokenExpiry.toISOString()
       );
       
-      // Get admin user info for email
-      const adminUser = await wrapQuery(
-        db.prepare('SELECT first_name, last_name FROM users WHERE id = ?'), 
-        'SELECT'
-      ).get(req.user.userId);
+      // MIGRATED: Get admin user info using sqlManager
+      const adminUser = await userQueries.getUserByIdForAdmin(db, req.user.userId);
       const adminName = adminUser ? `${adminUser.first_name} ${adminUser.last_name}` : 'Administrator';
       
-      // Send invitation email
       try {
-        const notificationService = getNotificationService();
-        const emailResult = await notificationService.sendUserInvitation(userId, inviteToken, adminName, baseUrl);
+        const EmailService = (await import('../services/emailService.js')).default;
+        const emailService = new EmailService(db);
+        const inviteUser = {
+          email,
+          first_name: firstName,
+          last_name: lastName
+        };
+        const emailResult = await emailService.sendUserInvitation(
+          inviteUser,
+          inviteToken,
+          adminName,
+          baseUrl
+        );
         if (emailResult.success) {
           emailSent = true;
           console.log('✅ Invitation email sent for new user:', email);
@@ -493,9 +486,9 @@ router.post('/', authenticateToken, requireRole(['admin']), async (req, res) => 
       }
     }
     
-    // Publish to Redis for real-time updates
-    console.log('📤 Publishing user-created to Redis');
-    await redisService.publish('user-created', {
+    // Publish notification for real-time updates
+    console.log(`📤 Publishing user-created via ${getNotificationSystem()}`);
+    await notificationService.publish('user-created', {
       user: { 
         id: userId, 
         email, 
@@ -514,8 +507,8 @@ router.post('/', authenticateToken, requireRole(['admin']), async (req, res) => 
     }, getTenantId(req));
     
     // Publish member-created event for real-time member list updates
-    console.log('📤 Publishing member-created to Redis');
-    await redisService.publish('member-created', {
+    console.log(`📤 Publishing member-created via ${getNotificationSystem()}`);
+    await notificationService.publish('member-created', {
       member: {
         id: memberId,
         name: memberName,
@@ -558,13 +551,11 @@ router.post('/:userId/resend-invitation', authenticateToken, requireRole(['admin
   // Priority: 1) APP_URL from database, 2) baseUrl from request body, 3) Construct from tenantId, 4) Fallback
   let baseUrl = baseUrlFromBody;
   if (!baseUrl) {
-    const appUrlSetting = await wrapQuery(
-      db.prepare('SELECT value FROM settings WHERE key = ?'),
-      'SELECT'
-    ).get('APP_URL');
+    // MIGRATED: Get APP_URL setting using sqlManager
+    const appUrlSetting = await helpers.getSetting(db, 'APP_URL');
     
-    if (appUrlSetting?.value) {
-      baseUrl = appUrlSetting.value.replace(/\/$/, '');
+    if (appUrlSetting && String(appUrlSetting).trim()) {
+      baseUrl = String(appUrlSetting).replace(/\/$/, '');
     } else {
       // Construct from tenantId if available (multi-tenant mode)
       const tenantId = req.tenantId;
@@ -579,11 +570,8 @@ router.post('/:userId/resend-invitation', authenticateToken, requireRole(['admin
   }
   
   try {
-    // Get user details
-    const user = await wrapQuery(
-      db.prepare('SELECT id, email, first_name, last_name, is_active, auth_provider FROM users WHERE id = ?'), 
-      'SELECT'
-    ).get(userId);
+    // MIGRATED: Get user details using sqlManager
+    const user = await userQueries.getUserByIdForAdmin(db, userId);
 
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
@@ -598,56 +586,55 @@ router.post('/:userId/resend-invitation', authenticateToken, requireRole(['admin
       return res.status(400).json({ error: 'User account is already active' });
     }
 
-    // Delete any existing invitation tokens for this user
-    await wrapQuery(db.prepare('DELETE FROM user_invitations WHERE user_id = ?'), 'DELETE').run(userId);
+    // MIGRATED: Delete any existing invitation tokens for this user using sqlManager
+    await adminUserQueries.deleteUserInvitations(db, userId);
 
     // Generate new invitation token
     const inviteToken = crypto.randomBytes(32).toString('hex');
     const tokenExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours from now
     
-    // Store new invitation token
-    await wrapQuery(db.prepare(`
-      INSERT INTO user_invitations (id, user_id, token, expires_at, created_at) 
-      VALUES (?, ?, ?, ?, datetime('now'))
-    `), 'INSERT').run(
+    // MIGRATED: Store new invitation token using sqlManager
+    await adminUserQueries.createUserInvitation(
+      db,
       crypto.randomUUID(),
       userId,
       inviteToken,
       tokenExpiry.toISOString()
     );
     
-    // Get admin user info for email
-    const adminUser = await wrapQuery(
-      db.prepare('SELECT first_name, last_name FROM users WHERE id = ?'), 
-      'SELECT'
-    ).get(req.user.userId);
-    const adminName = adminUser ? `${adminUser.first_name} ${adminUser.last_name}` : 'Administrator';
+      // MIGRATED: Get admin user info using sqlManager
+      const adminUser = await userQueries.getUserByIdForAdmin(db, req.user.userId);
+      const adminName = adminUser ? `${adminUser.first_name} ${adminUser.last_name}` : 'Administrator';
     
-    // Send invitation email
     try {
-      const notificationService = getNotificationService();
-      const emailResult = await notificationService.sendUserInvitation(userId, inviteToken, adminName, baseUrl);
-      
-      if (emailResult && emailResult.success) {
+      const EmailService = (await import('../services/emailService.js')).default;
+      const emailService = new EmailService(db);
+      const emailResult = await emailService.sendUserInvitation(
+        user,
+        inviteToken,
+        adminName,
+        baseUrl
+      );
+
+      if (emailResult.success) {
         console.log('✅ Invitation resent successfully for user:', user.email);
-        res.json({ 
+        return res.json({
           success: true,
           message: 'Invitation email sent successfully',
           email: user.email
         });
-      } else {
-        // Email service returned a failure result
-        const errorMessage = emailResult?.reason || emailResult?.error || 'Failed to send invitation email';
-        console.error('⚠️ Failed to send invitation email:', errorMessage);
-        res.status(500).json({ 
-          success: false,
-          error: errorMessage,
-          details: emailResult?.details || null
-        });
       }
+
+      const errorMessage = emailResult.reason || 'Failed to send invitation email';
+      console.error('⚠️ Failed to send invitation email:', errorMessage);
+      return res.status(500).json({
+        success: false,
+        error: errorMessage,
+        details: emailResult.details || null
+      });
     } catch (emailError) {
       console.error('⚠️ Failed to send invitation email:', emailError.message);
-      res.status(500).json({ 
+      return res.status(500).json({
         success: false,
         error: emailError.message || 'Failed to send invitation email'
       });
@@ -665,18 +652,16 @@ router.get('/:userId/task-count', authenticateToken, requireRole(['admin']), asy
   const db = getRequestDatabase(req);
   
   try {
-    // Count tasks where this user is either the assignee (memberId) or requester (requesterId)
-    // First get the member ID for this user
-    const member = await wrapQuery(db.prepare('SELECT id FROM members WHERE user_id = ?'), 'SELECT').get(userId);
+    // MIGRATED: Get member ID using sqlManager
+    const member = await userQueries.getMemberByUserId(db, userId);
     
     let taskCount = 0;
     if (member) {
-      const assignedTasks = await wrapQuery(db.prepare('SELECT COUNT(*) as count FROM tasks WHERE memberId = ?'), 'SELECT').get(member.id);
-      const requestedTasks = await wrapQuery(db.prepare('SELECT COUNT(*) as count FROM tasks WHERE requesterId = ?'), 'SELECT').get(member.id);
-      taskCount = (assignedTasks?.count || 0) + (requestedTasks?.count || 0);
+      // MIGRATED: Get task count using sqlManager
+      taskCount = await userQueries.getTaskCountForMember(db, member.id);
     }
     
-    res.json({ count: taskCount }); // Fixed: return 'count' instead of 'taskCount'
+    res.json({ count: taskCount });
   } catch (error) {
     console.error('Error getting user task count:', error);
     res.status(500).json({ error: 'Failed to get task count' });
@@ -694,8 +679,8 @@ router.delete("/:userId", authenticateToken, requireRole(["admin"]), async (req,
       return res.status(400).json({ error: 'Cannot delete your own account' });
     }
 
-    // Get user details before deletion (needed for response)
-    const user = await wrapQuery(db.prepare('SELECT id, email, first_name, last_name, is_active, auth_provider FROM users WHERE id = ?'), 'SELECT').get(userId);
+    // MIGRATED: Get user details before deletion using sqlManager
+    const user = await userQueries.getUserByIdForAdmin(db, userId);
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
@@ -705,180 +690,121 @@ router.delete("/:userId", authenticateToken, requireRole(["admin"]), async (req,
     const systemMemberId = '00000000-0000-0000-0000-000000000001';
     const tenantId = getTenantId(req);
     
-    // Get the member ID for the user being deleted (before deletion)
-    const userMember = await wrapQuery(db.prepare('SELECT id FROM members WHERE user_id = ?'), 'SELECT').get(userId);
+    // MIGRATED: Get the member ID using sqlManager
+    const userMember = await userQueries.getMemberByUserId(db, userId);
     
-    // Get all tasks that will be reassigned (for WebSocket notifications)
+    // MIGRATED: Get all tasks that will be reassigned using sqlManager
     let tasksToReassign = [];
     if (userMember) {
-      tasksToReassign = await wrapQuery(
-        db.prepare('SELECT id, boardId FROM tasks WHERE memberId = ? OR requesterId = ?'), 
-        'SELECT'
-      ).all(userMember.id, userMember.id);
+      tasksToReassign = await userQueries.getTasksForMember(db, userMember.id);
       console.log(`📋 Found ${tasksToReassign.length} tasks to reassign from user ${userId} to SYSTEM`);
     }
     
     // Begin transaction for cascading deletion
     await dbTransaction(db, async () => {
-      // 0. Ensure SYSTEM account exists (create if missing, e.g., if it was deleted)
-      const existingSystemMember = await wrapQuery(db.prepare('SELECT id FROM members WHERE id = ?'), 'SELECT').get(systemMemberId);
+      // 0. MIGRATED: Ensure SYSTEM account exists using sqlManager
+      const existingSystemMember = await userQueries.getMemberById(db, systemMemberId);
       if (!existingSystemMember) {
         console.log('⚠️  SYSTEM account not found, creating it...');
         
-        // Check if SYSTEM user exists
-        const existingSystemUser = await wrapQuery(db.prepare('SELECT id FROM users WHERE id = ?'), 'SELECT').get(SYSTEM_USER_ID);
+        // MIGRATED: Check if SYSTEM user exists using sqlManager
+        const existingSystemUser = await userQueries.getUserByIdForAdmin(db, SYSTEM_USER_ID);
         
         if (!existingSystemUser) {
           // Create SYSTEM user account
           const systemPasswordHash = bcrypt.hashSync(crypto.randomBytes(32).toString('hex'), 10); // Random unguessable password
           const systemAvatarPath = createDefaultAvatar('System', SYSTEM_USER_ID, '#1E40AF', tenantId);
           
-          await wrapQuery(db.prepare(`
-            INSERT INTO users (id, email, password_hash, first_name, last_name, avatar_path, auth_provider, is_active) 
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-          `), 'INSERT').run(SYSTEM_USER_ID, 'system@local', systemPasswordHash, 'System', 'User', systemAvatarPath, 'local', 0);
+          // MIGRATED: Create SYSTEM user using sqlManager
+          await userQueries.createUser(db, SYSTEM_USER_ID, 'system@local', systemPasswordHash, 'System', 'User', false, 'local');
           
-          // Assign user role to system account
-          const userRole = await wrapQuery(db.prepare('SELECT id FROM roles WHERE name = ?'), 'SELECT').get('user');
+          // MIGRATED: Update avatar using sqlManager
+          await userQueries.updateUserAvatar(db, SYSTEM_USER_ID, systemAvatarPath);
+          
+          // MIGRATED: Assign user role using sqlManager
+          const userRole = await userQueries.getRoleByName(db, 'user');
           if (userRole) {
-            await wrapQuery(db.prepare('INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)'), 'INSERT').run(SYSTEM_USER_ID, userRole.id);
+            await userQueries.addUserRole(db, SYSTEM_USER_ID, userRole.id);
           }
         }
         
-        // Create system member record
-        await wrapQuery(db.prepare('INSERT INTO members (id, name, color, user_id) VALUES (?, ?, ?, ?)'), 'INSERT').run(
-          systemMemberId, 
-          'SYSTEM', 
-          '#1E40AF', // Blue color
-          SYSTEM_USER_ID
-        );
+        // MIGRATED: Create system member record using sqlManager
+        await adminUserQueries.createSystemMember(db, systemMemberId, SYSTEM_USER_ID);
         
         console.log('✅ SYSTEM account created successfully');
       }
       
-      // 1. Delete activity records (no FK constraint, so won't cascade)
-      await wrapQuery(db.prepare('DELETE FROM activity WHERE userId = ?'), 'DELETE').run(userId);
+      // MIGRATED: Delete activity records using sqlManager
+      await adminUserQueries.deleteUserActivity(db, userId);
         
-        // 2. Delete comments made by the user (references members without CASCADE)
+        // MIGRATED: Delete comments made by the user using sqlManager
         if (userMember) {
-          await wrapQuery(db.prepare('DELETE FROM comments WHERE authorId = ?'), 'DELETE').run(userMember.id);
+          await adminUserQueries.deleteCommentsByMember(db, userMember.id);
         }
         
-        // 3. Delete watchers (should cascade but let's be explicit)
+        // MIGRATED: Delete watchers using sqlManager
         if (userMember) {
-          await wrapQuery(db.prepare('DELETE FROM watchers WHERE memberId = ?'), 'DELETE').run(userMember.id);
+          await adminUserQueries.deleteWatchersByMember(db, userMember.id);
         }
         
-        // 4. Delete collaborators (should cascade but let's be explicit)
+        // MIGRATED: Delete collaborators using sqlManager
         if (userMember) {
-          await wrapQuery(db.prepare('DELETE FROM collaborators WHERE memberId = ?'), 'DELETE').run(userMember.id);
+          await adminUserQueries.deleteCollaboratorsByMember(db, userMember.id);
         }
         
-        // 5. Update planning_periods to set created_by to NULL (references users without CASCADE)
-        await wrapQuery(db.prepare('UPDATE planning_periods SET created_by = NULL WHERE created_by = ?'), 'UPDATE').run(userId);
+        // MIGRATED: Update planning_periods using sqlManager
+        await adminUserQueries.clearPlanningPeriodsCreatedBy(db, userId);
         
-        // 6. Delete user roles (should cascade but let's be explicit)
-        await wrapQuery(db.prepare('DELETE FROM user_roles WHERE user_id = ?'), 'DELETE').run(userId);
+        // MIGRATED: Delete user roles using sqlManager
+        await userQueries.deleteUserRoles(db, userId);
         
-        // 7. Delete user settings (should cascade but let's be explicit)
-        await wrapQuery(db.prepare('DELETE FROM user_settings WHERE userId = ?'), 'DELETE').run(userId);
+        // MIGRATED: Delete user settings using sqlManager
+        await adminUserQueries.deleteAllUserSettings(db, userId);
         
-        // 8. Delete views (should cascade but let's be explicit)
-        await wrapQuery(db.prepare('DELETE FROM views WHERE userId = ?'), 'DELETE').run(userId);
+        // MIGRATED: Delete views using sqlManager
+        await adminUserQueries.deleteViewsByUser(db, userId);
         
-        // 9. Delete password reset tokens (should cascade but let's be explicit)
-        await wrapQuery(db.prepare('DELETE FROM password_reset_tokens WHERE user_id = ?'), 'DELETE').run(userId);
+        // MIGRATED: Delete password reset tokens using sqlManager
+        await adminUserQueries.deletePasswordResetTokensByUser(db, userId);
         
-        // 10. Delete user invitations (should cascade but let's be explicit)
-        await wrapQuery(db.prepare('DELETE FROM user_invitations WHERE user_id = ?'), 'DELETE').run(userId);
+        // MIGRATED: Delete user invitations using sqlManager
+        await adminUserQueries.deleteUserInvitations(db, userId);
         
-        // 11. Reassign tasks assigned to the user to the system account (preserve task history)
+        // MIGRATED: Reassign tasks assigned to the user to the system account using sqlManager
         if (userMember) {
-          await wrapQuery(
-            db.prepare('UPDATE tasks SET memberId = ? WHERE memberId = ?'), 
-            'UPDATE'
-          ).run(systemMemberId, userMember.id);
+          await adminUserQueries.reassignTasksToSystemMember(db, systemMemberId, userMember.id);
           
-          // 12. Reassign tasks requested by the user to the system account
-          await wrapQuery(
-            db.prepare('UPDATE tasks SET requesterId = ? WHERE requesterId = ?'), 
-            'UPDATE'
-          ).run(systemMemberId, userMember.id);
+          // MIGRATED: Reassign tasks requested by the user to the system account using sqlManager
+          await adminUserQueries.reassignTaskRequestersToSystemMember(db, systemMemberId, userMember.id);
         }
         
-        // 13. Delete the member record
+        // MIGRATED: Delete the member record using sqlManager
         if (userMember) {
-          await wrapQuery(db.prepare('DELETE FROM members WHERE user_id = ?'), 'DELETE').run(userId);
+          await adminUserQueries.deleteMemberByUserId(db, userId);
         }
         
-        // 14. Finally, delete the user account
-        await wrapQuery(db.prepare('DELETE FROM users WHERE id = ?'), 'DELETE').run(userId);
+        // MIGRATED: Finally, delete the user account using sqlManager
+        await adminUserQueries.deleteUser(db, userId);
         
         console.log(`🗑️ User deleted successfully: ${user.email}`);
     });
     
     // Publish task-updated events for all reassigned tasks (for real-time updates)
     if (tasksToReassign.length > 0) {
-      const systemMember = await wrapQuery(db.prepare('SELECT id FROM members WHERE id = ?'), 'SELECT').get('00000000-0000-0000-0000-000000000001');
+      // MIGRATED: Get system member using sqlManager
+      const systemMember = await userQueries.getMemberById(db, '00000000-0000-0000-0000-000000000001');
       
       if (systemMember) {
-        console.log(`📤 Publishing ${tasksToReassign.length} task-updated events to Redis`);
+        console.log(`📤 Publishing ${tasksToReassign.length} task-updated events via ${getNotificationSystem()}`);
         for (const task of tasksToReassign) {
-          // Get the full updated task details with priority info
-          const updatedTask = await wrapQuery(
-            db.prepare(`
-              SELECT t.*, 
-                     p.id as priorityId,
-                     p.priority as priorityName,
-                     p.color as priorityColor,
-                     json_group_array(
-                       DISTINCT CASE WHEN tag.id IS NOT NULL THEN json_object(
-                         'id', tag.id,
-                         'tag', tag.tag,
-                         'description', tag.description,
-                         'color', tag.color
-                       ) ELSE NULL END
-                     ) as tags,
-                     json_group_array(
-                       DISTINCT CASE WHEN watcher.id IS NOT NULL THEN json_object(
-                         'id', watcher.id,
-                         'name', watcher.name,
-                         'color', watcher.color
-                       ) ELSE NULL END
-                     ) as watchers,
-                     json_group_array(
-                       DISTINCT CASE WHEN collaborator.id IS NOT NULL THEN json_object(
-                         'id', collaborator.id,
-                         'name', collaborator.name,
-                         'color', collaborator.color
-                       ) ELSE NULL END
-                     ) as collaborators
-              FROM tasks t
-              LEFT JOIN task_tags tt ON tt.taskId = t.id
-              LEFT JOIN tags tag ON tag.id = tt.tagId
-              LEFT JOIN watchers w ON w.taskId = t.id
-              LEFT JOIN members watcher ON watcher.id = w.memberId
-              LEFT JOIN collaborators col ON col.taskId = t.id
-              LEFT JOIN members collaborator ON collaborator.id = col.memberId
-              LEFT JOIN priorities p ON (p.id = t.priority_id OR (t.priority_id IS NULL AND p.priority = t.priority))
-              WHERE t.id = ?
-              GROUP BY t.id, p.id
-            `),
-            'SELECT'
-          ).get(task.id);
+          // MIGRATED: Get the full updated task details using sqlManager
+          const updatedTask = await taskQueries.getTaskWithRelationships(db, task.id);
           
           if (updatedTask) {
-            updatedTask.tags = updatedTask.tags === '[null]' ? [] : JSON.parse(updatedTask.tags).filter(Boolean);
-            updatedTask.watchers = updatedTask.watchers === '[null]' ? [] : JSON.parse(updatedTask.watchers).filter(Boolean);
-            updatedTask.collaborators = updatedTask.collaborators === '[null]' ? [] : JSON.parse(updatedTask.collaborators).filter(Boolean);
+            // Task already has proper structure from getTaskWithRelationships
+            // No need to parse JSON or transform
             
-            // Use priorityName from JOIN (current name) or fallback to stored priority
-            updatedTask.priority = updatedTask.priorityName || updatedTask.priority || null;
-            updatedTask.priorityId = updatedTask.priorityId || null;
-            updatedTask.priorityName = updatedTask.priorityName || updatedTask.priority || null;
-            updatedTask.priorityColor = updatedTask.priorityColor || null;
-            
-            redisService.publish('task-updated', {
+            notificationService.publish('task-updated', {
               boardId: task.boardId,
               task: updatedTask,
               timestamp: new Date().toISOString()
@@ -888,23 +814,23 @@ router.delete("/:userId", authenticateToken, requireRole(["admin"]), async (req,
           }
         }
         
-        console.log(`📤 Published ${tasksToReassign.length} task-updated events to Redis`);
+        console.log(`✅ Published ${tasksToReassign.length} task-updated events via ${getNotificationSystem()}`);
       }
     }
     
     // Publish member-deleted event for real-time updates
     if (userMember) {
-      console.log('📤 Publishing member-deleted to Redis for user deletion');
-      await redisService.publish('member-deleted', {
+      console.log(`📤 Publishing member-deleted via ${getNotificationSystem()} for user deletion`);
+      await notificationService.publish('member-deleted', {
         memberId: userMember.id,
         timestamp: new Date().toISOString()
       }, getTenantId(req));
-      console.log('✅ Member-deleted published to Redis');
+      console.log(`✅ Member-deleted published via ${getNotificationSystem()}`);
     }
     
     // Publish user-deleted event for real-time updates
-    console.log('📤 Publishing user-deleted to Redis');
-    await redisService.publish('user-deleted', {
+    console.log(`📤 Publishing user-deleted via ${getNotificationSystem()}`);
+    await notificationService.publish('user-deleted', {
       userId: userId,
       user: {
         id: userId,
@@ -940,28 +866,28 @@ router.put('/:userId/color', authenticateToken, requireRole(['admin']), async (r
   }
 
   try {
-    // Get member info before update for Redis publishing
-    const member = await wrapQuery(db.prepare('SELECT id, name FROM members WHERE user_id = ?'), 'SELECT').get(userId);
+    // MIGRATED: Get member info before update using sqlManager
+    const member = await userQueries.getMemberByUserIdWithColor(db, userId);
     
     if (!member) {
       return res.status(404).json({ error: 'Member not found for this user' });
     }
     
-    // Update member color
-    const result = await wrapQuery(db.prepare('UPDATE members SET color = ? WHERE user_id = ?'), 'UPDATE').run(color, userId);
+    // MIGRATED: Update member color using sqlManager
+    const result = await userQueries.updateMemberColor(db, userId, color);
     
     if (result.changes === 0) {
       return res.status(404).json({ error: 'Member not found for this user' });
     }
     
-    // Publish to Redis for real-time updates
-    console.log('📤 Publishing member-updated to Redis for color change');
-    await redisService.publish('member-updated', {
+    // Publish notification for real-time updates
+    console.log(`📤 Publishing member-updated via ${getNotificationSystem()} for color change`);
+    await notificationService.publish('member-updated', {
       memberId: member.id,
       member: { id: member.id, name: member.name, color: color },
       timestamp: new Date().toISOString()
     }, getTenantId(req));
-    console.log('✅ Member-updated published to Redis');
+    console.log(`✅ Member-updated published via ${getNotificationSystem()}`);
     
     res.json({ message: 'Member color updated successfully' });
   } catch (error) {
@@ -981,22 +907,22 @@ router.post('/:userId/avatar', authenticateToken, requireRole(['admin']), avatar
 
   try {
     const avatarPath = `/avatars/${req.file.filename}`;
-    // Update user's avatar_path in database
-    await wrapQuery(db.prepare('UPDATE users SET avatar_path = ? WHERE id = ?'), 'UPDATE').run(avatarPath, userId);
+    // MIGRATED: Update user's avatar_path using sqlManager
+    await userQueries.updateUserAvatar(db, userId, avatarPath);
     
-    // Get the member ID for Redis publishing
-    const member = await wrapQuery(db.prepare('SELECT id FROM members WHERE user_id = ?'), 'SELECT').get(userId);
+    // MIGRATED: Get the member ID using sqlManager
+    const member = await userQueries.getMemberByUserId(db, userId);
     
-    // Publish to Redis for real-time updates
+    // Publish notification for real-time updates
     if (member) {
-      console.log('📤 Publishing user-profile-updated to Redis for user:', userId);
-      await redisService.publish('user-profile-updated', {
+      console.log(`📤 Publishing user-profile-updated via ${getNotificationSystem()} for user:`, userId);
+      await notificationService.publish('user-profile-updated', {
         userId: userId,
         memberId: member.id,
         avatarPath: avatarPath,
         timestamp: new Date().toISOString()
       }, getTenantId(req));
-      console.log('✅ User-profile-updated published to Redis');
+      console.log(`✅ User-profile-updated published via ${getNotificationSystem()}`);
     }
     
     res.json({
@@ -1010,27 +936,27 @@ router.post('/:userId/avatar', authenticateToken, requireRole(['admin']), avatar
 });
 
 // Admin avatar removal endpoint
-router.delete("/:userId", authenticateToken, requireRole(["admin"]), async (req, res) => {
+router.delete("/:userId/avatar", authenticateToken, requireRole(["admin"]), async (req, res) => {
   const { userId } = req.params;
   const db = getRequestDatabase(req);
   
   try {
-    // Clear avatar_path in database
-    await wrapQuery(db.prepare('UPDATE users SET avatar_path = NULL WHERE id = ?'), 'UPDATE').run(userId);
+    // MIGRATED: Clear avatar_path using sqlManager
+    await userQueries.updateUserAvatar(db, userId, null);
     
-    // Get the member ID for Redis publishing
-    const member = await wrapQuery(db.prepare('SELECT id FROM members WHERE user_id = ?'), 'SELECT').get(userId);
+    // MIGRATED: Get the member ID using sqlManager
+    const member = await userQueries.getMemberByUserId(db, userId);
     
-    // Publish to Redis for real-time updates
+    // Publish notification for real-time updates
     if (member) {
-      console.log('📤 Publishing user-profile-updated to Redis for user:', userId);
-      await redisService.publish('user-profile-updated', {
+      console.log(`📤 Publishing user-profile-updated via ${getNotificationSystem()} for user:`, userId);
+      await notificationService.publish('user-profile-updated', {
         userId: userId,
         memberId: member.id,
         avatarPath: null,
         timestamp: new Date().toISOString()
       }, getTenantId(req));
-      console.log('✅ User-profile-updated published to Redis');
+      console.log(`✅ User-profile-updated published via ${getNotificationSystem()}`);
     }
     
     res.json({ message: 'Avatar removed successfully' });

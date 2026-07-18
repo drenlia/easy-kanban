@@ -108,18 +108,38 @@ const GanttViewV2 = ({
   
   // Sync relationships from props, but preserve optimistic updates
   useEffect(() => {
-    if (relationships) {
-      // If we have relationships from props and no local relationships yet, use them
-      if (localRelationships.length === 0) {
-        setLocalRelationships(relationships);
-      } else {
-        // Merge: keep optimistic updates (temp IDs) and add new server relationships
-        const tempRelationships = localRelationships.filter(rel => 
-          typeof rel.id === 'string' && rel.id.startsWith('temp-')
-        );
-        const mergedRelationships = [...relationships, ...tempRelationships];
-        setLocalRelationships(mergedRelationships);
-      }
+    if (relationships && relationships.length >= 0) {
+      // Always merge: keep optimistic updates (temp or confirmed IDs) and add new server relationships
+      // Match relationships by task_id and to_task_id to avoid duplicates
+      const optimisticRelationships = localRelationships.filter(rel => 
+        typeof rel.id === 'string' && (rel.id.startsWith('temp-') || rel.id.startsWith('confirmed-'))
+      );
+      
+      // Create a set of existing relationships from server (by taskId + toTaskId)
+      // Support both camelCase (from API) and snake_case (from optimistic updates)
+      const serverRelationshipKeys = new Set(
+        relationships.map(rel => {
+          const taskId = rel.taskId || rel.task_id;
+          const toTaskId = rel.toTaskId || rel.to_task_id;
+          return `${taskId}-${toTaskId}`;
+        })
+      );
+      
+      // Keep optimistic relationships that don't have a server match yet
+      const unmatchedOptimistic = optimisticRelationships.filter(rel => {
+        const taskId = rel.taskId || rel.task_id;
+        const toTaskId = rel.toTaskId || rel.to_task_id;
+        const key = `${taskId}-${toTaskId}`;
+        return !serverRelationshipKeys.has(key);
+      });
+      
+      // Merge server relationships with unmatched optimistic ones
+      // Server relationships take precedence (they're the source of truth)
+      const mergedRelationships = [...relationships, ...unmatchedOptimistic];
+      setLocalRelationships(mergedRelationships);
+    } else if (relationships && relationships.length === 0 && localRelationships.length === 0) {
+      // If both are empty, ensure localRelationships is also empty
+      setLocalRelationships([]);
     }
   }, [relationships]);
 
@@ -496,27 +516,16 @@ const GanttViewV2 = ({
             if (updates.length > 0) {
               try {
                 // Use batch update API for better performance (single HTTP request instead of N)
-                const updatedTasks = await batchUpdateTasks(updates);
-                console.log(`✅ [Gantt] Batch updated ${updatedTasks.length} tasks via batch-update endpoint`);
-                
-                // Don't call onUpdateTask for each task - we already did batch update
-                // This avoids N redundant updateTask API calls (we already did batch update)
-                // and prevents N potential board refetches
-                // The WebSocket events will handle the state updates automatically
-                // We skip calling onUpdateTask to prevent redundant API calls
-                console.log(`✅ [Gantt] Skipping individual onUpdateTask calls - batch update complete, WebSocket will sync state`);
+                // Note: Optimistic updates were already applied via onUpdateTask calls above
+                // This batch update ensures the server state is synced correctly
+                // The individual onUpdateTask calls above already made API calls, but this batch
+                // ensures all updates are processed together on the server side
+                await batchUpdateTasks(updates);
+                // WebSocket events will confirm the updates, but optimistic updates are already visible
               } catch (error) {
-                console.error('❌ [Gantt] Batch update failed, falling back to individual updates:', error);
-                // Fallback to individual updates if batch fails
-                if (onUpdateTask) {
-                  for (const updatedTask of updates) {
-                    try {
-                      await onUpdateTask(updatedTask);
-                    } catch (individualError) {
-                      console.error(`Failed to update task ${updatedTask.id}:`, individualError);
-                    }
-                  }
-                }
+                console.error('❌ [Gantt] Batch update failed:', error);
+                // If batch fails, the optimistic updates from onUpdateTask are already applied
+                // The WebSocket events or error handling in handleEditTask will handle rollback if needed
               }
               pendingUpdatesRef.current.clear();
             }
@@ -527,7 +536,7 @@ const GanttViewV2 = ({
             clearTimeout(updateBatchTimeoutRef.current);
           }
 
-          // Move all selected tasks and queue updates
+          // Move all selected tasks and apply optimistic updates immediately
           selectedTasksRef.current.forEach((taskId) => {
             // Find the original task from columns to get the full task data
             const originalTask = Object.values(columnsRef.current)
@@ -535,8 +544,6 @@ const GanttViewV2 = ({
               .find(t => t.id === taskId);
               
             if (originalTask && originalTask.startDate && originalTask.dueDate) {
-              const isOneDayTask = originalTask.startDate === originalTask.dueDate;
-              
               // Parse dates properly using the parseLocalDate function
               const parsedStartDate = parseLocalDate(originalTask.startDate);
               const parsedDueDate = parseLocalDate(originalTask.dueDate);
@@ -554,13 +561,29 @@ const GanttViewV2 = ({
                 dueDate: formatLocalDate(newDueDate) // Format as YYYY-MM-DD
               };
               
-              // Queue the update instead of applying immediately
+              // Apply optimistic update immediately for instant UI feedback
+              // Note: onUpdateTask will make an API call, but we need it for optimistic updates
+              // The batch update below will ensure server consistency, but the optimistic update
+              // ensures the UI responds immediately to arrow key presses
+              if (onUpdateTask) {
+                // Call onUpdateTask for optimistic update (updates UI immediately)
+                // This will update the columns state in App.tsx via handleEditTask
+                // It will also make an API call, but that's acceptable for immediate feedback
+                onUpdateTask(updatedTask).catch(error => {
+                  console.error(`Failed to update task ${taskId} optimistically:`, error);
+                });
+              }
+              
+              // Also queue for batch update to ensure server consistency
+              // (The individual onUpdateTask calls above will also update the server,
+              // but the batch update ensures all updates are processed together)
               pendingUpdatesRef.current.set(taskId, updatedTask);
             }
           });
 
-          // Set a timeout to batch all updates together
-          updateBatchTimeoutRef.current = setTimeout(batchUpdates, 150); // Increased debounce time
+          // Set a timeout to batch all server updates together
+          // The optimistic updates are already applied via onUpdateTask above
+          updateBatchTimeoutRef.current = setTimeout(batchUpdates, 150);
           
           // Reset flag after a longer delay to prevent rapid key presses
           arrowKeyTimeoutRef.current = setTimeout(() => {
@@ -845,12 +868,11 @@ const GanttViewV2 = ({
     };
 
     const handlePriorityDeleted = async (data: any) => {
-      try {
-        const priorities = await getAllPriorities();
-        setPriorities(priorities);
-      } catch (error) {
-        console.error('Failed to refresh priorities after deletion:', error);
-      }
+      // Just remove the deleted priority from the list - no need to refresh all priorities
+      // The task-updated events will handle updating affected tasks with the new priority
+      setPriorities(prevPriorities => 
+        prevPriorities.filter(p => p.id !== data.priorityId && p.id !== Number(data.priorityId))
+      );
     };
 
     const handlePriorityReordered = async (data: any) => {
@@ -1317,9 +1339,12 @@ const GanttViewV2 = ({
     lastRelationshipClickRef.current = now;
     
     // Check if relationship already exists to prevent duplicates
-    const existingRelationship = localRelationships.find(rel => 
-      rel.task_id === parentTaskId && rel.to_task_id === childTaskId
-    );
+    // Support both camelCase (from API) and snake_case (from optimistic updates)
+    const existingRelationship = localRelationships.find(rel => {
+      const taskId = rel.taskId || rel.task_id;
+      const toTaskId = rel.toTaskId || rel.to_task_id;
+      return taskId === parentTaskId && toTaskId === childTaskId;
+    });
     
     if (existingRelationship) {
       return;
@@ -1344,6 +1369,7 @@ const GanttViewV2 = ({
       const createdRelationship = await addTaskRelationship(parentTaskId, 'parent', childTaskId);
       
       // Mark optimistic relationship as confirmed (keep it, just change the ID)
+      // The WebSocket event will eventually replace it with the real relationship from server
       setLocalRelationships(prev => 
         prev.map(rel => 
           rel.id === optimisticRelationship.id 
@@ -1352,7 +1378,8 @@ const GanttViewV2 = ({
         )
       );
       
-      // Note: No need to refresh data since arrows already show from optimistic update
+      // Note: WebSocket event will update boardRelationships, which will sync via props
+      // The merge logic will handle replacing the confirmed relationship with the real one
       
     } catch (error: any) {
       console.error('Failed to create relationship:', error);
@@ -2142,7 +2169,7 @@ const GanttViewV2 = ({
             localDragState={localDragState}
             ganttTasks={ganttTasks}
             taskPositions={taskPositions}
-            relationships={[...relationships, ...localRelationships]}
+            relationships={localRelationships}
             highlightedTaskId={highlightedTaskId}
             selectedParentTask={selectedParentTask}
             onDeleteRelationship={handleDeleteRelationship}

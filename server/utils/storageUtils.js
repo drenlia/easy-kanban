@@ -34,7 +34,7 @@ export const updateStorageUsage = async (db, usage = null) => {
     const currentUsage = usage !== null ? usage : await calculateStorageUsage(db);
     
     await wrapQuery(
-      db.prepare('INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)'),
+      db.prepare('INSERT INTO settings (key, value, updated_at) VALUES ($1, $2, CURRENT_TIMESTAMP) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = CURRENT_TIMESTAMP'),
       'INSERT'
     ).run('STORAGE_USED', currentUsage.toString());
     
@@ -54,7 +54,7 @@ export const updateStorageUsage = async (db, usage = null) => {
 export const getStorageLimit = async (db) => {
   try {
     const result = await wrapQuery(
-      db.prepare('SELECT value FROM settings WHERE key = ?'),
+      db.prepare('SELECT value FROM settings WHERE key = $1'),
       'SELECT'
     ).get('STORAGE_LIMIT');
     
@@ -73,7 +73,7 @@ export const getStorageLimit = async (db) => {
 export const getStorageUsage = async (db) => {
   try {
     const result = await wrapQuery(
-      db.prepare('SELECT value FROM settings WHERE key = ?'),
+      db.prepare('SELECT value FROM settings WHERE key = $1'),
       'SELECT'
     ).get('STORAGE_USED');
     

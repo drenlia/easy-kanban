@@ -274,6 +274,8 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
     
     // Apply changes immediately (same effect as typing manually)
     onDateChange(sprintStartStr, sprintEndStr);
+    // Close the picker after applying sprint dates (same as Apply button)
+    onClose();
   };
 
   // Generate calendar days

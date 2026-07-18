@@ -105,10 +105,16 @@ class RedisService {
         await this.subscriber.pSubscribe(pattern, (message, receivedPattern) => {
           try {
             const data = JSON.parse(message);
-            // Extract tenantId from the pattern (e.g., "tenant-app-task-updated" -> "app")
             const match = receivedPattern.match(/tenant-([^-]+)-/);
-            const tenantId = match ? match[1] : null;
-            callback(data, tenantId);
+            const tenantFromChannel = match ? match[1] : null;
+            const notifyTenantId =
+              typeof data._notifyTenantId === 'string' && data._notifyTenantId.length > 0
+                ? data._notifyTenantId
+                : null;
+            const tenantId = notifyTenantId || tenantFromChannel;
+            const rest = { ...data };
+            delete rest._notifyTenantId;
+            callback(rest, tenantId);
           } catch (parseError) {
             console.error(`❌ Failed to parse message from ${receivedPattern}:`, parseError);
           }

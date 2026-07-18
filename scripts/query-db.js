@@ -1,51 +1,42 @@
 #!/usr/bin/env node
 /**
- * Query SQLite database from pod without copying
- * Usage: kubectl exec -n easy-kanban <pod> -- node /app/scripts/query-db.js "SELECT * FROM users LIMIT 5;"
+ * Run a SQL query against PostgreSQL (Docker / K8s).
+ *
+ * Usage:
+ *   node scripts/query-db.js "SELECT * FROM users LIMIT 5;"
+ *   POSTGRES_HOST=localhost POSTGRES_USER=kanban_user POSTGRES_PASSWORD=kanban_password \
+ *     POSTGRES_DB=kanban node scripts/query-db.js "SELECT count(*) FROM tasks;"
+ *
+ * In Docker:
+ *   docker exec -it easy-kanban node /app/scripts/query-db.js "SELECT id, email FROM users LIMIT 5;"
  */
 
-import Database from 'better-sqlite3';
-import { join, dirname } from 'path';
-import { fileURLToPath } from 'url';
+import pg from 'pg';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-
-// Get tenant ID from environment or command line
-const tenantId = process.argv[2] || process.env.TENANT_ID || null;
-const query = process.argv[3] || process.argv[2]; // Support both: node script.js tenant query OR node script.js query
-
-// Determine database path
-const basePath = process.env.DOCKER_ENV === 'true'
-  ? '/app/server/data'
-  : join(__dirname, '..');
-
-const dbPath = tenantId
-  ? join(basePath, 'tenants', tenantId, 'kanban.db')
-  : join(basePath, 'kanban.db');
-
-if (!query || query === tenantId) {
-  console.error('Usage: node query-db.js [tenantId] "SQL_QUERY"');
-  console.error('Example: node query-db.js drenlia "SELECT * FROM users LIMIT 5;"');
-  console.error('Example: node query-db.js "SELECT * FROM users LIMIT 5;"');
+const sql = process.argv.slice(2).join(' ').trim();
+if (!sql) {
+  console.error('Usage: node scripts/query-db.js "SQL_QUERY"');
   process.exit(1);
 }
+
+const pool = new pg.Pool({
+  host: process.env.POSTGRES_HOST || 'localhost',
+  port: parseInt(process.env.POSTGRES_PORT || '5432', 10),
+  database: process.env.POSTGRES_DB || 'kanban',
+  user: process.env.POSTGRES_USER || 'kanban_user',
+  password: process.env.POSTGRES_PASSWORD || 'kanban_password',
+});
 
 try {
-  const db = new Database(dbPath, { readonly: true });
-  
-  // Execute query
-  if (query.trim().toUpperCase().startsWith('SELECT')) {
-    const results = db.prepare(query).all();
-    console.log(JSON.stringify(results, null, 2));
+  const result = await pool.query(sql);
+  if (result.rows?.length) {
+    console.table(result.rows);
   } else {
-    console.error('⚠️  Only SELECT queries are allowed in readonly mode');
-    console.error('For write operations, use the application API or copy the database');
-    process.exit(1);
+    console.log(JSON.stringify({ rowCount: result.rowCount, command: result.command }, null, 2));
   }
-  
-  db.close();
-} catch (error) {
-  console.error('❌ Error:', error.message);
-  process.exit(1);
+} catch (err) {
+  console.error('Query failed:', err.message);
+  process.exitCode = 1;
+} finally {
+  await pool.end();
 }
-

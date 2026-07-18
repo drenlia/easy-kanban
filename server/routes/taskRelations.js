@@ -5,13 +5,14 @@ import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 import { authenticateToken } from '../middleware/auth.js';
 import { wrapQuery } from '../utils/queryLogger.js';
-import { dbTransaction, isProxyDatabase } from '../utils/dbAsync.js';
 import { logActivity } from '../services/activityLogger.js';
 import { TAG_ACTIONS } from '../constants/activityActions.js';
 import * as reportingLogger from '../services/reportingLogger.js';
-import redisService from '../services/redisService.js';
+import notificationService from '../services/notificationService.js';
 import { updateStorageUsage } from '../utils/storageUtils.js';
 import { getTenantId, getRequestDatabase } from '../middleware/tenantRouting.js';
+import { helpers, tasks as taskQueries, files as fileQueries, activity as activityQueries } from '../utils/sqlManager/index.js';
+import { getBilingualTranslation, getTranslatorForLanguage } from '../utils/i18n.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -23,12 +24,8 @@ router.get('/:taskId/tags', authenticateToken, async (req, res) => {
   const db = getRequestDatabase(req);
   
   try {
-    const taskTags = await wrapQuery(db.prepare(`
-      SELECT t.* FROM tags t
-      JOIN task_tags tt ON t.id = tt.tagId
-      WHERE tt.taskId = ?
-      ORDER BY t.tag ASC
-    `), 'SELECT').all(taskId);
+    // MIGRATED: Use sqlManager to get tags for task
+    const taskTags = await helpers.getTagsForTask(db, taskId);
     
     res.json(taskTags);
   } catch (error) {
@@ -43,64 +40,120 @@ router.post('/:taskId/tags/:tagId', authenticateToken, async (req, res) => {
   const db = getRequestDatabase(req);
   
   try {
-    // Check if association already exists
-    const existing = await wrapQuery(db.prepare('SELECT id FROM task_tags WHERE taskId = ? AND tagId = ?'), 'SELECT').get(taskId, tagId);
+    // MIGRATED: Check if association already exists using sqlManager
+    const existing = await helpers.checkTagAssociation(db, taskId, parseInt(tagId));
     
     if (existing) {
       return res.status(409).json({ error: 'Tag already associated with this task' });
     }
     
-    // Get tag and task details for logging
-    const tag = await wrapQuery(db.prepare('SELECT tag FROM tags WHERE id = ?'), 'SELECT').get(tagId);
-    const task = await wrapQuery(db.prepare('SELECT title, columnId, boardId FROM tasks WHERE id = ?'), 'SELECT').get(taskId);
+    // MIGRATED: Get tag and task details for logging and WebSocket event
+    const tag = await helpers.getTagById(db, parseInt(tagId));
+    // MIGRATED: Get task info using sqlManager (returns camelCase)
+    const task = await taskQueries.getTaskById(db, taskId);
     
-    await wrapQuery(db.prepare('INSERT INTO task_tags (taskId, tagId) VALUES (?, ?)'), 'INSERT').run(taskId, tagId);
+    if (!task) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+    
+    // Normalize snake_case to camelCase for consistency
+    const normalizedTask = {
+      ...task,
+      columnId: task.columnid || task.columnId,
+      boardId: task.boardid || task.boardId
+    };
+    
+    // MIGRATED: Add tag to task using sqlManager
+    await helpers.addTagToTask(db, taskId, parseInt(tagId));
     
     // Log tag association activity
-    if (tag && task) {
-      // Fire-and-forget: Don't await activity logging to avoid blocking API response
-      logActivity(
-        userId,
-        TAG_ACTIONS.ASSOCIATE,
-        `associated tag "${tag.tag}" with task "${task.title}"`,
-        {
-          taskId: taskId,
-          tagId: parseInt(tagId),
-          columnId: task.columnId,
-          boardId: task.boardId,
-          tenantId: getTenantId(req),
-          db: db
+    if (tag && normalizedTask) {
+      // Get board info and task ticket for bilingual activity message
+      (async () => {
+        try {
+          const taskInfo = await activityQueries.getTaskInfoForActivity(db, taskId);
+          const taskDetails = await activityQueries.getTaskDetailsForActivity(db, taskId);
+          
+          const boardTitle = taskInfo?.boardTitle || 'Unknown Board';
+          const taskTitle = taskInfo?.title || normalizedTask.title;
+          const taskTicket = taskDetails?.ticket || null;
+          const taskRef = taskTicket ? ` (${taskTicket})` : '';
+          
+          // Get bilingual translations
+          const tEn = getTranslatorForLanguage('en');
+          const tFr = getTranslatorForLanguage('fr');
+          
+          const unknownBoardEn = tEn('activity.unknownBoard');
+          const unknownBoardFr = tFr('activity.unknownBoard');
+          
+          const translatedBoardTitle = {
+            en: boardTitle === 'Unknown Board' ? unknownBoardEn : boardTitle,
+            fr: boardTitle === 'Unknown Board' ? unknownBoardFr : boardTitle
+          };
+          
+          // Generate bilingual message
+          const bilingualDetails = {
+            en: tEn('activity.associatedTag', {
+              tagName: tag.tag,
+              taskTitle: taskTitle,
+              taskRef: taskRef,
+              boardTitle: translatedBoardTitle.en
+            }),
+            fr: tFr('activity.associatedTag', {
+              tagName: tag.tag,
+              taskTitle: taskTitle,
+              taskRef: taskRef,
+              boardTitle: translatedBoardTitle.fr
+            })
+          };
+          
+          // Fire-and-forget: Don't await activity logging to avoid blocking API response
+          await logActivity(
+            userId,
+            TAG_ACTIONS.ASSOCIATE,
+            JSON.stringify(bilingualDetails),
+            {
+              taskId: taskId,
+              tagId: parseInt(tagId),
+              columnId: normalizedTask.columnId,
+              boardId: normalizedTask.boardId,
+              tenantId: getTenantId(req),
+              db: db
+            }
+          );
+        } catch (error) {
+          console.error('Background activity logging failed:', error);
         }
-      ).catch(error => {
-        console.error('Background activity logging failed:', error);
-      });
+      })();
       
       // Log to reporting system
       try {
         const userInfo = await reportingLogger.getUserInfo(db, userId);
-        const taskInfo = await wrapQuery(db.prepare(`
-          SELECT t.*, b.title as board_title, c.title as column_title
-          FROM tasks t
-          LEFT JOIN boards b ON t.boardId = b.id
-          LEFT JOIN columns c ON t.columnId = c.id
-          WHERE t.id = ?
-        `), 'SELECT').get(taskId);
+        // MIGRATED: Get task info with board/column titles for reporting
+        const taskInfo = await taskQueries.getTaskWithBoardColumnInfo(db, taskId);
         
         if (userInfo && taskInfo) {
+          // Normalize snake_case to camelCase
+          const normalizedTaskInfo = {
+            ...taskInfo,
+            boardId: taskInfo.board_id || taskInfo.boardid || taskInfo.boardId,
+            columnId: taskInfo.columnid || taskInfo.columnId
+          };
+          
           await reportingLogger.logActivity(db, {
             eventType: 'tag_added',
             userId: userInfo.id,
             userName: userInfo.name,
             userEmail: userInfo.email,
-            taskId: taskInfo.id,
-            taskTitle: taskInfo.title,
-            taskTicket: taskInfo.ticket,
-            boardId: taskInfo.boardId,
-            boardName: taskInfo.board_title,
-            columnId: taskInfo.columnId,
-            columnName: taskInfo.column_title,
-            effortPoints: taskInfo.effort,
-            priorityName: taskInfo.priority,
+            taskId: normalizedTaskInfo.id,
+            taskTitle: normalizedTaskInfo.title,
+            taskTicket: normalizedTaskInfo.ticket,
+            boardId: normalizedTaskInfo.boardId,
+            boardName: normalizedTaskInfo.board_title,
+            columnId: normalizedTaskInfo.columnId,
+            columnName: normalizedTaskInfo.column_title,
+            effortPoints: normalizedTaskInfo.effort,
+            priorityName: normalizedTaskInfo.priority,
             metadata: { tagName: tag.tag }
           });
         }
@@ -109,18 +162,94 @@ router.post('/:taskId/tags/:tagId', authenticateToken, async (req, res) => {
       }
     }
     
-    // Publish to Redis for real-time updates
-    if (task?.boardId) {
+    // Publish to notification service for real-time updates
+    if (normalizedTask?.boardId) {
       const tenantId = getTenantId(req);
-      console.log('📤 Publishing task-tag-added to Redis for board:', task.boardId);
-      await redisService.publish('task-tag-added', {
-        boardId: task.boardId,
+      
+      // Publish board-specific event for immediate updates (users viewing the board)
+      const publishData = {
+        boardId: normalizedTask.boardId,
         taskId: taskId,
         tagId: parseInt(tagId),
         tag: tag,
         timestamp: new Date().toISOString()
-      }, tenantId);
-      console.log('✅ Task-tag-added published to Redis');
+      };
+      console.log('📤 Publishing task-tag-added for board:', normalizedTask.boardId, 'tenant:', tenantId, 'data:', publishData);
+      await notificationService.publish('task-tag-added', publishData, tenantId);
+      console.log('✅ Task-tag-added published successfully');
+      
+      // Also publish task-updated event for all users in tenant (so users not viewing the board get updates)
+      // This ensures users see correct tags when they switch to the board
+      try {
+        const updatedTask = await taskQueries.getTaskWithRelationships(db, taskId);
+        if (updatedTask) {
+          // Parse JSON fields (PostgreSQL returns JSON as objects/arrays, but handle both)
+          const parseJsonField = (field) => {
+            if (field === null || field === undefined || field === '' || field === '[null]' || field === 'null') {
+              return [];
+            }
+            if (Array.isArray(field)) {
+              return field.filter(Boolean);
+            }
+            if (typeof field === 'object') {
+              return Array.isArray(field) ? field.filter(Boolean) : [field].filter(Boolean);
+            }
+            if (typeof field === 'string') {
+              const trimmed = field.trim();
+              if (!trimmed || trimmed === '[]' || trimmed === '[null]' || trimmed === 'null') {
+                return [];
+              }
+              try {
+                const parsed = JSON.parse(trimmed);
+                return Array.isArray(parsed) ? parsed.filter(Boolean) : (parsed ? [parsed] : []);
+              } catch (e) {
+                return [];
+              }
+            }
+            return [];
+          };
+          
+          // Deduplicate arrays by id
+          const deduplicateById = (arr) => {
+            const seen = new Set();
+            return arr.filter(item => {
+              if (!item || !item.id) return false;
+              if (seen.has(item.id)) return false;
+              seen.add(item.id);
+              return true;
+            });
+          };
+          
+          updatedTask.tags = deduplicateById(parseJsonField(updatedTask.tags));
+          updatedTask.watchers = deduplicateById(parseJsonField(updatedTask.watchers));
+          updatedTask.collaborators = deduplicateById(parseJsonField(updatedTask.collaborators));
+          updatedTask.comments = deduplicateById(parseJsonField(updatedTask.comments));
+          
+          // Use priorityName from JOIN (current name) or fallback to stored priority
+          updatedTask.priority = updatedTask.priorityName || updatedTask.priority || null;
+          updatedTask.priorityId = updatedTask.priorityId || null;
+          updatedTask.priorityName = updatedTask.priorityName || updatedTask.priority || null;
+          updatedTask.priorityColor = updatedTask.priorityColor || null;
+          
+          // Normalize field names for frontend
+          updatedTask.boardId = updatedTask.boardid || updatedTask.boardId;
+          updatedTask.columnId = updatedTask.columnid || updatedTask.columnId;
+          updatedTask.memberId = updatedTask.memberid || updatedTask.memberId;
+          updatedTask.requesterId = updatedTask.requesterid || updatedTask.requesterId;
+          
+          await notificationService.publish('task-updated', {
+            boardId: normalizedTask.boardId,
+            task: updatedTask,
+            timestamp: new Date().toISOString()
+          }, tenantId);
+          console.log('✅ Task-updated published for tag addition (all tenant users will receive update)');
+        }
+      } catch (updateError) {
+        console.error('⚠️ Failed to publish task-updated event for tag addition:', updateError);
+        // Don't fail the request if this fails
+      }
+    } else {
+      console.warn('⚠️ Cannot publish task-tag-added: task.boardId is missing', { task: normalizedTask, taskId });
     }
     
     res.json({ message: 'Tag added to task successfully' });
@@ -136,48 +265,175 @@ router.delete('/:taskId/tags/:tagId', authenticateToken, async (req, res) => {
   const db = getRequestDatabase(req);
   
   try {
-    // Get tag and task details for logging before deletion
-    const tag = await wrapQuery(db.prepare('SELECT tag FROM tags WHERE id = ?'), 'SELECT').get(tagId);
-    const task = await wrapQuery(db.prepare('SELECT title, columnId, boardId FROM tasks WHERE id = ?'), 'SELECT').get(taskId);
+    // MIGRATED: Get tag and task details for logging before deletion
+    const tag = await helpers.getTagById(db, parseInt(tagId));
+    // MIGRATED: Get task info using sqlManager (returns camelCase)
+    const task = await taskQueries.getTaskById(db, taskId);
     
-    const result = await wrapQuery(db.prepare('DELETE FROM task_tags WHERE taskId = ? AND tagId = ?'), 'DELETE').run(taskId, tagId);
+    if (!task) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+    
+    // Normalize snake_case to camelCase for consistency
+    const normalizedTask = {
+      ...task,
+      columnId: task.columnid || task.columnId,
+      boardId: task.boardid || task.boardId
+    };
+    
+    // MIGRATED: Remove tag from task using sqlManager
+    const result = await helpers.removeTagFromTask(db, taskId, parseInt(tagId));
     
     if (result.changes === 0) {
       return res.status(404).json({ error: 'Tag association not found' });
     }
     
     // Log tag disassociation activity
-    if (tag && task) {
-      // Fire-and-forget: Don't await activity logging to avoid blocking API response
-      logActivity(
-        userId,
-        TAG_ACTIONS.DISASSOCIATE,
-        `removed tag "${tag.tag}" from task "${task.title}"`,
-        {
-          taskId: taskId,
-          tagId: parseInt(tagId),
-          columnId: task.columnId,
-          boardId: task.boardId,
-          tenantId: getTenantId(req),
-          db: db
+    if (tag && normalizedTask) {
+      // Get board info and task ticket for bilingual activity message
+      (async () => {
+        try {
+          const taskInfo = await activityQueries.getTaskInfoForActivity(db, taskId);
+          const taskDetails = await activityQueries.getTaskDetailsForActivity(db, taskId);
+          
+          const boardTitle = taskInfo?.boardTitle || 'Unknown Board';
+          const taskTitle = taskInfo?.title || normalizedTask.title;
+          const taskTicket = taskDetails?.ticket || null;
+          const taskRef = taskTicket ? ` (${taskTicket})` : '';
+          
+          // Get bilingual translations
+          const tEn = getTranslatorForLanguage('en');
+          const tFr = getTranslatorForLanguage('fr');
+          
+          const unknownBoardEn = tEn('activity.unknownBoard');
+          const unknownBoardFr = tFr('activity.unknownBoard');
+          
+          const translatedBoardTitle = {
+            en: boardTitle === 'Unknown Board' ? unknownBoardEn : boardTitle,
+            fr: boardTitle === 'Unknown Board' ? unknownBoardFr : boardTitle
+          };
+          
+          // Generate bilingual message
+          const bilingualDetails = {
+            en: tEn('activity.removedTag', {
+              tagName: tag.tag,
+              taskTitle: taskTitle,
+              taskRef: taskRef,
+              boardTitle: translatedBoardTitle.en
+            }),
+            fr: tFr('activity.removedTag', {
+              tagName: tag.tag,
+              taskTitle: taskTitle,
+              taskRef: taskRef,
+              boardTitle: translatedBoardTitle.fr
+            })
+          };
+          
+          // Fire-and-forget: Don't await activity logging to avoid blocking API response
+          await logActivity(
+            userId,
+            TAG_ACTIONS.DISASSOCIATE,
+            JSON.stringify(bilingualDetails),
+            {
+              taskId: taskId,
+              tagId: parseInt(tagId),
+              columnId: normalizedTask.columnId,
+              boardId: normalizedTask.boardId,
+              tenantId: getTenantId(req),
+              db: db
+            }
+          );
+        } catch (error) {
+          console.error('Background activity logging failed:', error);
         }
-      ).catch(error => {
-        console.error('Background activity logging failed:', error);
-      });
+      })();
     }
     
     // Publish to Redis for real-time updates
-    if (task?.boardId) {
+    if (normalizedTask?.boardId) {
       const tenantId = getTenantId(req);
-      console.log('📤 Publishing task-tag-removed to Redis for board:', task.boardId);
-      await redisService.publish('task-tag-removed', {
-        boardId: task.boardId,
+      
+      // Publish board-specific event for immediate updates (users viewing the board)
+      console.log('📤 Publishing task-tag-removed to Redis for board:', normalizedTask.boardId);
+      await notificationService.publish('task-tag-removed', {
+        boardId: normalizedTask.boardId,
         taskId: taskId,
         tagId: parseInt(tagId),
         tag: tag,
         timestamp: new Date().toISOString()
       }, tenantId);
       console.log('✅ Task-tag-removed published to Redis');
+      
+      // Also publish task-updated event for all users in tenant (so users not viewing the board get updates)
+      // This ensures users see correct tags when they switch to the board
+      try {
+        const updatedTask = await taskQueries.getTaskWithRelationships(db, taskId);
+        if (updatedTask) {
+          // Parse JSON fields (PostgreSQL returns JSON as objects/arrays, but handle both)
+          const parseJsonField = (field) => {
+            if (field === null || field === undefined || field === '' || field === '[null]' || field === 'null') {
+              return [];
+            }
+            if (Array.isArray(field)) {
+              return field.filter(Boolean);
+            }
+            if (typeof field === 'object') {
+              return Array.isArray(field) ? field.filter(Boolean) : [field].filter(Boolean);
+            }
+            if (typeof field === 'string') {
+              const trimmed = field.trim();
+              if (!trimmed || trimmed === '[]' || trimmed === '[null]' || trimmed === 'null') {
+                return [];
+              }
+              try {
+                const parsed = JSON.parse(trimmed);
+                return Array.isArray(parsed) ? parsed.filter(Boolean) : (parsed ? [parsed] : []);
+              } catch (e) {
+                return [];
+              }
+            }
+            return [];
+          };
+          
+          // Deduplicate arrays by id
+          const deduplicateById = (arr) => {
+            const seen = new Set();
+            return arr.filter(item => {
+              if (!item || !item.id) return false;
+              if (seen.has(item.id)) return false;
+              seen.add(item.id);
+              return true;
+            });
+          };
+          
+          updatedTask.tags = deduplicateById(parseJsonField(updatedTask.tags));
+          updatedTask.watchers = deduplicateById(parseJsonField(updatedTask.watchers));
+          updatedTask.collaborators = deduplicateById(parseJsonField(updatedTask.collaborators));
+          updatedTask.comments = deduplicateById(parseJsonField(updatedTask.comments));
+          
+          // Use priorityName from JOIN (current name) or fallback to stored priority
+          updatedTask.priority = updatedTask.priorityName || updatedTask.priority || null;
+          updatedTask.priorityId = updatedTask.priorityId || null;
+          updatedTask.priorityName = updatedTask.priorityName || updatedTask.priority || null;
+          updatedTask.priorityColor = updatedTask.priorityColor || null;
+          
+          // Normalize field names for frontend
+          updatedTask.boardId = updatedTask.boardid || updatedTask.boardId;
+          updatedTask.columnId = updatedTask.columnid || updatedTask.columnId;
+          updatedTask.memberId = updatedTask.memberid || updatedTask.memberId;
+          updatedTask.requesterId = updatedTask.requesterid || updatedTask.requesterId;
+          
+          await notificationService.publish('task-updated', {
+            boardId: normalizedTask.boardId,
+            task: updatedTask,
+            timestamp: new Date().toISOString()
+          }, tenantId);
+          console.log('✅ Task-updated published for tag removal (all tenant users will receive update)');
+        }
+      } catch (updateError) {
+        console.error('⚠️ Failed to publish task-updated event for tag removal:', updateError);
+        // Don't fail the request if this fails
+      }
     }
     
     res.json({ message: 'Tag removed from task successfully' });
@@ -193,12 +449,8 @@ router.get('/:taskId/watchers', authenticateToken, async (req, res) => {
   const db = getRequestDatabase(req);
   
   try {
-    const watchers = await wrapQuery(db.prepare(`
-      SELECT m.* FROM members m
-      JOIN watchers w ON m.id = w.memberId
-      WHERE w.taskId = ?
-      ORDER BY m.name ASC
-    `), 'SELECT').all(taskId);
+    // MIGRATED: Use sqlManager to get watchers for task
+    const watchers = await helpers.getWatchersForTask(db, taskId);
     
     res.json(watchers);
   } catch (error) {
@@ -213,41 +465,46 @@ router.post('/:taskId/watchers/:memberId', authenticateToken, async (req, res) =
   const db = getRequestDatabase(req);
   
   try {
-    // Check if association already exists
-    const existing = await wrapQuery(db.prepare('SELECT id FROM watchers WHERE taskId = ? AND memberId = ?'), 'SELECT').get(taskId, memberId);
+    // MIGRATED: Check if association already exists using sqlManager
+    // Note: addWatcher uses ON CONFLICT DO NOTHING, so we check first
+    const existingWatchers = await helpers.getWatchersForTask(db, taskId);
+    const existing = existingWatchers.find(w => w.id === memberId);
     
     if (existing) {
       return res.status(409).json({ error: 'Member is already watching this task' });
     }
     
-    await wrapQuery(db.prepare('INSERT INTO watchers (taskId, memberId) VALUES (?, ?)'), 'INSERT').run(taskId, memberId);
+    // MIGRATED: Add watcher using sqlManager
+    await helpers.addWatcher(db, taskId, memberId);
     
     // Log to reporting system
     try {
       const userInfo = await reportingLogger.getUserInfo(db, userId);
-      const taskInfo = await wrapQuery(db.prepare(`
-        SELECT t.*, b.title as board_title, c.title as column_title
-        FROM tasks t
-        LEFT JOIN boards b ON t.boardId = b.id
-        LEFT JOIN columns c ON t.columnId = c.id
-        WHERE t.id = ?
-      `), 'SELECT').get(taskId);
+      // MIGRATED: Get task info with board/column titles for reporting
+      const taskInfo = await taskQueries.getTaskWithBoardColumnInfo(db, taskId);
       
       if (userInfo && taskInfo) {
+        // Normalize snake_case to camelCase
+        const normalizedTaskInfo = {
+          ...taskInfo,
+          boardId: taskInfo.board_id || taskInfo.boardid || taskInfo.boardId,
+          columnId: taskInfo.columnid || taskInfo.columnId
+        };
+        
         await reportingLogger.logActivity(db, {
           eventType: 'watcher_added',
           userId: userInfo.id,
           userName: userInfo.name,
           userEmail: userInfo.email,
-          taskId: taskInfo.id,
-          taskTitle: taskInfo.title,
-          taskTicket: taskInfo.ticket,
-          boardId: taskInfo.boardId,
-          boardName: taskInfo.board_title,
-          columnId: taskInfo.columnId,
-          columnName: taskInfo.column_title,
-          effortPoints: taskInfo.effort,
-          priorityName: taskInfo.priority
+          taskId: normalizedTaskInfo.id,
+          taskTitle: normalizedTaskInfo.title,
+          taskTicket: normalizedTaskInfo.ticket,
+          boardId: normalizedTaskInfo.boardId,
+          boardName: normalizedTaskInfo.board_title,
+          columnId: normalizedTaskInfo.columnId,
+          columnName: normalizedTaskInfo.column_title,
+          effortPoints: normalizedTaskInfo.effort,
+          priorityName: normalizedTaskInfo.priority
         });
       }
     } catch (reportError) {
@@ -266,7 +523,8 @@ router.delete('/:taskId/watchers/:memberId', authenticateToken, async (req, res)
   const db = getRequestDatabase(req);
   
   try {
-    const result = await wrapQuery(db.prepare('DELETE FROM watchers WHERE taskId = ? AND memberId = ?'), 'DELETE').run(taskId, memberId);
+    // MIGRATED: Remove watcher using sqlManager
+    const result = await helpers.removeWatcher(db, taskId, memberId);
     
     if (result.changes === 0) {
       return res.status(404).json({ error: 'Watcher association not found' });
@@ -285,12 +543,8 @@ router.get('/:taskId/collaborators', authenticateToken, async (req, res) => {
   const db = getRequestDatabase(req);
   
   try {
-    const collaborators = await wrapQuery(db.prepare(`
-      SELECT m.* FROM members m
-      JOIN collaborators c ON m.id = c.memberId
-      WHERE c.taskId = ?
-      ORDER BY m.name ASC
-    `), 'SELECT').all(taskId);
+    // MIGRATED: Use sqlManager to get collaborators for task
+    const collaborators = await helpers.getCollaboratorsForTask(db, taskId);
     
     res.json(collaborators);
   } catch (error) {
@@ -305,41 +559,46 @@ router.post('/:taskId/collaborators/:memberId', authenticateToken, async (req, r
   const db = getRequestDatabase(req);
   
   try {
-    // Check if association already exists
-    const existing = await wrapQuery(db.prepare('SELECT id FROM collaborators WHERE taskId = ? AND memberId = ?'), 'SELECT').get(taskId, memberId);
+    // MIGRATED: Check if association already exists using sqlManager
+    // Note: addCollaborator uses ON CONFLICT DO NOTHING, so we check first
+    const existingCollaborators = await helpers.getCollaboratorsForTask(db, taskId);
+    const existing = existingCollaborators.find(c => c.id === memberId);
     
     if (existing) {
       return res.status(409).json({ error: 'Member is already collaborating on this task' });
     }
     
-    await wrapQuery(db.prepare('INSERT INTO collaborators (taskId, memberId) VALUES (?, ?)'), 'INSERT').run(taskId, memberId);
+    // MIGRATED: Add collaborator using sqlManager
+    await helpers.addCollaborator(db, taskId, memberId);
     
     // Log to reporting system
     try {
       const userInfo = await reportingLogger.getUserInfo(db, userId);
-      const taskInfo = await wrapQuery(db.prepare(`
-        SELECT t.*, b.title as board_title, c.title as column_title
-        FROM tasks t
-        LEFT JOIN boards b ON t.boardId = b.id
-        LEFT JOIN columns c ON t.columnId = c.id
-        WHERE t.id = ?
-      `), 'SELECT').get(taskId);
+      // MIGRATED: Get task info with board/column titles for reporting
+      const taskInfo = await taskQueries.getTaskWithBoardColumnInfo(db, taskId);
       
       if (userInfo && taskInfo) {
+        // Normalize snake_case to camelCase
+        const normalizedTaskInfo = {
+          ...taskInfo,
+          boardId: taskInfo.board_id || taskInfo.boardid || taskInfo.boardId,
+          columnId: taskInfo.columnid || taskInfo.columnId
+        };
+        
         await reportingLogger.logActivity(db, {
           eventType: 'collaborator_added',
           userId: userInfo.id,
           userName: userInfo.name,
           userEmail: userInfo.email,
-          taskId: taskInfo.id,
-          taskTitle: taskInfo.title,
-          taskTicket: taskInfo.ticket,
-          boardId: taskInfo.boardId,
-          boardName: taskInfo.board_title,
-          columnId: taskInfo.columnId,
-          columnName: taskInfo.column_title,
-          effortPoints: taskInfo.effort,
-          priorityName: taskInfo.priority
+          taskId: normalizedTaskInfo.id,
+          taskTitle: normalizedTaskInfo.title,
+          taskTicket: normalizedTaskInfo.ticket,
+          boardId: normalizedTaskInfo.boardId,
+          boardName: normalizedTaskInfo.board_title,
+          columnId: normalizedTaskInfo.columnId,
+          columnName: normalizedTaskInfo.column_title,
+          effortPoints: normalizedTaskInfo.effort,
+          priorityName: normalizedTaskInfo.priority
         });
       }
     } catch (reportError) {
@@ -358,7 +617,8 @@ router.delete('/:taskId/collaborators/:memberId', authenticateToken, async (req,
   const db = getRequestDatabase(req);
   
   try {
-    const result = await wrapQuery(db.prepare('DELETE FROM collaborators WHERE taskId = ? AND memberId = ?'), 'DELETE').run(taskId, memberId);
+    // MIGRATED: Remove collaborator using sqlManager
+    const result = await helpers.removeCollaborator(db, taskId, memberId);
     
     if (result.changes === 0) {
       return res.status(404).json({ error: 'Collaborator association not found' });
@@ -377,12 +637,8 @@ router.get('/:taskId/attachments', authenticateToken, async (req, res) => {
   const db = getRequestDatabase(req);
   
   try {
-    const attachments = await wrapQuery(db.prepare(`
-      SELECT id, name, url, type, size, created_at
-      FROM attachments 
-      WHERE taskId = ?
-      ORDER BY created_at DESC
-    `), 'SELECT').all(taskId);
+    // MIGRATED: Use sqlManager to get attachments for task
+    const attachments = await fileQueries.getAttachmentsForTask(db, taskId);
     
     res.json(attachments);
   } catch (error) {
@@ -401,50 +657,32 @@ router.post('/:taskId/attachments', authenticateToken, async (req, res) => {
     const insertedAttachments = [];
     
     if (attachments?.length > 0) {
-      if (isProxyDatabase(db)) {
-        // Proxy mode: Collect all queries and send as batch
-        const batchQueries = [];
-        const insertQuery = `
-          INSERT INTO attachments (id, taskId, name, url, type, size)
-          VALUES (?, ?, ?, ?, ?, ?)
-        `;
-        
-        for (const attachment of attachments) {
-          batchQueries.push({
-            query: insertQuery,
-            params: [
-              attachment.id,
-              taskId,
-              attachment.name,
-              attachment.url,
-              attachment.type,
-              attachment.size
-            ]
-          });
-          insertedAttachments.push(attachment);
-        }
-        
-        // Execute all inserts in a single batched transaction
-        await db.executeBatchTransaction(batchQueries);
-      } else {
-        // Direct DB mode: Use standard transaction
-        await dbTransaction(db, async () => {
-          for (const attachment of attachments) {
-            await wrapQuery(db.prepare(`
-              INSERT INTO attachments (id, taskId, name, url, type, size)
-              VALUES (?, ?, ?, ?, ?, ?)
-            `), 'INSERT').run(
-              attachment.id,
-              taskId,
-              attachment.name,
-              attachment.url,
-              attachment.type,
-              attachment.size
-            );
-            insertedAttachments.push(attachment);
-          }
+      
+      // Collect queries and send as a batched transaction
+      const batchQueries = [];
+      const insertQuery = `
+        INSERT INTO attachments (id, taskid, name, url, type, size)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `;
+      
+      for (const attachment of attachments) {
+        batchQueries.push({
+          query: insertQuery,
+          params: [
+            attachment.id,
+            taskId,
+            attachment.name,
+            attachment.url,
+            attachment.type,
+            attachment.size
+          ]
         });
+        insertedAttachments.push(attachment);
       }
+      
+      // Execute all inserts in a single batched transaction
+      await db.executeBatchTransaction(batchQueries);
+
     }
     
     // Update storage usage after adding attachments
@@ -452,92 +690,29 @@ router.post('/:taskId/attachments', authenticateToken, async (req, res) => {
       await updateStorageUsage(db);
     }
     
-    // Get the task's board ID and fetch complete task data for Redis publishing
-    const task = await wrapQuery(db.prepare('SELECT boardId FROM tasks WHERE id = ?'), 'SELECT').get(taskId);
+    // MIGRATED: Get the task's board ID using sqlManager
+    const task = await fileQueries.getTaskByIdForFiles(db, taskId);
     
     // Publish to Redis for real-time updates
     if (task?.boardId && insertedAttachments.length > 0) {
-        // Fetch complete task with all relationships including updated attachmentCount
-        const taskWithRelationships = await wrapQuery(
-          db.prepare(`
-            SELECT t.*, 
-                   CASE WHEN COUNT(DISTINCT CASE WHEN a.id IS NOT NULL THEN a.id END) > 0 
-                        THEN COUNT(DISTINCT CASE WHEN a.id IS NOT NULL THEN a.id END) 
-                        ELSE NULL END as attachmentCount,
-                   json_group_array(
-                     DISTINCT CASE WHEN c.id IS NOT NULL THEN json_object(
-                       'id', c.id,
-                       'text', c.text,
-                       'authorId', c.authorId,
-                       'createdAt', c.createdAt,
-                       'updated_at', c.updated_at,
-                       'taskId', c.taskId,
-                       'authorName', comment_author.name,
-                       'authorColor', comment_author.color
-                     ) ELSE NULL END
-                   ) as comments,
-                   json_group_array(
-                     DISTINCT CASE WHEN tag.id IS NOT NULL THEN json_object(
-                       'id', tag.id,
-                       'tag', tag.tag,
-                       'description', tag.description,
-                       'color', tag.color
-                     ) ELSE NULL END
-                   ) as tags,
-                   json_group_array(
-                     DISTINCT CASE WHEN watcher.id IS NOT NULL THEN json_object(
-                       'id', watcher.id,
-                       'name', watcher.name,
-                       'color', watcher.color
-                     ) ELSE NULL END
-                   ) as watchers,
-                   json_group_array(
-                     DISTINCT CASE WHEN collaborator.id IS NOT NULL THEN json_object(
-                       'id', collaborator.id,
-                       'name', collaborator.name,
-                       'color', collaborator.color
-                     ) ELSE NULL END
-                   ) as collaborators
-            FROM tasks t
-            LEFT JOIN attachments a ON a.taskId = t.id AND a.commentId IS NULL
-            LEFT JOIN comments c ON c.taskId = t.id
-            LEFT JOIN members comment_author ON comment_author.id = c.authorId
-            LEFT JOIN task_tags tt ON tt.taskId = t.id
-            LEFT JOIN tags tag ON tag.id = tt.tagId
-            LEFT JOIN watchers w ON w.taskId = t.id
-            LEFT JOIN members watcher ON watcher.id = w.memberId
-            LEFT JOIN collaborators col ON col.taskId = t.id
-            LEFT JOIN members collaborator ON collaborator.id = col.memberId
-            WHERE t.id = ?
-            GROUP BY t.id
-          `),
-          'SELECT'
-        ).get(taskId);
+        // MIGRATED: Fetch complete task with all relationships using sqlManager
+        const taskWithRelationships = await taskQueries.getTaskWithRelationships(db, taskId);
         
         if (taskWithRelationships) {
-          // Parse JSON arrays and handle null values
-          taskWithRelationships.comments = taskWithRelationships.comments === '[null]' || !taskWithRelationships.comments 
-            ? [] 
-            : JSON.parse(taskWithRelationships.comments).filter(Boolean);
-          
-          // Get attachments for all comments in one batch query (fixes N+1 problem)
-          if (taskWithRelationships.comments.length > 0) {
+          // MIGRATED: Get attachments for all comments using sqlManager
+          if (taskWithRelationships.comments && taskWithRelationships.comments.length > 0) {
             const commentIds = taskWithRelationships.comments.map(c => c.id).filter(Boolean);
             if (commentIds.length > 0) {
-              const placeholders = commentIds.map(() => '?').join(',');
-              const allAttachments = await wrapQuery(db.prepare(`
-                SELECT commentId, id, name, url, type, size, created_at as createdAt
-                FROM attachments
-                WHERE commentId IN (${placeholders})
-              `), 'SELECT').all(...commentIds);
+              const allAttachments = await fileQueries.getAttachmentsForComments(db, commentIds);
               
-              // Group attachments by commentId
+              // Group attachments by commentid
               const attachmentsByCommentId = new Map();
               allAttachments.forEach(att => {
-                if (!attachmentsByCommentId.has(att.commentId)) {
-                  attachmentsByCommentId.set(att.commentId, []);
+                const commentId = att.commentId;
+                if (!attachmentsByCommentId.has(commentId)) {
+                  attachmentsByCommentId.set(commentId, []);
                 }
-                attachmentsByCommentId.get(att.commentId).push(att);
+                attachmentsByCommentId.get(commentId).push(att);
               });
               
               // Assign attachments to each comment
@@ -547,27 +722,19 @@ router.post('/:taskId/attachments', authenticateToken, async (req, res) => {
             }
           }
           
-          taskWithRelationships.tags = taskWithRelationships.tags === '[null]' || !taskWithRelationships.tags 
-            ? [] 
-            : JSON.parse(taskWithRelationships.tags).filter(Boolean);
-          taskWithRelationships.watchers = taskWithRelationships.watchers === '[null]' || !taskWithRelationships.watchers 
-            ? [] 
-            : JSON.parse(taskWithRelationships.watchers).filter(Boolean);
-          taskWithRelationships.collaborators = taskWithRelationships.collaborators === '[null]' || !taskWithRelationships.collaborators 
-            ? [] 
-            : JSON.parse(taskWithRelationships.collaborators).filter(Boolean);
-          
-          // Convert snake_case to camelCase
+          // Convert snake_case to camelCase (if needed)
           const taskResponse = {
             ...taskWithRelationships,
-            sprintId: taskWithRelationships.sprint_id || null,
-            createdAt: taskWithRelationships.created_at,
-            updatedAt: taskWithRelationships.updated_at
+            boardId: taskWithRelationships.boardid || taskWithRelationships.boardId,
+            columnId: taskWithRelationships.columnid || taskWithRelationships.columnId,
+            sprintId: taskWithRelationships.sprint_id || taskWithRelationships.sprintId || null,
+            createdAt: taskWithRelationships.created_at || taskWithRelationships.createdAt,
+            updatedAt: taskWithRelationships.updated_at || taskWithRelationships.updatedAt
           };
           
           // Publish task-updated event with complete task data (includes updated attachmentCount)
           const tenantId = getTenantId(req);
-          await redisService.publish('task-updated', {
+          await notificationService.publish('task-updated', {
             boardId: task.boardId,
             task: {
               ...taskResponse,
@@ -580,7 +747,7 @@ router.post('/:taskId/attachments', authenticateToken, async (req, res) => {
         // Also publish task-attachments-added for any handlers that might need it
         const tenantId = getTenantId(req);
         console.log('📤 Publishing task-attachments-added to Redis for board:', task.boardId);
-        await redisService.publish('task-attachments-added', {
+        await notificationService.publish('task-attachments-added', {
           boardId: task.boardId,
           taskId: taskId,
           attachments: insertedAttachments,

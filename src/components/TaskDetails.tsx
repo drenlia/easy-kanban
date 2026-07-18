@@ -14,6 +14,11 @@ import { mergeTaskTagsWithLiveData, getTagDisplayStyle } from '../utils/tagUtils
 import { getAuthenticatedAttachmentUrl } from '../utils/authImageUrl';
 import { truncateMemberName } from '../utils/memberUtils';
 import AddTagModal from './AddTagModal';
+import { feDebug } from '../utils/clientDebug';
+
+function detailsLog(...args: unknown[]) {
+  if (feDebug('FE_DEBUG_TASK_DETAILS')) console.log(...args);
+}
 
 interface TaskDetailsProps {
   task: Task;
@@ -116,6 +121,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
   const [isDeletingAttachment, setIsDeletingAttachment] = useState(false);
   const recentlyDeletedAttachmentsRef = useRef<Set<string>>(new Set());
   const [lastSavedDescription, setLastSavedDescription] = useState(task.description || '');
+  const [effortDraft, setEffortDraft] = useState(String(task.effort ?? 0));
   const isUploadingRef = useRef(false);
   const taskAttachmentsRef = useRef(taskAttachments);
   const editedTaskRef = useRef(editedTask);
@@ -128,6 +134,11 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
   useEffect(() => {
     editedTaskRef.current = editedTask;
   }, [editedTask]);
+
+  // Keep effort text draft in sync when switching tasks or external updates
+  useEffect(() => {
+    setEffortDraft(String(editedTask.effort ?? 0));
+  }, [editedTask.id]);
   
   // Watchers and Collaborators state
   const [taskWatchers, setTaskWatchers] = useState<TeamMember[]>(task.watchers || []);
@@ -198,6 +209,14 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
     // Clear comment attachments for new task
     setCommentAttachments({});
   }, [task.id]); // Only depend on task.id to trigger when switching tasks
+
+  // Update local date state when task dates change (from WebSocket updates)
+  // This is separate from the task.id effect to handle date updates for the same task
+  useEffect(() => {
+    // Update local state when task dates change (from WebSocket or other updates)
+    setLocalStartDate(task.startDate);
+    setLocalDueDate(task.dueDate || '');
+  }, [task.startDate, task.dueDate]); // Update when dates change, even if task ID is same
 
   // Auto-refresh comments when task prop updates (from polling)
   useEffect(() => {
@@ -487,7 +506,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                 title: editedTask.title,
                 description: editedTask.description
               });
-              console.log('Auto-saved changes before switching tasks');
+              detailsLog('Auto-saved changes before switching tasks');
             } catch (error) {
               console.error('Error saving changes before task switch:', error);
             }
@@ -786,7 +805,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
         rel.to_task_id === childTaskId
       );
       
-      console.log('🗑️ Attempting to remove child task:', {
+      detailsLog('🗑️ Attempting to remove child task:', {
         childTaskId,
         foundRelationship: relationship,
         allRelationships: relationships
@@ -826,7 +845,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
         const availableTasksData = await getAvailableTasksForRelationship(task.id);
         setAvailableTasksForChildren(Array.isArray(availableTasksData) ? availableTasksData : []);
         
-        console.log('✅ Successfully removed child task and reloaded data');
+        detailsLog('✅ Successfully removed child task and reloaded data');
       } else {
         console.error('❌ No relationship found to delete');
       }
@@ -882,7 +901,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
         attachments: uploadedAttachments
       };
 
-      console.log('Sending comment to backend:', newComment);
+      detailsLog('Sending comment to backend:', newComment);
 
       // Save comment to server
       const savedComment = await createComment(newComment);
@@ -1108,14 +1127,14 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
     
     isUploadingRef.current = true;
     try {
-      console.log('📎 Uploading', pendingAttachments.length, 'task attachments...');
+      detailsLog('📎 Uploading', pendingAttachments.length, 'task attachments...');
       
       // Use the new upload utility
       const uploadedAttachments = await uploadTaskFiles(task.id, {
         currentTaskAttachments: taskAttachmentsRef.current,
         currentDescription: editedTaskRef.current.description,
         onTaskAttachmentsUpdate: (updatedAttachments) => {
-          console.log('🔄 Updating taskAttachments with:', updatedAttachments.length, 'attachments');
+          detailsLog('🔄 Updating taskAttachments with:', updatedAttachments.length, 'attachments');
           setTaskAttachments(updatedAttachments);
           
           // Update parent component immediately with new attachment count
@@ -1127,13 +1146,13 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
           onUpdate(updatedTask);
         },
         onDescriptionUpdate: (updatedDescription) => {
-          console.log('🔄 Updating task description with server URLs');
+          detailsLog('🔄 Updating task description with server URLs');
           const updatedTask = { ...editedTask, description: updatedDescription };
           setEditedTask(updatedTask);
           saveImmediately(updatedTask);
         },
         onSuccess: (attachments) => {
-          console.log('✅ Task attachments saved successfully:', attachments.length, 'files');
+          detailsLog('✅ Task attachments saved successfully:', attachments.length, 'files');
           // Clear pending attachments on success
           clearFiles();
         },
@@ -1149,7 +1168,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
         }
       });
       
-      console.log('📎 Task attachment upload completed, got:', uploadedAttachments.length, 'attachments');
+      detailsLog('📎 Task attachment upload completed, got:', uploadedAttachments.length, 'attachments');
     } catch (error: any) {
       console.error('❌ Failed to save task attachments:', error);
       // Clear pending attachments on error to prevent retry loop
@@ -1645,10 +1664,32 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                   {t('labels.effort')}
                 </label>
                 <input
-                  type="number"
-                  min="0"
-                  value={editedTask.effort}
-                  onChange={e => handleUpdate({ effort: Number(e.target.value) })}
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  value={effortDraft}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    if (v === '' || /^\d{0,4}$/.test(v)) {
+                      setEffortDraft(v);
+                    }
+                  }}
+                  onFocus={(e) => e.currentTarget.select()}
+                  onBlur={() => {
+                    const trimmed = effortDraft.trim();
+                    const n = trimmed === '' ? 0 : parseInt(trimmed, 10);
+                    const effort = Number.isFinite(n) && n >= 0 ? Math.min(n, 9999) : 0;
+                    setEffortDraft(String(effort));
+                    if (effort !== editedTask.effort) {
+                      handleUpdate({ effort });
+                    }
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      (e.target as HTMLInputElement).blur();
+                    }
+                  }}
                   className="w-full px-3 py-2 border rounded-md bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-100"
                   disabled={isSubmitting}
                 />
@@ -1788,7 +1829,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                     <span 
                       onClick={() => {
                         const url = generateTaskUrl(parentTask.ticket, parentTask.projectId);
-                        console.log('🔗 TaskDetails Parent URL:', { 
+                        detailsLog('🔗 TaskDetails Parent URL:', { 
                           ticket: parentTask.ticket, 
                           projectId: parentTask.projectId, 
                           generatedUrl: url 
@@ -1797,7 +1838,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                         const hashPart = url.split('#').slice(1).join('#');
                         window.location.hash = hashPart;
                       }}
-                      className="text-sm text-blue-600 hover:text-blue-800 hover:underline cursor-pointer transition-colors"
+                      className="text-sm text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 hover:underline cursor-pointer transition-colors"
                       title={`${t('relationships.goToParent')} ${parentTask.ticket}`}
                     >
                       {parentTask.ticket}
@@ -1815,12 +1856,12 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                       {childTasks.map(child => (
                         <span
                           key={child.id}
-                          className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-full font-medium bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 hover:opacity-80 transition-opacity"
+                          className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-full font-medium bg-blue-100 dark:bg-blue-950 dark:ring-1 dark:ring-blue-700/60 text-blue-900 dark:text-blue-100 hover:opacity-90 transition-opacity"
                         >
                             <span 
                               onClick={() => {
                                 const url = generateTaskUrl(child.ticket, child.projectId);
-                                console.log('🔗 TaskDetails Child URL:', { 
+                                detailsLog('🔗 TaskDetails Child URL:', { 
                                   ticket: child.ticket, 
                                   projectId: child.projectId, 
                                   generatedUrl: url 
@@ -1829,7 +1870,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                                 const hashPart = url.split('#').slice(1).join('#');
                                 window.location.hash = hashPart;
                               }}
-                              className="text-blue-800 hover:text-blue-900 hover:underline cursor-pointer transition-colors"
+                              className="text-blue-900 dark:text-blue-100 hover:text-blue-700 dark:hover:text-white hover:underline cursor-pointer transition-colors"
                               title={`${t('relationships.goToChild')} ${child.ticket}`}
                             >
                               {child.ticket}
@@ -1837,7 +1878,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                           <button
                             type="button"
                             onClick={() => handleRemoveChildTask(child.id)}
-                            className="ml-1 hover:bg-red-500 hover:text-white rounded-full w-3 h-3 flex items-center justify-center text-xs font-bold transition-colors"
+                            className="ml-1 text-blue-700 dark:text-blue-200 hover:bg-red-500 hover:text-white rounded-full w-3 h-3 flex items-center justify-center text-xs font-bold transition-colors"
                             title={t('relationships.removeChild')}
                           >
                             ×
@@ -1863,13 +1904,13 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                     {showChildrenDropdown && (
                       <div className="absolute z-10 mt-1 w-full bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-md shadow-lg max-h-60 overflow-auto">
                         {/* Search Input */}
-                        <div className="p-2 border-b border-gray-200">
+                        <div className="p-2 border-b border-gray-200 dark:border-gray-600">
                           <input
                             type="text"
                             placeholder={t('relationships.searchTasks')}
                             value={childrenSearchTerm}
                             onChange={(e) => setChildrenSearchTerm(e.target.value)}
-                            className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                            className="w-full px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder:text-gray-500 dark:placeholder:text-gray-400 focus:outline-none focus:ring-1 focus:ring-blue-500"
                             autoFocus
                           />
                         </div>
@@ -1882,14 +1923,14 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                                 key={availableTask.id}
                                 type="button"
                                 onClick={() => handleAddChildTask(availableTask.id)}
-                                className="w-full px-3 py-2 text-left hover:bg-blue-50 focus:bg-blue-50 focus:outline-none transition-colors text-sm"
+                                className="w-full px-3 py-2 text-left hover:bg-blue-50 dark:hover:bg-blue-900/35 focus:bg-blue-50 dark:focus:bg-blue-900/35 focus:outline-none transition-colors text-sm"
                               >
-                                <div className="font-medium text-blue-600">{availableTask.ticket}</div>
-                                <div className="text-gray-600 truncate">{availableTask.title}</div>
+                                <div className="font-medium text-blue-600 dark:text-blue-400">{availableTask.ticket}</div>
+                                <div className="text-gray-600 dark:text-gray-300 truncate">{availableTask.title}</div>
                               </button>
                             ))
                           ) : (
-                            <div className="px-3 py-2 text-sm text-gray-500">
+                            <div className="px-3 py-2 text-sm text-gray-500 dark:text-gray-400">
                               {childrenSearchTerm ? 'No tasks found matching your search' : 'No available tasks'}
                             </div>
                           )}

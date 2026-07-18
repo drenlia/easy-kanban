@@ -1,4 +1,4 @@
-import { wrapQuery } from './queryLogger.js';
+import { settings as settingsQueries } from './sqlManager/index.js';
 
 /**
  * Get admin-configured file upload settings from database
@@ -7,11 +7,14 @@ import { wrapQuery } from './queryLogger.js';
  */
 export const getAdminFileSettings = async (db) => {
   try {
-    const settings = wrapQuery(db.prepare('SELECT key, value FROM settings WHERE key IN (?, ?, ?)'), 'SELECT')
-      .all('UPLOAD_MAX_FILESIZE', 'UPLOAD_FILETYPES', 'UPLOAD_LIMITS_ENFORCED');
+    const settings = await settingsQueries.getSettingsByKeys(db, [
+      'UPLOAD_MAX_FILESIZE',
+      'UPLOAD_FILETYPES',
+      'UPLOAD_LIMITS_ENFORCED',
+    ]);
     
     const settingsMap = {};
-    settings.forEach(row => {
+    (Array.isArray(settings) ? settings : []).forEach(row => {
       settingsMap[row.key] = row.value;
     });
     

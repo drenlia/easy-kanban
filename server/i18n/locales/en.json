@@ -252,6 +252,7 @@
           "status_changed": "Task status has been changed",
           "priority_changed": "Task priority has been changed",
           "due_date_changed": "Task due date has been changed",
+          "consolidated_update": "Multiple changes have been made to a task you're involved in",
           "default": "Task activity notification"
         },
         "project": "Project:",
@@ -358,7 +359,7 @@
   },
   "activity": {
     "createdTask": "created task \"{taskTitle}\"{taskRef} in board \"{boardTitle}\"",
-    "createdTaskAtTop": "created task \"{taskTitle}\" at top of column",
+    "createdTaskAtTop": "created task \"{taskTitle}\" at top of column in \"{boardTitle}\"",
     "deletedTask": "deleted task \"{taskTitle}\"{taskRef} from board \"{boardTitle}\"",
     "movedTask": "{details}{taskRef} in board \"{boardTitle}\"",
     "updatedTask": "{details} in task \"{taskTitle}\"{taskRef} in board \"{boardTitle}\"",
@@ -397,6 +398,11 @@
     "addedComment": "added comment on task \"{taskTitle}\"{taskRef} in board \"{boardTitle}\"",
     "updatedComment": "updated comment on task \"{taskTitle}\"{taskRef} in board \"{boardTitle}\"",
     "deletedComment": "deleted comment on task \"{taskTitle}\"{taskRef} in board \"{boardTitle}\"",
+    "copiedTask": "copied task \"{taskTitle}\" in board \"{boardTitle}\"",
+    "associatedTag": "associated tag \"{tagName}\" with task \"{taskTitle}\"{taskRef} in board \"{boardTitle}\"",
+    "removedTag": "removed tag \"{tagName}\" from task \"{taskTitle}\"{taskRef} in board \"{boardTitle}\"",
+    "associatedSprint": "associated sprint \"{sprintName}\" with task \"{taskTitle}\"{taskRef} in board \"{boardTitle}\"",
+    "removedSprint": "removed sprint \"{sprintName}\" from task \"{taskTitle}\"{taskRef} in board \"{boardTitle}\"",
     "unknownTask": "Unknown Task",
     "unknownBoard": "Unknown Board",
     "unassigned": "Unassigned",

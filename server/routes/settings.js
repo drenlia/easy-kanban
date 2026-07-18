@@ -2,9 +2,15 @@ import express from 'express';
 import { authenticateToken, requireRole } from '../middleware/auth.js';
 import { wrapQuery } from '../utils/queryLogger.js';
 import { getStorageUsage, getStorageLimit, formatBytes } from '../utils/storageUtils.js';
-import redisService from '../services/redisService.js';
+import notificationService from '../services/notificationService.js';
 import { getTenantId, getRequestDatabase } from '../middleware/tenantRouting.js';
-import { isProxyDatabase, dbTransaction } from '../utils/dbAsync.js';
+import { settings as settingsQueries, users as userQueries } from '../utils/sqlManager/index.js';
+import { FE_PUBLIC_DEBUG_FLAG_KEYS } from '../constants/debugSettings.js';
+import { clearSqlDebugSettingsCache } from '../utils/sqlDebugSettingsCache.js';
+import { serverDebug } from '../utils/serverDebug.js';
+import { avatarUpload } from '../config/multer.js';
+import path from 'path';
+import fs from 'fs';
 
 const router = express.Router();
 
@@ -17,11 +23,28 @@ router.get('/', async (req, res, next) => {
   
   try {
     const db = getRequestDatabase(req);
-    const settings = await wrapQuery(db.prepare('SELECT key, value FROM settings WHERE key IN (?, ?, ?, ?, ?, ?)'), 'SELECT').all('SITE_NAME', 'SITE_URL', 'MAIL_ENABLED', 'GOOGLE_CLIENT_ID', 'HIGHLIGHT_OVERDUE_TASKS', 'DEFAULT_FINISHED_COLUMN_NAMES');
+    // MIGRATED: Get settings using sqlManager
+    const publicKeys = [
+      'SITE_NAME',
+      'SITE_URL',
+      'SITE_LOGO',
+      'SITE_LOGO_DARK',
+      'HIDE_GITHUB_LINK',
+      'HIDE_SITE_LOGO',
+      'SITE_OPENS_NEW_TAB',
+      'MAIL_ENABLED',
+      'GOOGLE_CLIENT_ID',
+      'HIGHLIGHT_OVERDUE_TASKS',
+      'DEFAULT_FINISHED_COLUMN_NAMES',
+      ...FE_PUBLIC_DEBUG_FLAG_KEYS
+    ];
+    const settings = await settingsQueries.getSettingsByKeys(db, publicKeys);
     const settingsObj = {};
     settings.forEach(setting => {
       settingsObj[setting.key] = setting.value;
     });
+    // Per-tenant OAuth and site metadata must not be cached by browsers or intermediaries
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
     res.json(settingsObj);
   } catch (error) {
     console.error('Get public settings error:', error);
@@ -39,7 +62,8 @@ router.get('/', authenticateToken, requireRole(['admin']), async (req, res, next
   
   try {
     const db = getRequestDatabase(req);
-    const settings = await wrapQuery(db.prepare('SELECT key, value FROM settings'), 'SELECT').all();
+    // MIGRATED: Get all settings using sqlManager
+    const settings = await settingsQueries.getAllSettings(db);
     const settingsObj = {};
     
     // Check if email is managed
@@ -99,34 +123,35 @@ router.put('/', authenticateToken, requireRole(['admin']), async (req, res, next
       safeValue = JSON.stringify(value);
     }
     
-    const result = await wrapQuery(
-      db.prepare(`
-        INSERT OR REPLACE INTO settings (key, value, updated_at) 
-        VALUES (?, ?, CURRENT_TIMESTAMP)
-      `),
-      'INSERT'
-    ).run(key, safeValue);
-    
+    // MIGRATED: Upsert setting using sqlManager
+    const result = await settingsQueries.upsertSetting(db, key, safeValue);
+    if (key === 'SERVER_DEBUG_SQL') {
+      clearSqlDebugSettingsCache();
+    }
+    const dbgSettings = await serverDebug(db, 'SERVER_DEBUG_SETTINGS');
+
     // If this is a Google OAuth setting, reload the OAuth configuration
     if (key === 'GOOGLE_CLIENT_ID' || key === 'GOOGLE_CLIENT_SECRET' || key === 'GOOGLE_CALLBACK_URL') {
-      console.log(`Google OAuth setting updated: ${key} - Hot reloading OAuth config...`);
+      if (dbgSettings) console.log(`Google OAuth setting updated: ${key} - Hot reloading OAuth config...`);
       // Invalidate OAuth configuration cache
       if (global.oauthConfigCache) {
         global.oauthConfigCache.invalidated = true;
-        console.log('✅ OAuth configuration cache invalidated - new settings will be loaded on next OAuth request');
+        if (dbgSettings) console.log('✅ OAuth configuration cache invalidated - new settings will be loaded on next OAuth request');
       }
     }
-    
+
     // Publish to Redis for real-time updates
     const tenantId = getTenantId(req);
-    console.log('📤 Publishing settings-updated to Redis');
-    console.log('📤 Broadcasting value:', { key, value });
-    await redisService.publish('settings-updated', {
+    if (dbgSettings) {
+      console.log('📤 Publishing settings-updated to Redis');
+      console.log('📤 Broadcasting value:', { key, value });
+    }
+    await notificationService.publish('settings-updated', {
       key: key,
       value: value,
       timestamp: new Date().toISOString()
     }, tenantId);
-    console.log('✅ Settings-updated published to Redis');
+    if (dbgSettings) console.log('✅ Settings-updated published to Redis');
     
     res.json({ message: 'Setting updated successfully' });
   } catch (error) {
@@ -136,88 +161,140 @@ router.put('/', authenticateToken, requireRole(['admin']), async (req, res, next
   }
 });
 
+// Upload site logo (light or dark). Stores under avatars/ and upserts SITE_LOGO or SITE_LOGO_DARK.
+router.post('/logo', authenticateToken, requireRole(['admin']), (req, res, next) => {
+  if (req.baseUrl !== '/api/admin/settings') {
+    return res.status(404).json({ error: 'Not Found' });
+  }
+  avatarUpload.single('logo')(req, res, async (err) => {
+    if (err) {
+      console.error('Site logo upload error:', err);
+      return res.status(400).json({ error: err.message || 'Failed to upload logo' });
+    }
+    try {
+      const db = getRequestDatabase(req);
+      if (!req.file) {
+        return res.status(400).json({ error: 'No logo file uploaded' });
+      }
+
+      const variant = (req.query.variant === 'dark' || req.body?.variant === 'dark') ? 'dark' : 'light';
+      const settingKey = variant === 'dark' ? 'SITE_LOGO_DARK' : 'SITE_LOGO';
+      const logoPath = `/avatars/${req.file.filename}`;
+
+      // Best-effort: remove previous uploaded logo file if it was a local /avatars/ path
+      try {
+        const previous = await settingsQueries.getSettingByKey(db, settingKey);
+        const prevValue = previous?.value || '';
+        if (prevValue.startsWith('/avatars/') && prevValue !== logoPath) {
+          const storagePaths = req.locals?.tenantStoragePaths
+            || req.app.locals?.tenantStoragePaths
+            || null;
+          if (storagePaths?.avatars) {
+            const prevFile = path.join(storagePaths.avatars, path.basename(prevValue));
+            if (fs.existsSync(prevFile)) {
+              fs.unlinkSync(prevFile);
+            }
+          }
+        }
+      } catch (cleanupErr) {
+        console.warn('Could not remove previous site logo file:', cleanupErr.message);
+      }
+
+      await settingsQueries.upsertSetting(db, settingKey, logoPath);
+
+      const tenantId = getTenantId(req);
+      await notificationService.publish('settings-updated', {
+        key: settingKey,
+        value: logoPath,
+        timestamp: new Date().toISOString()
+      }, tenantId);
+
+      res.json({
+        message: 'Logo uploaded successfully',
+        key: settingKey,
+        value: logoPath
+      });
+    } catch (error) {
+      console.error('Error saving site logo:', error);
+      res.status(500).json({ error: 'Failed to save logo' });
+    }
+  });
+});
+
 // Update APP_URL endpoint (owner only)
 router.put('/app-url', authenticateToken, async (req, res) => {
   try {
-    console.log('📞 APP_URL update endpoint called');
     const db = getRequestDatabase(req);
+    const dbgHttp = await serverDebug(db, 'SERVER_DEBUG_HTTP');
+    if (dbgHttp) console.log('📞 APP_URL update endpoint called');
     const { appUrl } = req.body;
     const userId = req.user.id;
+
+    if (dbgHttp) console.log('📞 Request data:', { userId, appUrl });
     
-    console.log('📞 Request data:', { userId, appUrl });
-    
-    // Get user email
-    const user = await wrapQuery(
-      db.prepare('SELECT email FROM users WHERE id = ?'),
-      'SELECT'
-    ).get(userId);
+    // MIGRATED: Get user email using sqlManager
+    const user = await userQueries.getUserByIdForAdmin(db, userId);
     
     if (!user) {
-      console.log('❌ User not found:', userId);
+      if (dbgHttp) console.log('❌ User not found:', userId);
       return res.status(404).json({ error: 'User not found' });
     }
+
+    if (dbgHttp) console.log('📞 User email:', user.email);
     
-    console.log('📞 User email:', user.email);
-    
-    // Check if user is the owner OR the default admin user (admin@kanban.local)
-    // This allows the first user to set APP_URL even if OWNER hasn't been set yet
-    const ownerSetting = await wrapQuery(
-      db.prepare('SELECT value FROM settings WHERE key = ?'),
-      'SELECT'
-    ).get('OWNER');
+    // MIGRATED: Check if user is the owner using sqlManager
+    const ownerSetting = await settingsQueries.getSettingByKey(db, 'OWNER');
     
     const isOwner = ownerSetting && ownerSetting.value === user.email;
     const isDefaultAdmin = user.email === 'admin@kanban.local';
     
-    console.log('📞 Owner setting:', ownerSetting?.value);
-    console.log('📞 User email:', user.email);
-    console.log('📞 Is owner:', isOwner, 'Is default admin:', isDefaultAdmin);
-    
+    if (dbgHttp) {
+      console.log('📞 Owner setting:', ownerSetting?.value);
+      console.log('📞 User email:', user.email);
+      console.log('📞 Is owner:', isOwner, 'Is default admin:', isDefaultAdmin);
+    }
+
     if (!isOwner && !isDefaultAdmin) {
-      console.log('❌ User is not owner or default admin. Owner:', ownerSetting?.value, 'User:', user.email);
+      if (dbgHttp) console.log('❌ User is not owner or default admin. Owner:', ownerSetting?.value, 'User:', user.email);
       return res.status(403).json({ error: 'Only the owner or default admin can update APP_URL' });
     }
     
     // Validate appUrl
     if (!appUrl || typeof appUrl !== 'string') {
-      console.log('❌ Invalid appUrl:', appUrl);
+      if (dbgHttp) console.log('❌ Invalid appUrl:', appUrl);
       return res.status(400).json({ error: 'appUrl is required and must be a string' });
     }
     
     // Validate URL format
     const trimmedUrl = appUrl.trim();
     if (!trimmedUrl.startsWith('http://') && !trimmedUrl.startsWith('https://')) {
-      console.log('❌ Invalid URL format:', trimmedUrl);
+      if (dbgHttp) console.log('❌ Invalid URL format:', trimmedUrl);
       return res.status(400).json({ error: 'appUrl must be a valid URL starting with http:// or https://' });
     }
     
     // Remove trailing slash if present
     const normalizedUrl = trimmedUrl.replace(/\/$/, '');
     
-    // Get current APP_URL
-    const currentAppUrl = await wrapQuery(
-      db.prepare('SELECT value FROM settings WHERE key = ?'),
-      'SELECT'
-    ).get('APP_URL');
+    // MIGRATED: Get current APP_URL using sqlManager
+    const currentAppUrl = await settingsQueries.getSettingByKey(db, 'APP_URL');
     
-    console.log('📞 Current APP_URL:', currentAppUrl?.value);
-    console.log('📞 New APP_URL:', normalizedUrl);
-    console.log('📞 Are they different?', !currentAppUrl || currentAppUrl.value !== normalizedUrl);
-    
-    // Update APP_URL only if it's different
+    if (dbgHttp) {
+      console.log('📞 Current APP_URL:', currentAppUrl?.value);
+      console.log('📞 New APP_URL:', normalizedUrl);
+      console.log('📞 Are they different?', !currentAppUrl || currentAppUrl.value !== normalizedUrl);
+    }
+
+    // MIGRATED: Update APP_URL only if it's different using sqlManager
     if (!currentAppUrl || currentAppUrl.value !== normalizedUrl) {
-      await wrapQuery(
-        db.prepare('INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, ?)'),
-        'INSERT'
-      ).run('APP_URL', normalizedUrl, new Date().toISOString());
-      console.log(`✅ APP_URL updated from "${currentAppUrl?.value || 'null'}" to "${normalizedUrl}"`);
+      await settingsQueries.upsertSettingWithTimestamp(db, 'APP_URL', normalizedUrl, new Date().toISOString());
+      if (dbgHttp) console.log(`✅ APP_URL updated from "${currentAppUrl?.value || 'null'}" to "${normalizedUrl}"`);
       
       res.json({ 
         message: 'APP_URL updated successfully',
         appUrl: normalizedUrl
       });
     } else {
-      console.log('ℹ️ APP_URL unchanged, already set to:', normalizedUrl);
+      if (dbgHttp) console.log('ℹ️ APP_URL unchanged, already set to:', normalizedUrl);
       res.json({ 
         message: 'APP_URL unchanged',
         appUrl: normalizedUrl
@@ -251,65 +328,48 @@ router.post('/clear-mail', authenticateToken, requireRole(['admin']), async (req
       'SMTP_SECURE' // Clear SMTP_SECURE so admin can set their own preference
     ];
     
-    // Clear all mail-related settings in a single transaction
-    if (isProxyDatabase(db)) {
-      // Proxy mode: Collect all queries and send as batch
-      const batchQueries = [];
-      const insertQuery = `
-        INSERT OR REPLACE INTO settings (key, value, updated_at) 
-        VALUES (?, ?, CURRENT_TIMESTAMP)
-      `;
-      
-      // Clear SMTP fields (set to empty strings)
-      for (const key of mailSettingsToClear) {
-        batchQueries.push({
-          query: insertQuery,
-          params: [key, '']
-        });
-      }
-      
-      // Set MAIL_MANAGED to false and MAIL_ENABLED to false
+    // MIGRATED: Clear all mail-related settings using sqlManager
+    
+    // Collect queries and send as a batched transaction
+    const batchQueries = [];
+    
+    // Clear SMTP fields (set to empty strings)
+    for (const key of mailSettingsToClear) {
       batchQueries.push({
-        query: insertQuery,
-        params: ['MAIL_MANAGED', 'false']
-      });
-      batchQueries.push({
-        query: insertQuery,
-        params: ['MAIL_ENABLED', 'false']
-      });
-      
-      // Execute all inserts in a single batched transaction
-      await db.executeBatchTransaction(batchQueries);
-    } else {
-      // Direct DB mode: Use standard transaction
-      await dbTransaction(db, async () => {
-        const stmt = db.prepare(`
-          INSERT OR REPLACE INTO settings (key, value, updated_at) 
-          VALUES (?, ?, CURRENT_TIMESTAMP)
-        `);
-        
-        // Clear SMTP fields (set to empty strings)
-        for (const key of mailSettingsToClear) {
-          await wrapQuery(stmt, 'INSERT').run(key, '');
-        }
-        
-        // Set MAIL_MANAGED to false and MAIL_ENABLED to false
-        await wrapQuery(stmt, 'INSERT').run('MAIL_MANAGED', 'false');
-        await wrapQuery(stmt, 'INSERT').run('MAIL_ENABLED', 'false');
+        query: `INSERT INTO settings (key, value, updated_at) VALUES ($1, $2, CURRENT_TIMESTAMP) ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = CURRENT_TIMESTAMP`,
+        params: [key, '']
       });
     }
     
+    // Set MAIL_MANAGED to false and MAIL_ENABLED to false
+    batchQueries.push({
+      query: `INSERT INTO settings (key, value, updated_at) VALUES ($1, $2, CURRENT_TIMESTAMP) ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = CURRENT_TIMESTAMP`,
+      params: ['MAIL_MANAGED', 'false']
+    });
+    batchQueries.push({
+      query: `INSERT INTO settings (key, value, updated_at) VALUES ($1, $2, CURRENT_TIMESTAMP) ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = CURRENT_TIMESTAMP`,
+      params: ['MAIL_ENABLED', 'false']
+    });
+    
+    // Execute all inserts in a single batched transaction
+    await db.executeBatchTransaction(batchQueries);
+
+    
     // Publish to Redis for real-time updates (single message for all changes)
     const tenantId = getTenantId(req);
-    console.log('📤 Publishing mail-settings-cleared to Redis');
-    await redisService.publish('settings-updated', {
+    if (await serverDebug(db, 'SERVER_DEBUG_SETTINGS')) {
+      console.log('📤 Publishing mail-settings-cleared to Redis');
+    }
+    await notificationService.publish('settings-updated', {
       key: 'MAIL_SETTINGS_CLEARED',
       value: 'all',
       timestamp: new Date().toISOString(),
       clearedSettings: [...mailSettingsToClear, 'MAIL_MANAGED', 'MAIL_ENABLED']
     }, tenantId);
-    console.log('✅ Mail settings cleared and published to Redis');
-    
+    if (await serverDebug(db, 'SERVER_DEBUG_SETTINGS')) {
+      console.log('✅ Mail settings cleared and published to Redis');
+    }
+
     res.json({ 
       message: 'Mail settings cleared successfully',
       clearedSettings: [...mailSettingsToClear, 'MAIL_MANAGED', 'MAIL_ENABLED']

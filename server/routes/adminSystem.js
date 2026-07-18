@@ -2,7 +2,6 @@ import express from 'express';
 import os from 'os';
 import axios from 'axios';
 import { authenticateToken, requireRole } from '../middleware/auth.js';
-import { wrapQuery } from '../utils/queryLogger.js';
 import { getStorageUsage, formatBytes } from '../utils/storageUtils.js';
 import { getContainerMemoryInfo } from '../utils/containerMemory.js';
 import { manualTriggers } from '../jobs/scheduler.js';
@@ -10,6 +9,8 @@ import { getTranslator } from '../utils/i18n.js';
 import { getLicenseManager } from '../config/license.js';
 import { getSystemDiskUsage } from '../utils/diskUsage.js';
 import { getRequestDatabase } from '../middleware/tenantRouting.js';
+// MIGRATED: Import sqlManager
+import { helpers } from '../utils/sqlManager/index.js';
 
 const router = express.Router();
 
@@ -127,11 +128,11 @@ router.get('/system-info', authenticateToken, requireRole(['admin']), async (req
         storageLimit = limits ? limits.STORAGE_LIMIT : 5368709120; // Fallback to 5GB
       } else {
         // Demo mode: use default limit or get from settings
-        const limitSetting = wrapQuery(
-          db.prepare('SELECT value FROM settings WHERE key = ?'),
-          'SELECT'
-        ).get('STORAGE_LIMIT');
-        storageLimit = limitSetting ? parseInt(limitSetting.value) : 5368709120; // Default 5GB
+        // MIGRATED: Get STORAGE_LIMIT setting using sqlManager
+        const limitSetting = await helpers.getSetting(db, 'STORAGE_LIMIT');
+        storageLimit = limitSetting != null && limitSetting !== ''
+          ? parseInt(String(limitSetting), 10)
+          : 5368709120; // Default 5GB
       }
       
       diskUsed = storageUsage;
@@ -185,15 +186,13 @@ router.get('/system-info', authenticateToken, requireRole(['admin']), async (req
 });
 
 // Get instance owner
-router.get('/owner', authenticateToken, requireRole(['admin']), (req, res) => {
+router.get('/owner', authenticateToken, requireRole(['admin']), async (req, res) => {
   try {
     const db = getRequestDatabase(req);
-    const ownerSetting = wrapQuery(
-      db.prepare('SELECT value FROM settings WHERE key = ?'),
-      'SELECT'
-    ).get('OWNER');
-    
-    res.json({ owner: ownerSetting?.value || null });
+    // MIGRATED: Get OWNER setting using sqlManager
+    // helpers.getSetting returns the value string (not { value }), same as sqlManager contract
+    const ownerEmail = await helpers.getSetting(db, 'OWNER');
+    res.json({ owner: ownerEmail || null });
   } catch (error) {
     console.error('Error fetching owner:', error);
     res.status(500).json({ error: 'Failed to fetch owner' });
@@ -201,16 +200,13 @@ router.get('/owner', authenticateToken, requireRole(['admin']), (req, res) => {
 });
 
 // Get admin portal configuration
-router.get('/portal-config', authenticateToken, requireRole(['admin']), (req, res) => {
+router.get('/portal-config', authenticateToken, requireRole(['admin']), async (req, res) => {
   try {
     const db = getRequestDatabase(req);
-    const adminPortalUrl = wrapQuery(
-      db.prepare('SELECT value FROM settings WHERE key = ?'),
-      'SELECT'
-    ).get('ADMIN_PORTAL_URL');
-    
-    res.json({ 
-      adminPortalUrl: adminPortalUrl?.value || null 
+    // MIGRATED: Get ADMIN_PORTAL_URL setting using sqlManager
+    const adminPortalUrl = await helpers.getSetting(db, 'ADMIN_PORTAL_URL');
+    res.json({
+      adminPortalUrl: adminPortalUrl || null
     });
   } catch (error) {
     console.error('Error fetching portal config:', error);
@@ -222,37 +218,23 @@ router.get('/portal-config', authenticateToken, requireRole(['admin']), (req, re
 router.get('/instance-portal/billing-history', authenticateToken, requireRole(['admin']), async (req, res) => {
   try {
     const db = getRequestDatabase(req);
-    // Check if user is the owner
-    const ownerSetting = wrapQuery(
-      db.prepare('SELECT value FROM settings WHERE key = ?'),
-      'SELECT'
-    ).get('OWNER');
-    
-    if (!ownerSetting || ownerSetting.value !== req.user.email) {
+    // MIGRATED: Check if user is the owner using sqlManager
+    const ownerEmail = await helpers.getSetting(db, 'OWNER');
+    if (!ownerEmail || String(ownerEmail).trim().toLowerCase() !== String(req.user.email || '').trim().toLowerCase()) {
       return res.status(403).json({ error: 'Only the instance owner can access billing history' });
     }
     
-    // Get admin portal URL
-    const adminPortalUrl = wrapQuery(
-      db.prepare('SELECT value FROM settings WHERE key = ?'),
-      'SELECT'
-    ).get('ADMIN_PORTAL_URL');
-    
-    if (!adminPortalUrl || !adminPortalUrl.value) {
+    const adminPortalUrl = await helpers.getSetting(db, 'ADMIN_PORTAL_URL');
+    if (!adminPortalUrl || !String(adminPortalUrl).trim()) {
       return res.status(404).json({ error: 'Admin portal URL not configured' });
     }
     
-    // Get instance ID
-    const instanceId = wrapQuery(
-      db.prepare('SELECT value FROM settings WHERE key = ?'),
-      'SELECT'
-    ).get('INSTANCE_ID');
+    const instanceId = await helpers.getSetting(db, 'INSTANCE_ID');
     
-    // Make request to admin portal
     const response = await axios.get(
-      `${adminPortalUrl.value}/api/instance-portal/billing-history`,
+      `${String(adminPortalUrl).replace(/\/$/, '')}/api/instance-portal/billing-history`,
       {
-        params: { instanceId: instanceId?.value },
+        params: { instanceId: instanceId || undefined },
         headers: {
           'Authorization': `Bearer ${req.header('Authorization')?.replace('Bearer ', '')}`
         },
@@ -278,37 +260,23 @@ router.get('/instance-portal/billing-history', authenticateToken, requireRole(['
 router.post('/instance-portal/change-plan', authenticateToken, requireRole(['admin']), async (req, res) => {
   try {
     const db = getRequestDatabase(req);
-    // Check if user is the owner
-    const ownerSetting = wrapQuery(
-      db.prepare('SELECT value FROM settings WHERE key = ?'),
-      'SELECT'
-    ).get('OWNER');
-    
-    if (!ownerSetting || ownerSetting.value !== req.user.email) {
+    // MIGRATED: Check if user is the owner using sqlManager
+    const ownerEmail = await helpers.getSetting(db, 'OWNER');
+    if (!ownerEmail || String(ownerEmail).trim().toLowerCase() !== String(req.user.email || '').trim().toLowerCase()) {
       return res.status(403).json({ error: 'Only the instance owner can change the subscription plan' });
     }
     
-    // Get admin portal URL
-    const adminPortalUrl = wrapQuery(
-      db.prepare('SELECT value FROM settings WHERE key = ?'),
-      'SELECT'
-    ).get('ADMIN_PORTAL_URL');
-    
-    if (!adminPortalUrl || !adminPortalUrl.value) {
+    const adminPortalUrl = await helpers.getSetting(db, 'ADMIN_PORTAL_URL');
+    if (!adminPortalUrl || !String(adminPortalUrl).trim()) {
       return res.status(404).json({ error: 'Admin portal URL not configured' });
     }
     
-    // Get instance ID
-    const instanceId = wrapQuery(
-      db.prepare('SELECT value FROM settings WHERE key = ?'),
-      'SELECT'
-    ).get('INSTANCE_ID');
+    const instanceId = await helpers.getSetting(db, 'INSTANCE_ID');
     
-    // Make request to admin portal
     const response = await axios.post(
-      `${adminPortalUrl.value}/api/instance-portal/subscription/change-plan`,
+      `${String(adminPortalUrl).replace(/\/$/, '')}/api/instance-portal/subscription/change-plan`,
       {
-        instanceId: instanceId?.value,
+        instanceId: instanceId || undefined,
         ...req.body
       },
       {
@@ -337,37 +305,23 @@ router.post('/instance-portal/change-plan', authenticateToken, requireRole(['adm
 router.post('/instance-portal/cancel-subscription', authenticateToken, requireRole(['admin']), async (req, res) => {
   try {
     const db = getRequestDatabase(req);
-    // Check if user is the owner
-    const ownerSetting = wrapQuery(
-      db.prepare('SELECT value FROM settings WHERE key = ?'),
-      'SELECT'
-    ).get('OWNER');
-    
-    if (!ownerSetting || ownerSetting.value !== req.user.email) {
+    // MIGRATED: Check if user is the owner using sqlManager
+    const ownerEmail = await helpers.getSetting(db, 'OWNER');
+    if (!ownerEmail || String(ownerEmail).trim().toLowerCase() !== String(req.user.email || '').trim().toLowerCase()) {
       return res.status(403).json({ error: 'Only the instance owner can cancel the subscription' });
     }
     
-    // Get admin portal URL
-    const adminPortalUrl = wrapQuery(
-      db.prepare('SELECT value FROM settings WHERE key = ?'),
-      'SELECT'
-    ).get('ADMIN_PORTAL_URL');
-    
-    if (!adminPortalUrl || !adminPortalUrl.value) {
+    const adminPortalUrl = await helpers.getSetting(db, 'ADMIN_PORTAL_URL');
+    if (!adminPortalUrl || !String(adminPortalUrl).trim()) {
       return res.status(404).json({ error: 'Admin portal URL not configured' });
     }
     
-    // Get instance ID
-    const instanceId = wrapQuery(
-      db.prepare('SELECT value FROM settings WHERE key = ?'),
-      'SELECT'
-    ).get('INSTANCE_ID');
+    const instanceId = await helpers.getSetting(db, 'INSTANCE_ID');
     
-    // Make request to admin portal
     const response = await axios.post(
-      `${adminPortalUrl.value}/api/instance-portal/subscription/cancel`,
+      `${String(adminPortalUrl).replace(/\/$/, '')}/api/instance-portal/subscription/cancel`,
       {
-        instanceId: instanceId?.value,
+        instanceId: instanceId || undefined,
         ...req.body
       },
       {
@@ -395,27 +349,37 @@ router.post('/instance-portal/cancel-subscription', authenticateToken, requireRo
 // Check email server status
 router.get('/email-status', authenticateToken, requireRole(['admin']), async (req, res) => {
   try {
-    const { getNotificationService } = await import('../services/notificationService.js');
-    const notificationService = getNotificationService();
-    const emailValidation = notificationService.emailService.validateEmailConfig();
-    
+    const db = getRequestDatabase(req);
+    const EmailService = (await import('../services/emailService.js')).default;
+    const emailService = new EmailService(db);
+    const emailValidation = await emailService.validateEmailConfig();
+    const s = emailValidation.settings || {};
+    const hasSettings = !!(s.SMTP_HOST || s.MAIL_ENABLED);
+
     console.log('🔍 Email status check:', {
       valid: emailValidation.valid,
       error: emailValidation.error,
-      mailEnabled: emailValidation.settings?.MAIL_ENABLED,
+      mailEnabled: s.MAIL_ENABLED,
       available: emailValidation.valid
     });
-    
+
     res.json({
       available: emailValidation.valid,
-      error: emailValidation.error || null,
+      implemented: true,
+      hasSettings,
+      error: emailValidation.valid ? null : (emailValidation.error || null),
+      message: emailValidation.valid
+        ? 'Email service is ready for sending'
+        : (emailValidation.error || 'Email is not configured'),
       details: emailValidation.details || null,
-      settings: emailValidation.valid ? {
-        host: emailValidation.settings.SMTP_HOST,
-        port: emailValidation.settings.SMTP_PORT,
-        from: emailValidation.settings.SMTP_FROM_EMAIL,
-        enabled: emailValidation.settings.MAIL_ENABLED === 'true'
-      } : null
+      settings: emailValidation.valid
+        ? {
+            mailEnabled: s.MAIL_ENABLED === 'true',
+            host: s.SMTP_HOST || null,
+            port: s.SMTP_PORT || null,
+            from: s.SMTP_FROM_EMAIL || null
+          }
+        : null
     });
   } catch (error) {
     console.error('Email status check error:', error);

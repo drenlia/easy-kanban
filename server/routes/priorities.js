@@ -1,11 +1,18 @@
 import express from 'express';
 import { authenticateToken, requireRole } from '../middleware/auth.js';
 import { wrapQuery } from '../utils/queryLogger.js';
-import redisService from '../services/redisService.js';
+import notificationService from '../services/notificationService.js';
 import { getRequestDatabase } from '../middleware/tenantRouting.js';
-import { dbTransaction, isProxyDatabase } from '../utils/dbAsync.js';
+import { dbTransaction } from '../utils/dbAsync.js';
+import { priorities as priorityQueries } from '../utils/sqlManager/index.js';
+import { tasks as taskQueries } from '../utils/sqlManager/index.js';
 
 const router = express.Router();
+
+// Helper to get the actual notification system being used (for accurate logging)
+const getNotificationSystem = () => {
+  return 'PostgreSQL';
+};
 
 // Get all priorities (authenticated users only) - must come BEFORE admin routes
 // Skip if mounted at /api/admin/priorities (admin routes will handle it)
@@ -17,7 +24,8 @@ router.get('/', authenticateToken, async (req, res, next) => {
   
   try {
     const db = getRequestDatabase(req);
-    const priorities = await wrapQuery(db.prepare('SELECT * FROM priorities ORDER BY position ASC'), 'SELECT').all();
+    // MIGRATED: Use sqlManager to get all priorities
+    const priorities = await priorityQueries.getAllPriorities(db);
     res.json(priorities);
   } catch (error) {
     console.error('Error fetching priorities:', error);
@@ -31,15 +39,15 @@ router.get('/:priorityId/usage', authenticateToken, requireRole(['admin']), asyn
   const db = getRequestDatabase(req);
   
   try {
-    // First get the priority name from the priority ID
-    const priority = await wrapQuery(db.prepare('SELECT priority FROM priorities WHERE id = ?'), 'SELECT').get(priorityId);
+    // MIGRATED: Check if priority exists using sqlManager
+    const priority = await priorityQueries.getPriorityById(db, parseInt(priorityId));
     if (!priority) {
       return res.status(404).json({ error: 'Priority not found' });
     }
     
-    // Count tasks that use this priority (by priority_id)
-    const usageCount = await wrapQuery(db.prepare('SELECT COUNT(*) as count FROM tasks WHERE priority_id = ?'), 'SELECT').get(priorityId);
-    res.json({ count: usageCount.count });
+    // MIGRATED: Get usage count using sqlManager
+    const count = await priorityQueries.getPriorityUsageCount(db, parseInt(priorityId));
+    res.json({ count });
   } catch (error) {
     console.error('Error fetching priority usage:', error);
     res.status(500).json({ error: 'Failed to fetch priority usage' });
@@ -67,27 +75,9 @@ router.get('/usage/batch', authenticateToken, requireRole(['admin']), async (req
       return res.json({});
     }
     
-    // Batch fetch all usage counts in one query
-    const placeholders = priorityIds.map(() => '?').join(',');
-    const usageCounts = await wrapQuery(db.prepare(`
-      SELECT priority_id, COUNT(*) as count 
-      FROM tasks 
-      WHERE priority_id IN (${placeholders})
-      GROUP BY priority_id
-    `), 'SELECT').all(...priorityIds);
-    
-    // Create map of usage counts by priorityId
-    const usageMap = {};
-    usageCounts.forEach(usage => {
-      usageMap[usage.priority_id] = { count: usage.count };
-    });
-    
-    // Include zero counts for priorities with no usage
-    priorityIds.forEach(priorityId => {
-      if (!usageMap[priorityId]) {
-        usageMap[priorityId] = { count: 0 };
-      }
-    });
+    // MIGRATED: Get batch usage counts using sqlManager
+    const priorityIdsInt = priorityIds.map(id => parseInt(id));
+    const usageMap = await priorityQueries.getBatchPriorityUsageCounts(db, priorityIdsInt);
     
     res.json(usageMap);
   } catch (error) {
@@ -100,7 +90,8 @@ router.get('/usage/batch', authenticateToken, requireRole(['admin']), async (req
 router.get('/', authenticateToken, requireRole(['admin']), async (req, res) => {
   try {
     const db = getRequestDatabase(req);
-    const priorities = await wrapQuery(db.prepare('SELECT * FROM priorities ORDER BY position ASC'), 'SELECT').all();
+    // MIGRATED: Use sqlManager to get all priorities
+    const priorities = await priorityQueries.getAllPriorities(db);
     res.json(priorities);
   } catch (error) {
     console.error('Error fetching admin priorities:', error);
@@ -117,24 +108,20 @@ router.post('/', authenticateToken, requireRole(['admin']), async (req, res) => 
   }
 
   try {
-    // Get the next position
-    const maxPosition = await wrapQuery(db.prepare('SELECT MAX(position) as maxPos FROM priorities'), 'SELECT').get();
-    const position = (maxPosition?.maxPos || -1) + 1;
+    // MIGRATED: Get the next position using sqlManager
+    const maxPosition = await priorityQueries.getMaxPriorityPosition(db);
+    const position = maxPosition + 1;
     
-    const result = await wrapQuery(db.prepare(`
-      INSERT INTO priorities (priority, color, position, initial) 
-      VALUES (?, ?, ?, 0)
-    `), 'INSERT').run(priority, color, position);
-    
-    const newPriority = await wrapQuery(db.prepare('SELECT * FROM priorities WHERE id = ?'), 'SELECT').get(result.lastInsertRowid);
+    // MIGRATED: Create priority using sqlManager
+    const newPriority = await priorityQueries.createPriority(db, priority, color, position);
     
     // Publish to Redis for real-time updates
-    console.log('📤 Publishing priority-created to Redis');
-    await redisService.publish('priority-created', {
+    console.log(`📤 Publishing priority-created via ${getNotificationSystem()}`);
+    await notificationService.publish('priority-created', {
       priority: newPriority,
       timestamp: new Date().toISOString()
     });
-    console.log('✅ Priority-created published to Redis');
+    console.log(`✅ Priority-created published via ${getNotificationSystem()}`);
     
     res.json(newPriority);
   } catch (error) {
@@ -156,45 +143,27 @@ router.put('/reorder', authenticateToken, requireRole(['admin']), async (req, re
       return res.status(400).json({ error: 'Priorities array is required' });
     }
     
-    // Update positions in a transaction
+    // MIGRATED: Update positions using sqlManager
     const priorityUpdates = priorities.map((priority, index) => ({
       id: priority.id,
       position: index
     }));
     
-    if (isProxyDatabase(db)) {
-      // Proxy mode: Collect all queries and send as batch
-      const batchQueries = [];
-      const updateQuery = 'UPDATE priorities SET position = ? WHERE id = ?';
-      
-      for (const update of priorityUpdates) {
-        batchQueries.push({
-          query: updateQuery,
-          params: [update.position, update.id]
-        });
-      }
-      
-      // Execute all updates in a single batched transaction
-      await db.executeBatchTransaction(batchQueries);
-    } else {
-      // Direct DB mode: Use standard transaction
-      await dbTransaction(db, async () => {
-        for (const update of priorityUpdates) {
-          await wrapQuery(db.prepare('UPDATE priorities SET position = ? WHERE id = ?'), 'UPDATE').run(update.position, update.id);
-        }
-      });
-    }
+    // Use transaction to ensure atomicity
+    await dbTransaction(db, async () => {
+      await priorityQueries.updatePriorityPositions(db, priorityUpdates);
+    });
     
-    // Return updated priorities
-    const updatedPriorities = await wrapQuery(db.prepare('SELECT * FROM priorities ORDER BY position ASC'), 'SELECT').all();
+    // MIGRATED: Return updated priorities using sqlManager
+    const updatedPriorities = await priorityQueries.getAllPriorities(db);
     
     // Publish to Redis for real-time updates
-    console.log('📤 Publishing priority-reordered to Redis');
-    await redisService.publish('priority-reordered', {
+    console.log(`📤 Publishing priority-reordered via ${getNotificationSystem()}`);
+    await notificationService.publish('priority-reordered', {
       priorities: updatedPriorities,
       timestamp: new Date().toISOString()
     });
-    console.log('✅ Priority-reordered published to Redis');
+    console.log(`✅ Priority-reordered published via ${getNotificationSystem()}`);
     
     res.json(updatedPriorities);
   } catch (error) {
@@ -213,19 +182,16 @@ router.put('/:priorityId', authenticateToken, requireRole(['admin']), async (req
   }
 
   try {
-    await wrapQuery(db.prepare(`
-      UPDATE priorities SET priority = ?, color = ? WHERE id = ?
-    `), 'UPDATE').run(priority, color, priorityId);
-    
-    const updatedPriority = await wrapQuery(db.prepare('SELECT * FROM priorities WHERE id = ?'), 'SELECT').get(priorityId);
+    // MIGRATED: Update priority using sqlManager
+    const updatedPriority = await priorityQueries.updatePriority(db, parseInt(priorityId), priority, color);
     
     // Publish to Redis for real-time updates
-    console.log('📤 Publishing priority-updated to Redis');
-    await redisService.publish('priority-updated', {
+    console.log(`📤 Publishing priority-updated via ${getNotificationSystem()}`);
+    await notificationService.publish('priority-updated', {
       priority: updatedPriority,
       timestamp: new Date().toISOString()
     });
-    console.log('✅ Priority-updated published to Redis');
+    console.log(`✅ Priority-updated published via ${getNotificationSystem()}`);
     
     res.json(updatedPriority);
   } catch (error) {
@@ -242,8 +208,8 @@ router.delete('/:priorityId', authenticateToken, requireRole(['admin']), async (
   const db = getRequestDatabase(req);
   
   try {
-    // Get priority info before deletion for Redis publishing
-    const priorityToDelete = await wrapQuery(db.prepare('SELECT * FROM priorities WHERE id = ?'), 'SELECT').get(priorityId);
+    // MIGRATED: Get priority info before deletion using sqlManager
+    const priorityToDelete = await priorityQueries.getPriorityById(db, parseInt(priorityId));
     
     if (!priorityToDelete) {
       return res.status(404).json({ error: 'Priority not found' });
@@ -256,8 +222,8 @@ router.delete('/:priorityId', authenticateToken, requireRole(['admin']), async (
       });
     }
     
-    // Get the default priority to reassign tasks
-    const defaultPriority = await wrapQuery(db.prepare('SELECT * FROM priorities WHERE initial = 1'), 'SELECT').get();
+    // MIGRATED: Get the default priority using sqlManager
+    const defaultPriority = await priorityQueries.getDefaultPriority(db);
     
     if (!defaultPriority) {
       return res.status(400).json({ 
@@ -265,41 +231,38 @@ router.delete('/:priorityId', authenticateToken, requireRole(['admin']), async (
       });
     }
     
-    // Check if priority is being used (by priority_id)
-    const tasksUsingPriority = await wrapQuery(db.prepare(`
-      SELECT id, ticket, title, boardId
-      FROM tasks 
-      WHERE priority_id = ?
-      ORDER BY ticket
-    `), 'SELECT').all(priorityId);
+    // MIGRATED: Get tasks using this priority using sqlManager
+    const tasksUsingPriority = await priorityQueries.getTasksUsingPriority(db, parseInt(priorityId));
     
     // Use transaction to ensure atomicity
     await dbTransaction(db, async () => {
-      // If priority is in use, reassign all tasks to the default priority (by priority_id)
+      // If priority is in use, reassign all tasks to the default priority
       if (tasksUsingPriority.length > 0) {
         console.log(`📋 Reassigning ${tasksUsingPriority.length} tasks from priority ID ${priorityId} to default priority "${defaultPriority.priority}" (ID: ${defaultPriority.id})`);
         
-        await wrapQuery(db.prepare(`
-          UPDATE tasks 
-          SET priority_id = ?, priority = ? 
-          WHERE priority_id = ?
-        `), 'UPDATE').run(defaultPriority.id, defaultPriority.priority, priorityId);
+        // MIGRATED: Reassign tasks using sqlManager
+        await priorityQueries.reassignTasksPriority(
+          db, 
+          parseInt(priorityId), 
+          defaultPriority.id, 
+          defaultPriority.priority
+        );
         
         console.log(`✅ Reassigned ${tasksUsingPriority.length} tasks to default priority`);
       }
       
-      // Now delete the priority
-      await wrapQuery(db.prepare('DELETE FROM priorities WHERE id = ?'), 'DELETE').run(priorityId);
+      // MIGRATED: Delete the priority using sqlManager
+      await priorityQueries.deletePriority(db, parseInt(priorityId));
     });
     
-    // Publish priority deletion to Redis for real-time updates
-    console.log('📤 Publishing priority-deleted to Redis');
-    await redisService.publish('priority-deleted', {
+    // Publish priority deletion for real-time updates
+    console.log(`📤 Publishing priority-deleted via ${getNotificationSystem()}`);
+    await notificationService.publish('priority-deleted', {
       priorityId: priorityId,
       priority: priorityToDelete,
       timestamp: new Date().toISOString()
     });
-    console.log('✅ Priority-deleted published to Redis');
+    console.log(`✅ Priority-deleted published via ${getNotificationSystem()}`);
     
     // If tasks were reassigned, publish task updates for each affected board
     if (tasksUsingPriority.length > 0) {
@@ -315,13 +278,32 @@ router.delete('/:priorityId', authenticateToken, requireRole(['admin']), async (
         console.log(`📤 Publishing ${tasks.length} task updates for board ${boardId}`);
         
         for (const task of tasks) {
-          // Fetch updated task data
-          const updatedTask = await wrapQuery(db.prepare('SELECT * FROM tasks WHERE id = ?'), 'SELECT').get(task.id);
+          // MIGRATED: Fetch updated task data with priority information using sqlManager
+          const updatedTask = await taskQueries.getTaskWithRelationships(db, task.id);
           
           if (updatedTask) {
-            await redisService.publish('task-updated', {
+            // Ensure priority fields are properly set for frontend
+            // CRITICAL: Use priorityName from JOIN only - never use task.priority (text field can be stale)
+            const priorityId = updatedTask.priorityId || updatedTask.priority_id || null;
+            const priorityName = updatedTask.priorityName || null; // Use JOIN value only, not task.priority
+            const priorityColor = updatedTask.priorityColor || null;
+            
+            // Build clean task object with explicit priority fields
+            // CRITICAL: Exclude the stale priority field from tasks table, use priorityName from JOIN only
+            // This ensures the frontend receives the correct priority data and overrides any cached values
+            const { priority: stalePriority, priority_id: stalePriorityId, ...taskWithoutStalePriority } = updatedTask;
+            const cleanTask = {
+              ...taskWithoutStalePriority,
+              // Explicitly set priority fields from JOIN (source of truth)
+              priority: priorityName, // Use priorityName from JOIN, not stale tasks.priority field
+              priorityId: priorityId,
+              priorityName: priorityName,
+              priorityColor: priorityColor
+            };
+            
+            await notificationService.publish('task-updated', {
               boardId: boardId,
-              task: updatedTask,
+              task: cleanTask,
               timestamp: new Date().toISOString()
             });
           }
@@ -346,22 +328,19 @@ router.put('/:priorityId/set-default', authenticateToken, requireRole(['admin'])
   const db = getRequestDatabase(req);
   
   try {
-    // Check if priority exists
-    const priority = await wrapQuery(db.prepare('SELECT * FROM priorities WHERE id = ?'), 'SELECT').get(priorityId);
+    // MIGRATED: Check if priority exists using sqlManager
+    const priority = await priorityQueries.getPriorityById(db, parseInt(priorityId));
     if (!priority) {
       return res.status(404).json({ error: 'Priority not found' });
     }
 
-    // Start transaction to ensure only one priority can be default
+    // MIGRATED: Set default priority using sqlManager (within transaction)
     await dbTransaction(db, async () => {
-      // First, remove default flag from all priorities
-      await wrapQuery(db.prepare('UPDATE priorities SET initial = 0'), 'UPDATE').run();
-      // Then set the specified priority as default
-      await wrapQuery(db.prepare('UPDATE priorities SET initial = 1 WHERE id = ?'), 'UPDATE').run(priorityId);
+      await priorityQueries.setDefaultPriority(db, parseInt(priorityId));
     });
 
-    // Return updated priority
-    const updatedPriority = await wrapQuery(db.prepare('SELECT * FROM priorities WHERE id = ?'), 'SELECT').get(priorityId);
+    // MIGRATED: Return updated priority using sqlManager
+    const updatedPriority = await priorityQueries.getPriorityById(db, parseInt(priorityId));
     res.json(updatedPriority);
   } catch (error) {
     console.error('Error setting default priority:', error);

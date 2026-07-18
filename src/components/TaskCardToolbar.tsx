@@ -7,6 +7,7 @@ import { formatMembersTooltip } from '../utils/taskUtils';
 import { getAuthenticatedAvatarUrl } from '../utils/authImageUrl';
 import { truncateMemberName } from '../utils/memberUtils';
 import AddTagModal from './AddTagModal';
+import { KanbanChromeTooltip } from './KanbanChromeTooltip';
 
 // System user member ID constant
 const SYSTEM_MEMBER_ID = '00000000-0000-0000-0000-000000000001';
@@ -43,10 +44,10 @@ interface TaskCardToolbarProps {
   onLinkToolHover?: (task: Task) => void;
   onLinkToolHoverEnd?: () => void;
   
-  // Show/hide toolbar based on hover or editing state
-  isHoveringCard?: boolean;
+  // Toolbar pinned open when editing or selected; hover uses parent `group` + group-hover
   isEditingTitle?: boolean;
   isEditingDescription?: boolean;
+  isSelected?: boolean;
 }
 
 export default function TaskCardToolbar({
@@ -81,10 +82,9 @@ export default function TaskCardToolbar({
   onLinkToolHover,
   onLinkToolHoverEnd,
   
-  // Show/hide toolbar props
-  isHoveringCard = false,
   isEditingTitle = false,
-  isEditingDescription = false
+  isEditingDescription = false,
+  isSelected = false
 }: TaskCardToolbarProps) {
   const { t } = useTranslation(['tasks', 'common']);
   const _priorityButtonRef = useRef<HTMLButtonElement>(null);
@@ -95,9 +95,8 @@ export default function TaskCardToolbar({
   const quickTagDropdownRef = useRef<HTMLDivElement>(null);
   const memberButtonRef = useRef<HTMLButtonElement>(null);
   
-  // Determine if toolbar should be visible
-  const shouldShowToolbar = isHoveringCard || isEditingTitle || isEditingDescription;
-  
+  const toolbarPinnedOpen =
+    isEditingTitle || isEditingDescription || isSelected;
 
   const handleCopy = () => {
     onCopy(task);
@@ -354,112 +353,129 @@ export default function TaskCardToolbar({
   return (
     <>
       {/* Drag Handle - Top Left - Always visible */}
-      <div
-        {...listeners}
-        {...attributes}
-        className={`absolute top-1 left-1 p-1 z-[6] rounded ${
-          !isDragDisabled 
-            ? 'cursor-grab active:cursor-grabbing hover:bg-gray-200 opacity-60 hover:opacity-100' 
-            : 'cursor-not-allowed opacity-0'
-        } transition-all duration-200`}
-        title={t('toolbar.dragToMove')}
-      >
-        <GripVertical size={12} className="text-gray-400" />
-      </div>
+      <KanbanChromeTooltip label={t('toolbar.dragToMove')} wrapperClassName="absolute top-1 left-1 z-[6]">
+        <div
+          {...listeners}
+          {...attributes}
+          className={`p-1 rounded ${
+            !isDragDisabled
+              ? 'cursor-grab active:cursor-grabbing hover:bg-gray-200 opacity-60 hover:opacity-100'
+              : 'cursor-not-allowed opacity-0'
+          } transition-all duration-200`}
+        >
+          <GripVertical size={12} className="text-gray-400" />
+        </div>
+      </KanbanChromeTooltip>
 
-      {/* Unified Toolbar - All action buttons left-justified after drag handle */}
-      {shouldShowToolbar && (
-        <div className="absolute top-0 left-4 px-2 py-1 transition-opacity duration-200 z-[5]" data-tour-id="task-card-toolbar">
+      {/* Unified Toolbar - visibility via parent `group` hover so reorder under cursor still shows toolbar */}
+      <div
+        className={`absolute top-0 left-4 z-[5] px-2 py-1 transition-opacity duration-200 ${
+          toolbarPinnedOpen
+            ? 'pointer-events-auto opacity-100'
+            : 'pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100'
+        }`}
+        data-tour-id="task-card-toolbar"
+      >
           <div className="flex gap-0">
               {/* Add Comment Button */}
             {onAddComment && (
-              <button
-                className="p-1 hover:bg-gray-100 rounded-full transition-colors"
-                title={t('toolbar.addComment')}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onAddComment();
-                }}
-              >
-                <MessageSquarePlus size={14} className="text-gray-400 hover:text-gray-600 transition-colors" />
-              </button>
+              <KanbanChromeTooltip label={t('toolbar.addComment')}>
+                <button
+                  className="p-1 hover:bg-gray-100 rounded-full transition-colors"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onAddComment();
+                  }}
+                >
+                  <MessageSquarePlus size={14} className="text-gray-400 hover:text-gray-600 transition-colors" />
+                </button>
+              </KanbanChromeTooltip>
             )}
             
-            {/* Add Tag Button */}
-            {onTagAdd && availableTagsForAssignment.length > 0 && (
-              <button
-                ref={quickTagButtonRef}
-                className="p-1 hover:bg-gray-100 rounded-full transition-colors"
-                title={t('toolbar.addTag')}
-                onClick={handleQuickTagClick}
-              >
-                <div className="relative">
-                  <TagIcon size={14} className="text-gray-400 hover:text-gray-600 transition-colors" />
-                  <Plus size={7} className="text-gray-400 absolute -top-1 -right-1" />
-                </div>
-              </button>
+            {/* Add Tag Button - Always show when onTagAdd is provided, regardless of available tags */}
+            {onTagAdd && (
+              <KanbanChromeTooltip label={t('toolbar.addTag')}>
+                <button
+                  ref={quickTagButtonRef}
+                  className="p-1 hover:bg-gray-100 rounded-full transition-colors"
+                  onClick={handleQuickTagClick}
+                >
+                  <div className="relative">
+                    <TagIcon size={14} className="text-gray-400 hover:text-gray-600 transition-colors" />
+                    <Plus size={7} className="text-gray-400 absolute -top-1 -right-1" />
+                  </div>
+                </button>
+              </KanbanChromeTooltip>
             )}
             
             {/* Copy Task Button */}
-            <button
-              onClick={handleCopy}
-              className="p-1 hover:bg-gray-100 rounded-full transition-colors"
-              title={t('toolbar.copyTask')}
-            >
-              <Copy size={14} className="text-gray-400 hover:text-gray-600 transition-colors" />
-            </button>
+            <KanbanChromeTooltip label={t('toolbar.copyTask')}>
+              <button
+                onClick={handleCopy}
+                className="p-1 hover:bg-gray-100 rounded-full transition-colors"
+              >
+                <Copy size={14} className="text-gray-400 hover:text-gray-600 transition-colors" />
+              </button>
+            </KanbanChromeTooltip>
             
             {/* View Details Button - REMOVED: Click anywhere on card to open details */}
             
             {/* Link Task Button */}
             {onStartLinking && (
-              <button
-                data-no-dnd="true"
-                onPointerDown={(e) => {
-                  // Only prevent default if we're actually starting a drag
-                  // Allow hover events to fire first
-                  handleLinkPointerDown(e);
-                }}
-                onMouseDown={(e) => {
-                  // Only prevent default if we're actually starting a drag
-                  // Allow hover events to fire first
-                  handleLinkMouseDown(e);
-                }}
-                onClick={(e) => {
-                  // Prevent click from doing anything - we only want mousedown + drag
-                  e.preventDefault();
-                  e.stopPropagation();
-                }}
-                onMouseEnter={(e) => {
-                  // Ensure hover works even if pointer/mouse down handlers are active
-                  e.stopPropagation(); // Prevent event from bubbling to parent
-                  onLinkToolHover?.(task);
-                }}
-                onMouseLeave={(e) => {
-                  // Ensure hover end works
-                  e.stopPropagation(); // Prevent event from bubbling to parent
-                  onLinkToolHoverEnd?.();
-                }}
-                onPointerEnter={(e) => {
-                  // Also handle pointer enter for touch devices
-                  e.stopPropagation();
-                  onLinkToolHover?.(task);
-                }}
-                onPointerLeave={(e) => {
-                  // Also handle pointer leave for touch devices
-                  e.stopPropagation();
-                  onLinkToolHoverEnd?.();
-                }}
-                className={`p-1 rounded-full transition-colors ${
+              <KanbanChromeTooltip
+                label={
                   isLinkingMode && linkingSourceTask?.id === task.id
-                    ? 'bg-blue-100 dark:bg-blue-900 text-blue-600 dark:text-blue-400'
-                    : 'hover:bg-blue-100 dark:hover:bg-blue-900 text-gray-400 dark:text-gray-500 hover:text-blue-600 dark:hover:text-blue-400'
-                }`}
-                style={{ pointerEvents: 'auto', zIndex: 100, touchAction: 'none', userSelect: 'none' }}
-                title={isLinkingMode && linkingSourceTask?.id === task.id ? t('toolbar.sourceTaskForLinking') : t('toolbar.holdAndDragToLink')}
+                    ? t('toolbar.sourceTaskForLinking')
+                    : t('toolbar.holdAndDragToLink')
+                }
               >
-                <Link size={14} />
-              </button>
+                <button
+                  data-no-dnd="true"
+                  onPointerDown={(e) => {
+                    // Only prevent default if we're actually starting a drag
+                    // Allow hover events to fire first
+                    handleLinkPointerDown(e);
+                  }}
+                  onMouseDown={(e) => {
+                    // Only prevent default if we're actually starting a drag
+                    // Allow hover events to fire first
+                    handleLinkMouseDown(e);
+                  }}
+                  onClick={(e) => {
+                    // Prevent click from doing anything - we only want mousedown + drag
+                    e.preventDefault();
+                    e.stopPropagation();
+                  }}
+                  onMouseEnter={(e) => {
+                    // Ensure hover works even if pointer/mouse down handlers are active
+                    e.stopPropagation(); // Prevent event from bubbling to parent
+                    onLinkToolHover?.(task);
+                  }}
+                  onMouseLeave={(e) => {
+                    // Ensure hover end works
+                    e.stopPropagation(); // Prevent event from bubbling to parent
+                    onLinkToolHoverEnd?.();
+                  }}
+                  onPointerEnter={(e) => {
+                    // Also handle pointer enter for touch devices
+                    e.stopPropagation();
+                    onLinkToolHover?.(task);
+                  }}
+                  onPointerLeave={(e) => {
+                    // Also handle pointer leave for touch devices
+                    e.stopPropagation();
+                    onLinkToolHoverEnd?.();
+                  }}
+                  className={`p-1 rounded-full transition-colors ${
+                    isLinkingMode && linkingSourceTask?.id === task.id
+                      ? 'bg-blue-100 dark:bg-blue-900 text-blue-600 dark:text-blue-400'
+                      : 'hover:bg-blue-100 dark:hover:bg-blue-900 text-gray-400 dark:text-gray-500 hover:text-blue-600 dark:hover:text-blue-400'
+                  }`}
+                  style={{ pointerEvents: 'auto', zIndex: 100, touchAction: 'none', userSelect: 'none' }}
+                >
+                  <Link size={14} />
+                </button>
+              </KanbanChromeTooltip>
             )}
             
             {/* Archive Task Button - Show on all tasks when archive column exists, but not if task is already archived */}
@@ -477,57 +493,70 @@ export default function TaskCardToolbar({
               
               // Show button if archive column exists AND task is not already in an archived column
               return archiveColumn && !isCurrentColumnArchived ? (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    // Move task to archive column
-                    onEdit({ ...task, columnId: archiveColumn.id });
-                  }}
-                  className="p-1 hover:bg-yellow-100 rounded-full transition-colors"
-                  title={t('toolbar.archiveTask')}
-                >
-                  <Archive size={14} className="text-yellow-600" />
-                </button>
+                <KanbanChromeTooltip label={t('toolbar.archiveTask')}>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      // Move task to archive column
+                      onEdit({ ...task, columnId: archiveColumn.id });
+                    }}
+                    className="p-1 hover:bg-yellow-100 rounded-full transition-colors"
+                  >
+                    <Archive size={14} className="text-yellow-600" />
+                  </button>
+                </KanbanChromeTooltip>
               ) : null;
             })()}
             
             {/* Delete Task Button */}
-            <button
-              onClick={(e) => onRemove(task.id, e)}
-              className="p-1 hover:bg-red-100 rounded-full transition-colors"
-              title={t('toolbar.deleteTask')}
-            >
-              <Trash2 size={14} className="text-red-500" />
-            </button>
+            <KanbanChromeTooltip label={t('toolbar.deleteTask')}>
+              <button
+                onClick={(e) => onRemove(task.id, e)}
+                className="p-1 hover:bg-red-100 rounded-full transition-colors"
+              >
+                <Trash2 size={14} className="text-red-500" />
+              </button>
+            </KanbanChromeTooltip>
         </div>
       </div>
-      )}
 
       {/* Watchers & Collaborators Icons - Right side between buttons and avatar */}
       <div className="absolute top-0 right-[40px] flex gap-1 z-30 px-2 py-1" style={{ top: '7px' }}>
           {task.watchers && task.watchers.length > 0 && (
-            <div className="flex items-center" title={formatMembersTooltip(task.watchers, 'watcher')}>
-              <Eye size={12} className="text-blue-500" />
-              <span className="text-[10px] text-blue-600 ml-0.5 font-medium">{task.watchers.length}</span>
-            </div>
+            <KanbanChromeTooltip label={formatMembersTooltip(task.watchers, 'watcher')} delayMs={0} wrapperClassName="flex items-center">
+              <span className="flex items-center">
+                <Eye size={12} className="text-blue-500" />
+                <span className="text-[10px] text-blue-600 ml-0.5 font-medium">{task.watchers.length}</span>
+              </span>
+            </KanbanChromeTooltip>
           )}
           {task.collaborators && task.collaborators.length > 0 && (
-            <div className="flex items-center" title={formatMembersTooltip(task.collaborators, 'collaborator')}>
-              <UserPlus size={12} className="text-blue-500" />
-              <span className="text-[10px] text-blue-600 ml-0.5 font-medium">{task.collaborators.length}</span>
-            </div>
+            <KanbanChromeTooltip label={formatMembersTooltip(task.collaborators, 'collaborator')} delayMs={0} wrapperClassName="flex items-center">
+              <span className="flex items-center">
+                <UserPlus size={12} className="text-blue-500" />
+                <span className="text-[10px] text-blue-600 ml-0.5 font-medium">{task.collaborators.length}</span>
+              </span>
+            </KanbanChromeTooltip>
           )}
       </div>
 
       {/* Avatar Overlay - Top Right */}
       <div className={`absolute top-1 right-2 ${showMemberSelect ? 'z-[110]' : 'z-20'}`}>
         <div className="relative">
-          <button
-            ref={memberButtonRef}
-            onClick={handleMemberToggle}
-            className="p-1 hover:bg-gray-100 rounded-full transition-colors shadow-sm cursor-pointer"
-            title={t('toolbar.changeAssignee')}
-          >
+          <KanbanChromeTooltip label={t('toolbar.changeAssignee')}>
+            <button
+              ref={memberButtonRef}
+              onClick={(e) => {
+                handleMemberToggle(e);
+                // Prevent card selection by setting a flag (if available via props or context)
+                // The card's onClick will check for clicks on this button
+              }}
+              onMouseDown={(e) => {
+                e.stopPropagation();
+              }}
+              className="p-1 hover:bg-gray-100 rounded-full transition-colors shadow-sm cursor-pointer"
+              data-member-button="true"
+            >
             {member.googleAvatarUrl || member.avatarUrl ? (
               <img
                 src={getAuthenticatedAvatarUrl(member.googleAvatarUrl || member.avatarUrl)}
@@ -542,7 +571,8 @@ export default function TaskCardToolbar({
                 {member.id === SYSTEM_MEMBER_ID ? '🤖' : member.name.charAt(0).toUpperCase()}
               </div>
             )}
-          </button>
+            </button>
+          </KanbanChromeTooltip>
 
           {/* Member Selection Dropdown - Now handled by portal below */}
         </div>
@@ -618,14 +648,20 @@ export default function TaskCardToolbar({
         const position = getMemberDropdownPosition();
         return createPortal(
           <div 
-            data-member-dropdown
+            data-member-dropdown="true"
             className="fixed bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg shadow-lg z-[99999] min-w-[200px] overflow-y-auto"
             style={{
               left: `${position.left}px`,
               top: `${position.top}px`,
               maxHeight: `${position.height}px`
             }}
-            onClick={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              e.preventDefault();
+            }}
+            onMouseDown={(e) => {
+              e.stopPropagation();
+            }}
           >
           <div className="p-2">
             <div className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">{t('toolbar.assignTo')}</div>

@@ -305,14 +305,14 @@ const BurndownReport: React.FC<BurndownReportProps> = ({ initialFilters, onFilte
     // Calculate ideal line for full date range
     const idealLine = calculateIdealBurndown(allDates, dataMap, baselineTotalTasks);
     
-    // If viewing a specific board or no boards data
+    // If viewing a specific board or no boards data, show overall data
     if (boardId || !burndownData.boards || burndownData.boards.length === 0) {
       let lastRemaining = 0;
       return allDates.map((date, index) => {
         const dataPoint = dataMap.get(date);
         // If we have actual data, use it; otherwise carry forward the last value
         if (dataPoint) {
-          lastRemaining = dataPoint.remaining_tasks;
+          lastRemaining = Number(dataPoint.remaining_tasks) || 0;
         }
         return {
           date: parseLocalDate(date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
@@ -324,9 +324,10 @@ const BurndownReport: React.FC<BurndownReportProps> = ({ initialFilters, onFilte
       });
     }
 
-    // Viewing all boards - merge data with all dates
-    // Track last known value for each board
+    // Viewing all boards - merge data with all dates, but also include overall data
+    // Track last known value for each board and overall
     const lastBoardValues = new Map<string, number>();
+    let lastOverallRemaining = 0;
     
     const mergedData = allDates.map((date, index) => {
       const chartPoint: any = {
@@ -336,6 +337,15 @@ const BurndownReport: React.FC<BurndownReportProps> = ({ initialFilters, onFilte
         isWeekend: isWeekend(date)
       };
 
+      // Add overall data (from actualBurndown)
+      const overallDataPoint = dataMap.get(date);
+      if (overallDataPoint) {
+        lastOverallRemaining = Number(overallDataPoint.remaining_tasks) || 0;
+        chartPoint.remaining = lastOverallRemaining;
+      } else {
+        chartPoint.remaining = lastOverallRemaining;
+      }
+
       // Add each board's data
       burndownData.boards?.forEach(board => {
         const boardKey = `board_${board.boardId}`;
@@ -343,8 +353,8 @@ const BurndownReport: React.FC<BurndownReportProps> = ({ initialFilters, onFilte
         
         // If we have actual data, use it and update last known value
         if (boardDataPoint) {
-          lastBoardValues.set(boardKey, boardDataPoint.remaining_tasks);
-          chartPoint[boardKey] = boardDataPoint.remaining_tasks;
+          lastBoardValues.set(boardKey, Number(boardDataPoint.remaining_tasks) || 0);
+          chartPoint[boardKey] = Number(boardDataPoint.remaining_tasks) || 0;
         } else {
           // Carry forward the last known value (or 0 if no data yet)
           chartPoint[boardKey] = lastBoardValues.get(boardKey) || 0;
@@ -867,7 +877,9 @@ const BurndownReport: React.FC<BurndownReportProps> = ({ initialFilters, onFilte
                   />
                   
                   {/* Single board view or aggregated view */}
-                  {(boardId || !burndownData.boards || burndownData.boards.length === 0) && (
+                  {/* Overall remaining line - show when viewing specific board or when no boards, or always show alongside boards */}
+                  {((boardId || !burndownData.boards || burndownData.boards.length === 0) || 
+                    (!boardId && burndownData.boards && burndownData.boards.length > 0)) && (
                     <Line 
                       type="monotone" 
                       dataKey="remaining" 

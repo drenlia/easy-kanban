@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Users } from 'lucide-react';
+import { KanbanChromeTooltip } from './KanbanChromeTooltip';
 
 interface UserPresenceProps {
   socket: any;
@@ -68,14 +69,20 @@ export default function UserPresence({ socket, currentUser, members, boardOnline
 
   return (
     <div className="relative">
-      <button
-        onClick={() => setShowUserList(!showUserList)}
-        className="flex items-center gap-2 px-3 py-1.5 bg-blue-50 text-blue-700 rounded-full hover:bg-blue-100 transition-colors text-sm"
-        title={`${onlineCount} user${onlineCount === 1 ? '' : 's'} online`}
+      <KanbanChromeTooltip
+        label={`${onlineCount} user${onlineCount === 1 ? '' : 's'} online`}
+        delayMs={0}
+        wrapperClassName="inline-flex"
       >
-        <Users size={16} />
-        <span>{onlineCount} online</span>
-      </button>
+        <button
+          type="button"
+          onClick={() => setShowUserList(!showUserList)}
+          className="flex items-center gap-2 px-3 py-1.5 bg-blue-50 text-blue-700 rounded-full hover:bg-blue-100 transition-colors text-sm"
+        >
+          <Users size={16} />
+          <span>{onlineCount} online</span>
+        </button>
+      </KanbanChromeTooltip>
 
       {showUserList && (
         <div className="absolute top-full right-0 mt-2 w-64 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 z-50">

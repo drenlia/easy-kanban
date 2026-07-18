@@ -113,7 +113,8 @@ npm run docker:clean-legacy
 ## Volumes
 
 ### Application Volumes
-- `kanban-data`: SQLite database storage
+- `postgres_data`: PostgreSQL data directory
+- `kanban-data`: App file/metadata storage (non-SQL)
 - `kanban-attachments`: File upload storage
 - `kanban-avatars`: User avatar storage
 - `redis_data`: Redis persistent data storage
@@ -162,11 +163,12 @@ docker compose ps
 
 ### Database issues
 ```bash
-# Verify database file exists
-ls -la server/kanban.db
+# Check Postgres is healthy
+docker compose ps postgres
+docker exec easy-kanban-postgres pg_isready -U kanban_user -d kanban
 
-# Check database permissions
-docker exec -it easy-kanban ls -la /app/server/data
+# Run an ad-hoc query
+docker exec -it easy-kanban node /app/scripts/query-db.js "SELECT count(*) FROM users;"
 ```
 
 ### Redis connection issues

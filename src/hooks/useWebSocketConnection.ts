@@ -8,7 +8,9 @@ interface UseWebSocketConnectionProps {
   
   // Refs
   selectedBoardRef: RefObject<string | null>;
-  refreshBoardDataRef: RefObject<(() => Promise<void>) | null>;
+  refreshBoardDataRef: RefObject<
+    ((options?: { force?: boolean; forBoardId?: string }) => Promise<void>) | null
+  >;
   hasConnectedOnceRef: RefObject<boolean>;
   wasOfflineRef: RefObject<boolean>;
   

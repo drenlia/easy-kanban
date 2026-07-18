@@ -1,664 +1,438 @@
 #!/bin/bash
+#
+# Easy Kanban multi-tenant backup for Kubernetes (PostgreSQL)
+#
+# - Discovers tenants from Postgres schemas (tenant_*)
+# - Dumps each tenant schema to backups/{tenant}/kanban-{tenant}-backup-*.sql.gz
+# - Writes a full-database dump to backups/postgres/kanban-easykanban-full-*.sql.gz
+# - Backs up NFS attachments/avatars per tenant when available
+# - Retains files for RETENTION_DAYS (default 14)
+# - Removes legacy SQLite *-latest.db symlinks after a successful PG dump
+#
+# Crontab (user: daniel) — recommended:
+#   0 4 * * * /bin/bash -c 'export HOME=/home/daniel PATH=/usr/local/bin:/usr/bin:/bin KUBECONFIG=/home/daniel/.kube/config && cd /home/daniel/easy-kanban && ./scripts/backup-k8s-tenants.sh >>/home/daniel/easy-kanban/backup.log 2>&1'
+#
+set -euo pipefail
 
-# Easy Kanban Multi-Tenant Backup Script for Kubernetes
-# This script creates backups of databases, attachments, and avatars for each tenant
-# Backups are stored in backups/{tenant}/ with 2 weeks retention
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+cd "$PROJECT_ROOT"
 
-set -e  # Exit on any error
+# Cron-safe environment
+export HOME="${HOME:-/home/daniel}"
+export PATH="/usr/local/bin:/usr/bin:/bin:${PATH:-}"
 
-# Configuration
-BASE_BACKUP_DIR="./backups"
-RETENTION_DAYS=14
-TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-NAMESPACE="easy-kanban"  # Single shared namespace for multi-tenant
-NFS_SERVER_LABEL="app=nfs-server"  # NFS server pod label
+# --- Configuration (override via env) ---
+BASE_BACKUP_DIR="${BASE_BACKUP_DIR:-./backups}"
+RETENTION_DAYS="${RETENTION_DAYS:-14}"
+TIMESTAMP="${TIMESTAMP:-$(date +%Y%m%d_%H%M%S)}"
 
-# Colors for output
+PG_NAMESPACE="${PG_NAMESPACE:-easy-kanban-pg}"
+PG_DEPLOYMENT="${PG_DEPLOYMENT:-postgres}"
+POSTGRES_USER="${POSTGRES_USER:-kanban}"
+POSTGRES_DB="${POSTGRES_DB:-easykanban}"
+
+NFS_NAMESPACE="${NFS_NAMESPACE:-easy-kanban}"
+NFS_SERVER_LABEL="${NFS_SERVER_LABEL:-app=nfs-server}"
+SKIP_NFS="${SKIP_NFS:-false}"
+SKIP_FULL_DUMP="${SKIP_FULL_DUMP:-false}"
+
+if [ -z "${KUBECONFIG:-}" ]; then
+  if [ -f "${HOME}/.kube/config" ]; then
+    export KUBECONFIG="${HOME}/.kube/config"
+  elif [ -r /etc/kubernetes/admin.conf ]; then
+    export KUBECONFIG=/etc/kubernetes/admin.conf
+  fi
+fi
+
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
-# Function to print colored output
-print_status() {
-    echo -e "${BLUE}[INFO]${NC} $1"
+print_status()  { echo -e "${BLUE}[INFO]${NC} $1"; }
+print_success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
+print_warning() { echo -e "${YELLOW}[WARNING]${NC} $1" >&2; }
+print_error()   { echo -e "${RED}[ERROR]${NC} $1" >&2; }
+
+# Run kubectl|gzip and check both sides of the pipe (cron-safe)
+pg_dump_to_gzip() {
+  local dest="$1"
+  shift
+  local dump_rc gzip_rc
+  local -a pipe_copy
+  # Temporarily allow non-zero so we can inspect PIPESTATUS
+  set +e
+  "$@" | gzip -c > "$dest"
+  # Copy PIPESTATUS in one assignment before any other command
+  pipe_copy=("${PIPESTATUS[@]}")
+  set -e
+  dump_rc=${pipe_copy[0]:-1}
+  gzip_rc=${pipe_copy[1]:-1}
+  if [ "$dump_rc" -ne 0 ]; then
+    print_error "pg_dump failed (exit ${dump_rc})"
+    return 1
+  fi
+  if [ "$gzip_rc" -ne 0 ]; then
+    print_error "gzip failed (exit ${gzip_rc})"
+    return 1
+  fi
+  if [ ! -s "$dest" ]; then
+    print_error "Dump file is empty: ${dest}"
+    return 1
+  fi
+  return 0
 }
 
-print_success() {
-    echo -e "${GREEN}[SUCCESS]${NC} $1"
+require_kubectl() {
+  if ! command -v kubectl >/dev/null 2>&1; then
+    print_error "kubectl not found in PATH=${PATH}"
+    exit 1
+  fi
+  if [ -z "${KUBECONFIG:-}" ] || [ ! -r "${KUBECONFIG}" ]; then
+    print_error "KUBECONFIG missing or unreadable (KUBECONFIG='${KUBECONFIG:-}')"
+    exit 1
+  fi
+  if ! kubectl get namespace "$PG_NAMESPACE" >/dev/null 2>&1; then
+    print_error "Cannot access namespace '${PG_NAMESPACE}' with KUBECONFIG=${KUBECONFIG}"
+    exit 1
+  fi
+  if ! kubectl get deploy -n "$PG_NAMESPACE" "$PG_DEPLOYMENT" >/dev/null 2>&1; then
+    print_error "Deployment ${PG_NAMESPACE}/${PG_DEPLOYMENT} not found"
+    exit 1
+  fi
 }
 
-print_warning() {
-    echo -e "${YELLOW}[WARNING]${NC} $1"
+# schema tenant_drenlia → drenlia; tenant_amanda-pg → amanda-pg
+tenant_id_from_schema() {
+  local schema="$1"
+  echo "${schema#tenant_}"
 }
 
-print_error() {
-    echo -e "${RED}[ERROR]${NC} $1"
-}
-
-# Function to get NFS server pod name
-get_nfs_pod_name() {
-    local pod_name=$(kubectl get pods -n "$NAMESPACE" -l "$NFS_SERVER_LABEL" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
-    
-    if [ -z "$pod_name" ]; then
-        print_error "No NFS server pod found in namespace '${NAMESPACE}'"
-        exit 1
-    fi
-    
-    # Check if pod is running
-    local pod_status=$(kubectl get pod "$pod_name" -n "$NAMESPACE" -o jsonpath='{.status.phase}')
-    if [ "$pod_status" != "Running" ]; then
-        print_error "NFS server pod '${pod_name}' is not running (status: ${pod_status})"
-        exit 1
-    fi
-    
-    echo "$pod_name"
-}
-
-# Function to list available tenants by checking filesystem in NFS server
-list_tenants() {
-    print_status "Discovering tenants from NFS server..."
-    
-    local pod_name=$(get_nfs_pod_name)
-    local tenants_dir="/exports/data/tenants"
-    
-    # List tenant directories from the NFS server pod
-    local tenants=$(kubectl exec -n "$NAMESPACE" "$pod_name" -- sh -c "ls -d ${tenants_dir}/*/ 2>/dev/null | xargs -n1 basename 2>/dev/null | sort" 2>/dev/null || echo "")
-    
-    if [ -z "$tenants" ]; then
-        print_warning "No tenants found in ${tenants_dir}"
-        return
-    fi
-    
-    print_status "Available Easy Kanban tenants:"
-    echo "$tenants" | while read -r tenant; do
-        if [ -n "$tenant" ]; then
-            echo "  - $tenant"
-        fi
-    done
-}
-
-# Function to check if tenant exists
-check_tenant() {
-    local tenant=$1
-    local pod_name=$(get_nfs_pod_name)
-    local tenant_db_path="/exports/data/tenants/${tenant}/kanban.db"
-    
-    # Check if tenant database exists in the NFS server
-    if ! kubectl exec -n "$NAMESPACE" "$pod_name" -- test -f "$tenant_db_path" 2>/dev/null; then
-        print_error "Tenant '${tenant}' not found (database not found at ${tenant_db_path})"
-        echo ""
-        list_tenants
-        exit 1
-    fi
-}
-
-# Function to create tenant backup directory
 create_tenant_backup_dir() {
-    local tenant=$1
-    local tenant_backup_dir="${BASE_BACKUP_DIR}/${tenant}"
-    
-    if [ ! -d "$tenant_backup_dir" ]; then
-        print_status "Creating backup directory: $tenant_backup_dir"
-        mkdir -p "$tenant_backup_dir"
-    fi
-    
-    echo "$tenant_backup_dir"
+  local tenant=$1
+  local dir="${BASE_BACKUP_DIR}/${tenant}"
+  mkdir -p "$dir"
+  echo "$dir"
 }
 
-# Function to backup database
-backup_database() {
-    local tenant=$1
-    local pod_name=$(get_nfs_pod_name)
-    local tenant_backup_dir=$(create_tenant_backup_dir "$tenant")
-    
-    # Multi-tenant database path on NFS server
-    local db_path="/exports/data/tenants/${tenant}/kanban.db"
-    local backup_filename="kanban-${tenant}-backup-${TIMESTAMP}.db"
-    local backup_path="${tenant_backup_dir}/${backup_filename}"
-    
-    print_status "Backing up database from NFS server pod '${pod_name}'..."
-    print_status "Database path: ${db_path}"
-    
-    # Copy database from NFS server pod with retry logic
-    # Note: kubectl cp may show "tar: removing leading '/' from member names" warning, which is normal and harmless
-    local max_retries=3
-    local retry_count=0
-    local copy_success=false
-    
-    while [ $retry_count -lt $max_retries ]; do
-        # Attempt the copy, capturing any real errors but suppressing harmless warnings
-        # Store stderr separately to check for actual errors
-        local cp_stderr=$(kubectl cp "${NAMESPACE}/${pod_name}:${db_path}" "$backup_path" 2>&1)
-        local cp_exit_code=$?
-        
-        # Filter out harmless warnings
-        local real_errors=$(echo "$cp_stderr" | grep -v "tar: removing leading" | grep -v "Defaulted container" | grep -v "^$")
-        
-        # Small delay to ensure file is fully written to disk
-        sleep 0.5
-        
-        # Check if file was actually created and is non-empty (this is the real test of success)
-        if [ -f "$backup_path" ] && [ -s "$backup_path" ]; then
-            copy_success=true
-            break
-        fi
-        
-        # If we got here and file doesn't exist, log any real errors
-        if [ -n "$real_errors" ]; then
-            print_warning "Error during copy: $real_errors"
-        elif [ $cp_exit_code -ne 0 ]; then
-            print_warning "kubectl cp exited with code: $cp_exit_code"
-        fi
-        
-        retry_count=$((retry_count + 1))
-        if [ $retry_count -lt $max_retries ]; then
-            print_warning "Database backup attempt ${retry_count} failed, retrying in 2 seconds..."
-            sleep 2
-            # Clean up partial file if it exists
-            [ -f "$backup_path" ] && rm -f "$backup_path"
-        fi
-    done
-    
-    if [ "$copy_success" = true ]; then
-        print_success "Database backed up to: $backup_path"
-        
-        # Create/update latest backup symlink in root backups directory
-        local latest_filename="kanban-${tenant}-latest.db"
-        local latest_path="${BASE_BACKUP_DIR}/${latest_filename}"
-        if [ -L "$latest_path" ]; then
-            rm "$latest_path"
-        fi
-        ln -s "${tenant}/$(basename "$backup_path")" "$latest_path"
-        print_status "Latest backup link updated: $latest_path"
-        
-        # Show backup info
-        local size=$(du -h "$backup_path" | cut -f1)
-        print_success "Backup size: $size"
-        
-        return 0
-    else
-        print_error "Failed to backup database from NFS server pod '${pod_name}' after ${max_retries} attempts"
-        return 1
-    fi
+update_latest_symlink() {
+  local link_path="$1"
+  local relative_target="$2"
+  ln -sfn "$relative_target" "$link_path"
 }
 
-# Function to backup attachments
-backup_attachments() {
-    local tenant=$1
-    local pod_name=$(get_nfs_pod_name)
-    local tenant_backup_dir=$(create_tenant_backup_dir "$tenant")
-    
-    # Multi-tenant attachments path on NFS server
-    local attachments_path="/exports/attachments/tenants/${tenant}"
-    local backup_filename="kanban-${tenant}-attachments-${TIMESTAMP}.tar.gz"
-    local backup_path="${tenant_backup_dir}/${backup_filename}"
-    
-    print_status "Backing up attachments from NFS server pod '${pod_name}'..."
-    print_status "Attachments path: ${attachments_path}"
-    
-    # Create tar archive inside the NFS server pod and copy it out
-    if kubectl exec -n "${NAMESPACE}" "${pod_name}" -- sh -c "test -d ${attachments_path} && tar czf /tmp/attachments-backup.tar.gz -C /exports/attachments/tenants ${tenant} 2>/dev/null" 2>/dev/null; then
-        kubectl cp "${NAMESPACE}/${pod_name}:/tmp/attachments-backup.tar.gz" "$backup_path" 2>&1 | grep -v "tar: removing leading" | grep -v "Defaulted container" > /dev/null || true
-        
-        if [ -f "$backup_path" ]; then
-            # Clean up temp file in pod
-            kubectl exec -n "${NAMESPACE}" "${pod_name}" -- rm -f /tmp/attachments-backup.tar.gz 2>/dev/null || true
-            
-            print_success "Attachments backed up to: $backup_path"
-            
-            # Create/update latest backup symlink in root backups directory
-            local latest_filename="kanban-${tenant}-attachments-latest.tar.gz"
-            local latest_path="${BASE_BACKUP_DIR}/${latest_filename}"
-            if [ -L "$latest_path" ]; then
-                rm "$latest_path"
-            fi
-            ln -s "${tenant}/$(basename "$backup_path")" "$latest_path"
-            print_status "Latest attachments link updated: $latest_path"
-            
-            # Show backup info
-            local size=$(du -h "$backup_path" | cut -f1)
-            print_success "Attachments backup size: $size"
-            
-            return 0
-        else
-            # Clean up temp file in pod even if copy failed
-            kubectl exec -n "${NAMESPACE}" "${pod_name}" -- rm -f /tmp/attachments-backup.tar.gz 2>/dev/null || true
-            print_error "Failed to copy attachments backup from NFS server pod '${pod_name}'"
-            return 1
-        fi
-    else
-        print_warning "Attachments directory not found or empty for tenant '${tenant}'"
-        return 0  # Not an error if attachments don't exist
-    fi
+# Quote schema for pg_dump -n so _ and - are literal (not pattern wildcards)
+pg_dump_schema_arg() {
+  local schema="$1"
+  printf '"%s"' "$schema"
 }
 
-# Function to backup avatars
-backup_avatars() {
-    local tenant=$1
-    local pod_name=$(get_nfs_pod_name)
-    local tenant_backup_dir=$(create_tenant_backup_dir "$tenant")
-    
-    # Multi-tenant avatars path on NFS server
-    local avatars_path="/exports/avatars/tenants/${tenant}"
-    local backup_filename="kanban-${tenant}-avatars-${TIMESTAMP}.tar.gz"
-    local backup_path="${tenant_backup_dir}/${backup_filename}"
-    
-    print_status "Backing up avatars from NFS server pod '${pod_name}'..."
-    print_status "Avatars path: ${avatars_path}"
-    
-    # Create tar archive inside the NFS server pod and copy it out
-    if kubectl exec -n "${NAMESPACE}" "${pod_name}" -- sh -c "test -d ${avatars_path} && tar czf /tmp/avatars-backup.tar.gz -C /exports/avatars/tenants ${tenant} 2>/dev/null" 2>/dev/null; then
-        kubectl cp "${NAMESPACE}/${pod_name}:/tmp/avatars-backup.tar.gz" "$backup_path" 2>&1 | grep -v "tar: removing leading" | grep -v "Defaulted container" > /dev/null || true
-        
-        if [ -f "$backup_path" ]; then
-            # Clean up temp file in pod
-            kubectl exec -n "${NAMESPACE}" "${pod_name}" -- rm -f /tmp/avatars-backup.tar.gz 2>/dev/null || true
-            
-            print_success "Avatars backed up to: $backup_path"
-            
-            # Create/update latest backup symlink in root backups directory
-            local latest_filename="kanban-${tenant}-avatars-latest.tar.gz"
-            local latest_path="${BASE_BACKUP_DIR}/${latest_filename}"
-            if [ -L "$latest_path" ]; then
-                rm "$latest_path"
-            fi
-            ln -s "${tenant}/$(basename "$backup_path")" "$latest_path"
-            print_status "Latest avatars link updated: $latest_path"
-            
-            # Show backup info
-            local size=$(du -h "$backup_path" | cut -f1)
-            print_success "Avatars backup size: $size"
-            
-            return 0
-        else
-            # Clean up temp file in pod even if copy failed
-            kubectl exec -n "${NAMESPACE}" "${pod_name}" -- rm -f /tmp/avatars-backup.tar.gz 2>/dev/null || true
-            print_error "Failed to copy avatars backup from NFS server pod '${pod_name}'"
-            return 1
-        fi
-    else
-        print_warning "Avatars directory not found or empty for tenant '${tenant}'"
-        return 0  # Not an error if avatars don't exist
-    fi
+remove_legacy_sqlite_latest() {
+  local tenant=$1
+  local legacy="${BASE_BACKUP_DIR}/kanban-${tenant}-latest.db"
+  if [ -L "$legacy" ] || [ -e "$legacy" ]; then
+    rm -f "$legacy"
+    print_status "Removed legacy SQLite link: ${legacy}"
+  fi
 }
 
-# Function to cleanup old backups (keep 2 weeks)
+backup_tenant_schema() {
+  local schema="$1"
+  local tenant
+  tenant="$(tenant_id_from_schema "$schema")"
+  local tenant_backup_dir
+  tenant_backup_dir="$(create_tenant_backup_dir "$tenant")"
+
+  local backup_filename="kanban-${tenant}-backup-${TIMESTAMP}.sql.gz"
+  local backup_path="${tenant_backup_dir}/${backup_filename}"
+  local schema_arg
+  schema_arg="$(pg_dump_schema_arg "$schema")"
+
+  print_status "Dumping PostgreSQL schema ${schema} (tenant '${tenant}')..."
+
+  if ! pg_dump_to_gzip "$backup_path" \
+      kubectl exec -n "$PG_NAMESPACE" "deploy/${PG_DEPLOYMENT}" -- \
+        pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+          --clean --if-exists --no-owner --no-acl \
+          -n "$schema_arg"; then
+    rm -f "$backup_path"
+    return 1
+  fi
+
+  update_latest_symlink \
+    "${BASE_BACKUP_DIR}/kanban-${tenant}-latest.sql.gz" \
+    "${tenant}/${backup_filename}"
+
+  remove_legacy_sqlite_latest "$tenant"
+
+  print_success "PostgreSQL dump: ${backup_path} ($(du -h "$backup_path" | cut -f1))"
+  return 0
+}
+
+backup_full_database() {
+  local full_dir="${BASE_BACKUP_DIR}/postgres"
+  mkdir -p "$full_dir"
+  local backup_filename="kanban-easykanban-full-${TIMESTAMP}.sql.gz"
+  local backup_path="${full_dir}/${backup_filename}"
+
+  print_status "Dumping full PostgreSQL database ${POSTGRES_DB}..."
+
+  if ! pg_dump_to_gzip "$backup_path" \
+      kubectl exec -n "$PG_NAMESPACE" "deploy/${PG_DEPLOYMENT}" -- \
+        pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+          --clean --if-exists --no-owner --no-acl; then
+    rm -f "$backup_path"
+    return 1
+  fi
+
+  update_latest_symlink \
+    "${BASE_BACKUP_DIR}/kanban-easykanban-full-latest.sql.gz" \
+    "postgres/${backup_filename}"
+
+  print_success "Full PostgreSQL dump: ${backup_path} ($(du -h "$backup_path" | cut -f1))"
+  return 0
+}
+
+list_tenant_schemas() {
+  kubectl exec -n "$PG_NAMESPACE" "deploy/${PG_DEPLOYMENT}" -- \
+    psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc \
+    "SELECT nspname FROM pg_namespace WHERE nspname LIKE 'tenant\_%' ESCAPE '\' ORDER BY 1;"
+}
+
+get_nfs_pod_name() {
+  local pod_name
+  pod_name=$(kubectl get pods -n "$NFS_NAMESPACE" -l "$NFS_SERVER_LABEL" \
+    -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+
+  if [ -z "$pod_name" ]; then
+    print_warning "No NFS server pod in namespace '${NFS_NAMESPACE}'"
+    return 1
+  fi
+
+  local pod_status
+  pod_status=$(kubectl get pod "$pod_name" -n "$NFS_NAMESPACE" -o jsonpath='{.status.phase}')
+  if [ "$pod_status" != "Running" ]; then
+    print_warning "NFS pod '${pod_name}' is not Running (${pod_status})"
+    return 1
+  fi
+
+  echo "$pod_name"
+}
+
+backup_nfs_tree() {
+  local tenant=$1
+  local kind=$2   # attachments | avatars
+  local pod_name=$3
+  local tenant_backup_dir
+  tenant_backup_dir="$(create_tenant_backup_dir "$tenant")"
+
+  local src_root="/exports/${kind}/tenants"
+  local src_path="${src_root}/${tenant}"
+  local backup_filename="kanban-${tenant}-${kind}-${TIMESTAMP}.tar.gz"
+  local backup_path="${tenant_backup_dir}/${backup_filename}"
+  local tmp_in_pod="/tmp/easy-kanban-${kind}-${tenant}-backup.tar.gz"
+  local kind_label
+  kind_label="$(printf '%s' "$kind" | awk '{print toupper(substr($0,1,1)) substr($0,2)}')"
+
+  print_status "Backing up ${kind} for '${tenant}' from NFS..."
+
+  if ! kubectl exec -n "$NFS_NAMESPACE" "$pod_name" -- \
+      sh -c "test -d '${src_path}'" 2>/dev/null; then
+    print_warning "${kind_label} directory missing for tenant '${tenant}' — skipping"
+    return 0
+  fi
+
+  if ! kubectl exec -n "$NFS_NAMESPACE" "$pod_name" -- \
+      sh -c "tar czf '${tmp_in_pod}' -C '${src_root}' '${tenant}'" 2>/dev/null; then
+    print_warning "Failed to archive ${kind} for '${tenant}'"
+    return 0
+  fi
+
+  kubectl cp "${NFS_NAMESPACE}/${pod_name}:${tmp_in_pod}" "$backup_path" >/dev/null 2>&1 || true
+  kubectl exec -n "$NFS_NAMESPACE" "$pod_name" -- rm -f "$tmp_in_pod" >/dev/null 2>&1 || true
+
+  if [ ! -f "$backup_path" ]; then
+    print_warning "Failed to copy ${kind} archive for '${tenant}'"
+    return 0
+  fi
+
+  update_latest_symlink \
+    "${BASE_BACKUP_DIR}/kanban-${tenant}-${kind}-latest.tar.gz" \
+    "${tenant}/${backup_filename}"
+
+  print_success "${kind_label} dump: ${backup_path} ($(du -h "$backup_path" | cut -f1))"
+  return 0
+}
+
 cleanup_old_backups() {
-    local tenant=$1
-    local tenant_backup_dir="${BASE_BACKUP_DIR}/${tenant}"
-    
-    if [ ! -d "$tenant_backup_dir" ]; then
-        print_warning "Backup directory does not exist for tenant '${tenant}'"
-        return
-    fi
-    
-    print_status "Cleaning up backups older than ${RETENTION_DAYS} days for tenant '${tenant}'..."
-    
-    local deleted_count=0
-    
-    # Find and delete old database backups
-    if [ -d "$tenant_backup_dir" ]; then
-        while IFS= read -r file; do
-            if [ -n "$file" ] && [ -f "$file" ]; then
-                local file_age=$(find "$file" -type f -mtime +${RETENTION_DAYS} 2>/dev/null)
-                if [ -n "$file_age" ]; then
-                    rm -f "$file"
-                    ((deleted_count++))
-                    print_status "Deleted old backup: $(basename "$file")"
-                fi
-            fi
-        done < <(find "$tenant_backup_dir" -name "kanban-${tenant}-backup-*.db" -type f 2>/dev/null)
-        
-        # Find and delete old attachments backups
-        while IFS= read -r file; do
-            if [ -n "$file" ] && [ -f "$file" ]; then
-                local file_age=$(find "$file" -type f -mtime +${RETENTION_DAYS} 2>/dev/null)
-                if [ -n "$file_age" ]; then
-                    rm -f "$file"
-                    ((deleted_count++))
-                    print_status "Deleted old backup: $(basename "$file")"
-                fi
-            fi
-        done < <(find "$tenant_backup_dir" -name "kanban-${tenant}-attachments-*.tar.gz" -type f 2>/dev/null)
-        
-        # Find and delete old avatars backups
-        while IFS= read -r file; do
-            if [ -n "$file" ] && [ -f "$file" ]; then
-                local file_age=$(find "$file" -type f -mtime +${RETENTION_DAYS} 2>/dev/null)
-                if [ -n "$file_age" ]; then
-                    rm -f "$file"
-                    ((deleted_count++))
-                    print_status "Deleted old backup: $(basename "$file")"
-                fi
-            fi
-        done < <(find "$tenant_backup_dir" -name "kanban-${tenant}-avatars-*.tar.gz" -type f 2>/dev/null)
-    fi
-    
-    if [ "$deleted_count" -eq 0 ]; then
-        print_status "No old backups to clean up for tenant '${tenant}'"
-    else
-        print_success "Cleaned up ${deleted_count} old backup(s) for tenant '${tenant}'"
-    fi
+  local dir=$1
+  shift
+  local patterns=("$@")
+
+  if [ ! -d "$dir" ]; then
+    return 0
+  fi
+
+  local deleted=0
+  local pattern
+  for pattern in "${patterns[@]}"; do
+    while IFS= read -r -d '' file; do
+      rm -f "$file"
+      deleted=$((deleted + 1))
+      print_status "Deleted old backup: $(basename "$file")"
+    done < <(find "$dir" -maxdepth 1 -type f -name "$pattern" -mtime +"${RETENTION_DAYS}" -print0 2>/dev/null)
+  done
+
+  if [ "$deleted" -gt 0 ]; then
+    print_success "Cleaned up ${deleted} old file(s) in ${dir}"
+  fi
 }
 
-# Function to backup all tenants
-backup_all_tenants() {
-    print_status "Backing up all Easy Kanban tenants..."
-    echo ""
-    
-    local pod_name=$(get_nfs_pod_name)
-    local tenants_dir="/exports/data/tenants"
-    
-    # Discover tenants from the NFS server filesystem
-    local tenants=$(kubectl exec -n "$NAMESPACE" "$pod_name" -- sh -c "ls -d ${tenants_dir}/*/ 2>/dev/null | xargs -n1 basename 2>/dev/null | sort" 2>/dev/null || echo "")
-    
-    if [ -z "$tenants" ]; then
-        print_warning "No Easy Kanban tenants found"
-        exit 0
-    fi
-    
-    local success_count=0
-    local fail_count=0
-    
-    # Use process substitution instead of pipe to avoid subshell issues
-    while IFS= read -r tenant; do
-        if [ -z "$tenant" ]; then
-            continue
-        fi
-        
-        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-        print_status "Processing tenant: ${tenant}"
-        echo ""
-        
-        local tenant_success=true
-        
-        if ! backup_database "$tenant"; then
-            tenant_success=false
-        fi
-        
-        if ! backup_attachments "$tenant"; then
-            tenant_success=false
-        fi
-        
-        if ! backup_avatars "$tenant"; then
-            tenant_success=false
-        fi
-        
-        # Cleanup old backups for this tenant
-        cleanup_old_backups "$tenant"
-        
-        if [ "$tenant_success" = true ]; then
-            ((success_count++))
-        else
-            ((fail_count++))
-        fi
-        echo ""
-    done < <(echo "$tenants")
-    
+backup_all() {
+  print_status "=============================================="
+  print_status "Easy Kanban PostgreSQL backup (${TIMESTAMP})"
+  print_status "=============================================="
+  print_status "Host: $(hostname)  User: $(id -un)  HOME=${HOME}"
+  print_status "KUBECONFIG=${KUBECONFIG}"
+  print_status "Namespace: ${PG_NAMESPACE}  Deploy: ${PG_DEPLOYMENT}"
+  print_status "Database: ${POSTGRES_DB}  Retention: ${RETENTION_DAYS}d"
+  print_status "Output dir: ${PROJECT_ROOT}/${BASE_BACKUP_DIR#./}"
+  echo ""
+
+  mkdir -p "$BASE_BACKUP_DIR"
+
+  local schemas
+  schemas="$(list_tenant_schemas || true)"
+  if [ -z "${schemas//[$' \t\r\n']/}" ]; then
+    print_error "No tenant_* schemas found in ${POSTGRES_DB}"
+    exit 1
+  fi
+
+  print_status "Tenant schemas to dump:"
+  echo "$schemas" | while read -r s; do
+    [ -n "$s" ] && echo "  - $s → $(tenant_id_from_schema "$s")  =>  backups/$(tenant_id_from_schema "$s")/*.sql.gz"
+  done
+  echo ""
+
+  local nfs_pod=""
+  if [ "$SKIP_NFS" != "true" ]; then
+    nfs_pod="$(get_nfs_pod_name || true)"
+  fi
+
+  local success=0
+  local fail=0
+  local dumped_files=()
+
+  if [ "$SKIP_FULL_DUMP" != "true" ]; then
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    print_success "Backup Summary: ${success_count} successful, ${fail_count} failed"
-}
-
-# Function to list existing backups
-list_backups() {
-    local tenant=$1
-    
-    if [ -n "$tenant" ]; then
-        # List backups for specific tenant
-        local tenant_backup_dir="${BASE_BACKUP_DIR}/${tenant}"
-        
-        if [ -d "$tenant_backup_dir" ]; then
-            print_status "Backups for tenant '${tenant}':"
-            echo ""
-            
-            local db_backups=$(find "$tenant_backup_dir" -name "kanban-${tenant}-backup-*.db" -type f 2>/dev/null | sort -r)
-            local attachment_backups=$(find "$tenant_backup_dir" -name "kanban-${tenant}-attachments-*.tar.gz" -type f 2>/dev/null | sort -r)
-            local avatar_backups=$(find "$tenant_backup_dir" -name "kanban-${tenant}-avatars-*.tar.gz" -type f 2>/dev/null | sort -r)
-            
-            if [ -n "$db_backups" ] || [ -n "$attachment_backups" ] || [ -n "$avatar_backups" ]; then
-                if [ -n "$db_backups" ]; then
-                    echo "  Database backups:"
-                    echo "$db_backups" | while read -r file; do
-                        if [ -f "$file" ]; then
-                            local size=$(du -h "$file" | cut -f1)
-                            local date=$(stat -c %y "$file" 2>/dev/null | cut -d' ' -f1)
-                            echo "    $(basename "$file") - $size - $date"
-                        fi
-                    done
-                    echo ""
-                fi
-                
-                if [ -n "$attachment_backups" ]; then
-                    echo "  Attachment backups:"
-                    echo "$attachment_backups" | while read -r file; do
-                        if [ -f "$file" ]; then
-                            local size=$(du -h "$file" | cut -f1)
-                            local date=$(stat -c %y "$file" 2>/dev/null | cut -d' ' -f1)
-                            echo "    $(basename "$file") - $size - $date"
-                        fi
-                    done
-                    echo ""
-                fi
-                
-                if [ -n "$avatar_backups" ]; then
-                    echo "  Avatar backups:"
-                    echo "$avatar_backups" | while read -r file; do
-                        if [ -f "$file" ]; then
-                            local size=$(du -h "$file" | cut -f1)
-                            local date=$(stat -c %y "$file" 2>/dev/null | cut -d' ' -f1)
-                            echo "    $(basename "$file") - $size - $date"
-                        fi
-                    done
-                fi
-            else
-                print_warning "No backups found for tenant '${tenant}'"
-            fi
-        else
-            print_warning "No backup directory found for tenant '${tenant}'"
-        fi
+    if backup_full_database; then
+      dumped_files+=("${BASE_BACKUP_DIR}/postgres/kanban-easykanban-full-${TIMESTAMP}.sql.gz")
+      cleanup_old_backups "${BASE_BACKUP_DIR}/postgres" "kanban-easykanban-full-*.sql.gz"
     else
-        # List all backups
-        if [ -d "$BASE_BACKUP_DIR" ]; then
-            print_status "All tenant backups:"
-            echo ""
-            
-            local tenants=$(find "$BASE_BACKUP_DIR" -mindepth 1 -maxdepth 1 -type d -exec basename {} \; | sort)
-            
-            if [ -z "$tenants" ]; then
-                print_warning "No tenant backup directories found"
-                return
-            fi
-            
-            for t in $tenants; do
-                echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-                echo "Tenant: $t"
-                list_backups "$t"
-            done
-        else
-            print_warning "Backup directory does not exist"
-        fi
+      fail=$((fail + 1))
     fi
+    echo ""
+  fi
+
+  while IFS= read -r schema; do
+    schema="${schema#"${schema%%[![:space:]]*}"}"
+    schema="${schema%"${schema##*[![:space:]]}"}"
+    [ -z "$schema" ] && continue
+    local tenant
+    tenant="$(tenant_id_from_schema "$schema")"
+
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    print_status "Processing tenant: ${tenant} (schema ${schema})"
+    echo ""
+
+    local ok=true
+    if backup_tenant_schema "$schema"; then
+      dumped_files+=("${BASE_BACKUP_DIR}/${tenant}/kanban-${tenant}-backup-${TIMESTAMP}.sql.gz")
+    else
+      ok=false
+    fi
+
+    if [ -n "$nfs_pod" ]; then
+      backup_nfs_tree "$tenant" "attachments" "$nfs_pod" || true
+      backup_nfs_tree "$tenant" "avatars" "$nfs_pod" || true
+    fi
+
+    cleanup_old_backups "${BASE_BACKUP_DIR}/${tenant}" \
+      "kanban-${tenant}-backup-*.sql.gz" \
+      "kanban-${tenant}-attachments-*.tar.gz" \
+      "kanban-${tenant}-avatars-*.tar.gz" \
+      "kanban-${tenant}-backup-*.db"
+
+    if [ "$ok" = true ]; then
+      success=$((success + 1))
+    else
+      fail=$((fail + 1))
+    fi
+    echo ""
+  done <<< "$schemas"
+
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  print_status "PostgreSQL dumps written this run:"
+  local f
+  for f in "${dumped_files[@]:-}"; do
+    if [ -n "$f" ] && [ -s "$f" ]; then
+      echo "  ✓ $f ($(du -h "$f" | cut -f1))"
+    fi
+  done
+  echo ""
+  print_success "Backup summary: ${success} tenant schema dump(s) ok, ${fail} failed"
+  print_status "Latest symlinks: ${BASE_BACKUP_DIR}/kanban-*-latest.sql.gz and kanban-easykanban-full-latest.sql.gz"
+
+  if [ "$fail" -gt 0 ] || [ "$success" -eq 0 ]; then
+    print_error "Backup finished with failures (or zero successful PG dumps)"
+    exit 1
+  fi
 }
 
-# Function to show help
-show_help() {
-    echo "Easy Kanban Multi-Tenant Backup Script for Kubernetes"
-    echo ""
-    echo "Usage: $0 [TENANT] [OPTIONS]"
-    echo ""
-    echo "Arguments:"
-    echo "  TENANT             Tenant name to backup (e.g., code7, drenlia, info)"
-    echo "                     Use 'all' to backup all tenants"
-    echo "                     Omit to show available tenants"
-    echo ""
-    echo "Options:"
-    echo "  -h, --help         Show this help message"
-    echo "  -l, --list         List existing backups"
-    echo "  -c, --cleanup      Cleanup old backups (keep ${RETENTION_DAYS} days)"
-    echo "  --no-cleanup       Skip automatic cleanup"
-    echo ""
-    echo "Examples:"
-    echo "  $0                           # Backup all tenants (default)"
-    echo "  $0 code7                     # Backup code7 tenant with automatic cleanup"
-    echo "  $0 code7 --no-cleanup        # Backup code7 without cleanup"
-    echo "  $0 all                       # Backup all tenants"
-    echo "  $0 code7 --list              # List backups for code7"
-    echo "  $0 --list                    # List all backups"
-    echo "  $0 code7 --cleanup           # Only cleanup old backups for code7"
-    echo "  $0 --cleanup                 # Cleanup old backups for all tenants"
-    echo ""
-    echo "Backup structure:"
-    echo "  backups/{tenant}/kanban-{tenant}-backup-{TIMESTAMP}.db"
-    echo "  backups/{tenant}/kanban-{tenant}-attachments-{TIMESTAMP}.tar.gz"
-    echo "  backups/{tenant}/kanban-{tenant}-avatars-{TIMESTAMP}.tar.gz"
-    echo ""
-    echo "Retention: ${RETENTION_DAYS} days"
-    echo ""
+usage() {
+  cat <<EOF
+Usage: $0 [all|list|help]
+
+  all   (default) Dump every tenant_* schema + full DB + NFS files
+  list  Show tenant schemas discovered in Postgres
+  help  This message
+
+Outputs (under ./backups):
+  postgres/kanban-easykanban-full-TIMESTAMP.sql.gz
+  {tenant}/kanban-{tenant}-backup-TIMESTAMP.sql.gz
+  kanban-{tenant}-latest.sql.gz  (symlink)
+  kanban-easykanban-full-latest.sql.gz  (symlink)
+
+Environment overrides:
+  PG_NAMESPACE, PG_DEPLOYMENT, POSTGRES_USER, POSTGRES_DB
+  BASE_BACKUP_DIR, RETENTION_DAYS, SKIP_NFS, SKIP_FULL_DUMP, KUBECONFIG, HOME
+EOF
 }
 
-# Main function
 main() {
-    local tenant=""
-    local do_backup=false
-    local do_cleanup=true
-    local list_only=false
-    local cleanup_only=false
-    local backup_all=false
-    
-    # Parse command line arguments
-    # If no arguments provided, default to backing up all tenants
-    if [ $# -eq 0 ]; then
-        backup_all=true
-        do_backup=true
-    fi
-    
-    # First argument might be tenant name
-    if [ $# -gt 0 ] && [[ ! "$1" =~ ^- ]]; then
-        tenant="$1"
-        if [ "$tenant" = "all" ]; then
-            backup_all=true
-            do_backup=true
-        else
-            do_backup=true
-        fi
-        shift
-    fi
-    
-    while [[ $# -gt 0 ]]; do
-        case $1 in
-            -h|--help)
-                show_help
-                exit 0
-                ;;
-            -l|--list)
-                list_only=true
-                do_backup=false
-                backup_all=false
-                shift
-                ;;
-            -c|--cleanup)
-                cleanup_only=true
-                do_backup=false
-                backup_all=false
-                shift
-                ;;
-            --no-cleanup)
-                do_cleanup=false
-                shift
-                ;;
-            *)
-                print_error "Unknown option: $1"
-                show_help
-                exit 1
-                ;;
-        esac
-    done
-    
-    # Show header
-    echo "=========================================="
-    echo "Easy Kanban Multi-Tenant Backup Script"
-    echo "=========================================="
-    echo ""
-    
-    # List backups only
-    if [ "$list_only" = true ]; then
-        list_backups "$tenant"
-        exit 0
-    fi
-    
-    # Cleanup only
-    if [ "$cleanup_only" = true ]; then
-        if [ -n "$tenant" ]; then
-            cleanup_old_backups "$tenant"
-        else
-            # Cleanup for all tenants
-            local pod_name=$(get_nfs_pod_name)
-            local tenants_dir="/exports/data/tenants"
-            local tenants=$(kubectl exec -n "$NAMESPACE" "$pod_name" -- sh -c "ls -d ${tenants_dir}/*/ 2>/dev/null | xargs -n1 basename 2>/dev/null | sort" 2>/dev/null || echo "")
-            if [ -z "$tenants" ]; then
-                print_warning "No Easy Kanban tenants found"
-                exit 0
-            fi
-            echo "$tenants" | while read -r t; do
-                if [ -n "$t" ]; then
-                    cleanup_old_backups "$t"
-                fi
-            done
-        fi
-        exit 0
-    fi
-    
-    # Full backup process
-    if [ "$do_backup" = true ]; then
-        if [ "$backup_all" = true ]; then
-            if backup_all_tenants; then
-                echo ""
-                print_success "All backups completed!"
-            fi
-        else
-            # If no tenant specified but do_backup is true, backup all tenants
-            if [ -z "$tenant" ]; then
-                if backup_all_tenants; then
-                    echo ""
-                    print_success "All backups completed!"
-                fi
-            else
-                check_tenant "$tenant"
-                
-                local backup_success=true
-                
-                if ! backup_database "$tenant"; then
-                    backup_success=false
-                fi
-                
-                if ! backup_attachments "$tenant"; then
-                    backup_success=false
-                fi
-                
-                if ! backup_avatars "$tenant"; then
-                    backup_success=false
-                fi
-                
-                if [ "$backup_success" = true ]; then
-                    if [ "$do_cleanup" = true ]; then
-                        cleanup_old_backups "$tenant"
-                    fi
-                    
-                    echo ""
-                    print_success "Backup completed successfully!"
-                    echo ""
-                    list_backups "$tenant"
-                else
-                    print_error "Backup failed!"
-                    exit 1
-                fi
-            fi
-        fi
-    fi
+  require_kubectl
+  local cmd="${1:-all}"
+  case "$cmd" in
+    all|"")
+      backup_all
+      ;;
+    list)
+      print_status "Tenant schemas in ${PG_NAMESPACE}/${POSTGRES_DB}:"
+      list_tenant_schemas | while read -r s; do
+        [ -n "$s" ] && echo "  - $s → $(tenant_id_from_schema "$s")"
+      done
+      ;;
+    help|-h|--help)
+      usage
+      ;;
+    *)
+      print_error "Unknown command: $cmd"
+      usage
+      exit 1
+      ;;
+  esac
 }
 
-# Run main function with all arguments
 main "$@"
-

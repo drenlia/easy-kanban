@@ -97,13 +97,13 @@ export const useSettingsWebSocket = ({
 
   const handlePriorityDeleted = useCallback(async (data: any) => {
     console.log('📨 Priority deleted via WebSocket:', data);
-    try {
-      const priorities = await getAllPriorities();
-      setAvailablePriorities(priorities);
-      console.log('📨 Priorities refreshed after deletion');
-    } catch (error) {
-      console.error('Failed to refresh priorities after deletion:', error);
-    }
+    // Remove the deleted priority from availablePriorities list
+    // This ensures TaskCard won't find the deleted priority when looking up by priorityId
+    // The task-updated events (published separately) will update all affected tasks with the new priority
+    setAvailablePriorities(prevPriorities => 
+      prevPriorities.filter(p => p.id !== data.priorityId && p.id !== Number(data.priorityId))
+    );
+    console.log('📨 Priority removed from availablePriorities (affected tasks will be updated via task-updated events)');
   }, [setAvailablePriorities]);
 
   const handlePriorityReordered = useCallback(async (data: any) => {
@@ -117,44 +117,21 @@ export const useSettingsWebSocket = ({
     }
   }, [setAvailablePriorities]);
 
-  const handleSprintCreated = useCallback(async (data: any) => {
+  // Sprint changes: broadcast via window event so App (setAvailableSprints) and AdminSprintSettingsTab both refetch.
+  const handleSprintCreated = useCallback((data: any) => {
     console.log('📨 Sprint created via WebSocket:', data);
-    if (setAvailableSprints) {
-      try {
-        const sprints = await getAllSprints();
-        setAvailableSprints(sprints);
-        console.log('📨 Sprints refreshed after creation');
-      } catch (error) {
-        console.error('Failed to refresh sprints after creation:', error);
-      }
-    }
-  }, [setAvailableSprints]);
+    window.dispatchEvent(new CustomEvent('sprints-updated'));
+  }, []);
 
-  const handleSprintUpdated = useCallback(async (data: any) => {
+  const handleSprintUpdated = useCallback((data: any) => {
     console.log('📨 Sprint updated via WebSocket:', data);
-    if (setAvailableSprints) {
-      try {
-        const sprints = await getAllSprints();
-        setAvailableSprints(sprints);
-        console.log('📨 Sprints refreshed after update');
-      } catch (error) {
-        console.error('Failed to refresh sprints after update:', error);
-      }
-    }
-  }, [setAvailableSprints]);
+    window.dispatchEvent(new CustomEvent('sprints-updated'));
+  }, []);
 
-  const handleSprintDeleted = useCallback(async (data: any) => {
+  const handleSprintDeleted = useCallback((data: any) => {
     console.log('📨 Sprint deleted via WebSocket:', data);
-    if (setAvailableSprints) {
-      try {
-        const sprints = await getAllSprints();
-        setAvailableSprints(sprints);
-        console.log('📨 Sprints refreshed after deletion');
-      } catch (error) {
-        console.error('Failed to refresh sprints after deletion:', error);
-      }
-    }
-  }, [setAvailableSprints]);
+    window.dispatchEvent(new CustomEvent('sprints-updated'));
+  }, []);
 
   const handleSettingsUpdated = useCallback(async (data: any) => {
     // Settings are now updated via SettingsContext which listens to WebSocket events

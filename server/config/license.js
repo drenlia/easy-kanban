@@ -73,8 +73,9 @@ class LicenseManager {
   async getUserCount() {
     try {
       const systemUserId = '00000000-0000-0000-0000-000000000000';
+      // Use true instead of 1 for PostgreSQL compatibility (SQLite also accepts true)
       const result = await wrapQuery(
-        this.db.prepare('SELECT COUNT(*) as count FROM users WHERE is_active = 1 AND id != ?'),
+        this.db.prepare('SELECT COUNT(*) as count FROM users WHERE is_active = true AND id != $1'),
         'SELECT'
       ).get(systemUserId);
       return result.count;
@@ -88,7 +89,7 @@ class LicenseManager {
   async getTaskCount(boardId) {
     try {
       const result = await wrapQuery(
-        this.db.prepare('SELECT COUNT(*) as count FROM tasks WHERE boardId = ?'),
+        this.db.prepare('SELECT COUNT(*) as count FROM tasks WHERE boardid = $1'),
         'SELECT'
       ).get(boardId);
       return result.count;
@@ -200,7 +201,7 @@ class LicenseManager {
 
     try {
       await wrapQuery(
-        this.db.prepare('INSERT OR REPLACE INTO license_settings (setting_key, setting_value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)'),
+        this.db.prepare('INSERT INTO license_settings (setting_key, setting_value, updated_at) VALUES ($1, $2, CURRENT_TIMESTAMP) ON CONFLICT (setting_key) DO UPDATE SET setting_value = EXCLUDED.setting_value, updated_at = CURRENT_TIMESTAMP'),
         'INSERT'
       ).run(key, value);
     } catch (error) {
@@ -217,9 +218,9 @@ class LicenseManager {
           SELECT 
             b.id,
             b.title,
-            COUNT(t.id) as taskCount
+            COUNT(t.id) as "taskCount"
           FROM boards b
-          LEFT JOIN tasks t ON b.id = t.boardId
+          LEFT JOIN tasks t ON b.id = t.boardid
           GROUP BY b.id, b.title
           ORDER BY taskCount DESC, b.title ASC
         `),

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback, Suspense } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
-import { TeamMember, Task, Column, Columns, Board, PriorityOption, Tag, QueryLog, DragPreview } from './types';
+import { TeamMember, Task, Column, Columns, Board, PriorityOption, Tag, QueryLog, DragPreview, ColumnVisibilityWarning } from './types';
 import { SavedFilterView, getSavedFilterView } from './api';
 import DebugPanel from './components/DebugPanel';
 import { ThemeProvider } from './contexts/ThemeContext';
@@ -30,12 +30,13 @@ const PageLoader = () => (
 // Lazy load ModalManager to reduce initial bundle size (only needed when authenticated) with retry logic
 const ModalManager = lazyWithRetry(() => import('./components/layout/ModalManager'));
 import TaskDeleteConfirmation from './components/TaskDeleteConfirmation';
+import CrossBoardMoveConfirmation from './components/CrossBoardMoveConfirmation';
 import ActivityFeed from './components/ActivityFeed';
 import TaskLinkingOverlay from './components/TaskLinkingOverlay';
 import NetworkStatusIndicator from './components/NetworkStatusIndicator';
 import VersionUpdateBanner from './components/VersionUpdateBanner';
 import { useTaskDeleteConfirmation } from './hooks/useTaskDeleteConfirmation';
-import api, { getMembers, getBoards, deleteTask, updateTask, reorderTasks, reorderColumns, reorderBoards, updateColumn, updateBoard, createTaskAtTop, createTask, createColumn, createBoard, deleteColumn, deleteBoard, getUserSettings, createUser, getUserStatus, getActivityFeed, updateSavedFilterView, getCurrentUser, updateAppUrl } from './api';
+import api, { getMembers, getBoards, deleteTask, updateTask, reorderTasks, reorderColumns, reorderBoards, updateColumn, updateBoard, createTaskAtTop, createTask, copyTask, createColumn, createBoard, deleteColumn, deleteBoard, getUserSettings, createUser, getUserStatus, getActivityFeed, updateSavedFilterView, getCurrentUser, updateAppUrl } from './api';
 import { toast, ToastContainer } from './utils/toast';
 import { useLoadingState } from './hooks/useLoadingState';
 import { useDebug } from './hooks/useDebug';
@@ -55,10 +56,11 @@ import { useMemberWebSocket } from './hooks/useMemberWebSocket';
 import { useSettingsWebSocket } from './hooks/useSettingsWebSocket';
 import { useWebSocketConnection } from './hooks/useWebSocketConnection';
 import { generateUUID } from './utils/uuid';
+import { formatToYYYYMMDD } from './utils/dateUtils';
 import websocketClient from './services/websocketClient';
-import { loadUserPreferences, loadUserPreferencesAsync, updateUserPreference, updateActivityFeedPreference, loadAdminDefaults, TaskViewMode, ViewMode, isGloballySavingPreferences, registerSavingStateCallback, UserPreferences } from './utils/userPreferences';
+import { loadUserPreferences, loadUserPreferencesAsync, mergeClearedKanbanVisibilityFilters, saveUserPreferences, updateUserPreference, updateActivityFeedPreference, loadAdminDefaults, TaskViewMode, ViewMode, isGloballySavingPreferences, registerSavingStateCallback, UserPreferences } from './utils/userPreferences';
 import { versionDetection } from './utils/versionDetection';
-import { getAllPriorities, getAllTags, getTags, getPriorities, getSettings, getTaskWatchers, getTaskCollaborators, addTagToTask, removeTagFromTask, getBoardTaskRelationships, getAllSprints } from './api';
+import { getAllPriorities, getAllTags, getTags, getPriorities, getSettings, getTaskWatchers, getTaskCollaborators, addTagToTask, removeTagFromTask, getBoardTaskRelationships, getTaskRelationships, getAllSprints } from './api';
 import { 
   DEFAULT_COLUMNS, 
   DRAG_COOLDOWN_DURATION, 
@@ -66,6 +68,8 @@ import {
   BOARD_CREATION_PAUSE_DURATION,
   DND_ACTIVATION_DISTANCE 
 } from './constants';
+import { feDebug } from './utils/clientDebug';
+import { dndLog } from './utils/dndDebug';
 import { 
   getInitialSelectedBoard, 
   getInitialPage,
@@ -86,7 +90,7 @@ import { customCollisionDetection, calculateGridStyle } from './utils/dragDropUt
 import { clearCustomCursor } from './utils/cursorUtils';
 import { generateUniqueBoardName } from './utils/boardUtils';
 import { renumberColumns } from './utils/columnUtils';
-import { handleSameColumnReorder, handleCrossColumnMove } from './utils/taskReorderingUtils';
+import { handleSameColumnReorder, handleCrossColumnMove, moveTaskToPosition, calculatePositionForIndex, renumberColumnAfterCopy, resolveDropIndex, TaskDropPlacement } from './utils/taskReorderingUtils';
 import { handleInviteUser as handleInviteUserUtil } from './utils/userInvitationUtils';
 import { KeyboardSensor, PointerSensor, useSensor, useSensors, DragEndEvent, DragStartEvent, DndContext, DragOverlay } from '@dnd-kit/core';
 import { arrayMove, sortableKeyboardCoordinates } from '@dnd-kit/sortable';
@@ -100,6 +104,7 @@ declare global {
   interface Window {
     justUpdatedFromWebSocket?: boolean;
     setJustUpdatedFromWebSocket?: (value: boolean) => void;
+    lastWebSocketUpdateTime?: number;
   }
 }
 
@@ -126,10 +131,27 @@ function AppContent() {
   const [userStatus, setUserStatus] = useState<UserStatus | null>(null);
   const userStatusRef = useRef<UserStatus | null>(null);
   
+  // Track if language has been loaded (to ensure activity feed uses correct language)
+  const [languageLoaded, setLanguageLoaded] = useState<boolean>(false);
+  
   // Initialize extracted hooks
   const versionStatus = useVersionStatus();
   const modalState = useModalState();
   const taskLinking = useTaskLinking();
+  
+  // Log when boardRelationships changes
+  useEffect(() => {
+    if (!feDebug('FE_DEBUG_TASK_LINKING')) return;
+    console.log('🔗 [App] taskLinking.boardRelationships changed:', {
+      count: taskLinking.boardRelationships.length,
+      relationships: taskLinking.boardRelationships.map(r => ({
+        id: r.id,
+        taskId: r.taskId || r.task_id,
+        toTaskId: r.toTaskId || r.to_task_id,
+        relationship: r.relationship
+      }))
+    });
+  }, [taskLinking.boardRelationships]);
   
   // Activity Feed hook - initialized after currentUser is available (will be done after useAuth)
   
@@ -197,6 +219,14 @@ function AppContent() {
   // Task deletion handler with confirmation
   const handleTaskDelete = async (taskId: string) => {
     try {
+      // Track this task as recently deleted to prevent it from reappearing
+      recentlyDeletedTasksRef.current.add(taskId);
+      
+      // Clear the deleted task after 10 seconds (enough time for any delayed updates)
+      setTimeout(() => {
+        recentlyDeletedTasksRef.current.delete(taskId);
+      }, 10000);
+      
       await deleteTask(taskId);
       
       // Remove task from local state and renumber remaining tasks
@@ -261,22 +291,9 @@ function AppContent() {
         return updatedFilteredColumns;
       });
       
-      // Send position updates to server for tasks that changed positions
-      if (tasksToUpdate.length > 0) {
-        try {
-          await Promise.all(tasksToUpdate.map(({ taskId, position, columnId }) => {
-            // Find the complete task data from the updated columns
-            const task = updatedColumns[columnId]?.tasks.find(t => t.id === taskId);
-            if (task) {
-              return updateTask({ ...task, position, columnId });
-            }
-            return Promise.resolve();
-          }));
-          // Positions updated successfully
-        } catch (error) {
-          console.error('❌ Failed to update task positions after deletion:', error);
-        }
-      }
+      // NOTE: Backend already renumbers tasks after deletion and sends a WebSocket event
+      // We don't need to send batch position updates - the backend handles it
+      // The local state update above is sufficient for immediate UI feedback
       
       // Refresh board data to ensure consistent state
       await refreshBoardData();
@@ -343,6 +360,17 @@ function AppContent() {
   // Modal state extracted to useModalState hook (modalState)
   const [isSavingPreferences, setIsSavingPreferences] = useState(false);
   const [currentPage, setCurrentPage] = useState<'kanban' | 'admin' | 'reports' | 'test' | 'forgot-password' | 'reset-password' | 'reset-success' | 'activate-account'>(getInitialPage);
+  
+  // Also log the current value whenever KanbanPage would receive it
+  useEffect(() => {
+    if (currentPage === 'kanban' && selectedBoard && feDebug('FE_DEBUG_TASK_LINKING')) {
+      console.log('🔗 [App] Current boardRelationships value (what KanbanPage would receive):', {
+        count: taskLinking.boardRelationships.length,
+        selectedBoard,
+        currentPage
+      });
+    }
+  }, [currentPage, selectedBoard, taskLinking.boardRelationships]);
 
   // Sync local state with global preference saving state
   useEffect(() => {
@@ -363,8 +391,20 @@ function AppContent() {
   const [activationEmail, setActivationEmail] = useState<string>('');
   const [activationParsed, setActivationParsed] = useState<boolean>(false);
   const [adminRefreshKey, setAdminRefreshKey] = useState(0);
-  const [columnWarnings, setColumnWarnings] = useState<{[columnId: string]: string}>({});
+  const [columnWarnings, setColumnWarnings] = useState<Record<string, ColumnVisibilityWarning>>({});
+  const columnWarningsRef = useRef<Record<string, ColumnVisibilityWarning>>({});
+  useEffect(() => {
+    columnWarningsRef.current = columnWarnings;
+  }, [columnWarnings]);
+
   const [showColumnDeleteConfirm, setShowColumnDeleteConfirm] = useState<string | null>(null);
+
+  const [crossBoardMovePending, setCrossBoardMovePending] = useState<{
+    taskId: string;
+    targetBoardId: string;
+    relationshipCount: number;
+  } | null>(null);
+  const [crossBoardMoveBusy, setCrossBoardMoveBusy] = useState(false);
   
   // Task linking state extracted to useTaskLinking hook (taskLinking)
   
@@ -424,6 +464,116 @@ function AppContent() {
     boards,
     updateCurrentUserPreference,
   });
+
+  // Hide column banner when the task appears in filtered Kanban data (filters/sprint assignment changed).
+  useEffect(() => {
+    const snap = columnWarningsRef.current;
+    const colIds = Object.keys(snap);
+    if (colIds.length === 0) return;
+    const fc = taskFilters.filteredColumns;
+    if (!fc || Object.keys(fc).length === 0) return;
+    const toRemove: string[] = [];
+    for (const colId of colIds) {
+      const w = snap[colId];
+      if (!w) continue;
+      const visible = Object.values(fc).some(
+        col => col?.tasks?.some(t => t.id === w.taskId)
+      );
+      if (visible) toRemove.push(colId);
+    }
+    if (toRemove.length === 0) return;
+    setColumnWarnings(prev => {
+      const next = { ...prev };
+      for (const c of toRemove) delete next[c];
+      return next;
+    });
+  }, [taskFilters.filteredColumns]);
+
+  /** After creating a task or updating sprint, recompute whether it is still hidden by filters. */
+  const buildColumnVisibilityWarningForTask = useCallback(
+    (task: Task): ColumnVisibilityWarning | null => {
+      const wouldBeFilteredBySearch = wouldTaskBeFilteredOut(
+        task,
+        taskFilters.searchFilters,
+        taskFilters.isSearchActive
+      );
+      const wouldBeFilteredBySprint = (() => {
+        if (taskFilters.selectedSprintId === null) return false;
+        if (taskFilters.selectedSprintId === 'backlog') return false;
+        return task.sprintId !== taskFilters.selectedSprintId;
+      })();
+      const wouldBeFilteredByMembers = (() => {
+        if (
+          !taskFilters.includeAssignees &&
+          !taskFilters.includeWatchers &&
+          !taskFilters.includeCollaborators &&
+          !taskFilters.includeRequesters
+        ) {
+          return false;
+        }
+        const showAllMembers = taskFilters.selectedMembers.length === 0;
+        const memberIds = new Set(taskFilters.selectedMembers);
+        let hasMatchingMember = false;
+        if (taskFilters.includeAssignees) {
+          if (showAllMembers) {
+            if (task.memberId) hasMatchingMember = true;
+          } else if (task.memberId && memberIds.has(task.memberId)) {
+            hasMatchingMember = true;
+          }
+        }
+        if (!hasMatchingMember && taskFilters.includeRequesters) {
+          if (showAllMembers) {
+            if (task.requesterId) hasMatchingMember = true;
+          } else if (task.requesterId && memberIds.has(task.requesterId)) {
+            hasMatchingMember = true;
+          }
+        }
+        if (!hasMatchingMember && taskFilters.includeWatchers && task.watchers && Array.isArray(task.watchers)) {
+          if (showAllMembers) {
+            if (task.watchers.length > 0) hasMatchingMember = true;
+          } else if (task.watchers.some(w => w && memberIds.has(w.id))) {
+            hasMatchingMember = true;
+          }
+        }
+        if (!hasMatchingMember && taskFilters.includeCollaborators && task.collaborators && Array.isArray(task.collaborators)) {
+          if (showAllMembers) {
+            if (task.collaborators.length > 0) hasMatchingMember = true;
+          } else if (task.collaborators.some(c => c && memberIds.has(c.id))) {
+            hasMatchingMember = true;
+          }
+        }
+        return !hasMatchingMember;
+      })();
+
+      if (!wouldBeFilteredBySearch && !wouldBeFilteredBySprint && !wouldBeFilteredByMembers) {
+        return null;
+      }
+      const sprintId = taskFilters.selectedSprintId;
+      const showSprintPrompt =
+        wouldBeFilteredBySprint && sprintId !== null && sprintId !== 'backlog';
+      return {
+        taskId: task.id,
+        showSprintPrompt,
+        selectedSprintId: showSprintPrompt ? sprintId : undefined,
+        showClearFilters: wouldBeFilteredBySearch || wouldBeFilteredByMembers,
+        reasons: {
+          search: wouldBeFilteredBySearch,
+          sprint: wouldBeFilteredBySprint,
+          members: wouldBeFilteredByMembers,
+        },
+      };
+    },
+    [
+      taskFilters.searchFilters,
+      taskFilters.isSearchActive,
+      taskFilters.selectedSprintId,
+      taskFilters.includeAssignees,
+      taskFilters.includeWatchers,
+      taskFilters.includeCollaborators,
+      taskFilters.includeRequesters,
+      taskFilters.selectedMembers,
+    ]
+  );
   
   // Initialize Activity Feed hook now that currentUser is available
   const activityFeed = useActivityFeed(currentUser?.id || null);
@@ -608,6 +758,14 @@ function AppContent() {
             await i18n.changeLanguage(languageToUse);
           }
           
+          // Refetch activity feed with new language
+          try {
+            const loadedActivities = await getActivityFeed(20, languageToUse);
+            activityFeed.setActivities(loadedActivities || []);
+          } catch (error) {
+            console.warn('Failed to refetch activity feed after language change:', error);
+          }
+          
           // setIsAutoRefreshEnabled(prefs.appSettings.autoRefreshEnabled ?? true); // Disabled - using real-time updates
           
           // Restore sprint selection and apply date filters
@@ -632,8 +790,28 @@ function AppContent() {
       if (i18n.language !== browserLang) {
         i18n.changeLanguage(browserLang);
       }
+      // Mark language as loaded even for non-authenticated users
+      setLanguageLoaded(true);
     }
   }, [currentUser, i18n]);
+
+  // Refetch activity feed when language changes
+  useEffect(() => {
+    if (!isAuthenticated || !currentUser?.id) return;
+    
+    const refetchActivities = async () => {
+      try {
+        const currentLang = i18n.language || 'en';
+        const normalizedLang = currentLang.toLowerCase().startsWith('fr') ? 'fr' : 'en';
+        const loadedActivities = await getActivityFeed(20, normalizedLang);
+        activityFeed.setActivities(loadedActivities || []);
+      } catch (error) {
+        console.warn('Failed to refetch activity feed after language change:', error);
+      }
+    };
+    
+    refetchActivities();
+  }, [i18n.language, isAuthenticated, currentUser?.id]);
 
   // Auto-refresh toggle handler - DISABLED (using real-time updates)
   // const handleToggleAutoRefresh = useCallback(async () => {
@@ -754,7 +932,7 @@ function AppContent() {
       } catch (error: any) {
         // Handle user account deletion (404 error)
         if (error?.response?.status === 404) {
-          console.log('🔐 User account no longer exists - forcing logout');
+          if (feDebug('FE_DEBUG_AUTH')) console.log('🔐 User account no longer exists - forcing logout');
           
           // Clear all local storage and session data
           localStorage.clear();
@@ -817,10 +995,15 @@ function AppContent() {
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   
   // Store the latest refreshBoardData function in a ref so we always call the current version
-  const refreshBoardDataRef = useRef<(() => Promise<void>) | null>(null);
+  const refreshBoardDataRef = useRef<
+    ((options?: { force?: boolean; forBoardId?: string }) => Promise<void>) | null
+  >(null);
   
   // Track pending task refreshes (to cancel fallback if WebSocket event arrives)
   const pendingTaskRefreshesRef = useRef<Set<string>>(new Set());
+  
+  // Track recently deleted tasks to prevent them from reappearing via WebSocket updates or refreshBoardData
+  const recentlyDeletedTasksRef = useRef<Set<string>>(new Set());
 
   // Initialize WebSocket hooks after all dependencies are available
   const taskWebSocket = useTaskWebSocket({
@@ -830,6 +1013,7 @@ function AppContent() {
     selectedBoardRef,
     pendingTaskRefreshesRef,
     refreshBoardDataRef,
+    recentlyDeletedTasksRef,
     taskFilters: {
       setFilteredColumns: taskFilters.setFilteredColumns,
       viewModeRef: taskFilters.viewModeRef,
@@ -841,6 +1025,7 @@ function AppContent() {
   });
 
   const commentWebSocket = useCommentWebSocket({
+    setBoards,
     setColumns,
     setSelectedTask,
     selectedBoardRef,
@@ -921,6 +1106,7 @@ function AppContent() {
     websocketClient.onTaskCreated(taskWebSocket.handleTaskCreated);
     websocketClient.onTaskUpdated(taskWebSocket.handleTaskUpdated);
     websocketClient.onTaskDeleted(taskWebSocket.handleTaskDeleted);
+    websocketClient.onTasksPositionsUpdated(taskWebSocket.handleTasksPositionsUpdated);
     websocketClient.onTaskRelationshipCreated(taskWebSocket.handleTaskRelationshipCreated);
     websocketClient.onTaskRelationshipDeleted(taskWebSocket.handleTaskRelationshipDeleted);
     websocketClient.onColumnUpdated(columnWebSocket.handleColumnUpdated);
@@ -967,6 +1153,7 @@ function AppContent() {
       websocketClient.offTaskCreated(taskWebSocket.handleTaskCreated);
       websocketClient.offTaskUpdated(taskWebSocket.handleTaskUpdated);
       websocketClient.offTaskDeleted(taskWebSocket.handleTaskDeleted);
+      websocketClient.offTasksPositionsUpdated(taskWebSocket.handleTasksPositionsUpdated);
       websocketClient.offTaskRelationshipCreated(taskWebSocket.handleTaskRelationshipCreated);
       websocketClient.offTaskRelationshipDeleted(taskWebSocket.handleTaskRelationshipDeleted);
       websocketClient.offColumnUpdated(columnWebSocket.handleColumnUpdated);
@@ -1155,7 +1342,7 @@ function AppContent() {
 
   // Task linking handlers
   const handleStartLinking = (task: Task, startPosition: {x: number, y: number}) => {
-    console.log('🔗 handleStartLinking called:', {
+    if (feDebug('FE_DEBUG_TASK_LINKING')) console.log('🔗 handleStartLinking called:', {
       taskTicket: task.ticket,
       taskId: task.id,
       startPosition
@@ -1170,17 +1357,19 @@ function AppContent() {
       endX: startPosition.x,
       endY: startPosition.y
     });
-    console.log('✅ Linking mode activated, linkingLine set:', {
-      startX: startPosition.x,
-      startY: startPosition.y,
-      endX: startPosition.x,
-      endY: startPosition.y
-    });
+    if (feDebug('FE_DEBUG_TASK_LINKING')) {
+      console.log('✅ Linking mode activated, linkingLine set:', {
+        startX: startPosition.x,
+        startY: startPosition.y,
+        endX: startPosition.x,
+        endY: startPosition.y
+      });
+    }
   };
 
   const handleUpdateLinkingLine = (endPosition: {x: number, y: number}) => {
     if (taskLinking.linkingLine) {
-      console.log('🔗 handleUpdateLinkingLine called:', { endPosition, currentLine: taskLinking.linkingLine });
+      if (feDebug('FE_DEBUG_TASK_LINKING')) console.log('🔗 handleUpdateLinkingLine called:', { endPosition, currentLine: taskLinking.linkingLine });
       taskLinking.setLinkingLine({
         ...taskLinking.linkingLine,
         endX: endPosition.x,
@@ -1439,18 +1628,23 @@ function AppContent() {
         try {
           const ownerCheck = await api.get('/auth/is-owner');
           if (ownerCheck.data.isOwner) {
-            console.log('🔄 User is owner, updating APP_URL during initialization...');
-            const baseUrl = window.location.origin;
-            console.log('🔄 Calling updateAppUrl with:', baseUrl);
-            const result = await updateAppUrl(baseUrl);
-            console.log('✅ APP_URL updated successfully:', result);
-          } else {
+            if (feDebug('FE_DEBUG_APP_CORE')) {
+              console.log('🔄 User is owner, updating APP_URL during initialization...');
+              const baseUrl = window.location.origin;
+              console.log('🔄 Calling updateAppUrl with:', baseUrl);
+              const result = await updateAppUrl(baseUrl);
+              console.log('✅ APP_URL updated successfully:', result);
+            } else {
+              const baseUrl = window.location.origin;
+              await updateAppUrl(baseUrl);
+            }
+          } else if (feDebug('FE_DEBUG_APP_CORE')) {
             console.log('ℹ️ User is not owner, skipping APP_URL update');
           }
         } catch (error: any) {
           // Don't fail initialization if owner check or APP_URL update fails
           if (error.response?.status === 403 || error.response?.status === 401) {
-            console.log('ℹ️ User is not owner or not authorized, skipping APP_URL update');
+            if (feDebug('FE_DEBUG_APP_CORE')) console.log('ℹ️ User is not owner or not authorized, skipping APP_URL update');
           } else {
             console.warn('⚠️ Failed to check ownership or update APP_URL during initialization:', error.message);
           }
@@ -1642,28 +1836,30 @@ function AppContent() {
         }
       }
     }
-  }, [currentPage, boards, selectedBoard, boardCreationPause, isAuthenticated, currentUser?.id, intendedDestination, justRedirected]);
-
-
-
+  }, [currentPage, boards, selectedBoard, boardCreationPause, isAuthenticated, currentUser?.id, intendedDestination, justRedirected, languageLoaded, i18n.language]);
 
   // Load initial data
   useEffect(() => {
     // Only load data if authenticated and user preferences have been loaded (currentUser.id exists)
-    if (!isAuthenticated || !currentUser?.id) return;
+    // Also wait for language to be loaded to ensure activity feed uses correct language
+    if (!isAuthenticated || !currentUser?.id || !languageLoaded) return;
     
     const loadInitialData = async () => {
-      console.log('🔄 Loading initial data...');
+      if (feDebug('FE_DEBUG_APP_CORE')) console.log('🔄 Loading initial data...');
       await withLoading('general', async () => {
         try {
           // console.log(`🔄 Loading initial data with includeSystem: ${includeSystem}`);
+          // Get current language for activity feed
+          const currentLang = i18n.language || localStorage.getItem('i18nextLng') || 'en';
+          const normalizedLang = currentLang.toLowerCase().startsWith('fr') ? 'fr' : 'en';
+          
           const [loadedMembers, loadedBoards, loadedPriorities, loadedTags, loadedSprints, loadedActivities] = await Promise.all([
             getMembers(taskFilters.includeSystem),
           getBoards(),
           getAllPriorities(),
           getAllTags(),
           getAllSprints(),
-          getActivityFeed(20)
+          getActivityFeed(20, normalizedLang)
         ]);
           
 
@@ -1691,8 +1887,8 @@ function AppContent() {
               : loadedBoards[0];
             
             if (boardToSelect) {
-              console.log(`🎯 [INITIAL LOAD] Auto-selecting board: ${boardToSelect.title} (${boardToSelect.id})`);
-              
+              if (feDebug('FE_DEBUG_APP_CORE')) console.log(`🎯 [INITIAL LOAD] Auto-selecting board: ${boardToSelect.title} (${boardToSelect.id})`);
+
               // Set board and columns synchronously to prevent blank board
               setSelectedBoard(boardToSelect.id);
               setColumns(boardToSelect.columns || {});
@@ -1707,6 +1903,12 @@ function AppContent() {
             }
           } else if (selectedBoard && loadedBoards.length > 0) {
             // Board already selected, just update its columns
+            // CRITICAL: Skip if we just updated from WebSocket to prevent overwriting batch updates
+            if (window.justUpdatedFromWebSocket) {
+              if (feDebug('FE_DEBUG_APP_CORE')) console.log('⏭️ [Initial Load] Skipping columns update - WebSocket update in progress');
+              return;
+            }
+            
             const boardToUse = loadedBoards.find(b => b.id === selectedBoard);
             if (boardToUse) {
               setColumns(boardToUse.columns || {});
@@ -1722,7 +1924,7 @@ function AppContent() {
     };
 
     loadInitialData();
-  }, [isAuthenticated, currentUser?.id]);
+  }, [isAuthenticated, currentUser?.id, languageLoaded, i18n.language]);
 
   // Reload members only when includeSystem changes (without flashing the entire screen)
   const isInitialSystemMount = useRef(true);
@@ -1771,6 +1973,8 @@ function AppContent() {
   // Update columns when selected board changes
   // Load board data when selected board changes (essential for board switching)
   useEffect(() => {
+    if (feDebug('FE_DEBUG_APP_CORE')) console.log('🔗 [App] useEffect triggered:', { selectedBoard, currentPage, hasBoards: boards.length > 0 });
+
     if (selectedBoard) {
       // Set switching state to prevent task count updates during board switch
       setIsSwitchingBoard(true);
@@ -1778,26 +1982,43 @@ function AppContent() {
       // CRITICAL FIX: Check if board data is already loaded in boards array
       const boardInState = boards.find(b => b.id === selectedBoard);
       if (boardInState && boardInState.columns && Object.keys(boardInState.columns).length > 0) {
-        // Board data already loaded, set columns immediately to prevent blank screen
-        const newColumns = JSON.parse(JSON.stringify(boardInState.columns));
+        // Board data already loaded — always copy columns for the newly selected board.
+        // Do NOT gate this on justUpdatedFromWebSocket: after a cross-board drop (or any
+        // WS batch), that flag can still be true while the user switches boards. Skipping
+        // setColumns leaves the *previous* board's column IDs in `columns`, while
+        // boardColumnVisibility[selectedBoard] lists the new board's IDs, so
+        // getFullyFilteredColumns matches nothing and the Kanban stays blank until another
+        // navigation forces a sync.
+        const newColumns: Columns = {};
+        Object.keys(boardInState.columns || {}).forEach(columnId => {
+          const column = boardInState.columns[columnId];
+          if (column) {
+            newColumns[columnId] = {
+              ...column,
+              tasks: [...(column.tasks || [])]
+            };
+          }
+        });
         setColumns(newColumns);
         setIsSwitchingBoard(false);
       } else {
-        // Board data not loaded yet, fetch it (refreshBoardData will load relationships)
-        refreshBoardData().finally(() => {
-          // Clear switching state after data is loaded
+        // Board data not in state yet — clear columns immediately so the previous board's tasks
+        // are not shown while refresh runs (e.g. new board or slow network).
+        setColumns({});
+        // Force refresh: otherwise justUpdatedFromWebSocket can skip and leave stale columns visible.
+        refreshBoardData({ force: true }).finally(() => {
           setIsSwitchingBoard(false);
         });
       }
       
-      // Load relationships once for the selected board (only if on kanban page)
+      // Load relationships once for the selected board (for kanban page, which includes gantt view)
       if (currentPage === 'kanban') {
         getBoardTaskRelationships(selectedBoard)
           .then(relationships => {
             taskLinking.setBoardRelationships(relationships);
           })
           .catch(error => {
-            console.warn('Failed to load relationships:', error);
+            console.error('⚠️ [App] Failed to load relationships:', error);
             taskLinking.setBoardRelationships([]);
           });
       }
@@ -1832,26 +2053,56 @@ function AppContent() {
   // Real-time events - DISABLED (Socket.IO removed)
   // TODO: Implement simpler real-time solution (polling or SSE)
 
-  const refreshBoardData = useCallback(async () => {
+  const refreshBoardData = useCallback(async (options?: { force?: boolean; forBoardId?: string }) => {
+    // CRITICAL: Skip refresh if we just updated from WebSocket to prevent overwriting real-time updates
+    // This is especially important for batch position updates (259 tasks) where WebSocket updates
+    // are processed together and should not be overwritten by a refresh
+    if (!options?.force && window.justUpdatedFromWebSocket) {
+      if (feDebug('FE_DEBUG_APP_CORE')) console.log('⏭️ [refreshBoardData] Skipping refresh - WebSocket update in progress');
+      return;
+    }
+    
     try {
       const loadedBoards = await getBoards();
       setBoards(loadedBoards);
       
+      // Hydrate columns for a specific board (e.g. newly created) before selectedBoard state updates,
+      // or for the current selectedBoard when forBoardId is omitted.
+      const boardIdToHydrate = options?.forBoardId !== undefined ? options.forBoardId : selectedBoard;
+      
       if (loadedBoards.length > 0) {
-        // Check if the selected board still exists
-        if (selectedBoard) {
-          const board = loadedBoards.find(b => b.id === selectedBoard);
+        if (boardIdToHydrate) {
+          const board = loadedBoards.find(b => b.id === boardIdToHydrate);
           if (board) {
             // Force a deep clone to ensure React detects the change at all levels
-            const newColumns = board.columns ? JSON.parse(JSON.stringify(board.columns)) : {};
+            // OPTIMIZED: Use shallow copy instead of expensive JSON.parse(JSON.stringify())
+            // Also filter out recently deleted tasks to prevent them from reappearing
+            const newColumns: Columns = {};
+            if (board.columns) {
+              Object.keys(board.columns).forEach(columnId => {
+                const column = board.columns[columnId];
+                if (column) {
+                  // Filter out recently deleted tasks
+                  const filteredTasks = (column.tasks || []).filter(
+                    task => !recentlyDeletedTasksRef.current.has(task.id)
+                  );
+                  newColumns[columnId] = {
+                    ...column,
+                    tasks: filteredTasks
+                  };
+                }
+              });
+            }
             setColumns(newColumns);
             
             // Relationships are loaded by the board selection effect above, no need to load here
-          } else {
-            // Selected board no longer exists, clear selection
+          } else if (options?.forBoardId === undefined) {
+            // Selected board no longer exists, clear selection (normal navigation only)
             setSelectedBoard(null);
             setColumns({});
             taskLinking.setBoardRelationships([]);
+          } else {
+            setColumns({});
           }
         }
       }
@@ -1902,31 +2153,20 @@ function AppContent() {
         columns: {}
       };
 
-      // Create the board first
+      // Create the board first (backend automatically creates default columns)
       await createBoard(newBoard);
 
-      // Create default columns for the new board
-      const columnPromises = DEFAULT_COLUMNS.map(async (col, index) => {
-        const column: Column = {
-          id: `${col.id}-${boardId}`,
-          title: col.title,
-          tasks: [],
-          boardId: boardId,
-          position: index
-        };
-        return createColumn(column);
-      });
+      // Refresh and hydrate columns for the NEW board (forBoardId: selectedBoard is still the previous board).
+      // force: true avoids skipping while justUpdatedFromWebSocket is set after a WS batch.
+      await refreshBoardData({ force: true, forBoardId: boardId });
 
-      await Promise.all(columnPromises);
-
-      // Refresh board data to get the complete structure
-      await refreshBoardData();
-      
-
-      
-      // Set the new board as selected and update URL
       setSelectedBoard(boardId);
-      window.location.hash = boardId;
+      updateCurrentUserPreference('lastSelectedBoard', boardId);
+      // Defer hash update until after React applies setBoards/setColumns from refresh (avoids hashchange
+      // seeing a stale boards list and clearing selection).
+      queueMicrotask(() => {
+        window.location.hash = `#kanban#${boardId}`;
+      });
       
       await fetchQueryLogs();
       
@@ -2081,8 +2321,12 @@ function AppContent() {
       const targetColumn = prev[columnId];
       if (!targetColumn) return prev;
       
-      // Insert at top (position 0)
-      const updatedTasks = [newTask, ...targetColumn.tasks];
+      // Insert at top (position 0) and bump siblings so local positions match server
+      const bumpedTasks = targetColumn.tasks.map(t => ({
+        ...t,
+        position: (typeof t.position === 'number' ? t.position : parseFloat(String(t.position)) || 0) + 1
+      }));
+      const updatedTasks = [newTask, ...bumpedTasks];
       
       return {
         ...prev,
@@ -2102,11 +2346,14 @@ function AppContent() {
           const targetColumnId = newTask.columnId;
           
           if (updatedColumns[targetColumnId]) {
-            // Add new task at front
             const existingTasks = updatedColumns[targetColumnId].tasks || [];
+            const bumpedTasks = existingTasks.map(t => ({
+              ...t,
+              position: (typeof t.position === 'number' ? t.position : parseFloat(String(t.position)) || 0) + 1
+            }));
             updatedColumns[targetColumnId] = {
               ...updatedColumns[targetColumnId],
-              tasks: [newTask, ...existingTasks]
+              tasks: [newTask, ...bumpedTasks]
             };
             
             updatedBoard.columns = updatedColumns;
@@ -2122,12 +2369,14 @@ function AppContent() {
     setTaskCreationPause(true);
 
     const createTimestamp = new Date().toISOString();
-    console.log(`🆕 [${createTimestamp}] Creating task:`, {
-      taskId: newTask.id,
-      title: newTask.title,
-      columnId: newTask.columnId,
-      boardId: newTask.boardId
-    });
+    if (feDebug('FE_DEBUG_APP_CORE')) {
+      console.log(`🆕 [${createTimestamp}] Creating task:`, {
+        taskId: newTask.id,
+        title: newTask.title,
+        columnId: newTask.columnId,
+        boardId: newTask.boardId
+      });
+    }
 
     try {
       await withLoading('tasks', async () => {
@@ -2146,109 +2395,21 @@ function AppContent() {
         // Check if WebSocket event already updated the task
         if (pendingTaskRefreshesRef.current.has(newTask.id)) {
           // WebSocket event never arrived, force refresh to get ticket
-          console.log(`⏱️ [${fallbackTimestamp}] Fallback triggered - WebSocket event never arrived for task ${newTask.id}`);
+          if (feDebug('FE_DEBUG_APP_CORE')) console.log(`⏱️ [${fallbackTimestamp}] Fallback triggered - WebSocket event never arrived for task ${newTask.id}`);
           pendingTaskRefreshesRef.current.delete(newTask.id);
           if (refreshBoardDataRef.current) {
             refreshBoardDataRef.current();
           }
-        } else {
+        } else if (feDebug('FE_DEBUG_APP_CORE')) {
           console.log(`✅ [${fallbackTimestamp}] Fallback skipped - WebSocket event already handled task ${newTask.id}`);
         }
       }, 1000);
       
-      // Check if the new task would be filtered out and show warning
-      const wouldBeFilteredBySearch = wouldTaskBeFilteredOut(newTask, taskFilters.searchFilters, taskFilters.isSearchActive);
-      const wouldBeFilteredBySprint = (() => {
-        // Check if task matches sprint filtering criteria
-        if (taskFilters.selectedSprintId === null) {
-          return false; // No sprint filter active
-        }
-        
-        if (taskFilters.selectedSprintId === 'backlog') {
-          // Backlog shows only tasks without sprintId - new tasks match this, so no warning
-          return false;
-        }
-        
-        // Specific sprint selected - task must have matching sprintId
-        // New tasks don't have sprintId set initially, so they would be filtered out
-        return newTask.sprintId !== taskFilters.selectedSprintId;
-      })();
-      const wouldBeFilteredByMembers = (() => {
-        // Check if task matches member filtering criteria
-        if (!taskFilters.includeAssignees && !taskFilters.includeWatchers && !taskFilters.includeCollaborators && !taskFilters.includeRequesters) {
-          return false; // No member filters active
-        }
-        
-        // If no members selected, treat as "all members" (task will be shown)
-        const showAllMembers = taskFilters.selectedMembers.length === 0;
-        const memberIds = new Set(taskFilters.selectedMembers);
-        let hasMatchingMember = false;
-        
-        if (taskFilters.includeAssignees) {
-          if (showAllMembers) {
-            // All tasks with assignees are shown
-            if (newTask.memberId) hasMatchingMember = true;
-          } else {
-            // Only tasks assigned to selected members
-            if (newTask.memberId && memberIds.has(newTask.memberId)) hasMatchingMember = true;
-          }
-        }
-        
-        if (!hasMatchingMember && taskFilters.includeRequesters) {
-          if (showAllMembers) {
-            // All tasks with requesters are shown
-            if (newTask.requesterId) hasMatchingMember = true;
-          } else {
-            // Only tasks requested by selected members
-            if (newTask.requesterId && memberIds.has(newTask.requesterId)) hasMatchingMember = true;
-          }
-        }
-        
-        if (!hasMatchingMember && taskFilters.includeWatchers && newTask.watchers && Array.isArray(newTask.watchers)) {
-          if (showAllMembers) {
-            // All tasks with watchers are shown
-            if (newTask.watchers.length > 0) hasMatchingMember = true;
-          } else {
-            // Only tasks watched by selected members
-            if (newTask.watchers.some(w => w && memberIds.has(w.id))) hasMatchingMember = true;
-          }
-        }
-        
-        if (!hasMatchingMember && taskFilters.includeCollaborators && newTask.collaborators && Array.isArray(newTask.collaborators)) {
-          if (showAllMembers) {
-            // All tasks with collaborators are shown
-            if (newTask.collaborators.length > 0) hasMatchingMember = true;
-          } else {
-            // Only tasks with selected members as collaborators
-            if (newTask.collaborators.some(c => c && memberIds.has(c.id))) hasMatchingMember = true;
-          }
-        }
-        
-        return !hasMatchingMember; // Return true if would be filtered out
-      })();
-      
-      if (wouldBeFilteredBySearch || wouldBeFilteredBySprint || wouldBeFilteredByMembers) {
-        // Build a more specific message based on which filters are active
-        const activeFilterTypes: string[] = [];
-        if (wouldBeFilteredBySearch) activeFilterTypes.push(t('column.filterTypes.searchFilters'));
-        if (wouldBeFilteredBySprint) activeFilterTypes.push(t('column.filterTypes.sprintSelection'));
-        if (wouldBeFilteredByMembers) activeFilterTypes.push(t('column.filterTypes.memberFilters'));
-        
-        const andConjunction = t('column.and');
-        const filterList = activeFilterTypes.length === 1 
-          ? activeFilterTypes[0]
-          : activeFilterTypes.length === 2
-          ? `${activeFilterTypes[0]} ${andConjunction} ${activeFilterTypes[1]}`
-          : `${activeFilterTypes.slice(0, -1).join(', ')}, ${andConjunction} ${activeFilterTypes[activeFilterTypes.length - 1]}`;
-        
-        const tipLabel = t('column.tip');
-        const message = wouldBeFilteredBySprint && !wouldBeFilteredBySearch
-          ? `${t('column.taskHiddenByFilters', { filterList })}\n**${tipLabel}** ${t('column.tipSprintOnly')}`
-          : `${t('column.taskHiddenByFilters', { filterList })}\n**${tipLabel}** ${t('column.tipGeneral')}`;
-        
+      const warn = buildColumnVisibilityWarningForTask(newTask);
+      if (warn) {
         setColumnWarnings(prev => ({
           ...prev,
-          [columnId]: message
+          [columnId]: warn,
         }));
       }
       
@@ -2300,53 +2461,98 @@ function AppContent() {
   };
 
   const handleEditTask = useCallback(async (task: Task) => {
-    
     // Optimistic update
     const previousColumns = { ...columns };
+    const previousFilteredColumns = { ...(taskFilters.filteredColumns || {}) };
     const previousSelectedTask = selectedTask;
-    
-    // Update UI immediately
-    setColumns(prev => {
-      // Safety check: ensure the target column exists
-      if (!prev[task.columnId]) {
-        console.warn('Column not found for task update:', task.columnId, 'Available columns:', Object.keys(prev));
-        return prev; // Return unchanged state if column doesn't exist
+
+    const patchTaskInColumns = (prev: Columns): Columns => {
+      // Resolve column: prefer payload, else find where the task currently lives
+      let targetColumnId = task.columnId;
+      let existingTask: Task | undefined;
+      if (!targetColumnId || !prev[targetColumnId]) {
+        for (const columnId of Object.keys(prev)) {
+          const found = prev[columnId]?.tasks?.find((t) => t.id === task.id);
+          if (found) {
+            targetColumnId = columnId;
+            existingTask = found;
+            break;
+          }
+        }
+      } else {
+        existingTask = prev[targetColumnId]?.tasks?.find((t) => t.id === task.id);
       }
-      
-      const updatedColumns = { ...prev };
-      const taskId = task.id;
-      
-      // First, remove the task from all columns (in case it moved)
-      Object.keys(updatedColumns).forEach(columnId => {
+
+      if (!targetColumnId || !prev[targetColumnId]) {
+        console.warn('Column not found for task update:', task.columnId, 'Available columns:', Object.keys(prev));
+        return prev;
+      }
+
+      const mergedTask: Task = {
+        ...(existingTask || {}),
+        ...task,
+        columnId: targetColumnId,
+        boardId: task.boardId || existingTask?.boardId || '',
+      };
+
+      const updatedColumns: Columns = { ...prev };
+
+      // Same-column in-place update (preserves order; avoids remove/re-add flicker)
+      if (!task.columnId || task.columnId === targetColumnId || !existingTask) {
+        const column = updatedColumns[targetColumnId];
+        const taskIndex = column.tasks.findIndex((t) => t.id === task.id);
+        if (taskIndex !== -1) {
+          updatedColumns[targetColumnId] = {
+            ...column,
+            tasks: [
+              ...column.tasks.slice(0, taskIndex),
+              mergedTask,
+              ...column.tasks.slice(taskIndex + 1),
+            ],
+          };
+          return updatedColumns;
+        }
+        updatedColumns[targetColumnId] = {
+          ...column,
+          tasks: [...column.tasks, mergedTask],
+        };
+        return updatedColumns;
+      }
+
+      // Cross-column move: remove from all, then insert into target
+      Object.keys(updatedColumns).forEach((columnId) => {
         const column = updatedColumns[columnId];
-        const taskIndex = column.tasks.findIndex(t => t.id === taskId);
+        const taskIndex = column.tasks.findIndex((t) => t.id === task.id);
         if (taskIndex !== -1) {
           updatedColumns[columnId] = {
             ...column,
             tasks: [
               ...column.tasks.slice(0, taskIndex),
-              ...column.tasks.slice(taskIndex + 1)
-            ]
+              ...column.tasks.slice(taskIndex + 1),
+            ],
           };
         }
       });
-      
-      // Then, add the task to its new column
-      if (updatedColumns[task.columnId]) {
+
+      const targetColumn = updatedColumns[task.columnId];
+      if (targetColumn) {
         updatedColumns[task.columnId] = {
-          ...updatedColumns[task.columnId],
-          tasks: [...updatedColumns[task.columnId].tasks, task]
+          ...targetColumn,
+          tasks: [...targetColumn.tasks, { ...mergedTask, columnId: task.columnId }],
         };
       }
-      
       return updatedColumns;
-    });
-    
+    };
+
+    // Update both columns and filteredColumns so the visible card refreshes immediately
+    setColumns(patchTaskInColumns);
+    taskFilters.setFilteredColumns(patchTaskInColumns);
+
     // Update selectedTask if this is the selected task
     if (selectedTask && selectedTask.id === task.id) {
-      setSelectedTask(task);
+      setSelectedTask({ ...selectedTask, ...task, columnId: task.columnId || selectedTask.columnId });
     }
-    
+
     try {
       await withLoading('tasks', async () => {
         await updateTask(task);
@@ -2354,62 +2560,60 @@ function AppContent() {
       });
     } catch (error: any) {
       console.error('❌ [App] Failed to update task:', error);
-      
-      // Check if it's an instance unavailable error
+
       if (await handleInstanceStatusError(error)) {
-        return; // Don't rollback if instance is suspended
+        return;
       }
-      
-      // Rollback on error
+
       setColumns(previousColumns);
+      taskFilters.setFilteredColumns(previousFilteredColumns);
       if (previousSelectedTask) {
         setSelectedTask(previousSelectedTask);
       }
     }
-  }, [withLoading, fetchQueryLogs, columns, selectedTask]);
+  }, [withLoading, fetchQueryLogs, columns, selectedTask, taskFilters]);
 
   const handleCopyTask = async (task: Task) => {
-    // Find the original task's position in the sorted list
-    const columnTasks = [...(columns[task.columnId]?.tasks || [])]
-      .sort((a, b) => (a.position || 0) - (b.position || 0));
-    
-    const originalTaskIndex = columnTasks.findIndex(t => t.id === task.id);
     const originalPosition = task.position || 0;
-    
-    // New task will be inserted right after the original (position + 0.5 as intermediate)
-    const newPosition = originalPosition + 0.5;
-    
-    // Generate unique title for tracking
     const copyTitle = `${task.title} (Copy)`;
-    const tempId = generateUUID();
-    
-    const newTask: Task = {
-      ...task,
-      id: tempId,
-      title: copyTitle,
-      comments: [],
-      position: newPosition,
-      // If the original task doesn't have a dueDate, set it to startDate
-      dueDate: task.dueDate || task.startDate
-    };
 
     // PAUSE POLLING to prevent race condition
     setTaskCreationPause(true);
 
     try {
+      let copiedTask: Task | null = null;
+      
       await withLoading('tasks', async () => {
-        // Use createTaskAtTop for better positioning
-        await createTaskAtTop(newTask);
-        
-        // Don't refresh - WebSocket will handle the update
+        // Use the dedicated copy endpoint which handles:
+        // - Generating new ticket number (incrementing)
+        // - Copying all task fields
+        // - Placing copy at originalPos - 0.5 (above original)
+        // - Copying tags, watchers, and collaborators
+        copiedTask = await copyTask(task.id, task.boardId);
       });
+      
+      // After copy is created, renumber the column and send to backend
+      // This ensures clean integer positions (0, 1, 2, 3...)
+      if (copiedTask && task.columnId) {
+        const targetColumnId = task.columnId;
+        // Wait a brief moment for WebSocket to add the task, then renumber
+        // NOTE: renumberColumnAfterCopy gets CURRENT state internally (no stale closure issue)
+        setTimeout(async () => {
+          try {
+            await renumberColumnAfterCopy(targetColumnId, setColumns);
+            if (feDebug('FE_DEBUG_APP_CORE')) console.log('✅ Column renumbered after copy');
+          } catch (err) {
+            console.error('Failed to renumber after copy:', err);
+          }
+        }, 500); // Give WebSocket time to add the task first
+      }
       
       // SAFETY FALLBACK: If WebSocket was offline/reconnecting, manually refresh after delay
       if (wasOfflineRef.current) {
-        console.log('⚠️ Copying task while WebSocket is reconnecting - will refresh board in 2s to ensure it appears');
+        if (feDebug('FE_DEBUG_APP_CORE')) console.log('⚠️ Copying task while WebSocket is reconnecting - will refresh board in 2s to ensure it appears');
         setTimeout(() => {
           if (refreshBoardDataRef.current) {
-            console.log('🔄 Safety fallback: Refreshing board after task copy (was offline)');
+            if (feDebug('FE_DEBUG_APP_CORE')) console.log('🔄 Safety fallback: Refreshing board after task copy (was offline)');
             refreshBoardDataRef.current();
           }
         }, 2000);
@@ -2443,8 +2647,8 @@ function AppContent() {
     try {
       const numericTagId = parseInt(tagId);
       await addTagToTask(taskId, numericTagId);
-      // Refresh the task data to show the new tag
-      await refreshBoardData();
+      // Don't refresh - WebSocket event will handle the update in real-time
+      // This ensures other users also see the tag immediately
     } catch (error) {
       // console.error('Failed to add tag to task:', error);
     }
@@ -2706,18 +2910,37 @@ function AppContent() {
       columns,
       setColumns,
       setDragCooldown,
-      refreshBoardData
+      refreshBoardData,
+      taskFilters.setFilteredColumns
+    );
+  };
+
+  // Wrapper for moveTaskToPosition that provides current state (for position-based moves)
+  const moveTaskToPositionWrapper = async (task: Task, columnId: string, newPosition: number) => {
+    return moveTaskToPosition(
+      task,
+      columnId,
+      newPosition,
+      columns,
+      setColumns,
+      setDragCooldown,
+      refreshBoardData,
+      taskFilters.setFilteredColumns
     );
   };
 
   // Handle moving task to different column via ListView dropdown or drag & drop
-  const handleMoveTaskToColumn = useCallback(async (taskId: string, targetColumnId: string, position?: number) => {
-    // console.log('🎯 handleMoveTaskToColumn called:', {
-    //   taskId,
-    //   targetColumnId,
-    //   position,
-    //   columnsCount: Object.keys(columns).length
-    // });
+  const handleMoveTaskToColumn = useCallback(async (
+    taskId: string,
+    targetColumnId: string,
+    placement?: TaskDropPlacement
+  ) => {
+    dndLog('🎯 handleMoveTaskToColumn called:', {
+      taskId,
+      targetColumnId,
+      placement,
+      columnsCount: Object.keys(columns).length
+    });
 
     // Find the task and its current column
     let sourceTask: Task | null = null;
@@ -2731,40 +2954,32 @@ function AppContent() {
       }
     });
 
-    // console.log('🎯 Task lookup result:', {
-    //   sourceTask: sourceTask ? { id: sourceTask.id, title: sourceTask.title, position: sourceTask.position } : null,
-    //   sourceColumnId
-    // });
+    dndLog('🎯 Task lookup result:', {
+      sourceTask: sourceTask ? { id: sourceTask.id, title: sourceTask.title, position: sourceTask.position } : null,
+      sourceColumnId
+    });
 
     if (!sourceTask || !sourceColumnId) {
-      // console.log('🎯 Task not found, returning early');
+      dndLog('🎯 Task not found, returning early');
       return; // Task not found
     }
 
     const targetColumn = columns[targetColumnId];
     if (!targetColumn) {
-      // console.log('🎯 Target column not found:', targetColumnId);
+      dndLog('🎯 Target column not found:', targetColumnId);
       return;
     }
 
-    // If no position specified, move to end of target column
-    const targetIndex = position !== undefined ? position : targetColumn.tasks.length;
-    
-    // console.log('🎯 Move decision:', {
-    //   sourceColumnId,
-    //   targetColumnId,
-    //   targetIndex,
-    //   isSameColumn: sourceColumnId === targetColumnId
-    // });
-    
+    // Resolve placement against FULL column (not filtered). Default: append to end (ListView).
+    const resolvedPlacement: TaskDropPlacement = placement || { kind: 'end' };
+    const targetIndex = resolveDropIndex(targetColumn.tasks, resolvedPlacement, taskId);
+
+    dndLog('🎯 Resolved drop index:', { resolvedPlacement, targetIndex });
+
     // Check if this is a same-column reorder or cross-column move
     if (sourceColumnId === targetColumnId) {
-      // Same column - use reorder logic
-      // console.log('🎯 Calling handleSameColumnReorder');
-      await handleSameColumnReorderWrapper(sourceTask, sourceColumnId, targetIndex);
+      await moveTaskToPositionWrapper(sourceTask, sourceColumnId, targetIndex);
     } else {
-      // Different columns - use cross-column move logic
-      // console.log('🎯 Calling handleCrossColumnMove');
       await handleCrossColumnMoveWrapper(sourceTask, sourceColumnId, targetColumnId, targetIndex);
     }
   }, [columns]);
@@ -2779,7 +2994,8 @@ function AppContent() {
       columns,
       setColumns,
       setDragCooldown,
-      refreshBoardData
+      refreshBoardData,
+      taskFilters.setFilteredColumns
     );
   };
 
@@ -2847,23 +3063,53 @@ function AppContent() {
     setShowColumnDeleteConfirm(null);
   };
 
-  // Handle cross-board task drop
-  const handleTaskDropOnBoard = useCallback(async (taskId: string, targetBoardId: string) => {
-    try {
-      // console.log(`🔄 Moving task ${taskId} to board ${targetBoardId}`);
-      await moveTaskToBoard(taskId, targetBoardId);
-      
-      // Refresh both boards to reflect the change
-      await refreshBoardData();
-      
-      // Show success message
-      // console.log(`✅ Task moved successfully to ${targetBoardId}`);
-      
-    } catch (error) {
-      // console.error('Failed to move task to board:', error);
-      // You could add a toast notification here
-    }
+  const performCrossBoardMove = useCallback(async (taskId: string, targetBoardId: string) => {
+    await moveTaskToBoard(taskId, targetBoardId);
+    // Force refresh: cross-board move often coincides with justUpdatedFromWebSocket; a skipped
+    // refresh leaves boards[] stale for the target board until the user switches tabs again.
+    await refreshBoardData({ force: true });
   }, [refreshBoardData]);
+
+  // Handle cross-board task drop (confirms when task has parent/child/related links — server removes them on move)
+  const handleTaskDropOnBoard = useCallback(
+    async (taskId: string, targetBoardId: string) => {
+      try {
+        let relationshipCount = 0;
+        try {
+          const rels = await getTaskRelationships(taskId);
+          if (Array.isArray(rels)) relationshipCount = rels.length;
+        } catch (err) {
+          console.error('Could not load task relationships before cross-board move:', err);
+        }
+        if (relationshipCount > 0) {
+          setCrossBoardMovePending({ taskId, targetBoardId, relationshipCount });
+          return;
+        }
+        await performCrossBoardMove(taskId, targetBoardId);
+      } catch (error) {
+        console.error('Failed to move task to board:', error);
+      }
+    },
+    [performCrossBoardMove]
+  );
+
+  const handleConfirmCrossBoardMove = useCallback(async () => {
+    const pending = crossBoardMovePending;
+    if (!pending) return;
+    setCrossBoardMoveBusy(true);
+    try {
+      await performCrossBoardMove(pending.taskId, pending.targetBoardId);
+      setCrossBoardMovePending(null);
+    } catch (error) {
+      console.error('Failed to move task to board:', error);
+    } finally {
+      setCrossBoardMoveBusy(false);
+    }
+  }, [crossBoardMovePending, performCrossBoardMove]);
+
+  const handleCancelCrossBoardMove = useCallback(() => {
+    if (!crossBoardMoveBusy) setCrossBoardMovePending(null);
+  }, [crossBoardMoveBusy]);
 
   const handleColumnReorder = useCallback(async (columnId: string, newPosition: number) => {
     try {
@@ -2872,19 +3118,23 @@ function AppContent() {
       
       // Defer non-critical updates to avoid forced reflows during drag end
       // Use requestAnimationFrame to batch DOM reads/writes
+      // NOTE: WebSocket update will handle the state sync completely
+      // We don't call refreshBoardData here to avoid overwriting the WebSocket update
       requestAnimationFrame(() => {
-        // Defer query logs and board refresh to next frame
+        // Defer query logs to next frame
         // This prevents forced reflows during the drag end handler
         setTimeout(() => {
           fetchQueryLogs();
-          refreshBoardData();
+          // WebSocket update handles state sync, so we don't refresh here
+          // If WebSocket fails, we'll refresh on error
         }, 0);
       });
     } catch (error) {
       // console.error('Failed to reorder column:', error);
+      // Only refresh on error - WebSocket should handle success case
       await refreshBoardData();
     }
-  }, [selectedBoard, fetchQueryLogs, refreshBoardData]);
+  }, [selectedBoard, fetchQueryLogs]);
   
   // Stable callbacks for drag state - use refs to avoid triggering re-renders during drag
   const handleDraggedTaskChange = useCallback((task: Task | null) => {
@@ -2916,11 +3166,47 @@ function AppContent() {
   useEffect(() => {
     const current = taskFilters.filteredColumns || {};
     
-    // Create a stable signature based on column IDs and task IDs
+    // Signature must include order AND display fields. Task id lists alone miss title/description/
+    // effort/watchers/etc., so side-panel edits never refreshed Kanban (columns={stableFilteredColumns}).
+    // Structure-only signatures also hid intra-column reorder until position was included.
+    const taskContentKey = (t: Task) => {
+      const desc = t.description || '';
+      const watchers = (t.watchers || []).map((w: any) => w?.id ?? w).join(',');
+      const collaborators = (t.collaborators || []).map((c: any) => c?.id ?? c).join(',');
+      return [
+        t.id,
+        t.position ?? '',
+        t.title ?? '',
+        desc.length,
+        // Sample ends so long HTML edits still invalidate without hashing the whole body
+        desc.slice(0, 48),
+        desc.slice(-48),
+        t.effort ?? '',
+        t.memberId ?? '',
+        t.requesterId ?? '',
+        t.priorityId ?? t.priority ?? '',
+        t.attachmentCount ?? '',
+        t.dueDate ?? '',
+        t.startDate ?? '',
+        t.sprintId ?? '',
+        watchers,
+        collaborators,
+      ].join('~');
+    };
+
     const signature = Object.keys(current).sort().map(columnId => {
       const column = current[columnId];
-      const taskIds = (column?.tasks || []).map(t => t.id).sort().join(',');
-      return `${columnId}:${taskIds}`;
+      const taskKeys = [...(column?.tasks || [])]
+        .sort((a, b) => {
+          const pa = typeof a.position === 'number' ? a.position : parseFloat(String(a.position)) || 0;
+          const pb = typeof b.position === 'number' ? b.position : parseFloat(String(b.position)) || 0;
+          if (pa !== pb) return pa - pb;
+          return String(a.id).localeCompare(String(b.id));
+        })
+        .map(taskContentKey)
+        .join(',');
+      const position = column?.position ?? 0;
+      return `${columnId}:${position}:${taskKeys}`;
     }).join('|');
     
     // Only update state if signature changed (actual data changed)
@@ -2963,9 +3249,10 @@ function AppContent() {
       newTitle = `${baseColumnName} ${columnNumber}`;
     }
 
-    // Get the position of the column we want to insert after
+    // Server interprets position as insert index: ceil(n) with shift of columns >= that index.
+    // afterPosition + 1 places the new column immediately to the right of the anchor column.
     const afterColumn = columns[afterColumnId];
-    const afterPosition = afterColumn?.position || 0;
+    const afterPosition = afterColumn?.position ?? 0;
 
     const columnId = generateUUID();
     const newColumn: Column = {
@@ -2973,22 +3260,63 @@ function AppContent() {
       title: newTitle,
       tasks: [],
       boardId: selectedBoard,
-      position: afterPosition + 0.5 // Insert between current and next column
+      position: afterPosition + 1,
     };
 
     try {
-      await createColumn(newColumn);
-      
-      // Add the new column to visible columns (new columns are never archived by default)
-      const currentVisibleColumns = boardColumnVisibility[selectedBoard] || Object.keys(columns);
-      const updatedVisibleColumns = [...currentVisibleColumns, columnId];
-      handleBoardColumnVisibilityChange(selectedBoard, updatedVisibleColumns);
-      
-      await refreshBoardData(); // Refresh to ensure consistent state
-      
-      // Renumber all columns to ensure clean integer positions
-      await renumberColumns(selectedBoard);
-      
+      const created = await createColumn(newColumn);
+
+      if (
+        Array.isArray(created.columns) &&
+        created.columns.length > 0 &&
+        selectedBoard
+      ) {
+        const sorted = [...created.columns].sort(
+          (a, b) => (a.position ?? 0) - (b.position ?? 0)
+        );
+
+        window.justUpdatedFromWebSocket = true;
+        setBoards(prev =>
+          prev.map(board => {
+            if (board.id !== selectedBoard) return board;
+            const nextCols: Columns = {};
+            sorted.forEach(col => {
+              nextCols[col.id] = {
+                ...col,
+                tasks: board.columns[col.id]?.tasks ?? [],
+              };
+            });
+            return { ...board, columns: nextCols };
+          })
+        );
+        setColumns(prev => {
+          const nextCols: Columns = {};
+          sorted.forEach(col => {
+            nextCols[col.id] = {
+              ...col,
+              tasks: prev[col.id]?.tasks ?? [],
+            };
+          });
+          return nextCols;
+        });
+        setTimeout(() => {
+          window.justUpdatedFromWebSocket = false;
+        }, 1000);
+
+        const currentVisibleColumns =
+          boardColumnVisibility[selectedBoard] || Object.keys(columns);
+        const visibleSet = new Set([...currentVisibleColumns, columnId]);
+        const newVisible = sorted.map(c => c.id).filter(id => visibleSet.has(id));
+        handleBoardColumnVisibilityChange(selectedBoard, newVisible);
+      } else {
+        const currentVisibleColumns =
+          boardColumnVisibility[selectedBoard] || Object.keys(columns);
+        const updatedVisibleColumns = [...currentVisibleColumns, columnId];
+        handleBoardColumnVisibilityChange(selectedBoard, updatedVisibleColumns);
+        await refreshBoardData();
+        if (selectedBoard) await renumberColumns(selectedBoard);
+      }
+
       await fetchQueryLogs();
     } catch (error) {
       // console.error('Failed to create column:', error);
@@ -3017,29 +3345,35 @@ function AppContent() {
       
       if (oldIndex === -1 || newIndex === -1) return;
       
-
+      // Get target column to determine the correct position
+      const targetColumn = columnArray[newIndex];
+      const sourceColumn = columnArray[oldIndex];
+      const sourcePosition = Math.floor(sourceColumn.position || 0);
+      const targetPosition = Math.floor(targetColumn.position || 0);
       
-      // Reorder columns using arrayMove
-      const reorderedColumns = arrayMove(columnArray, oldIndex, newIndex);
+      // Determine if we're moving left (to lower position) or right (to higher position)
+      const movingLeft = sourcePosition > targetPosition;
+      const movingRight = sourcePosition < targetPosition;
       
-      // Update positions
-      const updatedColumns = reorderedColumns.map((column, index) => ({
-        ...column,
-        position: index
-      }));
+      // For edge cases: when dropping on first or last column
+      const isFirstColumn = newIndex === 0;
+      const isLastColumn = newIndex === columnArray.length - 1;
       
-      // Optimistically update UI
-      const newColumnsObj: Columns = {};
-      updatedColumns.forEach(col => {
-        newColumnsObj[col.id] = col;
-      });
-      setColumns(newColumnsObj);
+      let finalTargetPosition = targetPosition;
       
-      // Update database - pass the new position from the reordered array
-      const movedColumn = updatedColumns.find(col => col.id === active.id);
-      if (movedColumn) {
-        await reorderColumns(active.id as string, movedColumn.position, selectedBoard);
+      if (movingLeft && isFirstColumn) {
+        // Moving left to first position (position 0): dropped column takes position 0
+        finalTargetPosition = 0;
+      } else if (movingRight && isLastColumn) {
+        // Moving right to last position: dropped column takes the last position
+        finalTargetPosition = targetPosition;
+      } else {
+        // Normal case: use target's position
+        finalTargetPosition = targetPosition;
       }
+      
+      // Update database - use handleColumnReorder which handles refresh and renumbering
+      await handleColumnReorder(active.id as string, finalTargetPosition);
       await fetchQueryLogs();
     } catch (error) {
       // console.error('Failed to reorder columns:', error);
@@ -3065,14 +3399,9 @@ function AppContent() {
 
 
 
-  const handleToggleTaskViewMode = () => {
-    const modes: TaskViewMode[] = ['compact', 'shrink', 'expand'];
-    const currentIndex = modes.indexOf(taskFilters.taskViewMode);
-    const nextIndex = (currentIndex + 1) % modes.length;
-    const newMode = modes[nextIndex];
-    
-    taskFilters.setTaskViewMode(newMode);
-    updateCurrentUserPreference('taskViewMode', newMode);
+  const handleTaskViewModeChange = (mode: TaskViewMode) => {
+    taskFilters.setTaskViewMode(mode);
+    updateCurrentUserPreference('taskViewMode', mode);
   };
 
   const handleViewModeChange = (mode: ViewMode) => {
@@ -3084,13 +3413,90 @@ function AppContent() {
   // Filter handlers are now in useTaskFilters hook (taskFilters.*)
 
   // Handle selecting all members
-  // Handle dismissing column warnings
-  const handleDismissColumnWarning = (columnId: string) => {
+  const handleDismissColumnWarning = useCallback((columnId: string) => {
     setColumnWarnings(prev => {
       const { [columnId]: removed, ...rest } = prev;
       return rest;
     });
-  };
+  }, []);
+
+  const handleClearFiltersForHiddenTask = useCallback(async () => {
+    taskFilters.clearVisibilityObstructingFilters();
+    setColumnWarnings({});
+    const uid = currentUser?.id;
+    if (!uid) return;
+    const prefs = mergeClearedKanbanVisibilityFilters(loadUserPreferences(uid));
+    await saveUserPreferences(prefs, uid);
+  }, [taskFilters.clearVisibilityObstructingFilters, currentUser?.id]);
+
+  const handleAssignCreatedTaskToSprint = useCallback(
+    async (columnId: string, taskId: string, sprintId: string) => {
+      const task = Object.values(columns).flatMap(c => c.tasks).find(tk => tk.id === taskId);
+      if (!task) {
+        handleDismissColumnWarning(columnId);
+        return;
+      }
+      try {
+        const sprint = availableSprints.find((s: any) => s.id === sprintId);
+        const updated: Task = {
+          ...task,
+          sprintId,
+          ...(sprint?.start_date
+            ? { startDate: formatToYYYYMMDD(sprint.start_date) }
+            : {}),
+          ...(sprint?.end_date
+            ? { dueDate: formatToYYYYMMDD(sprint.end_date) }
+            : {}),
+        };
+        await updateTask(updated);
+        setColumns(prev => ({
+          ...prev,
+          [task.columnId]: {
+            ...prev[task.columnId],
+            tasks: prev[task.columnId].tasks.map(tk => (tk.id === taskId ? updated : tk)),
+          },
+        }));
+        if (selectedBoard) {
+          setBoards(prev =>
+            prev.map(board => {
+              if (board.id !== selectedBoard) return board;
+              const cols = { ...board.columns };
+              for (const cid of Object.keys(cols)) {
+                const col = cols[cid];
+                if (!col?.tasks?.some(tk => tk.id === taskId)) continue;
+                cols[cid] = {
+                  ...col,
+                  tasks: col.tasks.map(tk => (tk.id === taskId ? updated : tk)),
+                };
+              }
+              return { ...board, columns: cols };
+            })
+          );
+        }
+        const nextWarn = buildColumnVisibilityWarningForTask(updated);
+        if (nextWarn) {
+          setColumnWarnings(prev => ({ ...prev, [columnId]: nextWarn }));
+        } else {
+          handleDismissColumnWarning(columnId);
+        }
+      } catch (err) {
+        console.error('Failed to assign sprint to new task:', err);
+        toast.error(
+          t('column.sprintAssignFailedTitle'),
+          t('column.sprintAssignFailedBody'),
+          4000
+        );
+      }
+    },
+    [
+      columns,
+      selectedBoard,
+      availableSprints,
+      handleDismissColumnWarning,
+      t,
+      buildColumnVisibilityWarningForTask,
+    ]
+  );
 
   // Filter handlers, shouldIncludeTask, and filtering useEffect are now in useTaskFilters hook (taskFilters.*)
 
@@ -3507,7 +3913,7 @@ function AppContent() {
         onToggleCollaborators={taskFilters.handleToggleCollaborators}
         onToggleRequesters={taskFilters.handleToggleRequesters}
         onToggleSystem={taskFilters.handleToggleSystem}
-        onToggleTaskViewMode={handleToggleTaskViewMode}
+        onTaskViewModeChange={handleTaskViewModeChange}
         viewMode={taskFilters.viewMode}
         onViewModeChange={handleViewModeChange}
         onToggleSearch={taskFilters.handleToggleSearch}
@@ -3528,6 +3934,8 @@ function AppContent() {
                                     onAddTask={handleAddTask}
                                     columnWarnings={columnWarnings}
                                     onDismissColumnWarning={handleDismissColumnWarning}
+                                    onClearFiltersForHiddenTask={handleClearFiltersForHiddenTask}
+                                    onAssignCreatedTaskToSprint={handleAssignCreatedTaskToSprint}
                                     onEditTask={handleEditTask}
                                     onCopyTask={handleCopyTask}
                                     onRemoveTask={handleRemoveTask}
@@ -3625,6 +4033,19 @@ function AppContent() {
         position={taskDeleteConfirmation.confirmationPosition}
       />
 
+      <CrossBoardMoveConfirmation
+        isOpen={!!crossBoardMovePending}
+        relationshipCount={crossBoardMovePending?.relationshipCount ?? 0}
+        targetBoardTitle={
+          crossBoardMovePending
+            ? boards.find(b => b.id === crossBoardMovePending.targetBoardId)?.title
+            : undefined
+        }
+        onConfirm={handleConfirmCrossBoardMove}
+        onCancel={handleCancelCrossBoardMove}
+        isBusy={crossBoardMoveBusy}
+      />
+
       {showDebug && (
         <DebugPanel
           logs={queryLogs}
@@ -3711,9 +4132,9 @@ export default function App() {
               // Prevent default error handling
               event.preventDefault();
               
-              // Force a hard reload (bypass cache)
-              const baseUrl = window.location.origin + window.location.pathname;
-              window.location.href = baseUrl;
+              const u = new URL(window.location.href);
+              u.searchParams.set('_cb', String(Date.now()));
+              window.location.href = u.toString();
             }
           }
         }
@@ -3737,9 +4158,9 @@ export default function App() {
           // Prevent default error handling
           event.preventDefault();
           
-          // Force a hard reload (bypass cache)
-          const baseUrl = window.location.origin + window.location.pathname;
-          window.location.href = baseUrl;
+          const u = new URL(window.location.href);
+          u.searchParams.set('_cb', String(Date.now()));
+          window.location.href = u.toString();
         }
       }
     };

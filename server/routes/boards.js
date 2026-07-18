@@ -1,11 +1,12 @@
 import express from 'express';
 import { wrapQuery } from '../utils/queryLogger.js';
-import redisService from '../services/redisService.js';
+import notificationService from '../services/notificationService.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { checkBoardLimit } from '../middleware/licenseCheck.js';
 import { getDefaultBoardColumns, getTranslator } from '../utils/i18n.js';
 import { getTenantId, getRequestDatabase } from '../middleware/tenantRouting.js';
-import { dbTransaction, isProxyDatabase } from '../utils/dbAsync.js';
+// MIGRATED: Import sqlManager
+import { boards as boardQueries, tasks as taskQueries, helpers } from '../utils/sqlManager/index.js';
 
 const router = express.Router();
 
@@ -13,149 +14,154 @@ const router = express.Router();
 router.get('/', authenticateToken, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
-    const boards = await wrapQuery(db.prepare('SELECT * FROM boards ORDER BY CAST(position AS INTEGER) ASC'), 'SELECT').all();
-    const columnsStmt = await wrapQuery(db.prepare('SELECT id, title, boardId, position, is_finished, is_archived FROM columns WHERE boardId = ? ORDER BY position ASC'), 'SELECT');
-    
-        // Updated query to include tags, watchers, and collaborators
-    const tasksStmt = await wrapQuery(
-      db.prepare(`
-        SELECT t.id, t.position, t.title, t.description, t.ticket, t.memberId, t.requesterId, 
-               t.startDate, t.dueDate, t.effort, t.priority, t.priority_id, t.columnId, t.boardId, t.sprint_id,
-               t.created_at, t.updated_at,
-               p.id as priorityId,
-               p.priority as priorityName,
-               p.color as priorityColor,
-               CASE WHEN COUNT(DISTINCT CASE WHEN a.id IS NOT NULL THEN a.id END) > 0 
-                    THEN COUNT(DISTINCT CASE WHEN a.id IS NOT NULL THEN a.id END) 
-                    ELSE NULL END as attachmentCount,
-          json_group_array(
-            DISTINCT CASE WHEN c.id IS NOT NULL THEN json_object(
-              'id', c.id,
-              'text', c.text,
-              'authorId', c.authorId,
-              'createdAt', c.createdAt
-            ) ELSE NULL END
-          ) as comments,
-          json_group_array(
-            DISTINCT CASE WHEN tag.id IS NOT NULL THEN json_object(
-              'id', tag.id,
-              'tag', tag.tag,
-              'description', tag.description,
-              'color', tag.color
-            ) ELSE NULL END
-          ) as tags,
-          json_group_array(
-            DISTINCT CASE WHEN watcher.id IS NOT NULL THEN json_object(
-              'id', watcher.id,
-              'name', watcher.name,
-              'color', watcher.color,
-              'user_id', watcher.user_id,
-              'email', watcher_user.email,
-              'avatarUrl', watcher_user.avatar_path,
-              'googleAvatarUrl', watcher_user.google_avatar_url
-            ) ELSE NULL END
-          ) as watchers,
-          json_group_array(
-            DISTINCT CASE WHEN collaborator.id IS NOT NULL THEN json_object(
-              'id', collaborator.id,
-              'name', collaborator.name,
-              'color', collaborator.color,
-              'user_id', collaborator.user_id,
-              'email', collaborator_user.email,
-              'avatarUrl', collaborator_user.avatar_path,
-              'googleAvatarUrl', collaborator_user.google_avatar_url
-            ) ELSE NULL END
-          ) as collaborators
-        FROM tasks t
-        LEFT JOIN comments c ON c.taskId = t.id
-        LEFT JOIN task_tags tt ON tt.taskId = t.id
-        LEFT JOIN tags tag ON tag.id = tt.tagId
-        LEFT JOIN watchers w ON w.taskId = t.id
-        LEFT JOIN members watcher ON watcher.id = w.memberId
-        LEFT JOIN users watcher_user ON watcher_user.id = watcher.user_id
-        LEFT JOIN collaborators col ON col.taskId = t.id
-        LEFT JOIN members collaborator ON collaborator.id = col.memberId
-        LEFT JOIN users collaborator_user ON collaborator_user.id = collaborator.user_id
-        LEFT JOIN attachments a ON a.taskId = t.id
-        LEFT JOIN priorities p ON (p.id = t.priority_id OR (t.priority_id IS NULL AND p.priority = t.priority))
-        WHERE t.columnId = ?
-        GROUP BY t.id, p.id
-        ORDER BY t.position ASC
-`),
-      'SELECT'
-    );
+    // MIGRATED: Use sqlManager
+    const boards = await boardQueries.getAllBoards(db);
 
-    const boardsWithData = await Promise.all(boards.map(async board => {
-      const columns = await columnsStmt.all(board.id);
+    // OPTIMIZATION: Batch fetch all columns for all boards first
+    const allBoardIds = boards.map(b => b.id);
+    const allColumns = allBoardIds.length > 0 
+      ? await helpers.getColumnsForAllBoards(db, allBoardIds)
+      : [];
+    
+    // Group columns by boardid
+    const columnsByBoardId = {};
+    allColumns.forEach(column => {
+      if (!columnsByBoardId[column.boardId]) {
+        columnsByBoardId[column.boardId] = [];
+      }
+      columnsByBoardId[column.boardId].push(column);
+    });
+    
+    // OPTIMIZATION: Batch fetch all tasks for all columns
+    const allColumnIds = allColumns.map(c => c.id);
+    const allTasks = allColumnIds.length > 0
+      ? await taskQueries.getTasksForColumns(db, allColumnIds)
+      : [];
+    
+    // Group tasks by columnid
+    const tasksByColumnId = {};
+    allTasks.forEach(task => {
+      if (!tasksByColumnId[task.columnId]) {
+        tasksByColumnId[task.columnId] = [];
+      }
+      tasksByColumnId[task.columnId].push(task);
+    });
+    
+    // Collect all comment IDs for batch attachment fetch
+    const allCommentIds = allTasks.flatMap(task => {
+      const parseJsonField = (field) => {
+        if (!field || field === '[]' || field === '[null]') return [];
+        if (Array.isArray(field)) return field.filter(Boolean);
+        if (typeof field === 'string') {
+          try {
+            const parsed = JSON.parse(field);
+            return Array.isArray(parsed) ? parsed.filter(Boolean) : (parsed ? [parsed] : []);
+          } catch {
+            return [];
+          }
+        }
+        return [];
+      };
+      const comments = parseJsonField(task.comments);
+      return comments.map(c => c.id).filter(Boolean);
+    });
+    
+    // OPTIMIZATION: Batch fetch all attachments for all comments in one query
+    const allAttachments = allCommentIds.length > 0
+      ? await helpers.getAttachmentsForComments(db, allCommentIds)
+      : [];
+    
+    // Group attachments by commentid
+    const attachmentsByCommentId = {};
+    allAttachments.forEach(att => {
+      const commentId = att.commentId || att.commentid;
+      if (!attachmentsByCommentId[commentId]) {
+        attachmentsByCommentId[commentId] = [];
+      }
+      attachmentsByCommentId[commentId].push(att);
+    });
+    
+    // Helper functions for processing
+    const parseJsonField = (field) => {
+      if (field === null || field === undefined || field === '' || field === '[null]' || field === 'null') {
+        return [];
+      }
+      if (Array.isArray(field)) {
+        return field.filter(Boolean);
+      }
+      if (typeof field === 'object') {
+        return Array.isArray(field) ? field.filter(Boolean) : [field].filter(Boolean);
+      }
+      if (typeof field === 'string') {
+        const trimmed = field.trim();
+        if (!trimmed || trimmed === '[]' || trimmed === '[null]' || trimmed === 'null') {
+          return [];
+        }
+        try {
+          const parsed = JSON.parse(trimmed);
+          return Array.isArray(parsed) ? parsed.filter(Boolean) : (parsed ? [parsed] : []);
+        } catch (e) {
+          console.warn('Failed to parse JSON field:', e.message, 'Value:', field);
+          return [];
+        }
+      }
+      return [];
+    };
+    
+    const deduplicateById = (arr) => {
+      const seen = new Set();
+      return arr.filter(item => {
+        if (!item || !item.id) return false;
+        if (seen.has(item.id)) return false;
+        seen.add(item.id);
+        return true;
+      });
+    };
+    
+    // Process boards with pre-fetched data
+    const boardsWithData = boards.map(board => {
+      const columns = columnsByBoardId[board.id] || [];
       const columnsObj = {};
       
-      await Promise.all(columns.map(async column => {
-        const tasksRaw = await tasksStmt.all(column.id);
+      columns.forEach(column => {
+        const tasksRaw = tasksByColumnId[column.id] || [];
+        
         const tasks = tasksRaw.map(task => ({
           ...task,
-          // Use priorityName from JOIN (current name) or fallback to stored priority
-          priority: task.priorityName || task.priority || null,
+          priority: task.priorityName || null,
           priorityId: task.priorityId || null,
-          priorityName: task.priorityName || task.priority || null,
+          priorityName: task.priorityName || null,
           priorityColor: task.priorityColor || null,
-          sprintId: task.sprint_id || null, // Map snake_case to camelCase
-          createdAt: task.created_at, // Map snake_case to camelCase
-          updatedAt: task.updated_at, // Map snake_case to camelCase
-          comments: task.comments === '[null]' ? [] : JSON.parse(task.comments).filter(Boolean),
-          tags: task.tags === '[null]' ? [] : JSON.parse(task.tags).filter(Boolean),
-          watchers: task.watchers === '[null]' ? [] : JSON.parse(task.watchers).filter(Boolean),
-          collaborators: task.collaborators === '[null]' ? [] : JSON.parse(task.collaborators).filter(Boolean)
+          sprintId: task.sprint_id || null,
+          createdAt: task.created_at,
+          updatedAt: task.updated_at,
+          comments: deduplicateById(parseJsonField(task.comments)).map(comment => ({
+            ...comment,
+            attachments: attachmentsByCommentId[comment.id] || []
+          })),
+          tags: deduplicateById(parseJsonField(task.tags)),
+          watchers: deduplicateById(parseJsonField(task.watchers)),
+          collaborators: deduplicateById(parseJsonField(task.collaborators))
         }));
-        
-        // Get all comment IDs from all tasks in this column
-        const allCommentIds = tasks.flatMap(task => 
-          task.comments.map(comment => comment.id)
-        ).filter(Boolean);
-        
-        // Fetch all attachments for all comments in one query (more efficient)
-        if (allCommentIds.length > 0) {
-          const placeholders = allCommentIds.map(() => '?').join(',');
-          const allAttachments = await wrapQuery(db.prepare(`
-            SELECT commentId, id, name, url, type, size, created_at as createdAt
-            FROM attachments
-            WHERE commentId IN (${placeholders})
-          `), 'SELECT').all(...allCommentIds);
-          
-          // Group attachments by commentId
-          const attachmentsByCommentId = {};
-          allAttachments.forEach(att => {
-            if (!attachmentsByCommentId[att.commentId]) {
-              attachmentsByCommentId[att.commentId] = [];
-            }
-            attachmentsByCommentId[att.commentId].push(att);
-          });
-          
-          // Add attachments to each comment
-          tasks.forEach(task => {
-            task.comments.forEach(comment => {
-              comment.attachments = attachmentsByCommentId[comment.id] || [];
-            });
-          });
-        }
         
         columnsObj[column.id] = {
           ...column,
           tasks: tasks
         };
-      }));
+      });
       
       return {
         ...board,
         columns: columnsObj
       };
-    }));
+    });
 
 
     res.json(boardsWithData);
   } catch (error) {
     console.error('Error fetching boards:', error);
     const db = getRequestDatabase(req);
-    const t = getTranslator(db);
+    const t = await getTranslator(db);
     res.status(500).json({ error: t('errors.failedToFetch', { resource: 'boards' }) });
   }
 });
@@ -166,25 +172,22 @@ router.get('/:boardId/columns', authenticateToken, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
     
-    const t = getTranslator(db);
+    const t = await getTranslator(db);
     
-    // Verify board exists
-    const board = await wrapQuery(db.prepare('SELECT id FROM boards WHERE id = ?'), 'SELECT').get(boardId);
+    // MIGRATED: Verify board exists using sqlManager
+    const board = await boardQueries.getBoardById(db, boardId);
     if (!board) {
       return res.status(404).json({ error: t('errors.boardNotFound') });
     }
     
-    // Get columns for this board
-    const columns = await wrapQuery(
-      db.prepare('SELECT id, title, boardId, position, is_finished, is_archived FROM columns WHERE boardId = ? ORDER BY position ASC'), 
-      'SELECT'
-    ).all(boardId);
+    // MIGRATED: Get columns using sqlManager
+    const columns = await helpers.getColumnsForBoard(db, boardId);
     
     res.json(columns);
   } catch (error) {
     console.error('Error fetching board columns:', error);
     const db = getRequestDatabase(req);
-    const t = getTranslator(db);
+    const t = await getTranslator(db);
     res.status(500).json({ error: t('errors.failedToFetchBoardColumns') });
   }
 });
@@ -206,60 +209,83 @@ router.post('/', authenticateToken, checkBoardLimit, async (req, res) => {
   const { id, title } = req.body;
   try {
     const db = getRequestDatabase(req);
-    const t = getTranslator(db);
+    const t = await getTranslator(db);
     
-    // Check for duplicate board name
-    const existingBoard = await wrapQuery(
-      db.prepare('SELECT id FROM boards WHERE LOWER(title) = LOWER(?)'), 
-      'SELECT'
-    ).get(title);
+    // MIGRATED: Check for duplicate board name using sqlManager
+    const existingBoard = await boardQueries.getBoardByTitle(db, title);
     
     if (existingBoard) {
       return res.status(400).json({ error: t('errors.boardNameExists') });
     }
     
-    // Generate project identifier
-    const projectPrefix = await wrapQuery(db.prepare('SELECT value FROM settings WHERE key = ?'), 'SELECT').get('DEFAULT_PROJ_PREFIX')?.value || 'PROJ-';
-    const projectIdentifier = await generateProjectIdentifier(db, projectPrefix);
+    // MIGRATED: Generate project identifier using sqlManager
+    const projectPrefix = await boardQueries.getProjectPrefix(db);
+    const projectIdentifier = await boardQueries.generateProjectIdentifier(db, projectPrefix);
     
-    const position = await wrapQuery(db.prepare('SELECT MAX(position) as maxPos FROM boards'), 'SELECT').get()?.maxPos || -1;
-    await wrapQuery(db.prepare('INSERT INTO boards (id, title, project, position) VALUES (?, ?, ?, ?)'), 'INSERT').run(id, title, projectIdentifier, position + 1);
+    // MIGRATED: Get max position and create board using sqlManager
+    const maxPosition = await boardQueries.getMaxBoardPosition(db);
+    // Always add 1 to max position (getMaxBoardPosition returns -1 if no boards exist, so -1 + 1 = 0)
+    const position = maxPosition + 1;
+    console.log(`[Board Creation] Creating board "${title}" (${id})`);
+    console.log(`[Board Creation] maxPosition: ${maxPosition}, calculated position: ${position}`);
+    console.log(`[Board Creation] position type: ${typeof position}, value: ${position}`);
+    await boardQueries.createBoard(db, id, title, projectIdentifier, position);
+    
+    // Verify the board was created with the correct position
+    const createdBoard = await boardQueries.getBoardById(db, id);
+    console.log(`[Board Creation] Board created. Retrieved position from DB: ${createdBoard?.position} (type: ${typeof createdBoard?.position})`);
     
     // Automatically create default columns based on APP_LANGUAGE
-    const defaultColumns = getDefaultBoardColumns(db);
-    const columnStmt = db.prepare('INSERT INTO columns (id, title, boardId, position, is_finished, is_archived) VALUES (?, ?, ?, ?, ?, ?)');
-    
+    const defaultColumns = await getDefaultBoardColumns(db);
     const tenantId = getTenantId(req);
-    
-    const wrappedColumnStmt = wrapQuery(columnStmt, 'INSERT');
     
     for (const [index, col] of defaultColumns.entries()) {
       const columnId = `${col.id}-${id}`;
       const isFinished = col.id === 'completed';
       const isArchived = col.id === 'archive';
       
-      await wrappedColumnStmt.run(columnId, col.title, id, index, isFinished ? 1 : 0, isArchived ? 1 : 0);
+      // Check if column already exists (in case of partial board creation from previous attempt)
+      const existingColumn = await helpers.getColumnById(db, columnId);
+      if (existingColumn) {
+        console.warn(`Column ${columnId} already exists, skipping creation`);
+        continue;
+      }
+      
+      // MIGRATED: Create column using sqlManager
+      try {
+        await helpers.createColumn(db, columnId, col.title, id, index, isFinished, isArchived);
+      } catch (error) {
+        // Handle duplicate key errors gracefully (race condition or retry)
+        if (error.code === '23505' || error.message?.includes('duplicate key')) {
+          console.warn(`Column ${columnId} already exists (duplicate key), skipping creation`);
+          continue;
+        }
+        // Re-throw other errors
+        throw error;
+      }
       
       // Publish column creation to Redis for real-time updates
-      redisService.publish('column-created', {
+      notificationService.publish('column-created', {
         boardId: id,
         column: { 
           id: columnId, 
           title: col.title, 
           boardId: id, 
           position: index, 
-          is_finished: isFinished, 
-          is_archived: isArchived 
+          is_finished: isFinished,  // snake_case to match frontend
+          is_archived: isArchived   // snake_case to match frontend
         },
         updatedBy: req.user?.id || 'system',
         timestamp: new Date().toISOString()
       }, tenantId);
     }
     
-    const newBoard = { id, title, project: projectIdentifier, position: position + 1 };
+    const newBoard = { id, title, project: projectIdentifier, position };
+    console.log(`[Board Creation] Sending response with board:`, JSON.stringify(newBoard, null, 2));
+    console.log(`[Board Creation] Publishing board-created event with position: ${position}`);
     
     // Publish to Redis for real-time updates
-    redisService.publish('board-created', {
+    notificationService.publish('board-created', {
       boardId: id,
       board: newBoard,
       timestamp: new Date().toISOString()
@@ -269,29 +295,12 @@ router.post('/', authenticateToken, checkBoardLimit, async (req, res) => {
   } catch (error) {
     console.error('Error creating board:', error);
     const db = getRequestDatabase(req);
-    const t = getTranslator(db);
+    const t = await getTranslator(db);
     res.status(500).json({ error: t('errors.failedToCreateBoard') });
   }
 });
 
-// Utility function to generate project identifiers
-const generateProjectIdentifier = async (db, prefix = 'PROJ-') => {
-  // Get the highest existing project number
-  const result = await wrapQuery(db.prepare(`
-    SELECT project FROM boards 
-    WHERE project IS NOT NULL AND project LIKE ?
-    ORDER BY CAST(SUBSTR(project, ?) AS INTEGER) DESC 
-    LIMIT 1
-  `), 'SELECT').get(`${prefix}%`, prefix.length + 1);
-  
-  let nextNumber = 1;
-  if (result && result.project) {
-    const currentNumber = parseInt(result.project.substring(prefix.length));
-    nextNumber = currentNumber + 1;
-  }
-  
-  return `${prefix}${nextNumber.toString().padStart(5, '0')}`;
-};
+// MIGRATED: generateProjectIdentifier is now in sqlManager/boards.js
 
 // Update board
 router.put('/:id', authenticateToken, async (req, res) => {
@@ -299,23 +308,21 @@ router.put('/:id', authenticateToken, async (req, res) => {
   const { title } = req.body;
   try {
     const db = getRequestDatabase(req);
-    const t = getTranslator(db);
+    const t = await getTranslator(db);
     
-    // Check for duplicate board name (excluding current board)
-    const existingBoard = await wrapQuery(
-      db.prepare('SELECT id FROM boards WHERE LOWER(title) = LOWER(?) AND id != ?'), 
-      'SELECT'
-    ).get(title, id);
+    // MIGRATED: Check for duplicate board name using sqlManager
+    const existingBoard = await boardQueries.getBoardByTitle(db, title, id);
     
     if (existingBoard) {
       return res.status(400).json({ error: t('errors.boardNameExists') });
     }
     
-    await wrapQuery(db.prepare('UPDATE boards SET title = ? WHERE id = ?'), 'UPDATE').run(title, id);
+    // MIGRATED: Update board using sqlManager
+    await boardQueries.updateBoard(db, id, title);
     
     // Publish to Redis for real-time updates
     const tenantId = getTenantId(req);
-    await redisService.publish('board-updated', {
+    await notificationService.publish('board-updated', {
       boardId: id,
       board: { id, title },
       timestamp: new Date().toISOString()
@@ -325,7 +332,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('Error updating board:', error);
     const db = getRequestDatabase(req);
-    const t = getTranslator(db);
+    const t = await getTranslator(db);
     res.status(500).json({ error: t('errors.failedToUpdateBoard') });
   }
 });
@@ -335,11 +342,12 @@ router.delete('/:id', authenticateToken, async (req, res) => {
   const { id } = req.params;
   try {
     const db = getRequestDatabase(req);
-    await wrapQuery(db.prepare('DELETE FROM boards WHERE id = ?'), 'DELETE').run(id);
+    // MIGRATED: Delete board using sqlManager
+    await boardQueries.deleteBoard(db, id);
     
     // Publish to Redis for real-time updates
     const tenantId = getTenantId(req);
-    await redisService.publish('board-deleted', {
+    await notificationService.publish('board-deleted', {
       boardId: id,
       timestamp: new Date().toISOString()
     }, tenantId);
@@ -348,7 +356,7 @@ router.delete('/:id', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('Error deleting board:', error);
     const db = getRequestDatabase(req);
-    const t = getTranslator(db);
+    const t = await getTranslator(db);
     res.status(500).json({ error: t('errors.failedToDeleteBoard') });
   }
 });
@@ -358,71 +366,91 @@ router.post('/reorder', authenticateToken, async (req, res) => {
   const { boardId, newPosition } = req.body;
   try {
     const db = getRequestDatabase(req);
-    const t = getTranslator(db);
-    const currentBoard = await wrapQuery(db.prepare('SELECT position FROM boards WHERE id = ?'), 'SELECT').get(boardId);
+    const t = await getTranslator(db);
+    console.log(`[Board Reorder] boardId: ${boardId}, newPosition: ${newPosition}`);
+    // MIGRATED: Get board using sqlManager
+    const currentBoard = await boardQueries.getBoardById(db, boardId);
     if (!currentBoard) {
       return res.status(404).json({ error: t('errors.boardNotFound') });
     }
 
-    // Get all boards ordered by current position
-    const allBoards = await wrapQuery(db.prepare('SELECT id, position FROM boards ORDER BY position ASC'), 'SELECT').all();
+    // MIGRATED: Get all boards with positions using sqlManager
+    const allBoards = await boardQueries.getAllBoardsWithPositions(db);
 
-    // Reset all positions to simple integers (0, 1, 2, 3, etc.)
-    // Now get the normalized positions and find the target and dragged boards
-    const normalizedBoards = allBoards.map((board, index) => ({ ...board, position: index }));
-    const currentIndex = normalizedBoards.findIndex(b => b.id === boardId);
+    // Find the current index of the board being moved
+    const currentIndex = allBoards.findIndex(b => b.id === boardId);
     
-    if (isProxyDatabase(db)) {
-      // Proxy mode: Collect all queries and send as batch
-      const batchQueries = [];
-      const updateQuery = 'UPDATE boards SET position = ? WHERE id = ?';
-      
-      // Reset all positions
+    if (currentIndex === -1) {
+      return res.status(404).json({ error: t('errors.boardNotFound') });
+    }
+    
+    // Only proceed if the position is actually changing
+    if (currentIndex === newPosition) {
+      return res.json({ message: 'Board position unchanged' });
+    }
+    
+    // Normalize positions to ensure they're sequential (0, 1, 2, 3, etc.)
+    // This handles any gaps or inconsistencies in positions
+    const normalizedBoards = allBoards.map((board, index) => ({ ...board, position: index }));
+    const normalizedCurrentIndex = normalizedBoards.findIndex(b => b.id === boardId);
+    
+    
+    // Collect queries and send as a batched transaction
+    const batchQueries = [];
+    const updateQuery = 'UPDATE boards SET position = ? WHERE id = ?';
+    
+    // Only reset positions if there are gaps or inconsistencies
+    // Check if positions need normalization
+    const needsNormalization = allBoards.some((board, index) => {
+      const pos = typeof board.position === 'number' ? board.position : parseInt(board.position) || 0;
+      return pos !== index;
+    });
+    
+    if (needsNormalization) {
+      // Reset all positions to sequential integers
       for (let index = 0; index < allBoards.length; index++) {
         batchQueries.push({
           query: updateQuery,
           params: [index, allBoards[index].id]
         });
       }
-      
-      // Swap positions if needed
-      if (currentIndex !== -1 && currentIndex !== newPosition) {
-        const targetBoard = normalizedBoards[newPosition];
-        if (targetBoard) {
+    }
+    
+    // Swap positions if needed
+    if (normalizedCurrentIndex !== -1 && normalizedCurrentIndex !== newPosition) {
+      const targetBoard = normalizedBoards[newPosition];
+      if (targetBoard) {
+        // If we didn't normalize, we need to update the specific positions
+        if (!needsNormalization) {
           batchQueries.push({
             query: updateQuery,
             params: [newPosition, boardId]
           });
           batchQueries.push({
             query: updateQuery,
-            params: [currentIndex, targetBoard.id]
+            params: [normalizedCurrentIndex, targetBoard.id]
+          });
+        } else {
+          // Positions were already reset, just swap the two
+          batchQueries.push({
+            query: updateQuery,
+            params: [newPosition, boardId]
+          });
+          batchQueries.push({
+            query: updateQuery,
+            params: [normalizedCurrentIndex, targetBoard.id]
           });
         }
       }
-      
-      // Execute all updates in a single batched transaction
-      await db.executeBatchTransaction(batchQueries);
-    } else {
-      // Direct DB mode: Use standard transaction
-      await dbTransaction(db, async () => {
-        for (let index = 0; index < allBoards.length; index++) {
-          await wrapQuery(db.prepare('UPDATE boards SET position = ? WHERE id = ?'), 'UPDATE').run(index, allBoards[index].id);
-        }
-
-        if (currentIndex !== -1 && currentIndex !== newPosition) {
-          // Simple swap: just swap the two positions
-          const targetBoard = normalizedBoards[newPosition];
-          if (targetBoard) {
-            await wrapQuery(db.prepare('UPDATE boards SET position = ? WHERE id = ?'), 'UPDATE').run(newPosition, boardId);
-            await wrapQuery(db.prepare('UPDATE boards SET position = ? WHERE id = ?'), 'UPDATE').run(currentIndex, targetBoard.id);
-          }
-        }
-      });
     }
+    
+    // Execute all updates in a single batched transaction
+    await db.executeBatchTransaction(batchQueries);
+
 
     // Publish to Redis for real-time updates
     const tenantId = getTenantId(req);
-    await redisService.publish('board-reordered', {
+    await notificationService.publish('board-reordered', {
       boardId: boardId,
       newPosition: newPosition,
       timestamp: new Date().toISOString()
@@ -432,7 +460,7 @@ router.post('/reorder', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('Error reordering board:', error);
     const db = getRequestDatabase(req);
-    const t = getTranslator(db);
+    const t = await getTranslator(db);
     res.status(500).json({ error: t('errors.failedToReorderBoard') });
   }
 });
@@ -443,26 +471,14 @@ router.get('/:boardId/relationships', authenticateToken, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
     
-    // Get all relationships for tasks in this board
-    const relationships = await wrapQuery(db.prepare(`
-      SELECT 
-        tr.id,
-        tr.task_id,
-        tr.relationship,
-        tr.to_task_id,
-        tr.created_at
-      FROM task_rels tr
-      JOIN tasks t1 ON tr.task_id = t1.id
-      JOIN tasks t2 ON tr.to_task_id = t2.id
-      WHERE t1.boardId = ? AND t2.boardId = ?
-      ORDER BY tr.created_at DESC
-    `), 'SELECT').all(boardId, boardId);
+    // MIGRATED: Get all relationships for tasks in this board using sqlManager
+    const relationships = await boardQueries.getBoardTaskRelationships(db, boardId);
     
     res.json(relationships);
   } catch (error) {
     console.error('Error fetching board relationships:', error);
     const db = getRequestDatabase(req);
-    const t = getTranslator(db);
+    const t = await getTranslator(db);
     res.status(500).json({ error: t('errors.failedToFetchBoardRelationships') });
   }
 });

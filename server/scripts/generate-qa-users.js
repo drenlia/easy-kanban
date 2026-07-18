@@ -5,9 +5,9 @@
  * 
  * Usage (inside Docker container):
  *   1. docker exec -it easy-kanban node /app/server/scripts/generate-qa-users.js > qa-users.sql
- *   2. Get the user role ID: docker exec -it easy-kanban sqlite3 /app/server/data/kanban.db "SELECT id FROM roles WHERE name = 'user';"
+ *   2. Get the user role ID: docker exec -it easy-kanban-postgres psql -U kanban_user -d kanban -c "SELECT id FROM roles WHERE name = 'user';"
  *   3. Replace <ROLE_ID> in qa-users.sql with the actual role ID
- *   4. Execute: docker exec -i easy-kanban sqlite3 /app/server/data/kanban.db < qa-users.sql
+ *   4. Execute: docker exec -i easy-kanban-postgres psql -U kanban_user -d kanban < qa-users.sql
  * 
  * Or run interactively:
  *   docker exec -it easy-kanban node /app/server/scripts/generate-qa-users.js
@@ -62,7 +62,7 @@ async function generateSQL() {
   console.log('--   3. Execute the statements in your database');
   console.log('--');
   console.log('-- To execute in Docker:');
-  console.log('--   docker exec -i easy-kanban sqlite3 /app/server/data/kanban.db < output.sql');
+  console.log('--   docker exec -i easy-kanban-postgres psql -U kanban_user -d kanban < output.sql');
   console.log('--');
   console.log('-- Or connect to the database and paste these statements');
   console.log('-- ============================================');

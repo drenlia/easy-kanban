@@ -2,6 +2,25 @@ import axios, { CancelTokenSource } from 'axios';
 import { TeamMember, Board, Task, Column, Comment } from './types';
 import { versionDetection } from './utils/versionDetection';
 import { handleAuthError } from './utils/authErrorHandler';
+import { feDebug } from './utils/clientDebug';
+
+function summarizeApiPayload(data: unknown, max = 400): string {
+  if (data == null) return '';
+  try {
+    const s = typeof data === 'string' ? data : JSON.stringify(data);
+    return s.length <= max ? s : `${s.slice(0, max)}…`;
+  } catch {
+    return '[unserializable]';
+  }
+}
+
+function redactAuthHeaders(h: Record<string, unknown> | undefined): Record<string, unknown> {
+  if (!h) return {};
+  const out = { ...h };
+  if (out.Authorization) out.Authorization = '[redacted]';
+  if (out.authorization) out.authorization = '[redacted]';
+  return out;
+}
 
 const api = axios.create({
   baseURL: '/api'
@@ -15,19 +34,21 @@ let hadTokenBefore = false; // Track if we ever had a token
 // Function to handle invalid token (only call when token WAS valid but is now invalid)
 const handleInvalidToken = () => {
   if (isRedirecting) {
-    console.log('🔑 handleInvalidToken called but already redirecting, skipping');
+    if (feDebug('FE_DEBUG_AUTH')) console.log('🔑 handleInvalidToken called but already redirecting, skipping');
     return;
   }
-  
+
   const stackTrace = new Error().stack;
-  console.log('🔑 Token expired - redirecting to login');
-  console.log('🔑 handleInvalidToken call stack:', stackTrace);
+  if (feDebug('FE_DEBUG_AUTH')) {
+    console.log('🔑 Token expired - redirecting to login');
+    console.log('🔑 handleInvalidToken call stack:', stackTrace);
+  }
   isRedirecting = true;
   hasInvalidToken = true;
   
   // Clear token
   localStorage.removeItem('authToken');
-  console.log('🔑 Token cleared by handleInvalidToken');
+  if (feDebug('FE_DEBUG_AUTH')) console.log('🔑 Token cleared by handleInvalidToken');
   
   // Set a flag to prevent reload loops
   sessionStorage.setItem('tokenExpiredRedirect', 'true');
@@ -122,9 +143,42 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+// After auth: optional axios trace (FE_DEBUG_API)
+api.interceptors.request.use((config) => {
+  if (!feDebug('FE_DEBUG_API')) {
+    return config;
+  }
+  (config as { __feDebugApiStart?: number }).__feDebugApiStart = performance.now();
+  const base = config.baseURL ?? '';
+  const path = config.url ?? '';
+  const url = path.startsWith('http') ? path : `${base}${path}`;
+  console.log('[FE_DEBUG_API] →', (config.method ?? 'get').toUpperCase(), url, {
+    params: config.params,
+    dataSummary: summarizeApiPayload(config.data),
+    headers: redactAuthHeaders(config.headers as Record<string, unknown>)
+  });
+  return config;
+});
+
 // Handle auth errors and version detection
 api.interceptors.response.use(
   (response) => {
+    if (feDebug('FE_DEBUG_API')) {
+      const cfg = response.config as { __feDebugApiStart?: number; baseURL?: string; url?: string; method?: string };
+      const start = cfg.__feDebugApiStart;
+      const ms = start != null ? Math.round(performance.now() - start) : '?';
+      const base = cfg.baseURL ?? '';
+      const path = cfg.url ?? '';
+      const url = path.startsWith('http') ? path : `${base}${path}`;
+      console.log(
+        '[FE_DEBUG_API] ←',
+        response.status,
+        (cfg.method ?? 'get').toUpperCase(),
+        url,
+        `${ms}ms`,
+        summarizeApiPayload(response.data, 500)
+      );
+    }
     // Check for version updates via X-App-Version header
     const appVersion = response.headers['x-app-version'];
     if (appVersion) {
@@ -133,6 +187,24 @@ api.interceptors.response.use(
     return response;
   },
   (error) => {
+    if (feDebug('FE_DEBUG_API') && error.config) {
+      const cfg = error.config as { __feDebugApiStart?: number; baseURL?: string; url?: string; method?: string };
+      const start = cfg.__feDebugApiStart;
+      const ms = start != null ? Math.round(performance.now() - start) : '?';
+      const base = cfg.baseURL ?? '';
+      const path = cfg.url ?? '';
+      const url = path.startsWith('http') ? path : `${base}${path}`;
+      const status = error.response?.status;
+      console.log(
+        '[FE_DEBUG_API] ✗',
+        status ?? 'no-response',
+        (cfg.method ?? 'get').toUpperCase(),
+        url,
+        `${ms}ms`,
+        summarizeApiPayload(error.response?.data, 400),
+        error.message
+      );
+    }
     // Only clear token for 401 (unauthorized) errors - true authentication failures
     // 403 (forbidden) means insufficient permissions, not expired token - user should stay logged in
     // 404 errors might be temporary (user promotion/demotion) and shouldn't force logout
@@ -143,17 +215,19 @@ api.interceptors.response.use(
       const hadToken = hadTokenBefore || currentToken;
       
       if (hadToken && currentToken) {
-        console.log(`🔑 Auth error 401 detected for ${error.config?.url} - token expired, redirecting to login`);
-        console.log(`🔑 Error details:`, {
-          url: error.config?.url,
-          method: error.config?.method,
-          status: error.response?.status,
-          message: error.response?.data?.error || error.message,
-          hadTokenBefore,
-          currentTokenExists: !!currentToken
-        });
+        if (feDebug('FE_DEBUG_AUTH')) {
+          console.log(`🔑 Auth error 401 detected for ${error.config?.url} - token expired, redirecting to login`);
+          console.log(`🔑 Error details:`, {
+            url: error.config?.url,
+            method: error.config?.method,
+            status: error.response?.status,
+            message: error.response?.data?.error || error.message,
+            hadTokenBefore,
+            currentTokenExists: !!currentToken
+          });
+        }
         handleInvalidToken();
-      } else {
+      } else if (feDebug('FE_DEBUG_AUTH')) {
         console.log(`🔑 Auth error 401 detected - no token present (user not logged in)`);
       }
     } else if (error.message === 'No auth token available') {
@@ -218,9 +292,20 @@ export const reorderBoards = async (boardId: string, newPosition: number) => {
   return data;
 };
 
+/** POST /columns — includes full `columns` list after server-side renumber (0..n-1). */
+export type CreateColumnApiResponse = {
+  id: string;
+  title: string;
+  boardId: string;
+  position: number;
+  is_finished?: boolean;
+  is_archived?: boolean;
+  columns?: Column[];
+};
+
 // Columns
 export const createColumn = async (column: Column) => {
-  const { data } = await api.post<Column>('/columns', column);
+  const { data } = await api.post<CreateColumnApiResponse>('/columns', column);
   return data;
 };
 
@@ -257,6 +342,11 @@ export const reorderTasks = async (taskId: string, newPosition: number, columnId
 
 export const createTaskAtTop = async (task: Task) => {
   const { data } = await api.post<Task>('/tasks/add-at-top', task);
+  return data;
+};
+
+export const copyTask = async (taskId: string, boardId: string) => {
+  const { data } = await api.post<Task>('/tasks/copy', { taskId, boardId });
   return data;
 };
 
@@ -551,7 +641,9 @@ export const getPublicSettings = async () => {
     baseURL: '/api'
   });
   
-  pendingPublicSettingsPromise = publicApi.get('/settings').then(response => {
+  pendingPublicSettingsPromise = publicApi
+    .get('/settings', { headers: { 'Cache-Control': 'no-cache', Pragma: 'no-cache' } })
+    .then(response => {
     cachedPublicSettings = response.data;
     pendingPublicSettingsPromise = null; // Clear pending promise
     return response.data;
@@ -564,8 +656,12 @@ export const getPublicSettings = async () => {
 };
 
 // Activity Feed
-export const getActivityFeed = async (limit: number = 20) => {
-  const { data } = await api.get(`/activity/feed?limit=${limit}`);
+export const getActivityFeed = async (limit: number = 20, lang?: string) => {
+  // Get current language from localStorage (where i18next stores it) or use provided lang
+  const currentLang = lang || localStorage.getItem('i18nextLng') || 'en';
+  // Normalize to 'en' or 'fr'
+  const normalizedLang = currentLang.toLowerCase().startsWith('fr') ? 'fr' : 'en';
+  const { data } = await api.get(`/activity/feed?limit=${limit}&lang=${normalizedLang}`);
   return data;
 };
 

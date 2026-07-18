@@ -1,10 +1,12 @@
 import express from 'express';
 import { wrapQuery } from '../utils/queryLogger.js';
-import redisService from '../services/redisService.js';
+import notificationService from '../services/notificationService.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { getTranslator } from '../utils/i18n.js';
 import { getTenantId, getRequestDatabase } from '../middleware/tenantRouting.js';
 import { dbTransaction } from '../utils/dbAsync.js';
+// MIGRATED: Import sqlManager
+import { helpers } from '../utils/sqlManager/index.js';
 
 const router = express.Router();
 
@@ -13,28 +15,22 @@ router.post('/', authenticateToken, async (req, res) => {
   const { id, title, boardId, position } = req.body;
   try {
     const db = getRequestDatabase(req);
-    const t = getTranslator(db);
+    const t = await getTranslator(db);
     
-    // Check for duplicate column name within the same board
-    const existingColumn = await wrapQuery(
-      db.prepare('SELECT id FROM columns WHERE boardId = ? AND LOWER(title) = LOWER(?)'), 
-      'SELECT'
-    ).get(boardId, title);
+    // MIGRATED: Check for duplicate column name using sqlManager
+    const existingColumn = await helpers.getColumnByTitleInBoard(db, boardId, title);
     
     if (existingColumn) {
       return res.status(400).json({ error: t('errors.columnNameExists') });
     }
     
-    // Get finished column names from settings
-    const finishedColumnNamesSetting = await wrapQuery(
-      db.prepare('SELECT value FROM settings WHERE key = ?'), 
-      'SELECT'
-    ).get('DEFAULT_FINISHED_COLUMN_NAMES');
+    // MIGRATED: Get finished column names from settings using sqlManager
+    const finishedColumnNamesSetting = await helpers.getSetting(db, 'DEFAULT_FINISHED_COLUMN_NAMES');
     
     let finishedColumnNames = ['Done', 'Terminé', 'Completed', 'Complété', 'Finished', 'Fini']; // Default values
-    if (finishedColumnNamesSetting?.value) {
+    if (finishedColumnNamesSetting) {
       try {
-        finishedColumnNames = JSON.parse(finishedColumnNamesSetting.value);
+        finishedColumnNames = JSON.parse(finishedColumnNamesSetting);
       } catch (error) {
         console.error('Error parsing finished column names:', error);
       }
@@ -47,33 +43,68 @@ router.post('/', authenticateToken, async (req, res) => {
     
     // Check if this column should be marked as archived (auto-detect "Archive" column)
     const isArchived = title.toLowerCase() === 'archive';
-    
-    let finalPosition;
-    if (position !== undefined) {
-      // Use provided position (for inserting between columns)
-      finalPosition = position;
-    } else {
-      // Default behavior: append to end
-      const maxPos = await wrapQuery(db.prepare('SELECT MAX(position) as maxPos FROM columns WHERE boardId = ?'), 'SELECT').get(boardId)?.maxPos || -1;
-      finalPosition = maxPos + 1;
-    }
-    
-    await wrapQuery(db.prepare('INSERT INTO columns (id, title, boardId, position, is_finished, is_archived) VALUES (?, ?, ?, ?, ?, ?)'), 'INSERT').run(id, title, boardId, finalPosition, isFinished ? 1 : 0, isArchived ? 1 : 0);
-    
-    // Publish to Redis for real-time updates
+
+    // Client sends (afterColumn.position + 0.5) or (afterColumn.position + 1) to insert to the RIGHT
+    // of that column. Using Math.floor (old code) turned 1.5 into 1 — same slot as the anchor column.
+    // Use ceil so 1.5 -> 2, then shift existing columns at >= insertAt to make room.
+    let allColumns;
+    await dbTransaction(db, async () => {
+      let insertPosition;
+      if (position !== undefined && position !== null) {
+        const num = Number(position);
+        if (Number.isNaN(num)) {
+          const maxPos = await helpers.getMaxColumnPosition(db, boardId);
+          insertPosition = maxPos + 1;
+        } else {
+          insertPosition = Math.max(0, Math.ceil(num));
+          const maxPos = await helpers.getMaxColumnPosition(db, boardId);
+          if (maxPos >= insertPosition) {
+            await helpers.shiftColumnPositions(db, boardId, insertPosition, maxPos, 1, null);
+          }
+        }
+      } else {
+        const maxPos = await helpers.getMaxColumnPosition(db, boardId);
+        insertPosition = maxPos + 1;
+      }
+
+      await helpers.createColumn(db, id, title, boardId, insertPosition, isFinished, isArchived);
+      // Immediate 0..n-1 renumber so DB, API, and realtime always agree on order
+      allColumns = await helpers.renumberBoardColumnPositions(db, boardId);
+    });
+
+    const self = allColumns.find((c) => c.id === id);
+    const finalPosition = self?.position ?? 0;
+
+    // Publish full layout so clients rebuild columns state (same pattern as column-reordered)
     const tenantId = getTenantId(req);
-    await redisService.publish('column-created', {
+    await notificationService.publish('column-created', {
       boardId: boardId,
-      column: { id, title, boardId, position: finalPosition, is_finished: isFinished, is_archived: isArchived },
+      column: {
+        id,
+        title,
+        boardId,
+        position: finalPosition,
+        is_finished: isFinished,
+        is_archived: isArchived,
+      },
+      columns: allColumns,
       updatedBy: req.user?.id || 'system',
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
     }, tenantId);
-    
-    res.json({ id, title, boardId, position: finalPosition, is_finished: isFinished, is_archived: isArchived });
+
+    res.json({
+      id,
+      title,
+      boardId,
+      position: finalPosition,
+      is_finished: isFinished,
+      is_archived: isArchived,
+      columns: allColumns,
+    });
   } catch (error) {
     console.error('Error creating column:', error);
     const db = getRequestDatabase(req);
-    const t = getTranslator(db);
+    const t = await getTranslator(db);
     res.status(500).json({ error: t('errors.failedToCreateColumn') });
   }
 });
@@ -84,34 +115,36 @@ router.put("/:id", authenticateToken, async (req, res) => {
   const { title, is_finished, is_archived } = req.body;
   try {
     const db = getRequestDatabase(req);
-    const t = getTranslator(db);
+    const t = await getTranslator(db);
     
-    // Get the column's board ID
-    const column = await wrapQuery(db.prepare('SELECT boardId FROM columns WHERE id = ?'), 'SELECT').get(id);
+    // MIGRATED: Get the column's board ID using sqlManager
+    const column = await helpers.getColumnById(db, id);
     if (!column) {
       return res.status(404).json({ error: t('errors.columnNotFound') });
     }
     
-    // Check for duplicate column name within the same board (excluding current column)
-    const existingColumn = await wrapQuery(
-      db.prepare('SELECT id FROM columns WHERE boardId = ? AND LOWER(title) = LOWER(?) AND id != ?'), 
-      'SELECT'
-    ).get(column.boardId, title, id);
+    // MIGRATED: Get full column info including boardid and position using sqlManager
+    // CRITICAL: Fetch AFTER any potential position changes to get the current position
+    const fullColumn = await helpers.getColumnFullInfo(db, id);
+    
+    if (!fullColumn) {
+      return res.status(404).json({ error: t('errors.columnNotFound') });
+    }
+    
+    // MIGRATED: Check for duplicate column name using sqlManager (case-insensitive)
+    const existingColumn = await helpers.checkColumnNameDuplicate(db, fullColumn.boardId, title, id);
     
     if (existingColumn) {
       return res.status(400).json({ error: t('errors.columnNameExists') });
     }
     
-    // Get finished column names from settings
-    const finishedColumnNamesSetting = await wrapQuery(
-      db.prepare('SELECT value FROM settings WHERE key = ?'), 
-      'SELECT'
-    ).get('DEFAULT_FINISHED_COLUMN_NAMES');
+    // MIGRATED: Get finished column names from settings using sqlManager
+    const finishedColumnNamesSetting = await helpers.getSetting(db, 'DEFAULT_FINISHED_COLUMN_NAMES');
     
     let finishedColumnNames = ['Done', 'Completed', 'Finished']; // Default values
-    if (finishedColumnNamesSetting?.value) {
+    if (finishedColumnNamesSetting) {
       try {
-        finishedColumnNames = JSON.parse(finishedColumnNamesSetting.value);
+        finishedColumnNames = JSON.parse(finishedColumnNamesSetting);
       } catch (error) {
         console.error('Error parsing finished column names:', error);
       }
@@ -134,22 +167,38 @@ router.put("/:id", authenticateToken, async (req, res) => {
     // Ensure a column cannot be both finished and archived
     const finalIsFinishedValue = finalIsArchived ? false : finalIsFinished;
     
-    await wrapQuery(db.prepare('UPDATE columns SET title = ?, is_finished = ?, is_archived = ? WHERE id = ?'), 'UPDATE').run(title, finalIsFinishedValue ? 1 : 0, finalIsArchived ? 1 : 0, id);
+    // MIGRATED: Use sqlManager to update column
+    // CRITICAL: Only update title, is_finished, and is_archived - DO NOT touch position
+    await helpers.updateColumn(db, id, title, finalIsFinishedValue, finalIsArchived);
+    
+    // CRITICAL: Re-fetch column AFTER update to ensure we have the latest position
+    // (in case position was changed by another operation, though it shouldn't be)
+    // MIGRATED: Use sqlManager to get full column info
+    const updatedColumn = await helpers.getColumnFullInfo(db, id);
     
     // Publish to Redis for real-time updates
+    // CRITICAL: Use snake_case for WebSocket event (frontend expects snake_case)
+    // CRITICAL: Include position to prevent frontend from reordering
     const tenantId = getTenantId(req);
-    await redisService.publish('column-updated', {
-      boardId: column.boardId,
-      column: { id, title, is_finished: finalIsFinishedValue, is_archived: finalIsArchived },
+    await notificationService.publish('column-updated', {
+      boardId: updatedColumn.boardId,
+      column: { 
+        id, 
+        title, 
+        boardId: updatedColumn.boardId,  // Include boardId for frontend
+        position: updatedColumn.position,  // CRITICAL: Include current position to prevent reordering
+        is_finished: finalIsFinishedValue,  // snake_case to match frontend
+        is_archived: finalIsArchived  // snake_case to match frontend
+      },
       updatedBy: req.user?.id || 'system',
       timestamp: new Date().toISOString()
     }, tenantId);
     
-    res.json({ id, title, is_finished: finalIsFinishedValue, is_archived: finalIsArchived });
+    res.json({ id, title, is_finished: finalIsFinishedValue, is_archived: finalIsArchived });  // snake_case to match frontend
   } catch (error) {
     console.error('Error updating column:', error);
     const db = getRequestDatabase(req);
-    const t = getTranslator(db);
+    const t = await getTranslator(db);
     res.status(500).json({ error: t('errors.failedToUpdateColumn') });
   }
 });
@@ -159,20 +208,22 @@ router.delete('/:id', authenticateToken, async (req, res) => {
   const { id } = req.params;
   try {
     const db = getRequestDatabase(req);
-    const t = getTranslator(db);
+    const t = await getTranslator(db);
     
-    // Get the column's board ID before deleting
-    const column = await wrapQuery(db.prepare('SELECT boardId FROM columns WHERE id = ?'), 'SELECT').get(id);
+    // MIGRATED: Get the column's board ID before deleting using sqlManager
+    const column = await helpers.getColumnFullInfo(db, id);
     if (!column) {
       return res.status(404).json({ error: t('errors.columnNotFound') });
     }
     
-    await wrapQuery(db.prepare('DELETE FROM columns WHERE id = ?'), 'DELETE').run(id);
+    // MIGRATED: Use sqlManager to delete column
+    await helpers.deleteColumn(db, id);
     
     // Publish to Redis for real-time updates
+    // CRITICAL: Use camelCase boardId to match frontend expectations
     const tenantId = getTenantId(req);
-    await redisService.publish('column-deleted', {
-      boardId: column.boardId,
+    await notificationService.publish('column-deleted', {
+      boardId: column.boardId,  // camelCase
       columnId: id,
       updatedBy: req.user?.id || 'system',
       timestamp: new Date().toISOString()
@@ -182,7 +233,7 @@ router.delete('/:id', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('Error deleting column:', error);
     const db = getRequestDatabase(req);
-    const t = getTranslator(db);
+    const t = await getTranslator(db);
     res.status(500).json({ error: t('errors.failedToDeleteColumn') });
   }
 });
@@ -192,8 +243,10 @@ router.post('/reorder', authenticateToken, async (req, res) => {
   const { columnId, newPosition, boardId } = req.body;
   try {
     const db = getRequestDatabase(req);
-    const t = getTranslator(db);
-    const currentColumn = await wrapQuery(db.prepare('SELECT position FROM columns WHERE id = ?'), 'SELECT').get(columnId);
+    const t = await getTranslator(db);
+    
+    // MIGRATED: Get column position using sqlManager
+    const currentColumn = await helpers.getColumnPosition(db, columnId);
     if (!currentColumn) {
       return res.status(404).json({ error: t('errors.columnNotFound') });
     }
@@ -201,33 +254,54 @@ router.post('/reorder', authenticateToken, async (req, res) => {
     const currentPosition = currentColumn.position;
 
     await dbTransaction(db, async () => {
-      if (newPosition > currentPosition) {
-        // Moving down: shift columns between current and new position up by 1
-        await wrapQuery(db.prepare(`
-          UPDATE columns SET position = position - 1 
-          WHERE boardId = ? AND position > ? AND position <= ?
-        `), 'UPDATE').run(boardId, currentPosition, newPosition);
-      } else {
-        // Moving up: shift columns between new and current position down by 1
-        await wrapQuery(db.prepare(`
-          UPDATE columns SET position = position + 1 
-          WHERE boardId = ? AND position >= ? AND position < ?
-        `), 'UPDATE').run(boardId, newPosition, currentPosition);
-      }
+      // Get all columns to determine max position for edge case handling
+      const allColumns = await helpers.getAllColumnsForBoard(db, boardId);
+      const maxPosition = allColumns.length > 0 
+        ? Math.max(...allColumns.map(col => col.position || 0))
+        : 0;
 
-      // Update the moved column to its new position
-      await wrapQuery(db.prepare('UPDATE columns SET position = ? WHERE id = ?'), 'UPDATE').run(newPosition, columnId);
+      if (newPosition > currentPosition) {
+        // Moving right (to higher position): shift columns between current and new position left by 1
+        // This makes room for the moved column at the new position
+        // Special handling for edge case: moving to last position
+        if (newPosition === maxPosition) {
+          // When moving to the last position, shift all columns from currentPosition+1 to maxPosition left by 1
+          // This includes the column currently at the last position, which will move left
+          if (currentPosition < maxPosition) {
+            await helpers.shiftColumnPositions(db, boardId, currentPosition + 1, maxPosition, -1, columnId);
+          }
+        } else if (currentPosition + 1 <= newPosition) {
+          // Normal case: shift columns in the range
+          await helpers.shiftColumnPositions(db, boardId, currentPosition + 1, newPosition, -1, columnId);
+        }
+      } else if (newPosition < currentPosition) {
+        // Moving left (to lower position): shift columns between new and current position right by 1
+        // This makes room for the moved column at the new position
+        // Special handling for edge case: moving to position 0
+        if (newPosition === 0) {
+          // When moving to position 0: add +1 to all columns from 0 to currentPosition-1
+          // Then set the moved column to 0 (this is the only edge case)
+          if (currentPosition > 0) {
+            await helpers.shiftColumnPositions(db, boardId, 0, currentPosition - 1, 1, columnId);
+          }
+        } else if (newPosition <= currentPosition - 1) {
+          // Normal case: shift columns in the range
+          await helpers.shiftColumnPositions(db, boardId, newPosition, currentPosition - 1, 1, columnId);
+        }
+      }
+      // If newPosition === currentPosition, no shift needed (column stays in place)
+
+      // MIGRATED: Update the moved column to its new position using sqlManager
+      // This happens after the shift to ensure the moved column gets the correct position
+      await helpers.updateColumnPosition(db, columnId, newPosition);
     });
 
-    // Fetch all updated columns for this board to send in WebSocket event
-    const updatedColumns = await wrapQuery(
-      db.prepare('SELECT * FROM columns WHERE boardId = ? ORDER BY position'), 
-      'SELECT'
-    ).all(boardId);
+    // MIGRATED: Fetch all updated columns using sqlManager
+    const updatedColumns = await helpers.getAllColumnsForBoard(db, boardId);
 
     // Publish to Redis for real-time updates - include all columns
     const tenantId = getTenantId(req);
-    await redisService.publish('column-reordered', {
+    await notificationService.publish('column-reordered', {
       boardId: boardId,
       columnId: columnId,
       newPosition: newPosition,
@@ -240,7 +314,7 @@ router.post('/reorder', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('Error reordering column:', error);
     const db = getRequestDatabase(req);
-    const t = getTranslator(db);
+    const t = await getTranslator(db);
     res.status(500).json({ error: t('errors.failedToReorderColumn') });
   }
 });
@@ -250,28 +324,17 @@ router.post('/renumber', authenticateToken, async (req, res) => {
   const { boardId } = req.body;
   try {
     const db = getRequestDatabase(req);
-    
+
+    let allColumns;
     await dbTransaction(db, async () => {
-      // Get all columns for this board ordered by current position
-      const columns = await wrapQuery(
-        db.prepare('SELECT id FROM columns WHERE boardId = ? ORDER BY position, id'), 
-        'SELECT'
-      ).all(boardId);
-      
-      // Renumber them sequentially starting from 0
-      for (let index = 0; index < columns.length; index++) {
-        await wrapQuery(
-          db.prepare('UPDATE columns SET position = ? WHERE id = ?'), 
-          'UPDATE'
-        ).run(index, columns[index].id);
-      }
+      allColumns = await helpers.renumberBoardColumnPositions(db, boardId);
     });
 
-    res.json({ message: 'Columns renumbered successfully' });
+    res.json({ message: 'Columns renumbered successfully', columns: allColumns });
   } catch (error) {
     console.error('Error renumbering columns:', error);
     const db = getRequestDatabase(req);
-    const t = getTranslator(db);
+    const t = await getTranslator(db);
     res.status(500).json({ error: t('errors.failedToRenumberColumns') });
   }
 });

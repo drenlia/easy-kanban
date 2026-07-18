@@ -70,7 +70,13 @@
     "searchTasks": "Search tasks by number or title...",
     "goToParent": "Go to parent task",
     "goToChild": "Go to child task",
-    "removeChild": "Remove child task"
+    "removeChild": "Remove child task",
+    "moveBoardConfirmTitle": "Move task to another board?",
+    "moveBoardConfirmBody_one": "This task has one relationship (parent, child, or related). Moving it to another board will remove that link for this task.",
+    "moveBoardConfirmBody_other": "This task has {{count}} relationships (parent, child, or related). Moving it to another board will remove those links for this task.",
+    "moveBoardTargetBoard": "Target board: {{board}}",
+    "moveBoardConfirmAction": "Move and remove links",
+    "moveBoardMoving": "Moving…"
   },
   "toolbar": {
     "dragToMove": "Drag to move task",
@@ -124,6 +130,12 @@
     "tip": "Tip:",
     "tipSprintOnly": "Select \"All Sprints\" in the sprint selector to view all tasks.",
     "tipGeneral": "Clear your filters or adjust your sprint selection to view this task.",
+    "sprintAssignPrompt": "Do you want to assign this task to the selected sprint ({{sprintName}})?",
+    "yesAssignToSprint": "Yes",
+    "noKeepUnassigned": "No",
+    "clearFiltersButton": "Clear filters",
+    "sprintAssignFailedTitle": "Could not assign sprint",
+    "sprintAssignFailedBody": "The task was not updated. Try again or assign the sprint from the task card.",
     "filterTypes": {
       "searchFilters": "search filters",
       "sprintSelection": "sprint selection",
@@ -164,7 +176,9 @@
     "clickToSetDate": "Click to set date",
     "hoverToViewComments": "Hover to view comments",
     "searchSprints": "Search sprints...",
-    "noTasksFound": "No tasks found matching your filters"
+    "noTasksFound": "No tasks found matching your filters",
+    "showHideDependencies": "Show/Hide dependencies",
+    "sprintColumnUnavailableSingleSprint": "Sprint column is hidden while viewing backlog or a single sprint"
   },
   "columnLabels": {
     "sprint": "Sprint",
@@ -194,7 +208,7 @@
     "descriptionSaveHint": "Press Enter to save (or add list items), Shift+Enter for new line, Escape to cancel, or click outside to save",
     "sprint": "Sprint: {{name}}",
     "clickToRemoveTag": "Click to remove tag",
-    "clickToSelectSprint": "Click to select sprint or set custom dates",
+    "clickToSelectSprint": "Click to associate sprint",
     "clickToChangeDates": "Click to change dates",
     "clickToChangeEffort": "Click to change effort",
     "hoverToViewComments": "Hover to view comments",

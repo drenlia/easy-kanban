@@ -111,6 +111,21 @@ export interface DragPreview {
   insertIndex: number;
 }
 
+/** Kanban column banner when a newly created task is hidden by sprint / search / member filters. */
+export interface ColumnVisibilityWarning {
+  taskId: string;
+  /** True when a specific sprint is selected (not backlog) and the task has no matching sprintId. */
+  showSprintPrompt: boolean;
+  selectedSprintId?: string;
+  /** True when search or member filters hide the task (offer “Clear filters”). */
+  showClearFilters: boolean;
+  reasons: {
+    search: boolean;
+    sprint: boolean;
+    members: boolean;
+  };
+}
+
 export interface SearchFilters {
   text: string;
   dateFrom: string;

@@ -4,9 +4,6 @@ FROM node:22-alpine
 
 WORKDIR /app
 
-# Install build dependencies for better-sqlite3 (needed for native compilation)
-RUN apk add --no-cache python3 make g++
-
 # Install dependencies first (this will be preserved in the container)
 # Try npm ci first (deterministic), fall back to npm install if lock file is out of sync
 COPY package*.json ./

@@ -3,6 +3,7 @@ import { createAdapter } from '@socket.io/redis-adapter';
 import { createClient } from 'redis';
 import jwt from 'jsonwebtoken';
 import redisService from './redisService.js';
+import postgresNotificationService from './postgresNotificationService.js';
 import { JWT_SECRET } from '../middleware/auth.js';
 import { extractTenantId, getTenantDatabase } from '../middleware/tenantRouting.js';
 import { wrapQuery } from '../utils/queryLogger.js';
@@ -248,8 +249,9 @@ class WebSocketService {
       });
     });
 
-    // Subscribe to Redis channels
-    this.setupRedisSubscriptions();
+    // Subscribe to notification channels via PostgreSQL LISTEN/NOTIFY
+    console.log('🔧 Setting up PostgreSQL notification subscriptions');
+    this.setupPostgresSubscriptions();
   }
 
   // Get tenant-prefixed room name (for multi-tenant isolation)
@@ -260,25 +262,34 @@ class WebSocketService {
     return `${roomBase}-${boardId}`;
   }
 
-  setupRedisSubscriptions() {
-    // In multi-tenant mode, subscribe to all tenant channels using pattern matching
+  /**
+   * Setup PostgreSQL LISTEN subscriptions
+   * Uses the same callback pattern as Redis subscriptions for easy replacement
+   */
+  setupPostgresSubscriptions() {
+    console.log('🔧 Setting up PostgreSQL subscriptions...');
+    // In multi-tenant mode, subscribe to all tenant channels
     // In single-tenant mode, subscribe to base channels
     
     // Task updates - broadcast to tenant-specific clients
-    redisService.subscribeToAllTenants('task-updated', (data, tenantId) => {
+    postgresNotificationService.subscribeToAllTenants('task-updated', (data, tenantId) => {
       const timestamp = new Date().toISOString();
+      const connectedCount = this.io?.sockets?.sockets?.size || 0;
+      console.log(`📡 [${timestamp}] WebSocket received task-updated (tenant: ${tenantId || 'single'}, connected clients: ${connectedCount})`);
       
       if (tenantId) {
         // Multi-tenant: broadcast only to clients of this tenant
         this.io?.to(`tenant-${tenantId}`).emit('task-updated', data);
+        console.log(`   ✅ Broadcasted to tenant-${tenantId} room`);
       } else {
         // Single-tenant: broadcast to all clients
         this.io?.emit('task-updated', data);
+        console.log(`   ✅ Broadcasted to all ${connectedCount} connected clients`);
       }
     });
 
     // Task created - broadcast to tenant-specific clients
-    redisService.subscribeToAllTenants('task-created', (data, tenantId) => {
+    postgresNotificationService.subscribeToAllTenants('task-created', (data, tenantId) => {
       const timestamp = new Date().toISOString();
       console.log(`📡 [${timestamp}] WebSocket received task-created (tenant: ${tenantId || 'single'})`);
       
@@ -292,7 +303,7 @@ class WebSocketService {
     });
 
     // Task deleted - broadcast to tenant-specific clients
-    redisService.subscribeToAllTenants('task-deleted', (data, tenantId) => {
+    postgresNotificationService.subscribeToAllTenants('task-deleted', (data, tenantId) => {
       const timestamp = new Date().toISOString();
       console.log(`📡 [${timestamp}] WebSocket broadcasting task-deleted (tenant: ${tenantId || 'single'})`);
       
@@ -303,8 +314,20 @@ class WebSocketService {
       }
     });
 
+    // Full-column position sync (add-at-top, delete renumber, etc.)
+    postgresNotificationService.subscribeToAllTenants('tasks-positions-updated', (data, tenantId) => {
+      const timestamp = new Date().toISOString();
+      console.log(`📡 [${timestamp}] WebSocket broadcasting tasks-positions-updated (tenant: ${tenantId || 'single'}, updates: ${data?.updates?.length || 0})`);
+      
+      if (tenantId) {
+        this.io?.to(`tenant-${tenantId}`).emit('tasks-positions-updated', data);
+      } else {
+        this.io?.emit('tasks-positions-updated', data);
+      }
+    });
+
     // Task relationship created - broadcast to tenant-specific board room
-    redisService.subscribeToAllTenants('task-relationship-created', (data, tenantId) => {
+    postgresNotificationService.subscribeToAllTenants('task-relationship-created', (data, tenantId) => {
       const room = tenantId 
         ? `tenant-${tenantId}-board-${data.boardId}`
         : `board-${data.boardId}`;
@@ -312,7 +335,7 @@ class WebSocketService {
     });
 
     // Task relationship deleted - broadcast to tenant-specific board room
-    redisService.subscribeToAllTenants('task-relationship-deleted', (data, tenantId) => {
+    postgresNotificationService.subscribeToAllTenants('task-relationship-deleted', (data, tenantId) => {
       const room = tenantId 
         ? `tenant-${tenantId}-board-${data.boardId}`
         : `board-${data.boardId}`;
@@ -320,7 +343,7 @@ class WebSocketService {
     });
 
     // Board created - broadcast to tenant-specific clients
-    redisService.subscribeToAllTenants('board-created', (data, tenantId) => {
+    postgresNotificationService.subscribeToAllTenants('board-created', (data, tenantId) => {
       if (tenantId) {
         this.io?.to(`tenant-${tenantId}`).emit('board-created', data);
       } else {
@@ -329,7 +352,7 @@ class WebSocketService {
     });
 
     // Board updates - broadcast to tenant-specific clients
-    redisService.subscribeToAllTenants('board-updated', (data, tenantId) => {
+    postgresNotificationService.subscribeToAllTenants('board-updated', (data, tenantId) => {
       if (tenantId) {
         this.io?.to(`tenant-${tenantId}`).emit('board-updated', data);
       } else {
@@ -338,7 +361,7 @@ class WebSocketService {
     });
 
     // Board deleted - broadcast to tenant-specific clients
-    redisService.subscribeToAllTenants('board-deleted', (data, tenantId) => {
+    postgresNotificationService.subscribeToAllTenants('board-deleted', (data, tenantId) => {
       if (tenantId) {
         this.io?.to(`tenant-${tenantId}`).emit('board-deleted', data);
       } else {
@@ -347,7 +370,7 @@ class WebSocketService {
     });
 
     // Board reordered - broadcast to tenant-specific clients
-    redisService.subscribeToAllTenants('board-reordered', (data, tenantId) => {
+    postgresNotificationService.subscribeToAllTenants('board-reordered', (data, tenantId) => {
       if (tenantId) {
         this.io?.to(`tenant-${tenantId}`).emit('board-reordered', data);
       } else {
@@ -356,7 +379,7 @@ class WebSocketService {
     });
 
     // Column updates - broadcast to tenant-specific board room
-    redisService.subscribeToAllTenants('column-updated', (data, tenantId) => {
+    postgresNotificationService.subscribeToAllTenants('column-updated', (data, tenantId) => {
       const room = tenantId 
         ? `tenant-${tenantId}-board-${data.boardId}`
         : `board-${data.boardId}`;
@@ -364,7 +387,7 @@ class WebSocketService {
     });
 
     // Column created - broadcast to tenant-specific board room
-    redisService.subscribeToAllTenants('column-created', (data, tenantId) => {
+    postgresNotificationService.subscribeToAllTenants('column-created', (data, tenantId) => {
       const room = tenantId 
         ? `tenant-${tenantId}-board-${data.boardId}`
         : `board-${data.boardId}`;
@@ -372,7 +395,7 @@ class WebSocketService {
     });
 
     // Column deleted - broadcast to tenant-specific board room
-    redisService.subscribeToAllTenants('column-deleted', (data, tenantId) => {
+    postgresNotificationService.subscribeToAllTenants('column-deleted', (data, tenantId) => {
       const room = tenantId 
         ? `tenant-${tenantId}-board-${data.boardId}`
         : `board-${data.boardId}`;
@@ -380,15 +403,21 @@ class WebSocketService {
     });
 
     // Column reordered - broadcast to tenant-specific board room
-    redisService.subscribeToAllTenants('column-reordered', (data, tenantId) => {
-      const room = tenantId 
-        ? `tenant-${tenantId}-board-${data.boardId}`
-        : `board-${data.boardId}`;
-      this.io?.to(room).emit('column-reordered', data);
+    // Column reordered - broadcast to ALL tenant clients (not just board room)
+    // CRITICAL: Column order affects boards state even when board is not currently viewed
+    // Users need to receive this update in the background to keep boards state in sync
+    postgresNotificationService.subscribeToAllTenants('column-reordered', (data, tenantId) => {
+      if (tenantId) {
+        // Multi-tenant: broadcast to all clients of this tenant
+        this.io?.to(`tenant-${tenantId}`).emit('column-reordered', data);
+      } else {
+        // Single-tenant: broadcast to all clients
+        this.io?.emit('column-reordered', data);
+      }
     });
 
     // Member updates - broadcast to tenant-specific clients
-    redisService.subscribeToAllTenants('member-updated', (data, tenantId) => {
+    postgresNotificationService.subscribeToAllTenants('member-updated', (data, tenantId) => {
       if (tenantId) {
         this.io?.to(`tenant-${tenantId}`).emit('member-updated', data);
       } else {
@@ -397,7 +426,7 @@ class WebSocketService {
     });
 
     // Activity updates - broadcast to tenant-specific clients
-    redisService.subscribeToAllTenants('activity-updated', (data, tenantId) => {
+    postgresNotificationService.subscribeToAllTenants('activity-updated', (data, tenantId) => {
       if (tenantId) {
         this.io?.to(`tenant-${tenantId}`).emit('activity-updated', data);
       } else {
@@ -406,7 +435,7 @@ class WebSocketService {
     });
 
     // Admin user management events - broadcast to tenant-specific clients
-    redisService.subscribeToAllTenants('user-created', (data, tenantId) => {
+    postgresNotificationService.subscribeToAllTenants('user-created', (data, tenantId) => {
       if (tenantId) {
         this.io?.to(`tenant-${tenantId}`).emit('user-created', data);
       } else {
@@ -414,7 +443,7 @@ class WebSocketService {
       }
     });
 
-    redisService.subscribeToAllTenants('user-updated', (data, tenantId) => {
+    postgresNotificationService.subscribeToAllTenants('user-updated', (data, tenantId) => {
       if (tenantId) {
         this.io?.to(`tenant-${tenantId}`).emit('user-updated', data);
       } else {
@@ -422,7 +451,7 @@ class WebSocketService {
       }
     });
 
-    redisService.subscribeToAllTenants('user-role-updated', (data, tenantId) => {
+    postgresNotificationService.subscribeToAllTenants('user-role-updated', (data, tenantId) => {
       if (tenantId) {
         this.io?.to(`tenant-${tenantId}`).emit('user-role-updated', data);
       } else {
@@ -430,7 +459,7 @@ class WebSocketService {
       }
     });
 
-    redisService.subscribeToAllTenants('user-deleted', (data, tenantId) => {
+    postgresNotificationService.subscribeToAllTenants('user-deleted', (data, tenantId) => {
       if (tenantId) {
         this.io?.to(`tenant-${tenantId}`).emit('user-deleted', data);
       } else {
@@ -439,7 +468,7 @@ class WebSocketService {
     });
 
     // Admin settings events - broadcast to tenant-specific clients
-    redisService.subscribeToAllTenants('settings-updated', (data, tenantId) => {
+    postgresNotificationService.subscribeToAllTenants('settings-updated', (data, tenantId) => {
       if (tenantId) {
         this.io?.to(`tenant-${tenantId}`).emit('settings-updated', data);
       } else {
@@ -448,14 +477,14 @@ class WebSocketService {
     });
 
     // Task watcher updates - broadcast to tenant-specific board room
-    redisService.subscribeToAllTenants('task-watcher-added', (data, tenantId) => {
+    postgresNotificationService.subscribeToAllTenants('task-watcher-added', (data, tenantId) => {
       const room = tenantId 
         ? `tenant-${tenantId}-board-${data.boardId}`
         : `board-${data.boardId}`;
       this.io?.to(room).emit('task-watcher-added', data);
     });
 
-    redisService.subscribeToAllTenants('task-watcher-removed', (data, tenantId) => {
+    postgresNotificationService.subscribeToAllTenants('task-watcher-removed', (data, tenantId) => {
       const room = tenantId 
         ? `tenant-${tenantId}-board-${data.boardId}`
         : `board-${data.boardId}`;
@@ -463,14 +492,14 @@ class WebSocketService {
     });
 
     // Task collaborator updates - broadcast to tenant-specific board room
-    redisService.subscribeToAllTenants('task-collaborator-added', (data, tenantId) => {
+    postgresNotificationService.subscribeToAllTenants('task-collaborator-added', (data, tenantId) => {
       const room = tenantId 
         ? `tenant-${tenantId}-board-${data.boardId}`
         : `board-${data.boardId}`;
       this.io?.to(room).emit('task-collaborator-added', data);
     });
 
-    redisService.subscribeToAllTenants('task-collaborator-removed', (data, tenantId) => {
+    postgresNotificationService.subscribeToAllTenants('task-collaborator-removed', (data, tenantId) => {
       const room = tenantId 
         ? `tenant-${tenantId}-board-${data.boardId}`
         : `board-${data.boardId}`;
@@ -478,7 +507,7 @@ class WebSocketService {
     });
 
     // Member updates - broadcast to tenant-specific clients
-    redisService.subscribeToAllTenants('member-created', (data, tenantId) => {
+    postgresNotificationService.subscribeToAllTenants('member-created', (data, tenantId) => {
       if (tenantId) {
         this.io?.to(`tenant-${tenantId}`).emit('member-created', data);
       } else {
@@ -486,7 +515,7 @@ class WebSocketService {
       }
     });
 
-    redisService.subscribeToAllTenants('member-deleted', (data, tenantId) => {
+    postgresNotificationService.subscribeToAllTenants('member-deleted', (data, tenantId) => {
       if (tenantId) {
         this.io?.to(`tenant-${tenantId}`).emit('member-deleted', data);
       } else {
@@ -495,7 +524,7 @@ class WebSocketService {
     });
 
     // Filter events - broadcast to tenant-specific clients
-    redisService.subscribeToAllTenants('filter-created', (data, tenantId) => {
+    postgresNotificationService.subscribeToAllTenants('filter-created', (data, tenantId) => {
       if (tenantId) {
         this.io?.to(`tenant-${tenantId}`).emit('filter-created', data);
       } else {
@@ -503,7 +532,7 @@ class WebSocketService {
       }
     });
 
-    redisService.subscribeToAllTenants('filter-updated', (data, tenantId) => {
+    postgresNotificationService.subscribeToAllTenants('filter-updated', (data, tenantId) => {
       if (tenantId) {
         this.io?.to(`tenant-${tenantId}`).emit('filter-updated', data);
       } else {
@@ -511,7 +540,7 @@ class WebSocketService {
       }
     });
 
-    redisService.subscribeToAllTenants('filter-deleted', (data, tenantId) => {
+    postgresNotificationService.subscribeToAllTenants('filter-deleted', (data, tenantId) => {
       if (tenantId) {
         this.io?.to(`tenant-${tenantId}`).emit('filter-deleted', data);
       } else {
@@ -520,21 +549,21 @@ class WebSocketService {
     });
 
     // Comment events - broadcast to tenant-specific board room
-    redisService.subscribeToAllTenants('comment-created', (data, tenantId) => {
+    postgresNotificationService.subscribeToAllTenants('comment-created', (data, tenantId) => {
       const room = tenantId 
         ? `tenant-${tenantId}-board-${data.boardId}`
         : `board-${data.boardId}`;
       this.io?.to(room).emit('comment-created', data);
     });
 
-    redisService.subscribeToAllTenants('comment-updated', (data, tenantId) => {
+    postgresNotificationService.subscribeToAllTenants('comment-updated', (data, tenantId) => {
       const room = tenantId 
         ? `tenant-${tenantId}-board-${data.boardId}`
         : `board-${data.boardId}`;
       this.io?.to(room).emit('comment-updated', data);
     });
 
-    redisService.subscribeToAllTenants('comment-deleted', (data, tenantId) => {
+    postgresNotificationService.subscribeToAllTenants('comment-deleted', (data, tenantId) => {
       const room = tenantId 
         ? `tenant-${tenantId}-board-${data.boardId}`
         : `board-${data.boardId}`;
@@ -542,14 +571,14 @@ class WebSocketService {
     });
 
     // Attachment events - broadcast to tenant-specific board room
-    redisService.subscribeToAllTenants('attachment-created', (data, tenantId) => {
+    postgresNotificationService.subscribeToAllTenants('attachment-created', (data, tenantId) => {
       const room = tenantId 
         ? `tenant-${tenantId}-board-${data.boardId}`
         : `board-${data.boardId}`;
       this.io?.to(room).emit('attachment-created', data);
     });
 
-    redisService.subscribeToAllTenants('attachment-deleted', (data, tenantId) => {
+    postgresNotificationService.subscribeToAllTenants('attachment-deleted', (data, tenantId) => {
       const room = tenantId 
         ? `tenant-${tenantId}-board-${data.boardId}`
         : `board-${data.boardId}`;
@@ -557,7 +586,7 @@ class WebSocketService {
     });
 
     // User profile events - broadcast to tenant-specific clients
-    redisService.subscribeToAllTenants('user-profile-updated', (data, tenantId) => {
+    postgresNotificationService.subscribeToAllTenants('user-profile-updated', (data, tenantId) => {
       if (tenantId) {
         this.io?.to(`tenant-${tenantId}`).emit('user-profile-updated', data);
       } else {
@@ -566,7 +595,7 @@ class WebSocketService {
     });
 
     // Tag management events - broadcast to tenant-specific clients
-    redisService.subscribeToAllTenants('tag-created', (data, tenantId) => {
+    postgresNotificationService.subscribeToAllTenants('tag-created', (data, tenantId) => {
       if (tenantId) {
         this.io?.to(`tenant-${tenantId}`).emit('tag-created', data);
       } else {
@@ -574,7 +603,7 @@ class WebSocketService {
       }
     });
 
-    redisService.subscribeToAllTenants('tag-updated', (data, tenantId) => {
+    postgresNotificationService.subscribeToAllTenants('tag-updated', (data, tenantId) => {
       if (tenantId) {
         this.io?.to(`tenant-${tenantId}`).emit('tag-updated', data);
       } else {
@@ -582,7 +611,7 @@ class WebSocketService {
       }
     });
 
-    redisService.subscribeToAllTenants('tag-deleted', (data, tenantId) => {
+    postgresNotificationService.subscribeToAllTenants('tag-deleted', (data, tenantId) => {
       if (tenantId) {
         this.io?.to(`tenant-${tenantId}`).emit('tag-deleted', data);
       } else {
@@ -591,7 +620,7 @@ class WebSocketService {
     });
 
     // Priority management events - broadcast to tenant-specific clients
-    redisService.subscribeToAllTenants('priority-created', (data, tenantId) => {
+    postgresNotificationService.subscribeToAllTenants('priority-created', (data, tenantId) => {
       if (tenantId) {
         this.io?.to(`tenant-${tenantId}`).emit('priority-created', data);
       } else {
@@ -599,7 +628,7 @@ class WebSocketService {
       }
     });
 
-    redisService.subscribeToAllTenants('priority-updated', (data, tenantId) => {
+    postgresNotificationService.subscribeToAllTenants('priority-updated', (data, tenantId) => {
       if (tenantId) {
         this.io?.to(`tenant-${tenantId}`).emit('priority-updated', data);
       } else {
@@ -607,7 +636,7 @@ class WebSocketService {
       }
     });
 
-    redisService.subscribeToAllTenants('priority-deleted', (data, tenantId) => {
+    postgresNotificationService.subscribeToAllTenants('priority-deleted', (data, tenantId) => {
       if (tenantId) {
         this.io?.to(`tenant-${tenantId}`).emit('priority-deleted', data);
       } else {
@@ -615,7 +644,7 @@ class WebSocketService {
       }
     });
 
-    redisService.subscribeToAllTenants('priority-reordered', (data, tenantId) => {
+    postgresNotificationService.subscribeToAllTenants('priority-reordered', (data, tenantId) => {
       if (tenantId) {
         this.io?.to(`tenant-${tenantId}`).emit('priority-reordered', data);
       } else {
@@ -624,7 +653,7 @@ class WebSocketService {
     });
 
     // Sprint management events - broadcast to tenant-specific clients
-    redisService.subscribeToAllTenants('sprint-created', (data, tenantId) => {
+    postgresNotificationService.subscribeToAllTenants('sprint-created', (data, tenantId) => {
       if (tenantId) {
         this.io?.to(`tenant-${tenantId}`).emit('sprint-created', data);
       } else {
@@ -632,7 +661,7 @@ class WebSocketService {
       }
     });
 
-    redisService.subscribeToAllTenants('sprint-updated', (data, tenantId) => {
+    postgresNotificationService.subscribeToAllTenants('sprint-updated', (data, tenantId) => {
       if (tenantId) {
         this.io?.to(`tenant-${tenantId}`).emit('sprint-updated', data);
       } else {
@@ -640,7 +669,7 @@ class WebSocketService {
       }
     });
 
-    redisService.subscribeToAllTenants('sprint-deleted', (data, tenantId) => {
+    postgresNotificationService.subscribeToAllTenants('sprint-deleted', (data, tenantId) => {
       if (tenantId) {
         this.io?.to(`tenant-${tenantId}`).emit('sprint-deleted', data);
       } else {
@@ -649,14 +678,30 @@ class WebSocketService {
     });
 
     // Task tag events - broadcast to tenant-specific board room
-    redisService.subscribeToAllTenants('task-tag-added', (data, tenantId) => {
+    console.log('🔧 Registering subscription for task-tag-added');
+    postgresNotificationService.subscribeToAllTenants('task-tag-added', (data, tenantId) => {
+      const timestamp = new Date().toISOString();
+      console.log(`📡 [${timestamp}] WebSocket received task-tag-added (tenant: ${tenantId || 'single'})`, {
+        taskId: data.taskId,
+        tagId: data.tagId,
+        boardId: data.boardId,
+        tag: data.tag
+      });
+      
       const room = tenantId 
         ? `tenant-${tenantId}-board-${data.boardId}`
         : `board-${data.boardId}`;
+      
+      // Get client count in room for debugging
+      const roomClients = this.io?.sockets.adapter.rooms.get(room);
+      const clientCount = roomClients ? roomClients.size : 0;
+      
+      console.log(`📤 [${timestamp}] Broadcasting task-tag-added to room: ${room} (${clientCount} clients)`);
       this.io?.to(room).emit('task-tag-added', data);
+      console.log(`✅ [${timestamp}] task-tag-added broadcast complete to ${clientCount} clients`);
     });
 
-    redisService.subscribeToAllTenants('task-tag-removed', (data, tenantId) => {
+    postgresNotificationService.subscribeToAllTenants('task-tag-removed', (data, tenantId) => {
       const room = tenantId 
         ? `tenant-${tenantId}-board-${data.boardId}`
         : `board-${data.boardId}`;
@@ -664,7 +709,7 @@ class WebSocketService {
     });
 
     // Instance status updates - broadcast to tenant-specific clients
-    redisService.subscribeToAllTenants('instance-status-updated', (data, tenantId) => {
+    postgresNotificationService.subscribeToAllTenants('instance-status-updated', (data, tenantId) => {
       if (tenantId) {
         this.io?.to(`tenant-${tenantId}`).emit('instance-status-updated', data);
       } else {
@@ -673,7 +718,7 @@ class WebSocketService {
     });
 
     // Version update events - broadcast to tenant-specific clients
-    redisService.subscribeToAllTenants('version-updated', (data, tenantId) => {
+    postgresNotificationService.subscribeToAllTenants('version-updated', (data, tenantId) => {
       if (tenantId) {
         this.io?.to(`tenant-${tenantId}`).emit('version-updated', data);
       } else {

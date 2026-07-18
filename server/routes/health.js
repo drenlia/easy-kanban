@@ -1,8 +1,10 @@
 import express from 'express';
 import { wrapQuery } from '../utils/queryLogger.js';
 import redisService from '../services/redisService.js';
+import postgresNotificationService from '../services/postgresNotificationService.js';
 import websocketService from '../services/websocketService.js';
 import { getRequestDatabase } from '../middleware/tenantRouting.js';
+import { health as healthQueries } from '../utils/sqlManager/index.js';
 
 const router = express.Router();
 
@@ -38,7 +40,8 @@ export const readyHandler = async (req, res) => {
     
     if (db) {
       try {
-        const dbCheck = await wrapQuery(db.prepare('SELECT 1'), 'SELECT').get();
+        // MIGRATED: Check database connection using sqlManager
+        const dbCheck = await healthQueries.checkDatabaseConnection(db);
         if (!dbCheck) {
           console.warn('⚠️ Readiness check: database query returned no result');
           // Still consider ready if services are initialized - database might be in transition
@@ -94,13 +97,45 @@ router.get("/ready", readyHandler);
 router.get('/', async (req, res) => {
   try {
     const db = getRequestDatabase(req);
-    await wrapQuery(db.prepare('SELECT 1'), 'SELECT').get();
+    // MIGRATED: Check database connection using sqlManager
+    await healthQueries.checkDatabaseConnection(db);
+
+    let emailServicePayload = {
+      implemented: true,
+      available: false,
+      message: 'No database on request (cannot read SMTP settings)'
+    };
+    if (db) {
+      try {
+        const EmailService = (await import('../services/emailService.js')).default;
+        const emailSvc = new EmailService(db);
+        const v = await emailSvc.validateEmailConfig();
+        emailServicePayload = {
+          implemented: true,
+          available: v.valid,
+          message: v.valid
+            ? 'MAIL_ENABLED and required SMTP settings are present'
+            : (v.error || 'Email not configured')
+        };
+      } catch (emailErr) {
+        emailServicePayload = {
+          implemented: true,
+          available: false,
+          message: 'Failed to evaluate email configuration',
+          error: emailErr.message
+        };
+      }
+    }
+
     res.status(200).json({ 
       status: 'healthy', 
       timestamp: new Date().toISOString(),
       database: 'connected',
+      dbType: 'postgresql',
       redis: redisService.isRedisConnected(),
+      postgresNotifications: postgresNotificationService.isServiceConnected(),
       websocket: websocketService.getClientCount(),
+      emailService: emailServicePayload,
       ready: isServerReady
     });
   } catch (error) {

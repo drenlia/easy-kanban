@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: easy-kanban-pg
+  labels:
+    name: easy-kanban-pg
+    app: kanban-board
+    environment: testing
+    database: postgresql

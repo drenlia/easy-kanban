@@ -62,7 +62,7 @@ interface Settings {
 
 const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsChanged }) => {
   const { t } = useTranslation('admin');
-  const { systemSettings, refreshSettings } = useSettings(); // Use SettingsContext for admin settings
+  const { systemSettings, refreshSettings, updateSiteSetting } = useSettings(); // Use SettingsContext for admin settings
   const [activeTab, setActiveTab] = useState(() => {
     // Get tab from URL hash, fallback to default
     const fullHash = window.location.hash;
@@ -226,12 +226,11 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
     };
 
     const handlePriorityDeleted = async (data: any) => {
-      try {
-        const priorities = await getPriorities();
-        setPriorities(priorities);
-      } catch (error) {
-        console.error('Failed to refresh priorities after deletion:', error);
-      }
+      // Just remove the deleted priority from the list - no need to refresh all priorities
+      // The task-updated events will handle updating affected tasks with the new priority
+      setPriorities(prevPriorities => 
+        prevPriorities.filter(p => p.id !== data.priorityId && p.id !== Number(data.priorityId))
+      );
     };
 
     const handlePriorityReordered = async (data: any) => {
@@ -303,7 +302,18 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
     const handleSettingsUpdated = async (data: any) => {
       try {
         // Update the specific setting directly from WebSocket data instead of fetching all settings
-        if (data.key && data.value !== undefined) {
+        if (data.key && data.value === null) {
+          setSettings(prev => {
+            const next = { ...prev };
+            delete next[data.key];
+            return next;
+          });
+          setEditingSettings(prev => {
+            const next = { ...prev };
+            delete next[data.key];
+            return next;
+          });
+        } else if (data.key && data.value !== undefined) {
           setSettings(prev => ({
             ...prev,
             [data.key]: data.value
@@ -749,10 +759,14 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
       
       // Update the settings state
       setSettings(prev => ({ ...prev, [key]: value }));
+      // Keep header/branding in sync immediately (empty logo → default ico without full reload)
+      updateSiteSetting(key, value);
       
       // Update the parent component's site settings immediately
       if (onSettingsChanged) {
-        onSettingsChanged();
+        await onSettingsChanged();
+      } else {
+        await refreshSettings();
       }
       
       // Show brief success message for auto-save

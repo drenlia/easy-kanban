@@ -6,11 +6,13 @@ import bcrypt from 'bcrypt';
 import crypto from 'crypto';
 import { authenticateAdminPortal, adminPortalRateLimit } from '../middleware/adminAuth.js';
 import { wrapQuery } from '../utils/queryLogger.js';
-import { getNotificationService } from '../services/notificationService.js';
-import redisService from '../services/redisService.js';
+import notificationService from '../services/notificationService.js';
 import { getLicenseManager } from '../config/license.js';
 import { getTranslator } from '../utils/i18n.js';
 import { getTenantId, getRequestDatabase } from '../middleware/tenantRouting.js';
+import { clearSqlDebugSettingsCache } from '../utils/sqlDebugSettingsCache.js';
+// MIGRATED: Import sqlManager modules
+import { users as userQueries, settings as settingsQueries, licenseSettings as licenseSettingsQueries, auth as authQueries, adminUsers as adminUserQueries, helpers } from '../utils/sqlManager/index.js';
 
 const router = express.Router();
 
@@ -37,11 +39,8 @@ router.get('/info', authenticateAdminPortal, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
     
-    // Read APP_URL from database settings (not modifiable by users, set by frontend on first login)
-    const appUrlSetting = await wrapQuery(
-      db.prepare('SELECT value FROM settings WHERE key = ?'),
-      'SELECT'
-    ).get('APP_URL');
+    // MIGRATED: Read APP_URL from database settings using sqlManager
+    const appUrlSetting = await helpers.getSetting(db, 'APP_URL');
     
     // In multi-tenant mode, get tenant ID from hostname
     const hostname = req.get('host') || req.hostname;
@@ -50,7 +49,7 @@ router.get('/info', authenticateAdminPortal, async (req, res) => {
     const instanceInfo = {
       instanceName: process.env.INSTANCE_NAME || 'easy-kanban-app',
       instanceToken: process.env.INSTANCE_TOKEN ? 'configured' : 'not-configured',
-      domain: appUrlSetting?.value || 'not-configured',
+      domain: appUrlSetting || 'not-configured',
       hostname: hostname,
       tenantId: tenantId, // Include tenant ID in multi-tenant mode
       version: process.env.APP_VERSION || '1.0.0',
@@ -82,8 +81,9 @@ router.get('/info', authenticateAdminPortal, async (req, res) => {
 router.get('/owner-info', authenticateAdminPortal, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
-    const ownerSetting = await wrapQuery(db.prepare('SELECT value FROM settings WHERE key = ?'), 'SELECT').get('OWNER');
-    const ownerEmail = ownerSetting ? ownerSetting.value : null;
+    // MIGRATED: Get OWNER setting using sqlManager
+    const ownerSetting = await helpers.getSetting(db, 'OWNER');
+    const ownerEmail = ownerSetting || null;
     
     res.json({
       success: true,
@@ -117,8 +117,8 @@ router.put('/owner', authenticateAdminPortal, async (req, res) => {
       });
     }
     
-    // Validate that the user exists
-    const user = await wrapQuery(db.prepare('SELECT id, email FROM users WHERE email = ?'), 'SELECT').get(email);
+    // MIGRATED: Validate that the user exists using sqlManager
+    const user = await userQueries.getUserByEmail(db, email);
     if (!user) {
       return res.status(400).json({ 
         success: false,
@@ -126,11 +126,17 @@ router.put('/owner', authenticateAdminPortal, async (req, res) => {
       });
     }
     
-    // Set owner in settings
-    await wrapQuery(db.prepare('INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, ?)'), 'INSERT')
-      .run('OWNER', email, new Date().toISOString());
+    // MIGRATED: Set owner in settings using sqlManager
+    await settingsQueries.upsertSettingWithTimestamp(db, 'OWNER', email, new Date().toISOString());
     
     console.log(`✅ Admin portal set instance owner to: ${email}`);
+
+    const tenantIdOwner = getTenantId(req);
+    await notificationService.publish(
+      'settings-updated',
+      { key: 'OWNER', value: email, timestamp: new Date().toISOString() },
+      tenantIdOwner
+    ).catch((err) => console.error('Failed to publish settings-updated (OWNER):', err));
     
     res.json({
       success: true,
@@ -155,7 +161,8 @@ router.put('/owner', authenticateAdminPortal, async (req, res) => {
 router.get('/settings', authenticateAdminPortal, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
-    const settings = await wrapQuery(db.prepare('SELECT key, value FROM settings'), 'SELECT').all();
+    // MIGRATED: Get all settings using sqlManager
+    const settings = await settingsQueries.getAllSettings(db);
     const settingsObj = {};
     settings.forEach(setting => {
       settingsObj[setting.key] = setting.value;
@@ -192,12 +199,20 @@ router.put('/settings/:key', authenticateAdminPortal, async (req, res) => {
       });
     }
     
-    const result = db.prepare(`
-      INSERT OR REPLACE INTO settings (key, value, updated_at) 
-      VALUES (?, ?, CURRENT_TIMESTAMP)
-    `).run(key, value);
-    
+    // MIGRATED: Upsert setting using sqlManager
+    const result = await settingsQueries.upsertSetting(db, key, value);
+    if (key === 'SERVER_DEBUG_SQL') {
+      clearSqlDebugSettingsCache();
+    }
+
     console.log(`✅ Admin portal updated setting: ${key} = ${value}`);
+
+    const tenantIdSetting = getTenantId(req);
+    await notificationService.publish(
+      'settings-updated',
+      { key, value, timestamp: new Date().toISOString() },
+      tenantIdSetting
+    ).catch((err) => console.error('Failed to publish settings-updated:', err));
     
     res.json({
       success: true,
@@ -234,14 +249,24 @@ router.put('/settings', authenticateAdminPortal, async (req, res) => {
     
     for (const [key, value] of Object.entries(settings)) {
       if (value !== undefined && value !== null) {
-        db.prepare(`
-          INSERT OR REPLACE INTO settings (key, value, updated_at) 
-          VALUES (?, ?, CURRENT_TIMESTAMP)
-        `).run(key, value);
-        
+        // MIGRATED: Upsert setting using sqlManager
+        await settingsQueries.upsertSetting(db, key, value);
+        if (key === 'SERVER_DEBUG_SQL') {
+          clearSqlDebugSettingsCache();
+        }
+
         results.push({ key, value });
         console.log(`✅ Admin portal updated setting: ${key} = ${value}`);
       }
+    }
+
+    const tenantIdBulk = getTenantId(req);
+    for (const { key, value } of results) {
+      await notificationService.publish(
+        'settings-updated',
+        { key, value, timestamp: new Date().toISOString() },
+        tenantIdBulk
+      ).catch((err) => console.error(`Failed to publish settings-updated (${key}):`, err));
     }
     
     res.json({
@@ -268,16 +293,19 @@ router.put('/settings', authenticateAdminPortal, async (req, res) => {
 router.get('/users', authenticateAdminPortal, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
-    const users = await wrapQuery(db.prepare(`
-      SELECT 
-        u.id, u.email, u.first_name, u.last_name, u.is_active, u.created_at,
-        GROUP_CONCAT(r.name) as roles
-      FROM users u
-      LEFT JOIN user_roles ur ON u.id = ur.user_id
-      LEFT JOIN roles r ON ur.role_id = r.id
-      GROUP BY u.id
-      ORDER BY u.created_at DESC
-    `), 'SELECT').all();
+    // MIGRATED: Get all users with roles using sqlManager
+    const usersRaw = await userQueries.getAllUsersWithRolesAndMembers(db);
+    
+    // Transform to match expected format (without member info for admin portal)
+    const users = usersRaw.map(user => ({
+      id: user.id,
+      email: user.email,
+      first_name: user.first_name,
+      last_name: user.last_name,
+      is_active: user.is_active,
+      created_at: user.created_at,
+      roles: user.roles || ''
+    }));
     
     // Format users data
     const formattedUsers = users.map(user => ({
@@ -330,8 +358,8 @@ router.post('/users', authenticateAdminPortal, async (req, res) => {
       });
     }
     
-    // Check if email already exists
-    const existingUser = await wrapQuery(db.prepare('SELECT id FROM users WHERE email = ?'), 'SELECT').get(email);
+    // MIGRATED: Check if email already exists using sqlManager
+    const existingUser = await userQueries.checkEmailExists(db, email);
     if (existingUser) {
       return res.status(400).json({ 
         success: false,
@@ -342,17 +370,14 @@ router.post('/users', authenticateAdminPortal, async (req, res) => {
     // Hash password
     const passwordHash = await bcrypt.hash(password, 10);
     
-    // Create user
+    // MIGRATED: Create user using sqlManager
     const userId = crypto.randomUUID();
-    await wrapQuery(db.prepare(`
-      INSERT INTO users (id, email, password_hash, first_name, last_name, is_active) 
-      VALUES (?, ?, ?, ?, ?, ?)
-    `), 'INSERT').run(userId, email, passwordHash, firstName, lastName, isActive ? 1 : 0);
+    await userQueries.createUser(db, userId, email, passwordHash, firstName, lastName, isActive, 'local');
     
-    // Assign role
-    const roleId = await wrapQuery(db.prepare('SELECT id FROM roles WHERE name = ?'), 'SELECT').get(role)?.id;
-    if (roleId) {
-      await wrapQuery(db.prepare('INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)'), 'INSERT').run(userId, roleId);
+    // MIGRATED: Assign role using sqlManager
+    const roleObj = await userQueries.getRoleByName(db, role);
+    if (roleObj) {
+      await userQueries.addUserRole(db, userId, roleObj.id);
     }
     
     // Create member for the user
@@ -363,13 +388,13 @@ router.post('/users', authenticateAdminPortal, async (req, res) => {
     if (memberName.length > 30) {
       memberName = memberName.substring(0, 30);
     }
-    await wrapQuery(db.prepare('INSERT INTO members (id, name, color, user_id) VALUES (?, ?, ?, ?)'), 'INSERT')
-      .run(memberId, memberName, memberColor, userId);
+    // MIGRATED: Create member using auth.createMemberForUser
+    await authQueries.createMemberForUser(db, memberId, memberName, memberColor, userId);
     
     // Publish to Redis for real-time updates
     const tenantId = getTenantId(req);
     console.log('📤 Publishing user-created and member-created to Redis for admin portal');
-    await redisService.publish('user-created', {
+    await notificationService.publish('user-created', {
       user: { 
         id: userId, 
         email, 
@@ -389,7 +414,7 @@ router.post('/users', authenticateAdminPortal, async (req, res) => {
       console.error('Failed to publish user-created event:', err);
     });
     
-    await redisService.publish('member-created', {
+    await notificationService.publish('member-created', {
       member: {
         id: memberId,
         name: memberName,
@@ -434,78 +459,91 @@ router.post('/users', authenticateAdminPortal, async (req, res) => {
   }
 });
 
-// Update user
+// Update user (single handler — keeps member display name in sync and publishes realtime events)
 router.put('/users/:userId', authenticateAdminPortal, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
     const { userId } = req.params;
     const { email, firstName, lastName, role, isActive } = req.body;
-    
-    // Check if user exists
-    const user = await wrapQuery(db.prepare('SELECT * FROM users WHERE id = ?'), 'SELECT').get(userId);
-    if (!user) {
-      return res.status(404).json({ 
+    const t = await getTranslator(db);
+
+    const existingUser = await userQueries.getUserByIdForAdmin(db, userId);
+    if (!existingUser) {
+      return res.status(404).json({
         success: false,
-        error: 'User not found' 
+        error: t('errors.userNotFound')
       });
     }
-    
-    // Update user fields
-    if (email !== undefined) {
-      await wrapQuery(db.prepare('UPDATE users SET email = ? WHERE id = ?'), 'UPDATE').run(email, userId);
+
+    const effectiveEmail = email !== undefined ? email : existingUser.email;
+    const effectiveFirst = firstName !== undefined ? firstName : existingUser.first_name;
+    const effectiveLast = lastName !== undefined ? lastName : existingUser.last_name;
+    const effectiveActive = isActive !== undefined ? isActive : Boolean(existingUser.is_active);
+
+    if (!effectiveEmail || !effectiveFirst || !effectiveLast) {
+      return res.status(400).json({
+        success: false,
+        error: t('errors.emailFirstNameLastNameRequired')
+      });
     }
-    if (firstName !== undefined) {
-      await wrapQuery(db.prepare('UPDATE users SET first_name = ? WHERE id = ?'), 'UPDATE').run(firstName, userId);
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(String(effectiveEmail))) {
+      return res.status(400).json({
+        success: false,
+        error: t('errors.invalidEmailAddressFormat')
+      });
     }
-    if (lastName !== undefined) {
-      await wrapQuery(db.prepare('UPDATE users SET last_name = ? WHERE id = ?'), 'UPDATE').run(lastName, userId);
+
+    const emailChanged = String(effectiveEmail).trim() !== String(existingUser.email || '').trim();
+    if (emailChanged) {
+      const emailTaken = await userQueries.checkEmailExists(db, effectiveEmail, userId);
+      if (emailTaken) {
+        return res.status(400).json({
+          success: false,
+          error: t('errors.emailAlreadyTakenByAnotherUser')
+        });
+      }
     }
-    if (isActive !== undefined) {
-      await wrapQuery(db.prepare('UPDATE users SET is_active = ? WHERE id = ?'), 'UPDATE').run(isActive ? 1 : 0, userId);
-    }
-    
-    // Update role if provided
+
+    await userQueries.updateUser(db, userId, {
+      email: effectiveEmail,
+      firstName: effectiveFirst,
+      lastName: effectiveLast,
+      isActive: effectiveActive
+    });
+
     let roleChanged = false;
     if (role !== undefined) {
-      // Get current role to check if it changed
-      const currentRole = await wrapQuery(db.prepare(`
-        SELECT r.name FROM roles r
-        JOIN user_roles ur ON r.id = ur.role_id
-        WHERE ur.user_id = ?
-      `), 'SELECT').get(userId)?.name;
-      
+      const currentRole = await userQueries.getUserRole(db, userId);
       if (currentRole !== role) {
         roleChanged = true;
-        // Remove existing roles
-        await wrapQuery(db.prepare('DELETE FROM user_roles WHERE user_id = ?'), 'DELETE').run(userId);
-        
-        // Add new role
-        const roleId = await wrapQuery(db.prepare('SELECT id FROM roles WHERE name = ?'), 'SELECT').get(role)?.id;
-        if (roleId) {
-          await wrapQuery(db.prepare('INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)'), 'INSERT').run(userId, roleId);
+        await userQueries.deleteUserRoles(db, userId);
+        const roleObj = await userQueries.getRoleByName(db, role);
+        if (roleObj) {
+          await userQueries.addUserRole(db, userId, roleObj.id);
         }
       }
     }
-    
-    // Get updated user data for WebSocket event
-    const updatedUser = await wrapQuery(db.prepare(`
-      SELECT u.id, u.email, u.first_name, u.last_name, u.is_active, u.created_at, u.auth_provider, u.google_avatar_url,
-             r.name as role
-      FROM users u
-      LEFT JOIN user_roles ur ON u.id = ur.user_id
-      LEFT JOIN roles r ON ur.role_id = r.id
-      WHERE u.id = ?
-    `), 'SELECT').get(userId);
-    
-    // Publish to Redis for real-time updates
+
+    const memberRow = await userQueries.getMemberByUserIdWithColor(db, userId);
+    const displayName = `${effectiveFirst} ${effectiveLast}`.trim();
+    if (memberRow) {
+      await userQueries.updateMemberName(db, userId, displayName);
+    }
+
+    const updatedUser = await userQueries.getUserByIdForAdmin(db, userId);
+    const userRolesResult = await userQueries.getUserRole(db, userId);
+    const rolesArray = userRolesResult ? [userRolesResult] : [];
+
     const tenantId = getTenantId(req);
-    console.log('📤 Publishing user-updated to Redis for admin portal user update');
-    await redisService.publish('user-updated', {
+    console.log('📤 Publishing user-updated for admin portal user update');
+    await notificationService.publish('user-updated', {
       user: {
         id: updatedUser.id,
-        email: updatedUser.email || email,
-        firstName: updatedUser.first_name || firstName,
-        lastName: updatedUser.last_name || lastName,
+        email: updatedUser.email || effectiveEmail,
+        firstName: updatedUser.first_name || effectiveFirst,
+        lastName: updatedUser.last_name || effectiveLast,
         isActive: Boolean(updatedUser.is_active),
         authProvider: updatedUser.auth_provider || null,
         googleAvatarUrl: updatedUser.google_avatar_url || null,
@@ -513,42 +551,62 @@ router.put('/users/:userId', authenticateAdminPortal, async (req, res) => {
         joined: updatedUser.created_at
       },
       timestamp: new Date().toISOString()
-    }, tenantId).catch(err => {
+    }, tenantId).catch((err) => {
       console.error('Failed to publish user-updated event:', err);
     });
-    
-    // Publish role update if role changed
-    if (roleChanged) {
-      console.log('📤 Publishing user-role-updated to Redis for admin portal role change');
-      await redisService.publish('user-role-updated', {
-        userId: userId,
-        role: role,
+
+    if (roleChanged && role !== undefined) {
+      console.log('📤 Publishing user-role-updated for admin portal role change');
+      await notificationService.publish('user-role-updated', {
+        userId,
+        role,
         timestamp: new Date().toISOString()
-      }, tenantId).catch(err => {
+      }, tenantId).catch((err) => {
         console.error('Failed to publish user-role-updated event:', err);
       });
     }
-    
+
+    if (memberRow) {
+      const memberAfter = await userQueries.getMemberByUserIdWithColor(db, userId);
+      if (memberAfter) {
+        await notificationService.publish('member-updated', {
+          memberId: memberAfter.id,
+          member: { id: memberAfter.id, name: memberAfter.name, color: memberAfter.color },
+          timestamp: new Date().toISOString()
+        }, tenantId).catch((err) => {
+          console.error('Failed to publish member-updated event:', err);
+        });
+      }
+    }
+
     console.log(`✅ Admin portal updated user: ${userId}`);
-    
-    const t = await getTranslator(db);
+
     res.json({
       success: true,
-      message: t('success.userUpdatedSuccessfully')
+      message: t('success.userUpdatedSuccessfully'),
+      data: {
+        id: updatedUser.id,
+        email: updatedUser.email || effectiveEmail,
+        firstName: updatedUser.first_name || effectiveFirst,
+        lastName: updatedUser.last_name || effectiveLast,
+        roles: rolesArray,
+        isActive: Boolean(updatedUser.is_active),
+        createdAt: updatedUser.created_at
+      }
     });
   } catch (error) {
     console.error('Error updating user:', error);
     try {
       const db = getRequestDatabase(req);
-      const t = await getTranslator(db);
-      res.status(500).json({ 
+      const tr = await getTranslator(db);
+      res.status(500).json({
         success: false,
-        error: t('errors.failedToUpdateUser') 
+        error: tr('errors.failedToUpdateUser')
       });
     } catch (fallbackError) {
-      res.status(500).json({ 
+      res.status(500).json({
         success: false,
-        error: 'Failed to update user' 
+        error: 'Failed to update user'
       });
     }
   }
@@ -559,34 +617,62 @@ router.delete('/users/:userId', authenticateAdminPortal, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
     const { userId } = req.params;
-    
+
     const t = await getTranslator(db);
-    
-    // Check if user exists
-    const user = await wrapQuery(db.prepare('SELECT * FROM users WHERE id = ?'), 'SELECT').get(userId);
+
+    const user = await userQueries.getUserByIdForAdmin(db, userId);
     if (!user) {
-      return res.status(404).json({ 
+      return res.status(404).json({
         success: false,
-        error: t('errors.userNotFound') 
+        error: t('errors.userNotFound')
       });
     }
-    
-    // Delete user (cascade will handle related records)
-    await wrapQuery(db.prepare('DELETE FROM users WHERE id = ?'), 'DELETE').run(userId);
-    
+
+    const userMember = await userQueries.getMemberByUserId(db, userId);
+
+    await adminUserQueries.deleteUser(db, userId);
+
     console.log(`✅ Admin portal deleted user: ${userId} (${user.email})`);
-    
+
+    const tenantIdDel = getTenantId(req);
+    if (userMember) {
+      await notificationService.publish('member-deleted', {
+        memberId: userMember.id,
+        timestamp: new Date().toISOString()
+      }, tenantIdDel).catch((err) => console.error('Failed to publish member-deleted:', err));
+    }
+    await notificationService.publish('user-deleted', {
+      userId,
+      user: {
+        id: userId,
+        email: user.email,
+        firstName: user.first_name,
+        lastName: user.last_name,
+        isActive: !!user.is_active,
+        authProvider: user.auth_provider
+      },
+      timestamp: new Date().toISOString()
+    }, tenantIdDel).catch((err) => console.error('Failed to publish user-deleted:', err));
+
     res.json({
       success: true,
       message: t('success.userDeletedSuccessfully')
     });
   } catch (error) {
     console.error('Error deleting user:', error);
-    const t = await getTranslator(db);
-    res.status(500).json({ 
-      success: false,
-      error: t('errors.failedToDeleteUser') 
-    });
+    try {
+      const dbErr = getRequestDatabase(req);
+      const t = await getTranslator(dbErr);
+      res.status(500).json({
+        success: false,
+        error: t('errors.failedToDeleteUser')
+      });
+    } catch (fallbackError) {
+      res.status(500).json({
+        success: false,
+        error: 'Failed to delete user'
+      });
+    }
   }
 });
 
@@ -599,7 +685,9 @@ router.get('/health', authenticateAdminPortal, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
     // Check database connection
-    const dbCheck = await wrapQuery(db.prepare('SELECT 1 as test'), 'SELECT').get();
+    // MIGRATED: Simple health check - use a simple query
+    // For health check, we can just try to get a setting or use a simple query
+    const dbCheck = await helpers.getSetting(db, 'APP_URL');
     
     res.json({
       success: true,
@@ -666,14 +754,15 @@ router.get('/plan', authenticateAdminPortal, async (req, res) => {
     // Get database values from license_settings table
     const dbSettings = {};
     try {
-      const licenseSettings = await wrapQuery(db.prepare('SELECT setting_key, setting_value FROM license_settings'), 'SELECT').all();
+      // MIGRATED: Get all license settings using sqlManager
+      const licenseSettings = await licenseSettingsQueries.getAllLicenseSettings(db);
       licenseSettings.forEach(setting => {
-        if (['USER_LIMIT', 'TASK_LIMIT', 'BOARD_LIMIT', 'STORAGE_LIMIT', 'SUPPORT_TYPE'].includes(setting.setting_key)) {
+        if (['USER_LIMIT', 'TASK_LIMIT', 'BOARD_LIMIT', 'STORAGE_LIMIT', 'SUPPORT_TYPE'].includes(setting.settingKey)) {
           // Parse numeric values, keep string values as-is
-          if (setting.setting_key === 'SUPPORT_TYPE') {
-            dbSettings[setting.setting_key] = setting.setting_value;
+          if (setting.settingKey === 'SUPPORT_TYPE') {
+            dbSettings[setting.settingKey] = setting.settingValue;
           } else {
-            dbSettings[setting.setting_key] = parseInt(setting.setting_value);
+            dbSettings[setting.settingKey] = parseInt(setting.settingValue);
           }
         }
       });
@@ -865,16 +954,8 @@ router.put('/plan/:key', authenticateAdminPortal, async (req, res) => {
       }
     }
 
-    // Update or insert license setting
-    const existingSetting = await wrapQuery(db.prepare('SELECT id FROM license_settings WHERE setting_key = ?'), 'SELECT').get(key);
-    
-    if (existingSetting) {
-      await wrapQuery(db.prepare('UPDATE license_settings SET setting_value = ?, updated_at = CURRENT_TIMESTAMP WHERE setting_key = ?'), 'UPDATE')
-        .run(value, key);
-    } else {
-      await wrapQuery(db.prepare('INSERT INTO license_settings (setting_key, setting_value) VALUES (?, ?)'), 'INSERT')
-        .run(key, value);
-    }
+    // MIGRATED: Update or insert license setting using sqlManager
+    await licenseSettingsQueries.upsertLicenseSetting(db, key, value);
 
     console.log(`✅ Admin portal updated plan setting: ${key} = ${value}`);
 
@@ -918,9 +999,8 @@ router.delete('/plan/:key', authenticateAdminPortal, async (req, res) => {
       });
     }
 
-    // Delete the license setting (this removes the database override)
-    const result = await wrapQuery(db.prepare('DELETE FROM license_settings WHERE setting_key = ?'), 'DELETE')
-      .run(key);
+    // MIGRATED: Delete the license setting using sqlManager
+    const result = await licenseSettingsQueries.deleteLicenseSetting(db, key);
 
     if (result.changes === 0) {
       return res.status(404).json({ 
@@ -957,7 +1037,8 @@ router.delete('/settings/:key', authenticateAdminPortal, async (req, res) => {
     const { key } = req.params;
 
     const t = await getTranslator(db);
-    const result = await wrapQuery(db.prepare('DELETE FROM settings WHERE key = ?'), 'DELETE').run(key);
+    // MIGRATED: Delete setting using sqlManager
+    const result = await settingsQueries.deleteSetting(db, key);
     
     if (result.changes === 0) {
       return res.status(404).json({ 
@@ -967,6 +1048,13 @@ router.delete('/settings/:key', authenticateAdminPortal, async (req, res) => {
     }
 
     console.log(`✅ Admin portal deleted setting: ${key}`);
+
+    const tenantIdDelSetting = getTenantId(req);
+    await notificationService.publish(
+      'settings-updated',
+      { key, value: null, timestamp: new Date().toISOString() },
+      tenantIdDelSetting
+    ).catch((err) => console.error('Failed to publish settings-updated (delete):', err));
 
     res.json({
       success: true,
@@ -1005,8 +1093,8 @@ router.post('/settings', authenticateAdminPortal, async (req, res) => {
       });
     }
 
-    // Check if setting already exists
-    const existingSetting = await wrapQuery(db.prepare('SELECT key FROM settings WHERE key = ?'), 'SELECT').get(key);
+    // MIGRATED: Check if setting already exists using sqlManager
+    const existingSetting = await settingsQueries.checkSettingExists(db, key);
     if (existingSetting) {
       return res.status(400).json({ 
         success: false,
@@ -1014,11 +1102,17 @@ router.post('/settings', authenticateAdminPortal, async (req, res) => {
       });
     }
 
-    // Insert new setting
-    await wrapQuery(db.prepare('INSERT INTO settings (key, value) VALUES (?, ?)'), 'INSERT')
-      .run(key, value);
+    // MIGRATED: Insert new setting using sqlManager
+    await settingsQueries.createSetting(db, key, value);
 
     console.log(`✅ Admin portal created setting: ${key} = ${value}`);
+
+    const tenantIdCreateSetting = getTenantId(req);
+    await notificationService.publish(
+      'settings-updated',
+      { key, value, timestamp: new Date().toISOString() },
+      tenantIdCreateSetting
+    ).catch((err) => console.error('Failed to publish settings-updated (create):', err));
 
     res.json({
       success: true,
@@ -1065,24 +1159,22 @@ router.put('/instance-status', authenticateAdminPortal, async (req, res) => {
     }
 
     // Update or insert INSTANCE_STATUS setting
-    const existingSetting = await wrapQuery(db.prepare('SELECT key FROM settings WHERE key = ?'), 'SELECT').get('INSTANCE_STATUS');
-    
-    if (existingSetting) {
-      await wrapQuery(db.prepare('UPDATE settings SET value = ?, updated_at = CURRENT_TIMESTAMP WHERE key = ?'), 'UPDATE')
-        .run(status, 'INSTANCE_STATUS');
-    } else {
-      await wrapQuery(db.prepare('INSERT INTO settings (key, value) VALUES (?, ?)'), 'INSERT')
-        .run('INSTANCE_STATUS', status);
-    }
+    // MIGRATED: Upsert instance status using sqlManager
+    await settingsQueries.upsertSetting(db, 'INSTANCE_STATUS', status);
 
     console.log(`✅ Admin portal updated instance status to: ${status}`);
 
-    // Publish instance status update to Redis for real-time updates
     const tenantId = getTenantId(req);
-    redisService.publish('instance-status-updated', {
+    await notificationService.publish('instance-status-updated', {
       status,
       timestamp: new Date().toISOString()
-    }, tenantId);
+    }, tenantId).catch((err) => console.error('Failed to publish instance-status-updated:', err));
+
+    await notificationService.publish(
+      'settings-updated',
+      { key: 'INSTANCE_STATUS', value: status, timestamp: new Date().toISOString() },
+      tenantId
+    ).catch((err) => console.error('Failed to publish settings-updated (INSTANCE_STATUS):', err));
 
     res.json({
       success: true,
@@ -1091,11 +1183,19 @@ router.put('/instance-status', authenticateAdminPortal, async (req, res) => {
     });
   } catch (error) {
     console.error('Error updating instance status:', error);
-    const t = await getTranslator(db);
-    res.status(500).json({ 
-      success: false,
-      error: t('errors.failedToUpdateInstanceStatus') 
-    });
+    try {
+      const dbErr = getRequestDatabase(req);
+      const tr = await getTranslator(dbErr);
+      res.status(500).json({
+        success: false,
+        error: tr('errors.failedToUpdateInstanceStatus')
+      });
+    } catch (fallbackError) {
+      res.status(500).json({
+        success: false,
+        error: 'Failed to update instance status'
+      });
+    }
   }
 });
 
@@ -1103,8 +1203,9 @@ router.put('/instance-status', authenticateAdminPortal, async (req, res) => {
 router.get('/instance-status', authenticateAdminPortal, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
-    const statusSetting = await wrapQuery(db.prepare('SELECT value FROM settings WHERE key = ?'), 'SELECT').get('INSTANCE_STATUS');
-    const status = statusSetting ? statusSetting.value : 'active';
+    // MIGRATED: Get instance status using sqlManager
+    const statusSetting = await helpers.getSetting(db, 'INSTANCE_STATUS');
+    const status = statusSetting || 'active';
 
     res.json({
       success: true,
@@ -1112,145 +1213,17 @@ router.get('/instance-status', authenticateAdminPortal, async (req, res) => {
     });
   } catch (error) {
     console.error('Error fetching instance status:', error);
-    const t = await getTranslator(db);
-    res.status(500).json({ 
-      success: false,
-      error: t('errors.failedToFetchInstanceStatus') 
-    });
-  }
-});
-
-// ================================
-// USER MANAGEMENT ENHANCEMENTS
-// ================================
-
-// Update user
-router.put('/users/:userId', authenticateAdminPortal, async (req, res) => {
-  try {
-    const db = getRequestDatabase(req);
-    const { userId } = req.params;
-    const { email, firstName, lastName, role, isActive } = req.body;
-    
-    const t = await getTranslator(db);
-    
-    // Validate required fields
-    if (!email || !firstName || !lastName || !role) {
-      return res.status(400).json({ 
-        success: false,
-        error: t('errors.emailFirstNameLastNameRoleRequired') 
-      });
-    }
-    
-    // Validate email format
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) {
-      return res.status(400).json({ 
-        success: false,
-        error: t('errors.invalidEmailAddressFormat') 
-      });
-    }
-    
-    // Check if user exists
-    const existingUser = await wrapQuery(db.prepare('SELECT id FROM users WHERE id = ?'), 'SELECT').get(userId);
-    if (!existingUser) {
-      return res.status(404).json({ 
-        success: false,
-        error: t('errors.userNotFound') 
-      });
-    }
-    
-    // Check if email is already taken by another user
-    const emailTaken = await wrapQuery(db.prepare('SELECT id FROM users WHERE email = ? AND id != ?'), 'SELECT').get(email, userId);
-    if (emailTaken) {
-      return res.status(400).json({ 
-        success: false,
-        error: t('errors.emailAlreadyTakenByAnotherUser') 
-      });
-    }
-    
-    // Update user
-    await wrapQuery(db.prepare(`
-      UPDATE users 
-      SET email = ?, first_name = ?, last_name = ?, is_active = ?
-      WHERE id = ?
-    `), 'UPDATE').run(email, firstName, lastName, isActive ? 1 : 0, userId);
-    
-    // Update role
-    const roleId = await wrapQuery(db.prepare('SELECT id FROM roles WHERE name = ?'), 'SELECT').get(role)?.id;
-    if (roleId) {
-      // Remove existing roles
-      await wrapQuery(db.prepare('DELETE FROM user_roles WHERE user_id = ?'), 'DELETE').run(userId);
-      // Add new role
-      await wrapQuery(db.prepare('INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)'), 'INSERT').run(userId, roleId);
-    }
-    
-    // Update member name
-    await wrapQuery(db.prepare('UPDATE members SET name = ? WHERE user_id = ?'), 'UPDATE')
-      .run(`${firstName} ${lastName}`, userId);
-    
-    // Get updated user data for WebSocket event
-    const updatedUser = await wrapQuery(db.prepare(`
-      SELECT u.id, u.email, u.first_name, u.last_name, u.is_active, u.created_at, u.auth_provider, u.google_avatar_url
-      FROM users u
-      WHERE u.id = ?
-    `), 'SELECT').get(userId);
-    
-    // Publish to Redis for real-time updates
-    const tenantId = getTenantId(req);
-    console.log('📤 Publishing user-updated and user-role-updated to Redis for admin portal user update');
-    await redisService.publish('user-updated', {
-      user: {
-        id: updatedUser.id,
-        email: updatedUser.email,
-        firstName: updatedUser.first_name,
-        lastName: updatedUser.last_name,
-        isActive: Boolean(updatedUser.is_active),
-        authProvider: updatedUser.auth_provider || null,
-        googleAvatarUrl: updatedUser.google_avatar_url || null,
-        createdAt: updatedUser.created_at,
-        joined: updatedUser.created_at
-      },
-      timestamp: new Date().toISOString()
-    }, tenantId).catch(err => {
-      console.error('Failed to publish user-updated event:', err);
-    });
-    
-    // Publish role update
-    await redisService.publish('user-role-updated', {
-      userId: userId,
-      role: role,
-      timestamp: new Date().toISOString()
-    }, tenantId).catch(err => {
-      console.error('Failed to publish user-role-updated event:', err);
-    });
-    
-    console.log(`✅ Admin portal updated user: ${email} (${firstName} ${lastName})`);
-    
-    res.json({
-      success: true,
-      message: t('success.userUpdatedSuccessfully'),
-      data: {
-        id: userId,
-        email,
-        firstName,
-        lastName,
-        role,
-        isActive: !!isActive
-      }
-    });
-  } catch (error) {
-    console.error('Error updating user:', error);
     try {
-      const db = getRequestDatabase(req);
-      const t = await getTranslator(db);
-      res.status(500).json({ 
+      const dbErr = getRequestDatabase(req);
+      const tr = await getTranslator(dbErr);
+      res.status(500).json({
         success: false,
-        error: t('errors.failedToUpdateUser') 
+        error: tr('errors.failedToFetchInstanceStatus')
       });
     } catch (fallbackError) {
-      res.status(500).json({ 
+      res.status(500).json({
         success: false,
-        error: 'Failed to update user' 
+        error: 'Failed to fetch instance status'
       });
     }
   }
@@ -1272,7 +1245,8 @@ router.post('/send-invitation', authenticateAdminPortal, async (req, res) => {
     }
     
     // Find user by email
-    const user = await wrapQuery(db.prepare('SELECT * FROM users WHERE email = ?'), 'SELECT').get(email);
+    // MIGRATED: Get user by email using sqlManager
+    const user = await userQueries.getUserByEmail(db, email);
     if (!user) {
       return res.status(404).json({ 
         success: false,
@@ -1293,56 +1267,51 @@ router.post('/send-invitation', authenticateAdminPortal, async (req, res) => {
     const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours from now
     
     // Store invitation token
-    await wrapQuery(db.prepare(`
-      INSERT OR REPLACE INTO user_invitations (user_id, token, expires_at, created_at) 
-      VALUES (?, ?, ?, ?)
-    `), 'INSERT').run(user.id, inviteToken, expiresAt.toISOString(), new Date().toISOString());
+    // MIGRATED: Create user invitation using sqlManager
+    const invitationId = crypto.randomUUID();
+    await adminUserQueries.createUserInvitation(db, invitationId, user.id, inviteToken, expiresAt.toISOString());
     
-    // Get site name from settings
-    const siteNameSetting = await wrapQuery(db.prepare('SELECT value FROM settings WHERE key = ?'), 'SELECT').get('SITE_NAME');
-    const siteName = siteNameSetting?.value || 'Easy Kanban';
-    
-    // Generate invitation URL using tenant-specific URL
-    // Priority: 1) APP_URL from database (tenant-specific, set by frontend), 2) Construct from tenantId, 3) Fallback
-    const appUrlSetting = await wrapQuery(db.prepare('SELECT value FROM settings WHERE key = ?'), 'SELECT').get('APP_URL');
+    // Priority: BASE_URL env, APP_URL in DB, tenant hostname, instance fallback
+    const appUrlSetting = await helpers.getSetting(db, 'APP_URL');
     let baseUrl = process.env.BASE_URL;
-    
+
     if (!baseUrl) {
-      if (appUrlSetting?.value) {
-        // Use APP_URL from database (most reliable - tenant-specific)
-        baseUrl = appUrlSetting.value;
+      if (appUrlSetting && String(appUrlSetting).trim()) {
+        baseUrl = String(appUrlSetting).replace(/\/$/, '');
       } else {
-        // Construct from tenantId if available (multi-tenant mode)
         const tenantId = req.tenantId;
         if (tenantId) {
           const domain = process.env.TENANT_DOMAIN || 'ezkan.cloud';
           baseUrl = `https://${tenantId}.${domain}`;
         } else {
-          // Single-tenant fallback
           const instanceName = process.env.INSTANCE_NAME || 'easy-kanban-app';
           const domain = process.env.TENANT_DOMAIN || 'ezkan.cloud';
           baseUrl = `https://${instanceName}.${domain}`;
         }
       }
     }
-    
-    // Remove trailing slash if present
-    baseUrl = baseUrl.replace(/\/$/, '');
-    const inviteUrl = `${baseUrl}/invite/${inviteToken}`;
-    
-    // Send invitation email using a fresh notification service instance
-    // This ensures it reads the latest email settings from the database
-    try {
-      const { NotificationService } = await import('../services/notificationService.js');
-      const notificationService = new NotificationService(db);
-      await notificationService.sendUserInvitation(user.id, inviteToken, adminName || 'Admin', baseUrl);
-    } catch (importError) {
-      console.error('Error importing NotificationService:', importError);
-      // Fallback to the singleton instance
-      const notificationService = getNotificationService();
-      await notificationService.sendUserInvitation(user.id, inviteToken, adminName || 'Admin', baseUrl);
+
+    baseUrl = String(baseUrl).replace(/\/$/, '');
+    const inviteUrl = `${baseUrl}/#activate-account?token=${encodeURIComponent(inviteToken)}&email=${encodeURIComponent(user.email)}`;
+
+    const EmailService = (await import('../services/emailService.js')).default;
+    const emailService = new EmailService(db);
+    const emailResult = await emailService.sendUserInvitation(
+      user,
+      inviteToken,
+      adminName || 'Admin',
+      baseUrl
+    );
+
+    if (!emailResult.success) {
+      const errMsg = emailResult.reason || 'Failed to send invitation email';
+      console.error('⚠️ Admin portal invitation email failed:', errMsg);
+      return res.status(500).json({
+        success: false,
+        error: errMsg
+      });
     }
-    
+
     console.log(`✅ Invitation sent to user: ${email}`);
     
     res.json({

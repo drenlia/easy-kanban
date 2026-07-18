@@ -2,6 +2,11 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { getTaskFlowChart } from '../api';
 import { Maximize2, Minimize2, X, Filter, ZoomIn, ZoomOut, RotateCcw } from 'lucide-react';
+import { feDebug } from '../utils/clientDebug';
+
+function flowLog(...args: unknown[]) {
+  if (feDebug('FE_DEBUG_FLOWCHART')) console.log(...args);
+}
 
 interface TaskNode {
   id: string;
@@ -46,10 +51,12 @@ export default function TaskFlowChart({ currentTaskId, currentTaskData }: TaskFl
     
     try {
       const flowData = await getTaskFlowChart(rootTaskId);
+      const taskRows = Array.isArray(flowData?.tasks) ? flowData.tasks : [];
+      const relRows = Array.isArray(flowData?.relationships) ? flowData.relationships : [];
       
       // Convert tasks array to map for easier lookup
       const tasksMap = new Map();
-      flowData.tasks.forEach(task => {
+      taskRows.forEach(task => {
         tasksMap.set(task.id, {
           ...task,
           children: [],
@@ -58,33 +65,35 @@ export default function TaskFlowChart({ currentTaskId, currentTaskData }: TaskFl
       });
       
       // Build parent-child relationships
-      flowData.relationships.forEach(rel => {
-        const parentTask = tasksMap.get(rel.taskId);
-        const childTask = tasksMap.get(rel.relatedTaskId);
+      relRows.forEach(rel => {
+        const fromId = rel.taskId ?? (rel as { task_id?: string }).task_id;
+        const toId = rel.relatedTaskId ?? (rel as { to_task_id?: string }).to_task_id;
+        const parentTask = tasksMap.get(fromId);
+        const childTask = tasksMap.get(toId);
         
-        if (parentTask && childTask) {
+        if (parentTask && childTask && fromId && toId) {
           if (rel.relationship === 'parent') {
             // Current task is parent of related task
-            parentTask.children.push(rel.relatedTaskId);
-            childTask.parents.push(rel.taskId);
+            parentTask.children.push(toId);
+            childTask.parents.push(fromId);
           } else if (rel.relationship === 'child') {
             // Current task is child of related task
-            childTask.children.push(rel.taskId);
-            parentTask.parents.push(rel.relatedTaskId);
+            childTask.children.push(fromId);
+            parentTask.parents.push(toId);
           }
         }
       });
       
       // Collect available statuses
       const statuses = new Set<string>();
-      flowData.tasks.forEach(task => {
+      taskRows.forEach(task => {
         if (task.status) {
           statuses.add(task.status);
         }
       });
       setAvailableStatuses(Array.from(statuses).sort());
       
-      return { tasks: tasksMap, relationships: flowData.relationships };
+      return { tasks: tasksMap, relationships: relRows };
       
     } catch (error) {
       console.error(`❌ TaskFlowChart: Error fetching flow chart data:`, error);
@@ -94,7 +103,7 @@ export default function TaskFlowChart({ currentTaskId, currentTaskData }: TaskFl
 
   // Convert the flat task map into a hierarchical tree structure
   const buildHierarchy = (allTasks: Map<string, any>, rootTaskId: string): TaskNode | null => {
-    console.log(`🌲 TaskFlowChart: Starting buildHierarchy with ${allTasks.size} tasks`);
+    flowLog(`🌲 TaskFlowChart: Starting buildHierarchy with ${allTasks.size} tasks`);
     
     const visited = new Set<string>();
     const MAX_DEPTH = 10; // Prevent deep recursion
@@ -127,7 +136,7 @@ export default function TaskFlowChart({ currentTaskId, currentTaskData }: TaskFl
         return null;
       }
       
-      console.log(`📦 TaskFlowChart: Building node for ${taskData.ticket} (level ${level})`);
+      flowLog(`📦 TaskFlowChart: Building node for ${taskData.ticket} (level ${level})`);
       
       // Use the actual task data from the API
       const node: TaskNode = {
@@ -149,12 +158,12 @@ export default function TaskFlowChart({ currentTaskId, currentTaskData }: TaskFl
       
       // Recursively build children with safety checks
       if (taskData.children && taskData.children.length > 0) {
-        console.log(`👶 TaskFlowChart: Building ${taskData.children.length} children for ${taskData.ticket}`);
+        flowLog(`👶 TaskFlowChart: Building ${taskData.children.length} children for ${taskData.ticket}`);
         node.children = taskData.children
           .slice(0, 10) // Limit children to prevent performance issues
           .map((childId: string) => buildNode(childId, level + 1))
           .filter((child: TaskNode | null) => child !== null);
-        console.log(`✅ TaskFlowChart: Built ${node.children.length} children for ${taskData.ticket}`);
+        flowLog(`✅ TaskFlowChart: Built ${node.children.length} children for ${taskData.ticket}`);
       }
       
       return node;
@@ -181,10 +190,10 @@ export default function TaskFlowChart({ currentTaskId, currentTaskData }: TaskFl
       }
     }
     
-    console.log(`🌲 TaskFlowChart: Building tree with root: ${allTasks.get(actualRoot)?.ticket || actualRoot} (requested: ${taskData?.ticket || rootTaskId})`);
+    flowLog(`🌲 TaskFlowChart: Building tree with root: ${allTasks.get(actualRoot)?.ticket || actualRoot} (requested: ${taskData?.ticket || rootTaskId})`);
     
     const result = buildNode(actualRoot);
-    console.log(`✅ TaskFlowChart: Hierarchy built with ${nodeCount} nodes`);
+    flowLog(`✅ TaskFlowChart: Hierarchy built with ${nodeCount} nodes`);
     return result;
   };
 
@@ -231,7 +240,7 @@ export default function TaskFlowChart({ currentTaskId, currentTaskData }: TaskFl
   useEffect(() => {
     const loadTaskTree = async () => {
       if (!currentTaskId) {
-        console.log('❌ TaskFlowChart: No currentTaskId provided');
+        flowLog('❌ TaskFlowChart: No currentTaskId provided');
         return;
       }
       
@@ -239,29 +248,29 @@ export default function TaskFlowChart({ currentTaskId, currentTaskData }: TaskFl
       setError(null);
       
       try {
-        console.log(`🚀 TaskFlowChart: Building task flow chart for UUID: ${currentTaskId}`);
-        console.log(`🚀 TaskFlowChart: Task ticket: ${currentTaskData?.ticket}`);
+        flowLog(`🚀 TaskFlowChart: Building task flow chart for UUID: ${currentTaskId}`);
+        flowLog(`🚀 TaskFlowChart: Task ticket: ${currentTaskData?.ticket}`);
         
         // Step 1: Get all flow chart data in one optimized API call
         const { tasks: allTasks } = await buildTaskTreeFromAPI(currentTaskId);
         
         if (allTasks.size === 0) {
-          console.log('📭 TaskFlowChart: No tasks found');
+          flowLog('📭 TaskFlowChart: No tasks found');
           setTaskTree(null);
           return;
         }
         
         // Step 2: Build hierarchical tree structure
         const tree = buildHierarchy(allTasks, currentTaskId);
-        console.log(`🌲 TaskFlowChart: Tree structure built:`, tree);
+        flowLog(`🌲 TaskFlowChart: Tree structure built:`, tree);
         
         if (tree) {
           // Step 3: Calculate positions
           calculatePositions(tree, 400, 50); // Start at center-top
           setTaskTree(tree);
-          console.log('✅ TaskFlowChart: Task tree built successfully');
+          flowLog('✅ TaskFlowChart: Task tree built successfully');
         } else {
-          console.log('❌ TaskFlowChart: Failed to build tree structure');
+          flowLog('❌ TaskFlowChart: Failed to build tree structure');
           setError('Failed to build task tree structure');
         }
         
@@ -292,7 +301,7 @@ export default function TaskFlowChart({ currentTaskId, currentTaskData }: TaskFl
       const taskData = taskTree && findTaskInTree(taskTree, taskId);
       if (taskData?.ticket) {
         const url = `#${projectId}#${taskData.ticket}`;
-        console.log(`🔗 TaskFlowChart: Navigating to task: ${url}`);
+        flowLog(`🔗 TaskFlowChart: Navigating to task: ${url}`);
         window.location.hash = url;
       }
     }

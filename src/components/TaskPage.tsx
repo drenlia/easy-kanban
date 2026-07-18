@@ -15,6 +15,11 @@ import Header from './layout/Header';
 import TaskFlowChart from './TaskFlowChart';
 import DOMPurify from 'dompurify';
 import { getAuthenticatedAttachmentUrl } from '../utils/authImageUrl';
+import { feDebug } from '../utils/clientDebug';
+
+function pageLog(...args: unknown[]) {
+  if (feDebug('FE_DEBUG_TASK_PAGE')) console.log(...args);
+}
 
 interface TaskPageProps {
   currentUser: CurrentUser | null;
@@ -79,16 +84,16 @@ export default function TaskPage({
   }>(() => {
     if (currentUser?.id) {
       const prefs = loadUserPreferences(currentUser.id);
-      console.log('📁 TaskPage: Initial preferences loaded:', prefs.taskPageCollapsed);
+      pageLog('📁 TaskPage: Initial preferences loaded:', prefs.taskPageCollapsed);
       if (prefs.taskPageCollapsed) {
-        console.log('📁 TaskPage: Using saved preferences for initial state');
+        pageLog('📁 TaskPage: Using saved preferences for initial state');
         return {
           ...prefs.taskPageCollapsed,
           taskFlow: prefs.taskPageCollapsed.taskFlow ?? false, // Default to expanded for new section
         };
       }
     }
-    console.log('📁 TaskPage: Using default state (all expanded)');
+    pageLog('📁 TaskPage: Using default state (all expanded)');
     return {
       assignment: false,
       schedule: false,
@@ -111,7 +116,7 @@ export default function TaskPage({
   // Listen for hash changes and update current hash state
   useEffect(() => {
     const handleHashChange = () => {
-      console.log('🔄 [TaskPage] Hash changed:', window.location.hash);
+      pageLog('🔄 [TaskPage] Hash changed:', window.location.hash);
       setCurrentHash(window.location.hash);
     };
     
@@ -121,7 +126,7 @@ export default function TaskPage({
   
   // Reset all state when task ID changes
   useEffect(() => {
-    console.log('🔄 [TaskPage] Task ID changed to:', taskId);
+    pageLog('🔄 [TaskPage] Task ID changed to:', taskId);
     setTask(null);
     setError(null);
     setIsLoading(true);
@@ -146,17 +151,17 @@ export default function TaskPage({
       try {
         setIsLoading(true);
         
-        console.log('🚀 [TaskPage] Starting data load for taskId:', taskId);
+        pageLog('🚀 [TaskPage] Starting data load for taskId:', taskId);
         
         // Load task and boards in parallel (members come from props)
-        console.log('📡 [TaskPage] Making API calls...');
+        pageLog('📡 [TaskPage] Making API calls...');
         const [taskData, boardsData] = await Promise.all([
           getTaskById(taskId),
           getBoards()
         ]);
 
-        console.log('📥 [TaskPage] API responses received:');
-        console.log('  📄 Task data:', {
+        pageLog('📥 [TaskPage] API responses received:');
+        pageLog('  📄 Task data:', {
           id: taskData?.id,
           title: taskData?.title,
           priority: taskData?.priority,
@@ -167,16 +172,16 @@ export default function TaskPage({
           tags: taskData?.tags?.length || 0,
           comments: taskData?.comments?.length || 0
         });
-        console.log('  👥 Members data:', { count: members?.length, first: members?.[0] });
-        console.log('  📋 Boards data:', { count: boardsData?.length });
+        pageLog('  👥 Members data:', { count: members?.length, first: members?.[0] });
+        pageLog('  📋 Boards data:', { count: boardsData?.length });
 
         if (!taskData) {
-          console.log('❌ [TaskPage] No task data received');
+          pageLog('❌ [TaskPage] No task data received');
           setError(t('taskPage.taskNotFound'));
           return;
         }
 
-        console.log('✅ [TaskPage] Setting state with loaded data');
+        pageLog('✅ [TaskPage] Setting state with loaded data');
         setTask(taskData);
         setBoards(boardsData);
       } catch (error) {
@@ -515,7 +520,7 @@ export default function TaskPage({
       
       // Save to user preferences
       if (currentUser?.id) {
-        console.log(`📁 TaskPage: Toggling section ${section} to ${newState[section] ? 'collapsed' : 'expanded'}`);
+        pageLog(`📁 TaskPage: Toggling section ${section} to ${newState[section] ? 'collapsed' : 'expanded'}`);
         updateUserPreference(currentUser.id, 'taskPageCollapsed', newState);
       }
       
@@ -620,24 +625,24 @@ export default function TaskPage({
     
     isUploadingRef.current = true;
     try {
-      console.log('📎 Uploading', pendingAttachments.length, 'task attachments...');
+      pageLog('📎 Uploading', pendingAttachments.length, 'task attachments...');
       
       // Use the new upload utility
       const uploadedAttachments = await uploadTaskFiles(task?.id || '', {
         currentTaskAttachments: taskAttachments,
         currentDescription: editedTask.description,
         onTaskAttachmentsUpdate: (updatedAttachments) => {
-          console.log('🔄 Updating taskAttachments with:', updatedAttachments.length, 'attachments');
+          pageLog('🔄 Updating taskAttachments with:', updatedAttachments.length, 'attachments');
           setTaskAttachments(updatedAttachments);
           // Update the task with the new attachment count
           handleTaskUpdate({ attachmentCount: updatedAttachments.length });
         },
         onDescriptionUpdate: (updatedDescription) => {
-          console.log('🔄 Updating task description with server URLs');
+          pageLog('🔄 Updating task description with server URLs');
           handleTaskUpdate({ description: updatedDescription });
         },
         onSuccess: (attachments) => {
-          console.log('✅ Task attachments saved successfully:', attachments.length, 'files');
+          pageLog('✅ Task attachments saved successfully:', attachments.length, 'files');
           // Clear pending attachments on success
           clearFiles();
         },
@@ -652,7 +657,7 @@ export default function TaskPage({
         }
       });
       
-      console.log('📎 Task attachment upload completed, got:', uploadedAttachments.length, 'attachments');
+      pageLog('📎 Task attachment upload completed, got:', uploadedAttachments.length, 'attachments');
     } catch (error: any) {
       console.error('❌ Failed to save task attachments:', error);
       // Clear pending attachments on error to prevent retry loop
@@ -686,7 +691,7 @@ export default function TaskPage({
     
     textSaveTimeoutRef.current = setTimeout(() => {
       // The hook's debounced save will handle this
-      console.log(`💾 Debounced save triggered for ${field}:`, value.substring(0, 50) + '...');
+      pageLog(`💾 Debounced save triggered for ${field}:`, value.substring(0, 50) + '...');
     }, 1000);
   }, [handleTaskUpdate]);
 
@@ -780,13 +785,13 @@ export default function TaskPage({
 
   // Sync with preferences when user changes (backup for edge cases)
   useEffect(() => {
-    console.log('📁 TaskPage: useEffect triggered - syncing preferences');
+    pageLog('📁 TaskPage: useEffect triggered - syncing preferences');
     if (currentUser?.id) {
       const prefs = loadUserPreferences(currentUser.id);
-      console.log('📁 TaskPage: Syncing preferences for user', currentUser.id);
-      console.log('📁 TaskPage: Current prefs:', prefs.taskPageCollapsed);
+      pageLog('📁 TaskPage: Syncing preferences for user', currentUser.id);
+      pageLog('📁 TaskPage: Current prefs:', prefs.taskPageCollapsed);
       if (prefs.taskPageCollapsed) {
-        console.log('📁 TaskPage: Syncing to saved preferences');
+        pageLog('📁 TaskPage: Syncing to saved preferences');
         setCollapsedSections(prefs.taskPageCollapsed);
       }
     }
@@ -800,7 +805,7 @@ export default function TaskPage({
 
   const handleActivityFeedToggle = (enabled: boolean) => {
     // Activity feed is not used on TaskPage, but we need the handler for ModalManager
-    console.log('Activity feed toggle not applicable on TaskPage:', enabled);
+    pageLog('Activity feed toggle not applicable on TaskPage:', enabled);
   };
 
   if (isLoading) {
@@ -1461,13 +1466,19 @@ export default function TaskPage({
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">{t('labels.effort')}</label>
                   <input
-                    type="number"
-                    min="0"
-                    step="0.5"
-                    value={editedTask.effort || ''}
-                    onChange={(e) => handleTaskUpdate({ effort: e.target.value ? parseFloat(e.target.value) : null })}
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    value={editedTask.effort ?? ''}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      if (v === '' || /^\d{0,4}$/.test(v)) {
+                        handleTaskUpdate({ effort: v === '' ? null : parseInt(v, 10) });
+                      }
+                    }}
+                    onFocus={(e) => e.currentTarget.select()}
                     className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-                    placeholder="0.0"
+                    placeholder="0"
                   />
                 </div>
               </div>
@@ -1580,7 +1591,7 @@ export default function TaskPage({
                       <span 
                         onClick={() => {
                           const url = generateTaskUrl(parentTask.ticket, parentTask.projectId);
-                          console.log('🔗 TaskPage Parent URL:', { 
+                          pageLog('🔗 TaskPage Parent URL:', { 
                             ticket: parentTask.ticket, 
                             projectId: parentTask.projectId, 
                             generatedUrl: url 
@@ -1589,7 +1600,7 @@ export default function TaskPage({
                           const hashPart = url.split('#').slice(1).join('#');
                           window.location.hash = hashPart;
                         }}
-                        className="text-sm text-blue-600 hover:text-blue-800 hover:underline cursor-pointer transition-colors"
+                        className="text-sm text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 hover:underline cursor-pointer transition-colors"
                         title={`Go to parent task ${parentTask.ticket}`}
                       >
                         {parentTask.ticket}
@@ -1599,7 +1610,7 @@ export default function TaskPage({
                   
                   {/* Children Field - Right Side */}
                   <div className={parentTask ? '' : 'col-span-2'}>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">{t('taskPage.children')}:</label>
+                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">{t('taskPage.children')}:</label>
                     
                     {/* Selected Children Display */}
                     {childTasks.length > 0 && (
@@ -1607,12 +1618,12 @@ export default function TaskPage({
                         {childTasks.map(child => (
                           <span
                             key={child.id}
-                            className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-full font-medium bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 hover:opacity-80 transition-opacity"
+                            className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-full font-medium bg-blue-100 dark:bg-blue-950 dark:ring-1 dark:ring-blue-700/60 text-blue-900 dark:text-blue-100 hover:opacity-90 transition-opacity"
                           >
                             <span 
                               onClick={() => {
                                 const url = generateTaskUrl(child.ticket, child.projectId);
-                                console.log('🔗 TaskPage Child URL:', { 
+                                pageLog('🔗 TaskPage Child URL:', { 
                                   ticket: child.ticket, 
                                   projectId: child.projectId, 
                                   generatedUrl: url 
@@ -1621,7 +1632,7 @@ export default function TaskPage({
                                 const hashPart = url.split('#').slice(1).join('#');
                                 window.location.hash = hashPart;
                               }}
-                              className="text-blue-800 hover:text-blue-900 hover:underline cursor-pointer transition-colors"
+                              className="text-blue-900 dark:text-blue-100 hover:text-blue-700 dark:hover:text-white hover:underline cursor-pointer transition-colors"
                               title={`Go to child task ${child.ticket}`}
                             >
                               {child.ticket}
@@ -1629,7 +1640,7 @@ export default function TaskPage({
                             <button
                               type="button"
                               onClick={() => handleRemoveChildTask(child.id)}
-                              className="ml-1 hover:bg-red-500 hover:text-white rounded-full w-3 h-3 flex items-center justify-center text-xs font-bold transition-colors"
+                              className="ml-1 text-blue-700 dark:text-blue-200 hover:bg-red-500 hover:text-white rounded-full w-3 h-3 flex items-center justify-center text-xs font-bold transition-colors"
                               title={t('taskPage.removeChildTask')}
                             >
                               ×
@@ -1655,13 +1666,13 @@ export default function TaskPage({
                       {showChildrenDropdown && (
                         <div className="absolute z-10 mt-1 w-full bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-md shadow-lg max-h-60 overflow-auto">
                           {/* Search Input */}
-                          <div className="p-2 border-b border-gray-200">
+                          <div className="p-2 border-b border-gray-200 dark:border-gray-600">
                             <input
                               type="text"
                               placeholder={t('taskPage.searchTasks')}
                               value={childrenSearchTerm}
                               onChange={(e) => setChildrenSearchTerm(e.target.value)}
-                              className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                              className="w-full px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder:text-gray-500 dark:placeholder:text-gray-400 focus:outline-none focus:ring-1 focus:ring-blue-500"
                               autoFocus
                             />
                           </div>
@@ -1674,14 +1685,14 @@ export default function TaskPage({
                                   key={availableTask.id}
                                   type="button"
                                   onClick={() => handleAddChildTask(availableTask.id)}
-                                  className="w-full px-3 py-2 text-left hover:bg-blue-50 focus:bg-blue-50 focus:outline-none transition-colors text-sm"
+                                  className="w-full px-3 py-2 text-left hover:bg-blue-50 dark:hover:bg-blue-900/35 focus:bg-blue-50 dark:focus:bg-blue-900/35 focus:outline-none transition-colors text-sm"
                                 >
-                                  <div className="font-medium text-blue-600">{availableTask.ticket}</div>
-                                  <div className="text-gray-600 truncate">{availableTask.title}</div>
+                                  <div className="font-medium text-blue-600 dark:text-blue-400">{availableTask.ticket}</div>
+                                  <div className="text-gray-600 dark:text-gray-300 truncate">{availableTask.title}</div>
                                 </button>
                               ))
                             ) : (
-                              <div className="px-3 py-2 text-sm text-gray-500">
+                              <div className="px-3 py-2 text-sm text-gray-500 dark:text-gray-400">
                                 {childrenSearchTerm ? t('taskPage.noTasksFound') : t('taskPage.noAvailableTasks')}
                               </div>
                             )}

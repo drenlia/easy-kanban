@@ -6,7 +6,8 @@ import {
   Task, 
   Columns, 
   PriorityOption,
-  Tag 
+  Tag,
+  ColumnVisibilityWarning
 } from '../../types';
 import { TaskViewMode, ViewMode } from '../../utils/userPreferences';
 import LoadingSpinner from '../LoadingSpinner';
@@ -82,7 +83,7 @@ interface MainLayoutProps {
   onToggleCollaborators: (include: boolean) => void;
   onToggleRequesters: (include: boolean) => void;
   onToggleSystem: (include: boolean) => void;
-  onToggleTaskViewMode: () => void;
+  onTaskViewModeChange: (mode: TaskViewMode) => void;
   onViewModeChange: (mode: ViewMode) => void;
   onToggleSearch: () => void;
   onSearchFiltersChange: (filters: any) => void;
@@ -99,8 +100,10 @@ interface MainLayoutProps {
   onDragOver: (event: any) => void;
   onDragEnd: (event: any) => void;
   onAddTask: (columnId: string) => Promise<void>;
-  columnWarnings: {[columnId: string]: string};
+  columnWarnings: Record<string, ColumnVisibilityWarning>;
   onDismissColumnWarning: (columnId: string) => void;
+  onClearFiltersForHiddenTask?: () => void;
+  onAssignCreatedTaskToSprint?: (columnId: string, taskId: string, sprintId: string) => Promise<void>;
   onRemoveTask: (taskId: string) => Promise<void>;
   onEditTask: (task: Task) => Promise<void>;
   onCopyTask: (task: Task) => Promise<void>;
