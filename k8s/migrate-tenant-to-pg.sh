@@ -2,8 +2,23 @@
 
 # Migrate a tenant from SQLite to PostgreSQL
 # This script helps migrate tenant data from SQLite backups to PostgreSQL
+#
+# SAFETY: This path is parked. The app runtime is PostgreSQL-only; the companion
+# scripts/migrate-sqlite-to-postgres.js was removed with the SQLite cut-over.
+# Keep this file for a future one-off migration if needed — restore the Node
+# migration script first, then remove the early exit below.
 
 set -e
+
+echo "❌ SQLite → PostgreSQL migration is currently disabled."
+echo ""
+echo "Easy Kanban runs on PostgreSQL only. This wrapper is retained for a future"
+echo "one-off migration, but scripts/migrate-sqlite-to-postgres.js is not in the"
+echo "tree. Restore that script (or an equivalent) before re-enabling this flow."
+echo ""
+echo "To re-enable: restore the migration script, then remove this early-exit block"
+echo "at the top of k8s/migrate-tenant-to-pg.sh."
+exit 1
 
 # Function to display usage
 usage() {

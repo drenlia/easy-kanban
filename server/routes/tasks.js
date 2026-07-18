@@ -2588,7 +2588,6 @@ router.post('/:taskId/relationships', authenticateToken, async (req, res) => {
     const db = getRequestDatabase(req);
     const tTranslator = await getTranslator(db);
     if (
-      error.code === 'SQLITE_CONSTRAINT_UNIQUE' ||
       error.code === '23505' ||
       error.message?.includes('duplicate key') ||
       error.message?.includes('UNIQUE constraint')

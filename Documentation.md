@@ -5,22 +5,26 @@
 1. [Application Overview](#application-overview)
 2. [Getting Started](#getting-started)
 3. [Header & Navigation](#header--navigation)
-4. [Board Management](#board-management)
-5. [Views](#views)
+4. [Tools Panel](#tools-panel)
+5. [Board Management](#board-management)
+6. [Views](#views)
    - [Kanban View](#kanban-view)
    - [List View](#list-view)
    - [Gantt View](#gantt-view)
-6. [Task Management](#task-management)
-7. [User Profile & Settings](#user-profile--settings)
-8. [Admin Section](#admin-section-admin-only)
-9. [Advanced Features](#advanced-features)
-10. [Keyboard Shortcuts](#keyboard-shortcuts)
+7. [Task Management](#task-management)
+8. [User Profile & Settings](#user-profile--settings)
+9. [Admin Section](#admin-section-admin-only)
+10. [Advanced Features](#advanced-features)
+11. [Keyboard Shortcuts](#keyboard-shortcuts)
+12. [Troubleshooting](#troubleshooting)
 
 ---
 
 ## Application Overview
 
 Easy-Kanban is a comprehensive project management platform that combines Kanban boards, Gantt charts, and list views for complete project visibility. It features real-time collaboration, advanced task management, and team coordination tools.
+
+**Platform:** PostgreSQL-backed (single-tenant Docker or multi-tenant Kubernetes). Real-time updates use PostgreSQL `LISTEN/NOTIFY` with Socket.IO (Redis adapter for multi-pod deployments).
 
 ### Key Features
 - **Multi-board Kanban system** with drag-and-drop functionality
@@ -31,6 +35,7 @@ Easy-Kanban is a comprehensive project management platform that combines Kanban 
 - **Task management** with priorities, comments, and file attachments
 - **Admin panel** for user management and system configuration
 - **File uploads** for task attachments and user avatars
+- **Site branding** - custom logo (light/dark), optional hide logo / GitHub link
 
 ### User Roles
 - **Admin**: Full access to all features including user management and system configuration
@@ -65,6 +70,7 @@ In production mode, you'll need to create your own user accounts through the adm
 4. Set up your boards and columns
 5. Start creating and managing tasks
 6. Configure Google OAuth (optional) in Admin > SSO settings
+7. Configure branding (optional) in Admin > Site Settings (logo, site name)
 
 ---
 
@@ -72,35 +78,36 @@ In production mode, you'll need to create your own user accounts through the adm
 
 [Screenshot: Header with all buttons visible]
 
-The header contains the main navigation and utility buttons for the application.
+The sticky header contains branding, sprint context, app navigation, and utilities.
 
-### Left Side - Application Logo & Navigation
-- **Easy-Kanban Logo**: Click to return to the main board view
-- **Board Tabs**: Shows all available boards. Click any tab to switch between boards
-- **Add Board Button** (Admin Only): `+` button to create new boards
+### Left Side
+- **Site brand**: Logo and/or site name (from Admin → Site Settings). Click to follow the configured site URL.
+  - Default logo is `/kanban.ico` when no custom logo is set
+  - Empty site name hides the text (no fallback to “Easy Kanban”)
+  - **Hide Site Logo** (admin setting) removes the logo entirely
+- **Sprint selector** (Kanban page): Filter by sprint or backlog
+- **Demo countdown** (when demo mode is enabled)
 
-### Right Side - User Controls & Utilities
+### Right Side (left → right)
 
-#### Profile Section
-- **User Avatar**: Click to open profile dropdown
-  - **Profile Settings**: Opens user profile modal
-  - **Logout**: Signs out of the application
-- **User Name**: Displays current user's name
+1. **App navigation**: Kanban · Reports (if enabled) · Admin (admins)
+2. **Invite** (admins): Invite a user by email
+3. **Preferences**: Theme (light/dark) · Language (EN/FR)
+4. **Utilities**: Refresh · System panel toggle (admins) · Help (also F1)
+5. **GitHub** link (opens in a new tab; can be hidden in Site Settings)
+6. **User avatar** (always last): Profile · Logout
 
-#### Utility Buttons
-- **Theme Toggle**: Switch between light and dark mode
-- **Refresh Button**: Force refresh data from server (useful when WebSocket is disconnected)
-- **Help Button**: Opens comprehensive help modal (also accessible via F1 key)
-- **Invite User Button** (Admin Only): Opens user invitation dialog
+---
 
-#### Activity Feed
-- **Activity Icon**: Shows activity feed panel with real-time updates
-- **Notification Badge**: Red circle with number showing unread activities
-- **Activity Feed Panel**: Draggable panel showing:
-  - Real-time task changes
-  - Comments and updates
-  - Team member activity
-  - Filtering and search capabilities
+## Tools Panel
+
+The **Tools** card on the Kanban page controls board layout and card density.
+
+- **Board view** (dropdown): Kanban · List · Gantt — same icon size as the toolbar button; short labels in the menu, full description on hover
+- **Search**: Toggle advanced search/filters
+- **Card density** (dropdown): Expand · Shrink · Compact
+  - **Compact** (tickets only) hides descriptions on cards and shows a **red dot** on the density button as a reminder
+  - Tooltips describe the current mode (including that compact hides descriptions)
 
 ---
 
@@ -127,7 +134,7 @@ The header contains the main navigation and utility buttons for the application.
 
 ## Views
 
-The application offers three different views for managing tasks:
+The application offers three different views for managing tasks (switch via the Tools panel):
 
 ### Kanban View
 
@@ -146,12 +153,12 @@ The Kanban view displays tasks as cards in columns, representing different stage
 
 #### Task Cards
 - **Task Title**: Click to open task details
-- **Task Description**: Brief description or first line of full description
+- **Task Description**: Shown in expand/shrink modes (hidden in compact)
 - **Priority Indicator**: Color-coded priority level
 - **Assignee**: User avatar and name
 - **Tags**: Color-coded tags
 - **Dates**: Start and due date
-- **Comments Count**: Number of comments on the task
+- **Watchers / collaborators / attachments**: Reflected on the card; side-panel edits update the board in real time
 
 #### Drag & Drop Operations
 - **Move Tasks**: Drag task cards between columns
@@ -209,10 +216,10 @@ The Gantt view displays tasks on a timeline showing project schedules and depend
 - **Move Tasks**: Drag task bars to change dates
 - **Resize Tasks**: Drag ends of task bars to change duration
 
-#### View Modes
+#### View Modes (Tools → card density)
 - **Expand**: Full task details with titles
-- **Compact**: Reduced height with titles
-- **Shrink**: Minimal height, titles hidden
+- **Shrink**: Reduced height with titles
+- **Compact**: Minimal height, titles/descriptions minimized
 
 #### Navigation
 - **Scroll**: Horizontal scrolling through timeline
@@ -249,7 +256,7 @@ When you click on a task, the Task Details page opens with comprehensive task ma
 - **Priority**: Priority level (dropdown)
 - **Tags**: Assigned tags (add/remove)
 - **Dates**: Start date and due date (date pickers)
-- **Effort**: Estimated effort/hours
+- **Effort**: Estimated effort (type freely; commits on blur)
 
 #### Comments Section
 - **Add Comments**: Rich text editor for comments
@@ -268,6 +275,8 @@ When you click on a task, the Task Details page opens with comprehensive task ma
 - **Child Tasks**: Tasks that this one depends on
 - **Dependency Arrows**: Visual representation of relationships
 
+Side-panel edits (description, watchers, collaborators, attachments, effort, etc.) update the board card without requiring a full page reload when real-time updates are connected.
+
 ---
 
 ## User Profile & Settings
@@ -280,6 +289,7 @@ When you click on a task, the Task Details page opens with comprehensive task ma
 
 ### Preferences
 - **Theme**: Light/Dark mode preference is auto-saved
+- **Language**: English / French (header toggle)
 - **Activity Feed**: Enable/disable activity notifications
 - **Default View**: Preferred view mode (Kanban/List/Gantt) is auto-saved
 
@@ -319,15 +329,21 @@ The Admin section provides comprehensive system management capabilities.
 - **Send Invitation**: Email invitation to new user
 - **Temporary Password**: Auto-generated password
 
-### System Settings
+### Site Settings
 
-[Screenshot: Admin settings tab]
+[Screenshot: Admin site settings tab]
 
-#### General Settings
-- **Site Name**: Application title
-- **Site Description**: Application description
-- **Default Language**: System language
-- **Time Zone**: System time zone
+#### General
+- **Site Name**: Shown in the header (leave blank to hide the name; does not fall back to “Easy Kanban”)
+- **Site URL**: Destination when clicking the brand in the header
+- **Website URL**: Customer portal URL (read-only; set at instance purchase)
+- **Open Links in New Tab**: Global link behavior in rich text
+
+#### Branding
+- **Site Logo**: Upload an image or paste a URL (light mode). Empty → default `/kanban.ico`
+- **Site Logo (Dark Mode)**: Optional; falls back to light logo, then default
+- **Hide Site Logo**: When enabled, no logo is shown (including the default). Missing setting = logo visible
+- **Hide GitHub Link**: When enabled, hides the header GitHub icon. Missing setting = link visible
 
 ### SSO Configuration (Admin Only)
 
@@ -413,6 +429,7 @@ The Admin section provides comprehensive system management capabilities.
 - **Tag Filter**: Filter by assigned tags
 - **Project Filter**: Filter by project/board
 - **Status Filter**: Filter by task status/column
+- **Sprint Filter**: Filter by sprint or backlog
 
 #### Saved Filters
 - **Save Filter**: Save frequently used filter combinations
@@ -452,8 +469,9 @@ The Admin section provides comprehensive system management capabilities.
 [Screenshot: Real-time updates and collaboration features]
 
 #### Live Updates
-- **WebSocket Connection**: Real-time data synchronization
-- **Instant Updates**: See changes immediately
+- **WebSocket Connection**: Real-time data synchronization across clients
+- **PostgreSQL NOTIFY**: Server events fan out to connected pods/clients
+- **Instant Updates**: Board cards and panels update as others edit (including side-panel changes)
 - **Conflict Resolution**: Handle simultaneous edits
 
 ---
@@ -489,12 +507,12 @@ The Admin section provides comprehensive system management capabilities.
 #### WebSocket Connection Problems
 - **Symptoms**: No real-time updates, manual refresh needed
 - **Solution**: Use the refresh button to force data sync
-- **Prevention**: Check internet connection and browser compatibility
+- **Prevention**: Check internet connection and browser compatibility; in multi-pod K8s, ensure Redis is healthy for the Socket.IO adapter
 
-#### Task Not Updating
-- **Symptoms**: Changes not appearing immediately
-- **Solution**: Refresh the page or use refresh button
-- **Prevention**: Ensure WebSocket connection is active
+#### Task Not Updating on the Board
+- **Symptoms**: Side-panel edits save but the card looks unchanged
+- **Solution**: Confirm you are not in **compact** card density (red dot on Tools); switch to expand/shrink to see descriptions. Use refresh if the WebSocket disconnected
+- **Prevention**: Keep Tools density on expand/shrink when reviewing descriptions
 
 #### Permission Errors
 - **Symptoms**: Cannot perform certain actions
@@ -510,8 +528,8 @@ The Admin section provides comprehensive system management capabilities.
 - **Help Modal**: Press F1 or click help button
 - **Documentation**: This comprehensive guide
 - **Support**: Contact system administrator
-- **Feedback**: Use feedback system in application not yet available
+- **GitHub**: Project repository link in the header (unless hidden by admin)
 
 ---
 
-*This documentation covers all features and functionality of the Easy-Kanban application. For additional support or questions, please contact your system administrator.*
+*This documentation covers the current Easy-Kanban application (PostgreSQL edition). For deployment and operations details, see README.md and DOCKER.md.*
