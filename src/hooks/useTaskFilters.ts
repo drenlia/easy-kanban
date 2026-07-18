@@ -59,10 +59,6 @@ export const useTaskFilters = ({
   const [sharedFilterViews, setSharedFilterViews] = useState<SavedFilterView[]>([]);
   const [filteredColumns, setFilteredColumns] = useState<Columns>({});
   
-  // Track previous columns to detect when batch update completes
-  const prevColumnsRef = useRef<Columns>({});
-  const batchUpdateInProgressRef = useRef<boolean>(false);
-  
   // CRITICAL: Use a ref to always access the latest columns value
   // This prevents stale closure issues when filtering is delayed
   const columnsRef = useRef<Columns>(columns);
@@ -77,21 +73,10 @@ export const useTaskFilters = ({
 
   // Enhanced filtering effect with watchers/collaborators/requesters support
   useEffect(() => {
-    // CRITICAL: Delay filtering if we just updated from WebSocket to prevent overwriting batch updates
-    // The batch processing sets this flag and clears it after 2 seconds
-    // We'll delay filtering to let the batch update complete, but still filter soon after
+    // Delay filtering only when WebSocket/optimistic batch paths set justUpdatedFromWebSocket.
+    // Do NOT infer batches from task-count deltas — board switches (e.g. 73→3 tasks) look the
+    // same and wrongly blanked the board for ~400ms.
     let timeoutId: NodeJS.Timeout | null = null;
-    
-    // Detect if this is a batch update (large change in task count or column structure)
-    const currentTaskCount = Object.values(columns).reduce((sum, col) => sum + (col?.tasks?.length || 0), 0);
-    const prevTaskCount = Object.values(prevColumnsRef.current).reduce((sum, col) => sum + (col?.tasks?.length || 0), 0);
-    const isLargeChange = Math.abs(currentTaskCount - prevTaskCount) > 50; // Large change suggests batch update
-    
-    // Update refs
-    if (window.justUpdatedFromWebSocket || isLargeChange) {
-      batchUpdateInProgressRef.current = true;
-    }
-    prevColumnsRef.current = columns;
     
     // CRITICAL: Refactor performFiltering to accept columns as parameter to avoid stale closure
     const performFiltering = (columnsToFilter: Columns = columns) => {
@@ -253,12 +238,11 @@ export const useTaskFilters = ({
       setFilteredColumns(filteredColumns);
     };
 
-    if (window.justUpdatedFromWebSocket || batchUpdateInProgressRef.current) {
+    if (window.justUpdatedFromWebSocket) {
       // Delay filtering to let batch update complete
       // The batch update processes all updates in a single setColumns call, but React state updates
       // are asynchronous, so we need to wait longer to ensure the state has fully settled
       // We use a longer delay to ensure the batch update's setColumns has been applied
-      batchUpdateInProgressRef.current = false; // Reset flag
       timeoutId = setTimeout(() => {
         // CRITICAL: The effect will re-run when columns changes, so we don't need to manually
         // read from the ref here. Instead, we should just let the effect run again naturally.

@@ -3,19 +3,24 @@
 # Easy Kanban multi-tenant backup for Kubernetes (PostgreSQL)
 #
 # - Discovers tenants from Postgres schemas (tenant_*)
-# - Dumps each tenant schema to backups/{tenant}/…sql.gz
-# - Also writes a full-database dump under backups/postgres/
-# - Optionally backs up NFS attachments/avatars per tenant
+# - Dumps each tenant schema to backups/{tenant}/kanban-{tenant}-backup-*.sql.gz
+# - Writes a full-database dump to backups/postgres/kanban-easykanban-full-*.sql.gz
+# - Backs up NFS attachments/avatars per tenant when available
 # - Retains files for RETENTION_DAYS (default 14)
+# - Removes legacy SQLite *-latest.db symlinks after a successful PG dump
 #
-# Cron (unchanged entrypoint):
-#   0 4 * * * /bin/bash -c 'export PATH=/usr/local/bin:/usr/bin:/bin && cd /home/daniel/easy-kanban && ./scripts/backup-k8s-tenants.sh >>/home/daniel/easy-kanban/backup.log 2>&1'
+# Crontab (user: daniel) — recommended:
+#   0 4 * * * /bin/bash -c 'export HOME=/home/daniel PATH=/usr/local/bin:/usr/bin:/bin KUBECONFIG=/home/daniel/.kube/config && cd /home/daniel/easy-kanban && ./scripts/backup-k8s-tenants.sh >>/home/daniel/easy-kanban/backup.log 2>&1'
 #
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "$PROJECT_ROOT"
+
+# Cron-safe environment
+export HOME="${HOME:-/home/daniel}"
+export PATH="/usr/local/bin:/usr/bin:/bin:${PATH:-}"
 
 # --- Configuration (override via env) ---
 BASE_BACKUP_DIR="${BASE_BACKUP_DIR:-./backups}"
@@ -32,7 +37,6 @@ NFS_SERVER_LABEL="${NFS_SERVER_LABEL:-app=nfs-server}"
 SKIP_NFS="${SKIP_NFS:-false}"
 SKIP_FULL_DUMP="${SKIP_FULL_DUMP:-false}"
 
-# Prefer explicit kubeconfig if present (cron-friendly)
 if [ -z "${KUBECONFIG:-}" ]; then
   if [ -f "${HOME}/.kube/config" ]; then
     export KUBECONFIG="${HOME}/.kube/config"
@@ -49,21 +53,58 @@ NC='\033[0m'
 
 print_status()  { echo -e "${BLUE}[INFO]${NC} $1"; }
 print_success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
-print_warning() { echo -e "${YELLOW}[WARNING]${NC} $1"; }
-print_error()   { echo -e "${RED}[ERROR]${NC} $1"; }
+print_warning() { echo -e "${YELLOW}[WARNING]${NC} $1" >&2; }
+print_error()   { echo -e "${RED}[ERROR]${NC} $1" >&2; }
+
+# Run kubectl|gzip and check both sides of the pipe (cron-safe)
+pg_dump_to_gzip() {
+  local dest="$1"
+  shift
+  local dump_rc gzip_rc
+  local -a pipe_copy
+  # Temporarily allow non-zero so we can inspect PIPESTATUS
+  set +e
+  "$@" | gzip -c > "$dest"
+  # Copy PIPESTATUS in one assignment before any other command
+  pipe_copy=("${PIPESTATUS[@]}")
+  set -e
+  dump_rc=${pipe_copy[0]:-1}
+  gzip_rc=${pipe_copy[1]:-1}
+  if [ "$dump_rc" -ne 0 ]; then
+    print_error "pg_dump failed (exit ${dump_rc})"
+    return 1
+  fi
+  if [ "$gzip_rc" -ne 0 ]; then
+    print_error "gzip failed (exit ${gzip_rc})"
+    return 1
+  fi
+  if [ ! -s "$dest" ]; then
+    print_error "Dump file is empty: ${dest}"
+    return 1
+  fi
+  return 0
+}
 
 require_kubectl() {
   if ! command -v kubectl >/dev/null 2>&1; then
-    print_error "kubectl not found in PATH"
+    print_error "kubectl not found in PATH=${PATH}"
+    exit 1
+  fi
+  if [ -z "${KUBECONFIG:-}" ] || [ ! -r "${KUBECONFIG}" ]; then
+    print_error "KUBECONFIG missing or unreadable (KUBECONFIG='${KUBECONFIG:-}')"
     exit 1
   fi
   if ! kubectl get namespace "$PG_NAMESPACE" >/dev/null 2>&1; then
-    print_error "Cannot access namespace '${PG_NAMESPACE}'. Check kubeconfig / permissions."
+    print_error "Cannot access namespace '${PG_NAMESPACE}' with KUBECONFIG=${KUBECONFIG}"
+    exit 1
+  fi
+  if ! kubectl get deploy -n "$PG_NAMESPACE" "$PG_DEPLOYMENT" >/dev/null 2>&1; then
+    print_error "Deployment ${PG_NAMESPACE}/${PG_DEPLOYMENT} not found"
     exit 1
   fi
 }
 
-# schema tenant_drenlia → tenant id drenlia; tenant_amanda-pg → amanda-pg
+# schema tenant_drenlia → drenlia; tenant_amanda-pg → amanda-pg
 tenant_id_from_schema() {
   local schema="$1"
   echo "${schema#tenant_}"
@@ -88,6 +129,15 @@ pg_dump_schema_arg() {
   printf '"%s"' "$schema"
 }
 
+remove_legacy_sqlite_latest() {
+  local tenant=$1
+  local legacy="${BASE_BACKUP_DIR}/kanban-${tenant}-latest.db"
+  if [ -L "$legacy" ] || [ -e "$legacy" ]; then
+    rm -f "$legacy"
+    print_status "Removed legacy SQLite link: ${legacy}"
+  fi
+}
+
 backup_tenant_schema() {
   local schema="$1"
   local tenant
@@ -100,20 +150,13 @@ backup_tenant_schema() {
   local schema_arg
   schema_arg="$(pg_dump_schema_arg "$schema")"
 
-  print_status "Dumping schema ${schema} (tenant '${tenant}')..."
+  print_status "Dumping PostgreSQL schema ${schema} (tenant '${tenant}')..."
 
-  if ! kubectl exec -n "$PG_NAMESPACE" "deploy/${PG_DEPLOYMENT}" -- \
-      pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
-        --clean --if-exists --no-owner --no-acl \
-        -n "$schema_arg" \
-      | gzip > "$backup_path"; then
-    print_error "pg_dump failed for schema ${schema}"
-    rm -f "$backup_path"
-    return 1
-  fi
-
-  if [ ! -s "$backup_path" ]; then
-    print_error "Empty dump for schema ${schema}"
+  if ! pg_dump_to_gzip "$backup_path" \
+      kubectl exec -n "$PG_NAMESPACE" "deploy/${PG_DEPLOYMENT}" -- \
+        pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+          --clean --if-exists --no-owner --no-acl \
+          -n "$schema_arg"; then
     rm -f "$backup_path"
     return 1
   fi
@@ -122,7 +165,9 @@ backup_tenant_schema() {
     "${BASE_BACKUP_DIR}/kanban-${tenant}-latest.sql.gz" \
     "${tenant}/${backup_filename}"
 
-  print_success "Schema dump: ${backup_path} ($(du -h "$backup_path" | cut -f1))"
+  remove_legacy_sqlite_latest "$tenant"
+
+  print_success "PostgreSQL dump: ${backup_path} ($(du -h "$backup_path" | cut -f1))"
   return 0
 }
 
@@ -132,19 +177,12 @@ backup_full_database() {
   local backup_filename="kanban-easykanban-full-${TIMESTAMP}.sql.gz"
   local backup_path="${full_dir}/${backup_filename}"
 
-  print_status "Dumping full database ${POSTGRES_DB}..."
+  print_status "Dumping full PostgreSQL database ${POSTGRES_DB}..."
 
-  if ! kubectl exec -n "$PG_NAMESPACE" "deploy/${PG_DEPLOYMENT}" -- \
-      pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
-        --clean --if-exists --no-owner --no-acl \
-      | gzip > "$backup_path"; then
-    print_error "Full pg_dump failed"
-    rm -f "$backup_path"
-    return 1
-  fi
-
-  if [ ! -s "$backup_path" ]; then
-    print_error "Empty full dump"
+  if ! pg_dump_to_gzip "$backup_path" \
+      kubectl exec -n "$PG_NAMESPACE" "deploy/${PG_DEPLOYMENT}" -- \
+        pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+          --clean --if-exists --no-owner --no-acl; then
     rm -f "$backup_path"
     return 1
   fi
@@ -153,7 +191,7 @@ backup_full_database() {
     "${BASE_BACKUP_DIR}/kanban-easykanban-full-latest.sql.gz" \
     "postgres/${backup_filename}"
 
-  print_success "Full dump: ${backup_path} ($(du -h "$backup_path" | cut -f1))"
+  print_success "Full PostgreSQL dump: ${backup_path} ($(du -h "$backup_path" | cut -f1))"
   return 0
 }
 
@@ -195,12 +233,14 @@ backup_nfs_tree() {
   local backup_filename="kanban-${tenant}-${kind}-${TIMESTAMP}.tar.gz"
   local backup_path="${tenant_backup_dir}/${backup_filename}"
   local tmp_in_pod="/tmp/easy-kanban-${kind}-${tenant}-backup.tar.gz"
+  local kind_label
+  kind_label="$(printf '%s' "$kind" | awk '{print toupper(substr($0,1,1)) substr($0,2)}')"
 
   print_status "Backing up ${kind} for '${tenant}' from NFS..."
 
   if ! kubectl exec -n "$NFS_NAMESPACE" "$pod_name" -- \
       sh -c "test -d '${src_path}'" 2>/dev/null; then
-    print_warning "${kind^} directory missing for tenant '${tenant}' — skipping"
+    print_warning "${kind_label} directory missing for tenant '${tenant}' — skipping"
     return 0
   fi
 
@@ -222,13 +262,14 @@ backup_nfs_tree() {
     "${BASE_BACKUP_DIR}/kanban-${tenant}-${kind}-latest.tar.gz" \
     "${tenant}/${backup_filename}"
 
-  print_success "${kind^} dump: ${backup_path} ($(du -h "$backup_path" | cut -f1))"
+  print_success "${kind_label} dump: ${backup_path} ($(du -h "$backup_path" | cut -f1))"
   return 0
 }
 
 cleanup_old_backups() {
   local dir=$1
-  local patterns=$2
+  shift
+  local patterns=("$@")
 
   if [ ! -d "$dir" ]; then
     return 0
@@ -236,7 +277,7 @@ cleanup_old_backups() {
 
   local deleted=0
   local pattern
-  for pattern in $patterns; do
+  for pattern in "${patterns[@]}"; do
     while IFS= read -r -d '' file; do
       rm -f "$file"
       deleted=$((deleted + 1))
@@ -250,22 +291,28 @@ cleanup_old_backups() {
 }
 
 backup_all() {
-  print_status "Easy Kanban PostgreSQL backup starting (${TIMESTAMP})"
-  print_status "Namespace: ${PG_NAMESPACE}  DB: ${POSTGRES_DB}  Retention: ${RETENTION_DAYS}d"
+  print_status "=============================================="
+  print_status "Easy Kanban PostgreSQL backup (${TIMESTAMP})"
+  print_status "=============================================="
+  print_status "Host: $(hostname)  User: $(id -un)  HOME=${HOME}"
+  print_status "KUBECONFIG=${KUBECONFIG}"
+  print_status "Namespace: ${PG_NAMESPACE}  Deploy: ${PG_DEPLOYMENT}"
+  print_status "Database: ${POSTGRES_DB}  Retention: ${RETENTION_DAYS}d"
+  print_status "Output dir: ${PROJECT_ROOT}/${BASE_BACKUP_DIR#./}"
   echo ""
 
   mkdir -p "$BASE_BACKUP_DIR"
 
   local schemas
   schemas="$(list_tenant_schemas || true)"
-  if [ -z "${schemas// }" ]; then
+  if [ -z "${schemas//[$' \t\r\n']/}" ]; then
     print_error "No tenant_* schemas found in ${POSTGRES_DB}"
     exit 1
   fi
 
-  print_status "Tenant schemas:"
+  print_status "Tenant schemas to dump:"
   echo "$schemas" | while read -r s; do
-    [ -n "$s" ] && echo "  - $s → $(tenant_id_from_schema "$s")"
+    [ -n "$s" ] && echo "  - $s → $(tenant_id_from_schema "$s")  =>  backups/$(tenant_id_from_schema "$s")/*.sql.gz"
   done
   echo ""
 
@@ -276,10 +323,12 @@ backup_all() {
 
   local success=0
   local fail=0
+  local dumped_files=()
 
   if [ "$SKIP_FULL_DUMP" != "true" ]; then
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     if backup_full_database; then
+      dumped_files+=("${BASE_BACKUP_DIR}/postgres/kanban-easykanban-full-${TIMESTAMP}.sql.gz")
       cleanup_old_backups "${BASE_BACKUP_DIR}/postgres" "kanban-easykanban-full-*.sql.gz"
     else
       fail=$((fail + 1))
@@ -288,6 +337,8 @@ backup_all() {
   fi
 
   while IFS= read -r schema; do
+    schema="${schema#"${schema%%[![:space:]]*}"}"
+    schema="${schema%"${schema##*[![:space:]]}"}"
     [ -z "$schema" ] && continue
     local tenant
     tenant="$(tenant_id_from_schema "$schema")"
@@ -297,7 +348,9 @@ backup_all() {
     echo ""
 
     local ok=true
-    if ! backup_tenant_schema "$schema"; then
+    if backup_tenant_schema "$schema"; then
+      dumped_files+=("${BASE_BACKUP_DIR}/${tenant}/kanban-${tenant}-backup-${TIMESTAMP}.sql.gz")
+    else
       ok=false
     fi
 
@@ -307,10 +360,10 @@ backup_all() {
     fi
 
     cleanup_old_backups "${BASE_BACKUP_DIR}/${tenant}" \
-      "kanban-${tenant}-backup-*.sql.gz kanban-${tenant}-attachments-*.tar.gz kanban-${tenant}-avatars-*.tar.gz"
-
-    # Also prune legacy SQLite .db dumps for this tenant
-    cleanup_old_backups "${BASE_BACKUP_DIR}/${tenant}" "kanban-${tenant}-backup-*.db"
+      "kanban-${tenant}-backup-*.sql.gz" \
+      "kanban-${tenant}-attachments-*.tar.gz" \
+      "kanban-${tenant}-avatars-*.tar.gz" \
+      "kanban-${tenant}-backup-*.db"
 
     if [ "$ok" = true ]; then
       success=$((success + 1))
@@ -321,8 +374,19 @@ backup_all() {
   done <<< "$schemas"
 
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  print_status "PostgreSQL dumps written this run:"
+  local f
+  for f in "${dumped_files[@]:-}"; do
+    if [ -n "$f" ] && [ -s "$f" ]; then
+      echo "  ✓ $f ($(du -h "$f" | cut -f1))"
+    fi
+  done
+  echo ""
   print_success "Backup summary: ${success} tenant schema dump(s) ok, ${fail} failed"
-  if [ "$fail" -gt 0 ]; then
+  print_status "Latest symlinks: ${BASE_BACKUP_DIR}/kanban-*-latest.sql.gz and kanban-easykanban-full-latest.sql.gz"
+
+  if [ "$fail" -gt 0 ] || [ "$success" -eq 0 ]; then
+    print_error "Backup finished with failures (or zero successful PG dumps)"
     exit 1
   fi
 }
@@ -335,9 +399,15 @@ Usage: $0 [all|list|help]
   list  Show tenant schemas discovered in Postgres
   help  This message
 
+Outputs (under ./backups):
+  postgres/kanban-easykanban-full-TIMESTAMP.sql.gz
+  {tenant}/kanban-{tenant}-backup-TIMESTAMP.sql.gz
+  kanban-{tenant}-latest.sql.gz  (symlink)
+  kanban-easykanban-full-latest.sql.gz  (symlink)
+
 Environment overrides:
   PG_NAMESPACE, PG_DEPLOYMENT, POSTGRES_USER, POSTGRES_DB
-  BASE_BACKUP_DIR, RETENTION_DAYS, SKIP_NFS, SKIP_FULL_DUMP, KUBECONFIG
+  BASE_BACKUP_DIR, RETENTION_DAYS, SKIP_NFS, SKIP_FULL_DUMP, KUBECONFIG, HOME
 EOF
 }
 
