@@ -508,8 +508,8 @@ router.get('/', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('Error fetching tasks:', error);
     const db = getRequestDatabase(req);
-    const t = await getTranslator(db);
-    res.status(500).json({ error: t('errors.failedToFetchTasks') });
+    const tTranslator = await getTranslator(db);
+    res.status(500).json({ error: tTranslator('errors.failedToFetchTasks') });
   }
 });
 
@@ -532,8 +532,8 @@ router.get('/:id', authenticateToken, async (req, res) => {
     
     if (!task) {
       console.log('❌ [TASK API] Task not found for ID:', id);
-      const t = await getTranslator(db);
-      return res.status(404).json({ error: t('errors.taskNotFound') });
+      const tTranslator = await getTranslator(db);
+      return res.status(404).json({ error: tTranslator('errors.taskNotFound') });
     }
     
     console.log('✅ [TASK API] Found task:', { 
@@ -622,8 +622,8 @@ router.get('/:id', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('Error fetching task:', error);
     const db = getRequestDatabase(req);
-    const t = await getTranslator(db);
-    res.status(500).json({ error: t('errors.failedToFetchTask') });
+    const tTranslator = await getTranslator(db);
+    res.status(500).json({ error: tTranslator('errors.failedToFetchTask') });
   }
 });
 
@@ -691,16 +691,19 @@ router.post('/', authenticateToken, checkTaskLimit, async (req, res) => {
     });
     
     // Log the activity (console only for now)
-    const t = await getTranslator(db);
     const board = await helpers.getBoardById(db, task.boardId);
     const boardTitle = board ? board.title : 'Unknown Board';
     const taskRef = ticket ? ` (${ticket})` : '';
     // Fire-and-forget: Don't await activity logging to avoid blocking API response
+    const createDetails = JSON.stringify({
+      en: t('activity.createdTask', { taskTitle: task.title, taskRef, boardTitle }, 'en'),
+      fr: t('activity.createdTask', { taskTitle: task.title, taskRef, boardTitle }, 'fr')
+    });
     logTaskActivity(
       userId,
       TASK_ACTIONS.CREATE,
       task.id,
-      t('activity.createdTask', { taskTitle: task.title, taskRef, boardTitle }),
+      createDetails,
       { 
         columnId: task.columnId,
         boardId: task.boardId,
@@ -757,8 +760,8 @@ router.post('/', authenticateToken, checkTaskLimit, async (req, res) => {
   } catch (error) {
     console.error('Error creating task:', error);
     const db = getRequestDatabase(req);
-    const t = await getTranslator(db);
-    res.status(500).json({ error: t('errors.failedToCreateTask') });
+    const tTranslator = await getTranslator(db);
+    res.status(500).json({ error: tTranslator('errors.failedToCreateTask') });
   }
 });
 
@@ -896,8 +899,8 @@ router.post('/add-at-top', authenticateToken, checkTaskLimit, async (req, res) =
   } catch (error) {
     console.error('Error creating task at top:', error);
     const db = getRequestDatabase(req);
-    const t = await getTranslator(db);
-    res.status(500).json({ error: t('errors.failedToCreateTaskAtTop') });
+    const tTranslator = await getTranslator(db);
+    res.status(500).json({ error: tTranslator('errors.failedToCreateTaskAtTop') });
   }
 });
 
@@ -912,13 +915,13 @@ router.post('/copy', authenticateToken, checkTaskLimit, async (req, res) => {
   
   try {
     const db = getRequestDatabase(req);
-    const t = await getTranslator(db);
+    const tTranslator = await getTranslator(db);
     
     // Get the original task with all relationships
     const originalTask = await taskQueries.getTaskWithRelationships(db, taskId);
     
     if (!originalTask) {
-      return res.status(404).json({ error: t('errors.taskNotFound') });
+      return res.status(404).json({ error: tTranslator('errors.taskNotFound') });
     }
     
     // Generate new task ID and ticket number
@@ -1079,8 +1082,8 @@ router.post('/copy', authenticateToken, checkTaskLimit, async (req, res) => {
   } catch (error) {
     console.error('Error copying task:', error);
     const db = getRequestDatabase(req);
-    const t = await getTranslator(db);
-    res.status(500).json({ error: t('errors.failedToCopyTask') || 'Failed to copy task' });
+    const tTranslator = await getTranslator(db);
+    res.status(500).json({ error: tTranslator('errors.failedToCopyTask') || 'Failed to copy task' });
   }
 });
 
@@ -1094,14 +1097,14 @@ router.put('/:id', authenticateToken, async (req, res) => {
   
   try {
     const db = getRequestDatabase(req);
-    const t = await getTranslator(db);
+    const tTranslator = await getTranslator(db);
     const now = new Date().toISOString();
     
     // MIGRATED: Get current task for change tracking and previous location
     const validationStartTime = Date.now();
     const currentTask = await taskQueries.getTaskById(db, id);
     if (!currentTask) {
-      return res.status(404).json({ error: t('errors.taskNotFound') });
+      return res.status(404).json({ error: tTranslator('errors.taskNotFound') });
     }
     
     const previousColumnId = currentTask.columnId;
@@ -1556,8 +1559,8 @@ router.put('/:id', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('Error updating task:', error);
     const db = getRequestDatabase(req);
-    const t = await getTranslator(db);
-    res.status(500).json({ error: t('errors.failedToUpdateTask') });
+    const tTranslator = await getTranslator(db);
+    res.status(500).json({ error: tTranslator('errors.failedToUpdateTask') });
   }
 });
 
@@ -1573,7 +1576,7 @@ router.post('/batch-update', authenticateToken, async (req, res) => {
   try {
     const endpointStartTime = Date.now();
     const db = getRequestDatabase(req);
-    const t = await getTranslator(db);
+    const tTranslator = await getTranslator(db);
     const now = new Date().toISOString();
     
     // MIGRATED: Validate all tasks exist
@@ -1584,7 +1587,7 @@ router.post('/batch-update', authenticateToken, async (req, res) => {
     const missingTasks = taskIds.filter(id => !existingTaskMap.has(id));
     
     if (missingTasks.length > 0) {
-      return res.status(404).json({ error: t('errors.taskNotFound') + `: ${missingTasks.join(', ')}` });
+      return res.status(404).json({ error: tTranslator('errors.taskNotFound') + `: ${missingTasks.join(', ')}` });
     }
     
     // MIGRATED: Get all priorities for lookup
@@ -1719,8 +1722,8 @@ router.post('/batch-update', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('Error batch updating tasks:', error);
     const db = getRequestDatabase(req);
-    const t = await getTranslator(db);
-    res.status(500).json({ error: t('errors.failedToUpdateTask') });
+    const tTranslator = await getTranslator(db);
+    res.status(500).json({ error: tTranslator('errors.failedToUpdateTask') });
   }
 });
 
@@ -1865,8 +1868,8 @@ router.delete('/:id', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('Error deleting task:', error);
     const db = getRequestDatabase(req);
-    const t = await getTranslator(db);
-    res.status(500).json({ error: t('errors.failedToDeleteTask') });
+    const tTranslator = await getTranslator(db);
+    res.status(500).json({ error: tTranslator('errors.failedToDeleteTask') });
   }
 });
 
@@ -2167,8 +2170,8 @@ router.post('/batch-update-positions', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('Error batch updating task positions:', error);
     const db = getRequestDatabase(req);
-    const t = await getTranslator(db);
-    res.status(500).json({ error: t('errors.failedToUpdateTask') });
+    const tTranslator = await getTranslator(db);
+    res.status(500).json({ error: tTranslator('errors.failedToUpdateTask') });
   }
 });
 
@@ -2179,12 +2182,12 @@ router.post('/reorder', authenticateToken, async (req, res) => {
   
   try {
     const db = getRequestDatabase(req);
-    const t = await getTranslator(db);
+    const tTranslator = await getTranslator(db);
     // MIGRATED: Get current task using sqlManager
     const currentTask = await taskQueries.getTaskById(db, taskId);
 
     if (!currentTask) {
-      return res.status(404).json({ error: t('errors.taskNotFound') });
+      return res.status(404).json({ error: tTranslator('errors.taskNotFound') });
     }
 
     // Ensure positions are numbers for comparison
@@ -2359,8 +2362,8 @@ router.post('/reorder', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('Error reordering task:', error);
     const db = getRequestDatabase(req);
-    const t = await getTranslator(db);
-    res.status(500).json({ error: t('errors.failedToReorderTask') });
+    const tTranslator = await getTranslator(db);
+    res.status(500).json({ error: tTranslator('errors.failedToReorderTask') });
   }
 });
 
@@ -2377,7 +2380,7 @@ router.post('/move-to-board', authenticateToken, async (req, res) => {
   
   try {
     const db = getRequestDatabase(req);
-    const t = await getTranslator(db);
+    const tTranslator = await getTranslator(db);
     
     // Get the task to move
     const task = await wrapQuery(
@@ -2410,7 +2413,7 @@ router.post('/move-to-board', authenticateToken, async (req, res) => {
     ).get(taskId);
     
     if (!task) {
-      return res.status(404).json({ error: t('errors.taskNotFound') });
+      return res.status(404).json({ error: tTranslator('errors.taskNotFound') });
     }
     
     // MIGRATED: Get source column title for intelligent placement
@@ -2436,7 +2439,7 @@ router.post('/move-to-board', authenticateToken, async (req, res) => {
     }
     
     if (!targetColumn) {
-      return res.status(404).json({ error: t('errors.targetBoardHasNoColumns') });
+      return res.status(404).json({ error: tTranslator('errors.targetBoardHasNoColumns') });
     }
     
     // Store original location for tracking
@@ -2582,8 +2585,8 @@ router.post('/move-to-board', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('Error moving task to board:', error);
     const db = getRequestDatabase(req);
-    const t = await getTranslator(db);
-    res.status(500).json({ error: t('errors.failedToMoveTaskToBoard') });
+    const tTranslator = await getTranslator(db);
+    res.status(500).json({ error: tTranslator('errors.failedToMoveTaskToBoard') });
   }
 });
 
@@ -2597,8 +2600,8 @@ router.get('/by-board/:boardId', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('Error getting tasks by board:', error);
     const db = getRequestDatabase(req);
-    const t = await getTranslator(db);
-    res.status(500).json({ error: t('errors.failedToGetTasks') });
+    const tTranslator = await getTranslator(db);
+    res.status(500).json({ error: tTranslator('errors.failedToGetTasks') });
   }
 });
 
@@ -2609,11 +2612,11 @@ router.post('/:taskId/watchers/:memberId', authenticateToken, async (req, res) =
     const { taskId, memberId } = req.params;
     const userId = req.user?.id || 'system';
     
-    const t = await getTranslator(db);
+    const tTranslator = await getTranslator(db);
     // MIGRATED: Get task's board ID for Redis publishing
     const boardId = await taskQueries.getTaskBoardId(db, taskId);
     if (!boardId) {
-      return res.status(404).json({ error: t('errors.taskNotFound') });
+      return res.status(404).json({ error: tTranslator('errors.taskNotFound') });
     }
     
     // MIGRATED: Add watcher using sqlManager
@@ -2636,8 +2639,8 @@ router.post('/:taskId/watchers/:memberId', authenticateToken, async (req, res) =
   } catch (error) {
     console.error('Error adding watcher:', error);
     const db = getRequestDatabase(req);
-    const t = await getTranslator(db);
-    res.status(500).json({ error: t('errors.failedToAddWatcher') });
+    const tTranslator = await getTranslator(db);
+    res.status(500).json({ error: tTranslator('errors.failedToAddWatcher') });
   }
 });
 
@@ -2645,13 +2648,13 @@ router.post('/:taskId/watchers/:memberId', authenticateToken, async (req, res) =
 router.delete('/:taskId/watchers/:memberId', async (req, res) => {
   try {
     const db = getRequestDatabase(req);
-    const t = await getTranslator(db);
+    const tTranslator = await getTranslator(db);
     const { taskId, memberId } = req.params;
     
     // MIGRATED: Get task's board ID for Redis publishing
     const boardId = await taskQueries.getTaskBoardId(db, taskId);
     if (!boardId) {
-      return res.status(404).json({ error: t('errors.taskNotFound') });
+      return res.status(404).json({ error: tTranslator('errors.taskNotFound') });
     }
     
     // MIGRATED: Remove watcher using sqlManager
@@ -2669,8 +2672,8 @@ router.delete('/:taskId/watchers/:memberId', async (req, res) => {
   } catch (error) {
     console.error('Error removing watcher:', error);
     const db = getRequestDatabase(req);
-    const t = await getTranslator(db);
-    res.status(500).json({ error: t('errors.failedToRemoveWatcher') });
+    const tTranslator = await getTranslator(db);
+    res.status(500).json({ error: tTranslator('errors.failedToRemoveWatcher') });
   }
 });
 
@@ -2678,14 +2681,14 @@ router.delete('/:taskId/watchers/:memberId', async (req, res) => {
 router.post('/:taskId/collaborators/:memberId', authenticateToken, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
-    const t = await getTranslator(db);
+    const tTranslator = await getTranslator(db);
     const { taskId, memberId } = req.params;
     const userId = req.user?.id || 'system';
     
     // MIGRATED: Get task's board ID for Redis publishing
     const boardId = await taskQueries.getTaskBoardId(db, taskId);
     if (!boardId) {
-      return res.status(404).json({ error: t('errors.taskNotFound') });
+      return res.status(404).json({ error: tTranslator('errors.taskNotFound') });
     }
     
     // MIGRATED: Add collaborator using sqlManager
@@ -2708,8 +2711,8 @@ router.post('/:taskId/collaborators/:memberId', authenticateToken, async (req, r
   } catch (error) {
     console.error('Error adding collaborator:', error);
     const db = getRequestDatabase(req);
-    const t = await getTranslator(db);
-    res.status(500).json({ error: t('errors.failedToAddCollaborator') });
+    const tTranslator = await getTranslator(db);
+    res.status(500).json({ error: tTranslator('errors.failedToAddCollaborator') });
   }
 });
 
@@ -2717,13 +2720,13 @@ router.post('/:taskId/collaborators/:memberId', authenticateToken, async (req, r
 router.delete('/:taskId/collaborators/:memberId', async (req, res) => {
   try {
     const db = getRequestDatabase(req);
-    const t = await getTranslator(db);
+    const tTranslator = await getTranslator(db);
     const { taskId, memberId } = req.params;
     
     // MIGRATED: Get task's board ID for Redis publishing
     const boardId = await taskQueries.getTaskBoardId(db, taskId);
     if (!boardId) {
-      return res.status(404).json({ error: t('errors.taskNotFound') });
+      return res.status(404).json({ error: tTranslator('errors.taskNotFound') });
     }
     
     // MIGRATED: Remove collaborator using sqlManager
@@ -2741,8 +2744,8 @@ router.delete('/:taskId/collaborators/:memberId', async (req, res) => {
   } catch (error) {
     console.error('Error removing collaborator:', error);
     const db = getRequestDatabase(req);
-    const t = await getTranslator(db);
-    res.status(500).json({ error: t('errors.failedToRemoveCollaborator') });
+    const tTranslator = await getTranslator(db);
+    res.status(500).json({ error: tTranslator('errors.failedToRemoveCollaborator') });
   }
 });
 
@@ -2761,8 +2764,8 @@ router.get('/:taskId/relationships', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('Error fetching task relationships:', error);
     const db = getRequestDatabase(req);
-    const t = await getTranslator(db);
-    res.status(500).json({ error: t('errors.failedToFetchTaskRelationships') });
+    const tTranslator = await getTranslator(db);
+    res.status(500).json({ error: tTranslator('errors.failedToFetchTaskRelationships') });
   }
 });
 
@@ -2770,18 +2773,18 @@ router.get('/:taskId/relationships', authenticateToken, async (req, res) => {
 router.post('/:taskId/relationships', authenticateToken, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
-    const t = await getTranslator(db);
+    const tTranslator = await getTranslator(db);
     const { taskId } = req.params;
     const { relationship, toTaskId } = req.body;
     
     // Validate relationship type
     if (!['child', 'parent', 'related'].includes(relationship)) {
-      return res.status(400).json({ error: t('errors.invalidRelationshipType') });
+      return res.status(400).json({ error: tTranslator('errors.invalidRelationshipType') });
     }
     
     // Prevent self-relationships
     if (taskId === toTaskId) {
-      return res.status(400).json({ error: t('errors.cannotCreateRelationshipWithSelf') });
+      return res.status(400).json({ error: tTranslator('errors.cannotCreateRelationshipWithSelf') });
     }
     
     // MIGRATED: Verify both tasks exist
@@ -2789,14 +2792,14 @@ router.post('/:taskId/relationships', authenticateToken, async (req, res) => {
     const toTaskExistsResult = await taskQueries.taskExists(db, toTaskId);
     
     if (!taskExistsResult || !toTaskExistsResult) {
-      return res.status(404).json({ error: t('errors.oneOrBothTasksNotFound') });
+      return res.status(404).json({ error: tTranslator('errors.oneOrBothTasksNotFound') });
     }
     
     // MIGRATED: Check if relationship already exists
     const existingRelationship = await taskQueries.getTaskRelationship(db, taskId, relationship, toTaskId);
     
     if (existingRelationship) {
-      return res.status(409).json({ error: t('errors.relationshipAlreadyExists') });
+      return res.status(409).json({ error: tTranslator('errors.relationshipAlreadyExists') });
     }
     
     // Check for circular relationships (prevent cycles in parent/child hierarchies)
@@ -2836,7 +2839,7 @@ router.post('/:taskId/relationships', authenticateToken, async (req, res) => {
     
     // Verify the insertion was successful
     if (!insertResult || insertResult.changes === 0) {
-      return res.status(500).json({ error: t('errors.failedToCreateRelationship') });
+      return res.status(500).json({ error: tTranslator('errors.failedToCreateRelationship') });
     }
     
     // MIGRATED: Get the board ID for the source task to publish the update
@@ -2868,12 +2871,12 @@ router.post('/:taskId/relationships', authenticateToken, async (req, res) => {
     res.json({ success: true, message: 'Task relationship created successfully' });
   } catch (error) {
     const db = getRequestDatabase(req);
-    const t = await getTranslator(db);
+    const tTranslator = await getTranslator(db);
     if (error.code === 'SQLITE_CONSTRAINT_UNIQUE') {
-      return res.status(409).json({ error: t('errors.relationshipAlreadyExists') });
+      return res.status(409).json({ error: tTranslator('errors.relationshipAlreadyExists') });
     }
     console.error('Error creating task relationship:', error);
-    res.status(500).json({ error: t('errors.failedToCreateTaskRelationship') });
+    res.status(500).json({ error: tTranslator('errors.failedToCreateTaskRelationship') });
   }
 });
 
@@ -2881,7 +2884,7 @@ router.post('/:taskId/relationships', authenticateToken, async (req, res) => {
 router.delete('/:taskId/relationships/:relationshipId', authenticateToken, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
-    const t = await getTranslator(db);
+    const tTranslator = await getTranslator(db);
     const { taskId, relationshipId } = req.params;
     
     // MIGRATED: Get the relationship details before deleting
@@ -2889,7 +2892,7 @@ router.delete('/:taskId/relationships/:relationshipId', authenticateToken, async
     const relationship = await taskQueries.getTaskRelationshipById(db, relationshipId, taskId);
     
     if (!relationship) {
-      return res.status(404).json({ error: t('errors.relationshipNotFound') });
+      return res.status(404).json({ error: tTranslator('errors.relationshipNotFound') });
     }
     
     // MIGRATED: Delete the main relationship
@@ -2938,8 +2941,8 @@ router.delete('/:taskId/relationships/:relationshipId', authenticateToken, async
   } catch (error) {
     console.error('Error deleting task relationship:', error);
     const db = getRequestDatabase(req);
-    const t = await getTranslator(db);
-    res.status(500).json({ error: t('errors.failedToDeleteTaskRelationship') });
+    const tTranslator = await getTranslator(db);
+    res.status(500).json({ error: tTranslator('errors.failedToDeleteTaskRelationship') });
   }
 });
 
@@ -2947,7 +2950,7 @@ router.delete('/:taskId/relationships/:relationshipId', authenticateToken, async
 router.get('/:taskId/available-for-relationship', authenticateToken, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
-    const t = await getTranslator(db);
+    const tTranslator = await getTranslator(db);
     const { taskId } = req.params;
     
     // MIGRATED: Get all tasks except the current one and already related ones
@@ -2957,8 +2960,8 @@ router.get('/:taskId/available-for-relationship', authenticateToken, async (req,
   } catch (error) {
     console.error('Error fetching available tasks for relationship:', error);
     const db = getRequestDatabase(req);
-    const t = await getTranslator(db);
-    res.status(500).json({ error: t('errors.failedToFetchAvailableTasks') });
+    const tTranslator = await getTranslator(db);
+    res.status(500).json({ error: tTranslator('errors.failedToFetchAvailableTasks') });
   }
 });
 
@@ -2967,7 +2970,7 @@ router.get('/:taskId/flow-chart', authenticateToken, async (req, res) => {
   try {
     const { taskId } = req.params;
     const db = getRequestDatabase(req);
-    const t = await getTranslator(db);
+    const tTranslator = await getTranslator(db);
     
     console.log(`🌳 FlowChart API: Building flow chart for task: ${taskId}`);
     
@@ -3084,15 +3087,15 @@ router.get('/:taskId/flow-chart', authenticateToken, async (req, res) => {
         
         res.json(response);
       } else {
-        res.status(404).json({ error: t('errors.taskNotFound') });
+        res.status(404).json({ error: tTranslator('errors.taskNotFound') });
       }
     }
     
   } catch (error) {
     console.error('❌ FlowChart API: Error getting flow chart data:', error);
     const db = getRequestDatabase(req);
-    const t = await getTranslator(db);
-    res.status(500).json({ error: t('errors.failedToGetFlowChartData') });
+    const tTranslator = await getTranslator(db);
+    res.status(500).json({ error: tTranslator('errors.failedToGetFlowChartData') });
   }
 });
 
