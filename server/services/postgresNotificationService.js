@@ -21,6 +21,7 @@
  */
 
 import pg from 'pg';
+import { wsVerboseLog } from '../utils/serverDebug.js';
 const { Client } = pg;
 
 class PostgresNotificationService {
@@ -262,7 +263,7 @@ class PostgresNotificationService {
         
         // Publish to tenant-specific channel (equivalent to Redis: tenant-${tenantId}-${channel})
         await client.query('SELECT pg_notify($1, $2)', [escapedChannel, payload]);
-        console.log(`📤 Published to PostgreSQL channel: ${escapedChannel} (original: ${channel}, tenant: ${tenantId || 'none'})`);
+        wsVerboseLog(`📤 Published to PostgreSQL channel: ${escapedChannel} (original: ${channel}, tenant: ${tenantId || 'none'})`);
       } finally {
         client.release();
       }

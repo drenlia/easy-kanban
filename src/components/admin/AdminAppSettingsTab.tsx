@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import AdminFileUploadsTab from './AdminFileUploadsTab';
 import AdminNotificationQueueTab from './AdminNotificationQueueTab';
+import AdminTroubleshootingTab from './AdminTroubleshootingTab';
 import { toast } from '../../utils/toast';
 
 interface AdminAppSettingsTabProps {
@@ -10,7 +11,10 @@ interface AdminAppSettingsTabProps {
   onSettingsChange: (settings: { [key: string]: string | undefined }) => void;
   onSave: (settings?: { [key: string]: string | undefined }) => Promise<void>;
   onCancel: () => void;
+  onAutoSave?: (key: string, value: string) => Promise<void>;
 }
+
+type AppSettingsSubTab = 'ui' | 'uploads' | 'notifications' | 'notification-queue' | 'troubleshooting';
 
 const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
   settings,
@@ -18,10 +22,11 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
   onSettingsChange,
   onSave,
   onCancel,
+  onAutoSave,
 }) => {
   const { t } = useTranslation('admin');
   const [isSaving, setIsSaving] = useState(false);
-  const [activeSubTab, setActiveSubTab] = useState<'ui' | 'uploads' | 'notifications' | 'notification-queue'>('ui');
+  const [activeSubTab, setActiveSubTab] = useState<AppSettingsSubTab>('ui');
   const [notificationDefaults, setNotificationDefaults] = useState<{ [key: string]: boolean }>({});
   const [autosaveSuccess, setAutosaveSuccess] = useState<string | null>(null);
 
@@ -60,45 +65,36 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
     }
   }, [settings.NOTIFICATION_DEFAULTS]);
 
+  const subTabFromHash = (hash: string): AppSettingsSubTab => {
+    if (hash === '#admin#app-settings#file-uploads') return 'uploads';
+    if (hash === '#admin#app-settings#notifications') return 'notifications';
+    if (hash === '#admin#app-settings#notification-queue') return 'notification-queue';
+    if (hash === '#admin#app-settings#troubleshooting') return 'troubleshooting';
+    return 'ui';
+  };
+
   // Initialize activeSubTab from URL hash
   useEffect(() => {
-    const hash = window.location.hash;
-    if (hash === '#admin#app-settings#file-uploads') {
-      setActiveSubTab('uploads');
-    } else if (hash === '#admin#app-settings#notifications') {
-      setActiveSubTab('notifications');
-    } else if (hash === '#admin#app-settings#notification-queue') {
-      setActiveSubTab('notification-queue');
-    } else if (hash === '#admin#app-settings#user-interface') {
-      setActiveSubTab('ui');
-    }
+    setActiveSubTab(subTabFromHash(window.location.hash));
   }, []);
 
   // Update URL hash when activeSubTab changes
-  const handleSubTabChange = (tab: 'ui' | 'uploads' | 'notifications' | 'notification-queue') => {
+  const handleSubTabChange = (tab: AppSettingsSubTab) => {
     setActiveSubTab(tab);
-    let newHash = '#admin#app-settings#user-interface';
-    if (tab === 'uploads') {
-      newHash = '#admin#app-settings#file-uploads';
-    } else if (tab === 'notifications') {
-      newHash = '#admin#app-settings#notifications';
-    } else if (tab === 'notification-queue') {
-      newHash = '#admin#app-settings#notification-queue';
-    }
-    window.location.hash = newHash;
+    const hashByTab: Record<AppSettingsSubTab, string> = {
+      ui: '#admin#app-settings#user-interface',
+      uploads: '#admin#app-settings#file-uploads',
+      notifications: '#admin#app-settings#notifications',
+      'notification-queue': '#admin#app-settings#notification-queue',
+      troubleshooting: '#admin#app-settings#troubleshooting',
+    };
+    window.location.hash = hashByTab[tab];
   };
 
   // Listen for hash changes (back/forward navigation)
   useEffect(() => {
     const handleHashChange = () => {
-      const hash = window.location.hash;
-      if (hash === '#admin#app-settings#file-uploads') {
-        setActiveSubTab('uploads');
-      } else if (hash === '#admin#app-settings#notifications') {
-        setActiveSubTab('notifications');
-      } else if (hash === '#admin#app-settings#user-interface') {
-        setActiveSubTab('ui');
-      }
+      setActiveSubTab(subTabFromHash(window.location.hash));
     };
 
     window.addEventListener('hashchange', handleHashChange);
@@ -350,11 +346,27 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
           >
             {t('appSettings.notificationQueue')}
           </button>
+          <button
+            onClick={() => handleSubTabChange('troubleshooting')}
+            className={`py-2 px-1 border-b-2 font-medium text-sm ${
+              activeSubTab === 'troubleshooting'
+                ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600'
+            }`}
+          >
+            {t('appSettings.troubleshooting')}
+          </button>
         </nav>
       </div>
 
       {/* Conditional Content Based on Active Sub-tab */}
-      {activeSubTab === 'ui' ? (
+      {activeSubTab === 'troubleshooting' && onAutoSave ? (
+        <AdminTroubleshootingTab
+          editingSettings={editingSettings}
+          onSettingsChange={onSettingsChange}
+          onAutoSave={onAutoSave}
+        />
+      ) : activeSubTab === 'ui' ? (
         <>
           {/* Settings Form */}
           <div className="bg-white dark:bg-gray-800 shadow rounded-lg">

@@ -7,6 +7,7 @@ import postgresNotificationService from './postgresNotificationService.js';
 import { JWT_SECRET } from '../middleware/auth.js';
 import { extractTenantId, getTenantDatabase } from '../middleware/tenantRouting.js';
 import { wrapQuery } from '../utils/queryLogger.js';
+import { wsVerboseLog } from '../utils/serverDebug.js';
 
 class WebSocketService {
   constructor() {
@@ -38,11 +39,11 @@ class WebSocketService {
       allowEIO3: true, // Allow Engine.IO v3 clients
       // Add error handling for Socket.IO requests
       allowRequest: (req, callback) => {
-        // Log request details for debugging
+        // Verbose only — per-handshake host logging is noisy in production
         if (process.env.MULTI_TENANT === 'true') {
           const hostname = req.headers.host || req.headers['x-forwarded-host'] || '';
           const tenantId = extractTenantId(hostname);
-          console.log(`🔍 Socket.IO request - Host: ${req.headers.host}, X-Forwarded-Host: ${req.headers['x-forwarded-host']}, Tenant: ${tenantId || 'none'}`);
+          wsVerboseLog(`🔍 Socket.IO request - Host: ${req.headers.host}, X-Forwarded-Host: ${req.headers['x-forwarded-host']}, Tenant: ${tenantId || 'none'}`);
         }
         callback(null, true); // Allow all requests (authentication happens in middleware)
       }
@@ -164,9 +165,8 @@ class WebSocketService {
 
     // Handle connections
     this.io.on('connection', (socket) => {
+      // Always log successful connections (ops signal that WS is up)
       console.log(`🔌 Client connected: ${socket.id} (${socket.userEmail})`);
-      
-      // Log tenant context for debugging
       if (socket.tenantId) {
         console.log(`   📍 Tenant context: ${socket.tenantId}`);
       }
@@ -192,7 +192,7 @@ class WebSocketService {
           ? `tenant-${socket.tenantId}-board-${boardId}`
           : `board-${boardId}`;
         
-        console.log(`📋 [${timestamp}] Client ${socket.id} (${socket.userEmail}) joining board room: ${room}`);
+        wsVerboseLog(`📋 [${timestamp}] Client ${socket.id} (${socket.userEmail}) joining board room: ${room}`);
         
         // For now, allow all authenticated users to join any board
         // TODO: Add proper board access control based on user permissions
@@ -208,7 +208,7 @@ class WebSocketService {
         
         // Check how many clients are now in the room
         const clientsInRoom = this.io.sockets.adapter.rooms.get(room)?.size || 0;
-        console.log(`✅ [${timestamp}] Client joined room ${room}. Total clients in room: ${clientsInRoom}`);
+        wsVerboseLog(`✅ [${timestamp}] Client joined room ${room}. Total clients in room: ${clientsInRoom}`);
         
         // Send confirmation back to client
         socket.emit('joined-room', { boardId, room });
@@ -247,7 +247,7 @@ class WebSocketService {
       });
 
       socket.on('disconnect', (reason) => {
-        console.log(`🔴 Client disconnected: ${socket.id} (${socket.userEmail}) - Reason: ${reason}`);
+        wsVerboseLog(`🔴 Client disconnected: ${socket.id} (${socket.userEmail}) - Reason: ${reason}`);
         this.connectedClients.delete(socket.id);
       });
 
@@ -282,23 +282,23 @@ class WebSocketService {
     postgresNotificationService.subscribeToAllTenants('task-updated', (data, tenantId) => {
       const timestamp = new Date().toISOString();
       const connectedCount = this.io?.sockets?.sockets?.size || 0;
-      console.log(`📡 [${timestamp}] WebSocket received task-updated (tenant: ${tenantId || 'single'}, connected clients: ${connectedCount})`);
+      wsVerboseLog(`📡 [${timestamp}] WebSocket received task-updated (tenant: ${tenantId || 'single'}, connected clients: ${connectedCount})`);
       
       if (tenantId) {
         // Multi-tenant: broadcast only to clients of this tenant
         this.io?.to(`tenant-${tenantId}`).emit('task-updated', data);
-        console.log(`   ✅ Broadcasted to tenant-${tenantId} room`);
+        wsVerboseLog(`   ✅ Broadcasted to tenant-${tenantId} room`);
       } else {
         // Single-tenant: broadcast to all clients
         this.io?.emit('task-updated', data);
-        console.log(`   ✅ Broadcasted to all ${connectedCount} connected clients`);
+        wsVerboseLog(`   ✅ Broadcasted to all ${connectedCount} connected clients`);
       }
     });
 
     // Task created - broadcast to tenant-specific clients
     postgresNotificationService.subscribeToAllTenants('task-created', (data, tenantId) => {
       const timestamp = new Date().toISOString();
-      console.log(`📡 [${timestamp}] WebSocket received task-created (tenant: ${tenantId || 'single'})`);
+      wsVerboseLog(`📡 [${timestamp}] WebSocket received task-created (tenant: ${tenantId || 'single'})`);
       
       if (tenantId) {
         // Multi-tenant: broadcast only to clients of this tenant
@@ -312,7 +312,7 @@ class WebSocketService {
     // Task deleted - broadcast to tenant-specific clients
     postgresNotificationService.subscribeToAllTenants('task-deleted', (data, tenantId) => {
       const timestamp = new Date().toISOString();
-      console.log(`📡 [${timestamp}] WebSocket broadcasting task-deleted (tenant: ${tenantId || 'single'})`);
+      wsVerboseLog(`📡 [${timestamp}] WebSocket broadcasting task-deleted (tenant: ${tenantId || 'single'})`);
       
       if (tenantId) {
         this.io?.to(`tenant-${tenantId}`).emit('task-deleted', data);
@@ -324,7 +324,7 @@ class WebSocketService {
     // Full-column position sync (add-at-top, delete renumber, etc.)
     postgresNotificationService.subscribeToAllTenants('tasks-positions-updated', (data, tenantId) => {
       const timestamp = new Date().toISOString();
-      console.log(`📡 [${timestamp}] WebSocket broadcasting tasks-positions-updated (tenant: ${tenantId || 'single'}, updates: ${data?.updates?.length || 0})`);
+      wsVerboseLog(`📡 [${timestamp}] WebSocket broadcasting tasks-positions-updated (tenant: ${tenantId || 'single'}, updates: ${data?.updates?.length || 0})`);
       
       if (tenantId) {
         this.io?.to(`tenant-${tenantId}`).emit('tasks-positions-updated', data);
@@ -685,10 +685,10 @@ class WebSocketService {
     });
 
     // Task tag events - broadcast to tenant-specific board room
-    console.log('🔧 Registering subscription for task-tag-added');
+    wsVerboseLog('🔧 Registering subscription for task-tag-added');
     postgresNotificationService.subscribeToAllTenants('task-tag-added', (data, tenantId) => {
       const timestamp = new Date().toISOString();
-      console.log(`📡 [${timestamp}] WebSocket received task-tag-added (tenant: ${tenantId || 'single'})`, {
+      wsVerboseLog(`📡 [${timestamp}] WebSocket received task-tag-added (tenant: ${tenantId || 'single'})`, {
         taskId: data.taskId,
         tagId: data.tagId,
         boardId: data.boardId,
@@ -703,9 +703,9 @@ class WebSocketService {
       const roomClients = this.io?.sockets.adapter.rooms.get(room);
       const clientCount = roomClients ? roomClients.size : 0;
       
-      console.log(`📤 [${timestamp}] Broadcasting task-tag-added to room: ${room} (${clientCount} clients)`);
+      wsVerboseLog(`📤 [${timestamp}] Broadcasting task-tag-added to room: ${room} (${clientCount} clients)`);
       this.io?.to(room).emit('task-tag-added', data);
-      console.log(`✅ [${timestamp}] task-tag-added broadcast complete to ${clientCount} clients`);
+      wsVerboseLog(`✅ [${timestamp}] task-tag-added broadcast complete to ${clientCount} clients`);
     });
 
     postgresNotificationService.subscribeToAllTenants('task-tag-removed', (data, tenantId) => {

@@ -374,6 +374,79 @@
     "saving": "Enregistrement...",
     "saveChanges": "Enregistrer les modifications",
     "notificationQueue": "File d'attente des notifications",
+    "troubleshooting": "Dépannage",
+    "troubleshootingTitle": "Dépannage",
+    "troubleshootingDescription": "Activez les journaux de diagnostic et les outils de performance. Laissez-les désactivés en usage normal.",
+    "troubleshootingBrowserSection": "Console navigateur (FE_DEBUG_*)",
+    "troubleshootingBrowserSectionDescription": "Journaux verbeux dans la console DevTools du navigateur.",
+    "troubleshootingServerSection": "Journaux serveur (SERVER_DEBUG_*)",
+    "troubleshootingServerSectionDescription": "Journaux verbeux dans la sortie Node.js. SERVER_DEBUG_SQL peut ralentir l'application — à utiliser brièvement.",
+    "perfTests": "Superposition de tests de performance",
+    "perfTestsDescription": "Lorsqu'activé, les administrateurs voient un panneau flottant de tests de performance sur le tableau Kanban. À désactiver hors dépannage.",
+    "enableAll": "Tout activer",
+    "disableAll": "Tout désactiver",
+    "debugFlags": {
+      "FE_DEBUG_AUTH": {
+        "label": "Auth",
+        "description": "Journaux client liés à la connexion, au jeton et à la session."
+      },
+      "FE_DEBUG_WEBSOCKET": {
+        "label": "WebSocket",
+        "description": "Journaux de connexion et de messages en temps réel."
+      },
+      "FE_DEBUG_APP_CORE": {
+        "label": "Cœur de l'app",
+        "description": "Chargement du tableau, actualisation et cycle de vie."
+      },
+      "FE_DEBUG_TASK_LINKING": {
+        "label": "Liens de tâches",
+        "description": "Journaux de l'UI des relations entre tâches."
+      },
+      "FE_DEBUG_REPORTS_UI": {
+        "label": "UI rapports",
+        "description": "Journaux des écrans et graphiques de rapports."
+      },
+      "FE_DEBUG_FLOWCHART": {
+        "label": "Organigramme",
+        "description": "Journaux du composant organigramme de tâches."
+      },
+      "FE_DEBUG_TASK_CARD": {
+        "label": "Carte de tâche",
+        "description": "Journaux des cartes Kanban."
+      },
+      "FE_DEBUG_TASK_PAGE": {
+        "label": "Page tâche",
+        "description": "Journaux de la page tâche complète."
+      },
+      "FE_DEBUG_TASK_DETAILS": {
+        "label": "Détails de tâche",
+        "description": "Journaux du panneau de détails."
+      },
+      "FE_DEBUG_SETTINGS_CONTEXT": {
+        "label": "Contexte paramètres",
+        "description": "Journaux de récupération, cache et sync des paramètres."
+      },
+      "FE_DEBUG_API": {
+        "label": "API",
+        "description": "Résumés Axios requête/réponse (Authorization masuré)."
+      },
+      "FE_DEBUG_DND": {
+        "label": "Glisser-déposer",
+        "description": "Journaux client de glisser-déposer et réordonnancement."
+      },
+      "SERVER_DEBUG_HTTP": {
+        "label": "HTTP / tâches",
+        "description": "Temps des API tâches et journaux HTTP associés (dont batch positions)."
+      },
+      "SERVER_DEBUG_SQL": {
+        "label": "SQL",
+        "description": "Journalisation SQL par requête. Peut réduire les performances — à activer seulement pour diagnostiquer."
+      },
+      "SERVER_DEBUG_SETTINGS": {
+        "label": "Paramètres",
+        "description": "Journaux verbeux lors de la mise à jour des paramètres."
+      }
+    },
     "emailThrottling": "Limitation des emails",
     "notificationDelay": "Délai de notification (minutes)",
     "notificationDelayDescription": "Accumuler les modifications de tâches et envoyer des notifications consolidées. Réglez sur 0 pour des notifications immédiates.",

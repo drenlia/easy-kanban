@@ -12,3 +12,15 @@ export async function serverDebug(db, key) {
     return false;
   }
 }
+
+/**
+ * Verbose WebSocket event logging (broadcasts, room joins, etc.).
+ * Off in production; connection success logs stay unconditional in websocketService.
+ */
+export function wsVerboseEnabled() {
+  return process.env.NODE_ENV !== 'production';
+}
+
+export function wsVerboseLog(...args) {
+  if (wsVerboseEnabled()) console.log(...args);
+}

@@ -92,10 +92,12 @@ These are read with `await serverDebug(db, 'SERVER_DEBUG_…')` (`server/utils/s
 | Key | Where it applies | What you get |
 |-----|------------------|--------------|
 | `SERVER_DEBUG_SETTINGS` | `server/routes/settings.js` | Verbose logs when updating settings (e.g. OAuth cache invalidation, Redis `settings-updated` publish payload). |
-| `SERVER_DEBUG_HTTP` | `server/routes/settings.js` (`PUT /api/settings/app-url`) | Step-by-step logs for the owner `APP_URL` update flow (user, owner check, validation). |
+| `SERVER_DEBUG_HTTP` | `server/routes/settings.js` (`PUT /api/settings/app-url`); `server/routes/tasks.js` (all task `console.log` via `taskHttpLog`) | Step-by-step logs for the owner `APP_URL` update flow; task API timing / batch-update-positions / create publish chatter. Off by default — enable only when diagnosing HTTP/task paths. |
 | `SERVER_DEBUG_SQL` | `server/utils/queryLogger.js` | Per-query lines for every `wrapQuery` execution: truncated SQL, param summary, duration, errors. Prefix: `[SERVER_DEBUG_SQL]`. Setting is read via a **cached** path (≈15s TTL) that bypasses `wrapQuery` to avoid recursion (`server/utils/sqlDebugSettingsCache.js`). |
 
-**Note:** Many routes still use ordinary `console.log` / timing lines (for example task batch endpoints in `server/routes/tasks.js`) that are **not** gated by these flags. Treat those as separate from this settings-based debug system.
+**Admin UI:** App Settings → **Troubleshooting** (`AdminTroubleshootingTab`) — toggles for `FE_PERF_TESTS`, all `FE_DEBUG_*`, and `SERVER_DEBUG_*`. Writes go only through `PUT /api/admin/settings` (`authenticateToken` + `requireRole(['admin'])`). Public `GET /api/settings` can *read* `FE_*` flags (so the client can gate logs before login) but cannot change them; `SERVER_DEBUG_*` are not included in the public payload.
+
+**Note:** Task route `console.log` lines are gated by `SERVER_DEBUG_HTTP` (`taskHttpLog` in `server/routes/tasks.js`). WebSocket per-event chatter (`task-updated` broadcasts, board-room joins, disconnects) is suppressed when `NODE_ENV=production` via `wsVerboseLog` in `server/utils/serverDebug.js`; successful auth/connect logs remain. Other routes may still use ungated `console.log`.
 
 ---
 

@@ -9,6 +9,7 @@ import { checkTaskLimit } from '../middleware/licenseCheck.js';
 import notificationService from '../services/notificationService.js';
 import { getTranslator, t } from '../utils/i18n.js';
 import { getRequestDatabase } from '../middleware/tenantRouting.js';
+import { serverDebug } from '../utils/serverDebug.js';
 import { dbTransaction } from '../utils/dbAsync.js';
 // MIGRATED: Import sqlManager
 import { tasks as taskQueries, boards as boardQueries, helpers, sprints as sprintQueries } from '../utils/sqlManager/index.js';
@@ -19,6 +20,12 @@ const router = express.Router();
 const getTenantId = (req) => {
   return req.tenantId || null;
 };
+
+/** console.log gated by SERVER_DEBUG_HTTP (pass result of serverDebug once per request). */
+function taskHttpLog(dbgHttp, ...args) {
+  if (dbgHttp) console.log(...args);
+}
+
 
 // Helper function to build minimal WebSocket payload with only changed fields
 // This reduces payload size from 5-30KB to 500-1000 bytes (70-90% reduction)
@@ -356,13 +363,14 @@ router.get('/', authenticateToken, async (req, res) => {
 router.get('/:id', authenticateToken, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
+    const dbgHttp = await serverDebug(db, 'SERVER_DEBUG_HTTP');
     const { id } = req.params;
     
-    console.log('🔍 [TASK API] Getting task by ID:', { id, url: req.url });
+    taskHttpLog(dbgHttp, '🔍 [TASK API] Getting task by ID:', { id, url: req.url });
     
     // Check if the ID looks like a ticket (e.g., TASK-00032) or a UUID
     const isTicket = /^[A-Z]+-\d+$/i.test(id);
-    console.log('🔍 [TASK API] ID type detection:', { id, isTicket });
+    taskHttpLog(dbgHttp, '🔍 [TASK API] ID type detection:', { id, isTicket });
     
     // MIGRATED: Use sqlManager instead of inline SQL
     const task = isTicket 
@@ -370,12 +378,12 @@ router.get('/:id', authenticateToken, async (req, res) => {
       : await fetchTaskWithRelationships(db, id);
     
     if (!task) {
-      console.log('❌ [TASK API] Task not found for ID:', id);
+      taskHttpLog(dbgHttp, '❌ [TASK API] Task not found for ID:', id);
       const tTranslator = await getTranslator(db);
       return res.status(404).json({ error: tTranslator('errors.taskNotFound') });
     }
     
-    console.log('✅ [TASK API] Found task:', { 
+    taskHttpLog(dbgHttp, '✅ [TASK API] Found task:', { 
       id: task.id, 
       title: task.title, 
       priorityId: task.priorityId,
@@ -386,7 +394,7 @@ router.get('/:id', authenticateToken, async (req, res) => {
     if (!task.comments || !task.watchers || !task.collaborators || !task.tags) {
       // Get comments for the task
       const comments = await helpers.getCommentsForTask(db, task.id);
-      console.log('📝 [TASK API] Found comments:', comments.length);
+      taskHttpLog(dbgHttp, '📝 [TASK API] Found comments:', comments.length);
       
       // Get attachments for all comments in one batch query (fixes N+1 problem)
       if (comments.length > 0) {
@@ -413,15 +421,15 @@ router.get('/:id', authenticateToken, async (req, res) => {
       
       // Get watchers for the task
       const watchers = await helpers.getWatchersForTask(db, task.id);
-      console.log('👀 [TASK API] Found watchers:', watchers.length);
+      taskHttpLog(dbgHttp, '👀 [TASK API] Found watchers:', watchers.length);
       
       // Get collaborators for the task
       const collaborators = await helpers.getCollaboratorsForTask(db, task.id);
-      console.log('🤝 [TASK API] Found collaborators:', collaborators.length);
+      taskHttpLog(dbgHttp, '🤝 [TASK API] Found collaborators:', collaborators.length);
       
       // Get tags for the task
       const tags = await taskQueries.getTaskTags(db, task.id);
-      console.log('🏷️ [TASK API] Found tags:', tags.length);
+      taskHttpLog(dbgHttp, '🏷️ [TASK API] Found tags:', tags.length);
       
       // Add all related data to task
       task.comments = comments || [];
@@ -444,7 +452,7 @@ router.get('/:id', authenticateToken, async (req, res) => {
       updatedAt: task.updated_at
     };
     
-    console.log('📦 [TASK API] Final task data:', {
+    taskHttpLog(dbgHttp, '📦 [TASK API] Final task data:', {
       id: taskResponse.id,
       title: taskResponse.title,
       commentsCount: taskResponse.comments.length,
@@ -473,6 +481,7 @@ router.post('/', authenticateToken, checkTaskLimit, async (req, res) => {
   
   try {
     const db = getRequestDatabase(req);
+    const dbgHttp = await serverDebug(db, 'SERVER_DEBUG_HTTP');
     const now = new Date().toISOString();
     
     // Generate task ticket number
@@ -576,7 +585,7 @@ router.post('/', authenticateToken, checkTaskLimit, async (req, res) => {
     
     // Publish to Redis for real-time updates
     const publishTimestamp = new Date().toISOString();
-    console.log(`📤 [${publishTimestamp}] Publishing task-created to Redis:`, {
+    taskHttpLog(dbgHttp, `📤 [${publishTimestamp}] Publishing task-created to Redis:`, {
       taskId: task.id,
       ticket: task.ticket,
       title: task.title,
@@ -593,7 +602,7 @@ router.post('/', authenticateToken, checkTaskLimit, async (req, res) => {
       timestamp: publishTimestamp
     }, getTenantId(req));
     
-    console.log(`✅ [${publishTimestamp}] task-created published to Redis successfully`);
+    taskHttpLog(dbgHttp, `✅ [${publishTimestamp}] task-created published to Redis successfully`);
     
     res.json(task);
   } catch (error) {
@@ -611,6 +620,7 @@ router.post('/add-at-top', authenticateToken, checkTaskLimit, async (req, res) =
   
   try {
     const db = getRequestDatabase(req);
+    const dbgHttp = await serverDebug(db, 'SERVER_DEBUG_HTTP');
     const now = new Date().toISOString();
     
     // Generate task ticket number
@@ -715,7 +725,7 @@ router.post('/add-at-top', authenticateToken, checkTaskLimit, async (req, res) =
     
     // Publish to Redis for real-time updates
     const publishTimestamp = new Date().toISOString();
-    console.log(`📤 [${publishTimestamp}] Publishing task-created (at top) to Redis:`, {
+    taskHttpLog(dbgHttp, `📤 [${publishTimestamp}] Publishing task-created (at top) to Redis:`, {
       taskId: task.id,
       ticket: task.ticket,
       title: task.title,
@@ -732,7 +742,7 @@ router.post('/add-at-top', authenticateToken, checkTaskLimit, async (req, res) =
       timestamp: publishTimestamp
     }, getTenantId(req));
     
-    console.log(`✅ [${publishTimestamp}] task-created (at top) published to Redis successfully`);
+    taskHttpLog(dbgHttp, `✅ [${publishTimestamp}] task-created (at top) published to Redis successfully`);
 
     // Broadcast full-column positions so all clients bump siblings (increment + insert at 0)
     try {
@@ -955,6 +965,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
   
   try {
     const db = getRequestDatabase(req);
+    const dbgHttp = await serverDebug(db, 'SERVER_DEBUG_HTTP');
     const tTranslator = await getTranslator(db);
     const now = new Date().toISOString();
     
@@ -1220,7 +1231,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
     }
     
     const validationTime = Date.now() - validationStartTime;
-    console.log(`⏱️  [PUT /tasks/:id] Task validation took ${validationTime}ms`);
+    taskHttpLog(dbgHttp, `⏱️  [PUT /tasks/:id] Task validation took ${validationTime}ms`);
     
     // MIGRATED: Use sqlManager instead of inline SQL
     const dbUpdateStartTime = Date.now();
@@ -1244,7 +1255,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
       pre_columnId: previousColumnId
     });
     const dbUpdateTime = Date.now() - dbUpdateStartTime;
-    console.log(`⏱️  [PUT /tasks/:id] Database updates took ${dbUpdateTime}ms`);
+    taskHttpLog(dbgHttp, `⏱️  [PUT /tasks/:id] Database updates took ${dbUpdateTime}ms`);
     
     // Log activity if there were changes
     if (changes.length > 0) {
@@ -1318,7 +1329,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
         // Don't throw - activity logging should never break main flow
       });
       const activityTime = Date.now() - activityStartTime;
-      console.log(`⏱️  [PUT /tasks/:id] Activity logging took ${activityTime}ms`);
+      taskHttpLog(dbgHttp, `⏱️  [PUT /tasks/:id] Activity logging took ${activityTime}ms`);
       
       // Log to reporting system (fire-and-forget: Don't await to avoid blocking API response)
       // Check if this is a column move (use normalized values)
@@ -1402,16 +1413,16 @@ router.put('/:id', authenticateToken, async (req, res) => {
     await notificationService.publish('task-updated', webSocketData, getTenantId(req));
     const wsTime = Date.now() - wsStartTime;
     const payloadSize = JSON.stringify(webSocketData).length;
-    console.log(`⏱️  [PUT /tasks/:id] WebSocket publishing took ${wsTime}ms (payload: ${payloadSize} bytes, ${changedFields.length} fields changed)`);
+    taskHttpLog(dbgHttp, `⏱️  [PUT /tasks/:id] WebSocket publishing took ${wsTime}ms (payload: ${payloadSize} bytes, ${changedFields.length} fields changed)`);
     
     // Still fetch full task for API response (frontend that made the request needs full data)
     const fetchStartTime = Date.now();
     const taskResponse = await fetchTaskWithRelationships(db, id);
     const fetchTime = Date.now() - fetchStartTime;
-    console.log(`⏱️  [PUT /tasks/:id] Fetching task with relationships for API response took ${fetchTime}ms`);
+    taskHttpLog(dbgHttp, `⏱️  [PUT /tasks/:id] Fetching task with relationships for API response took ${fetchTime}ms`);
     
     const totalTime = Date.now() - endpointStartTime;
-    console.log(`⏱️  [PUT /tasks/:id] Total endpoint time: ${totalTime}ms`);
+    taskHttpLog(dbgHttp, `⏱️  [PUT /tasks/:id] Total endpoint time: ${totalTime}ms`);
     
     res.json(taskResponse);
   } catch (error) {
@@ -1434,6 +1445,7 @@ router.post('/batch-update', authenticateToken, async (req, res) => {
   try {
     const endpointStartTime = Date.now();
     const db = getRequestDatabase(req);
+    const dbgHttp = await serverDebug(db, 'SERVER_DEBUG_HTTP');
     const tTranslator = await getTranslator(db);
     const now = new Date().toISOString();
     
@@ -1502,15 +1514,15 @@ router.post('/batch-update', authenticateToken, async (req, res) => {
     }
     
     // Execute all updates in a single batched transaction
-    console.log(`🚀 [batch-update] Using batched transaction for ${batchQueries.length} updates `);
+    taskHttpLog(dbgHttp, `🚀 [batch-update] Using batched transaction for ${batchQueries.length} updates `);
     await db.executeBatchTransaction(batchQueries);
-    console.log(`✅ [batch-update] Batched transaction completed in ${Date.now() - endpointStartTime}ms for ${batchQueries.length} updates`);
+    taskHttpLog(dbgHttp, `✅ [batch-update] Batched transaction completed in ${Date.now() - endpointStartTime}ms for ${batchQueries.length} updates`);
 
     
     // Fetch all updated tasks with relationships (batched)
     const fetchStartTime = Date.now();
     const taskResponses = await fetchTasksWithRelationshipsBatch(db, taskIds);
-    console.log(`⏱️  [batch-update] Fetching ${taskIds.length} tasks with relationships (batched) took ${Date.now() - fetchStartTime}ms`);
+    taskHttpLog(dbgHttp, `⏱️  [batch-update] Fetching ${taskIds.length} tasks with relationships (batched) took ${Date.now() - fetchStartTime}ms`);
     
     // Publish WebSocket updates for all changed tasks in the background (non-blocking)
     // JSON.stringify() on large task objects can be slow, so we don't block the response
@@ -1532,7 +1544,7 @@ router.post('/batch-update', authenticateToken, async (req, res) => {
       console.error('❌ Background WebSocket publish batch failed:', error);
     });
     
-    console.log(`⏱️  [batch-update] Total endpoint time: ${Date.now() - endpointStartTime}ms for ${tasks.length} updates (WebSocket publishing in background)`);
+    taskHttpLog(dbgHttp, `⏱️  [batch-update] Total endpoint time: ${Date.now() - endpointStartTime}ms for ${tasks.length} updates (WebSocket publishing in background)`);
     
     res.json({ tasks: taskResponses, updated: taskResponses.length });
   } catch (error) {
@@ -1550,6 +1562,7 @@ router.delete('/:id', authenticateToken, async (req, res) => {
   
   try {
     const db = getRequestDatabase(req);
+    const dbgHttp = await serverDebug(db, 'SERVER_DEBUG_HTTP');
     
     // MIGRATED: Get task details before deletion for logging
     const tTranslator = await getTranslator(db); // Use different name to avoid shadowing imported t
@@ -1607,7 +1620,7 @@ router.delete('/:id', authenticateToken, async (req, res) => {
       const filePath = path.join(storagePaths.attachments, filename);
       try {
         await fs.promises.unlink(filePath);
-        console.log(`✅ Deleted file: ${filename}`);
+        taskHttpLog(dbgHttp, `✅ Deleted file: ${filename}`);
       } catch (error) {
         console.error('Error deleting file:', error);
       }
@@ -1701,9 +1714,10 @@ router.post('/batch-update-positions', authenticateToken, async (req, res) => {
   try {
     const endpointStartTime = Date.now();
     const timestamp = new Date().toISOString();
-    console.log(`[${timestamp}] 🔄 [batch-update-positions] Received ${updates.length} updates`);
-    
     const db = getRequestDatabase(req);
+    const dbgHttp = await serverDebug(db, 'SERVER_DEBUG_HTTP');
+    taskHttpLog(dbgHttp, `[${timestamp}] 🔄 [batch-update-positions] Received ${updates.length} updates`);
+    
     const tTranslator = await getTranslator(db); // Use different name to avoid shadowing imported t
     const now = new Date().toISOString();
     
@@ -1711,7 +1725,7 @@ router.post('/batch-update-positions', authenticateToken, async (req, res) => {
     const validateStartTime = Date.now();
     const taskIds = updates.map(u => u.taskId);
     const currentTasks = await taskQueries.getTasksByIdsBasic(db, taskIds);
-    console.log(`⏱️  [batch-update-positions] Task validation took ${Date.now() - validateStartTime}ms`);
+    taskHttpLog(dbgHttp, `⏱️  [batch-update-positions] Task validation took ${Date.now() - validateStartTime}ms`);
     
     if (currentTasks.length !== taskIds.length) {
       return res.status(404).json({ error: tTranslator('errors.taskNotFound') });
@@ -1773,21 +1787,21 @@ router.post('/batch-update-positions', authenticateToken, async (req, res) => {
       }
     }
     
-    console.log(`🚀 [batch-update-positions] Using batched transaction for ${batchQueries.length} updates `);
+    taskHttpLog(dbgHttp, `🚀 [batch-update-positions] Using batched transaction for ${batchQueries.length} updates `);
     const startTime = Date.now();
     
     // Execute all updates in a single batched transaction
     await db.executeBatchTransaction(batchQueries);
     
     const duration = Date.now() - startTime;
-    console.log(`✅ [batch-update-positions] Batched transaction completed in ${duration}ms for ${batchQueries.length} updates`);
+    taskHttpLog(dbgHttp, `✅ [batch-update-positions] Batched transaction completed in ${duration}ms for ${batchQueries.length} updates`);
     
     // Log each task update with ticket and position
     for (const columnUpdates of updatesByColumn.values()) {
       for (const update of columnUpdates) {
         const task = taskMap.get(update.taskId);
         const ticket = task?.ticket || 'N/A';
-        console.log(`[${timestamp}] ✅ [batch-update-positions] ticket: ${ticket}, position: ${update.position}`);
+        taskHttpLog(dbgHttp, `[${timestamp}] ✅ [batch-update-positions] ticket: ${ticket}, position: ${update.position}`);
       }
     }
     
@@ -1817,7 +1831,7 @@ router.post('/batch-update-positions', authenticateToken, async (req, res) => {
       // MIGRATED: Use sqlManager to get columns (getColumnWithStatus now includes id)
       const columns = await Promise.all(columnIds.map(columnId => helpers.getColumnWithStatus(db, columnId)));
       const columnMap = new Map(columns.filter(c => c).map(c => [c.id, c]));
-      console.log(`⏱️  [batch-update-positions] Column fetch took ${Date.now() - activityStartTime}ms`);
+      taskHttpLog(dbgHttp, `⏱️  [batch-update-positions] Column fetch took ${Date.now() - activityStartTime}ms`);
       
       // Log activities (fire-and-forget: Don't await to avoid blocking API response)
       // Start all activity logs in parallel but don't wait for them
@@ -1921,7 +1935,7 @@ router.post('/batch-update-positions', authenticateToken, async (req, res) => {
     
     const wsTime = Date.now() - wsStartTime;
     const totalPayloadSize = updates.length * 200; // Estimate ~200 bytes per minimal task
-    console.log(`⏱️  [batch-update-positions] WebSocket payload preparation took ${wsTime}ms (estimated ${totalPayloadSize} bytes total, ${updates.length} tasks)`);
+    taskHttpLog(dbgHttp, `⏱️  [batch-update-positions] WebSocket payload preparation took ${wsTime}ms (estimated ${totalPayloadSize} bytes total, ${updates.length} tasks)`);
     
     // Start publishing in background (fire-and-forget)
     Promise.all(publishPromises).then(() => {
@@ -1931,7 +1945,7 @@ router.post('/batch-update-positions', authenticateToken, async (req, res) => {
     });
     
     const totalTime = Date.now() - endpointStartTime;
-    console.log(`⏱️  [batch-update-positions] Total endpoint time: ${totalTime}ms for ${updates.length} updates (WebSocket publishing in background)`);
+    taskHttpLog(dbgHttp, `⏱️  [batch-update-positions] Total endpoint time: ${totalTime}ms for ${updates.length} updates (WebSocket publishing in background)`);
     
     res.json({ message: `Updated ${updates.length} task positions successfully` });
   } catch (error) {
@@ -2102,7 +2116,6 @@ router.post('/reorder', authenticateToken, async (req, res) => {
 
 // Move task to different board
 router.post('/move-to-board', authenticateToken, async (req, res) => {
-  console.log('🔄 Cross-board move endpoint hit:', { taskId: req.body.taskId, targetBoardId: req.body.targetBoardId });
   const { taskId, targetBoardId } = req.body;
   const userId = req.user?.id || 'system';
   
@@ -2113,6 +2126,8 @@ router.post('/move-to-board', authenticateToken, async (req, res) => {
   
   try {
     const db = getRequestDatabase(req);
+    const dbgHttp = await serverDebug(db, 'SERVER_DEBUG_HTTP');
+    taskHttpLog(dbgHttp, '🔄 Cross-board move endpoint hit:', { taskId, targetBoardId });
     const tTranslator = await getTranslator(db);
     
     // Get the task to move
@@ -2132,7 +2147,7 @@ router.post('/move-to-board', authenticateToken, async (req, res) => {
       targetColumn = await helpers.getColumnByTitleInBoard(db, targetBoardId, sourceColumn.title);
       
       if (targetColumn) {
-        console.log(`🎯 Smart placement: Found matching column "${sourceColumn.title}" in target board`);
+        taskHttpLog(dbgHttp, `🎯 Smart placement: Found matching column "${sourceColumn.title}" in target board`);
       }
     }
     
@@ -2493,6 +2508,7 @@ router.get('/:taskId/relationships', authenticateToken, async (req, res) => {
 router.post('/:taskId/relationships', authenticateToken, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
+    const dbgHttp = await serverDebug(db, 'SERVER_DEBUG_HTTP');
     const tTranslator = await getTranslator(db);
     const { taskId } = req.params;
     const { relationship, toTaskId } = req.body;
@@ -2555,7 +2571,7 @@ router.post('/:taskId/relationships', authenticateToken, async (req, res) => {
       }
     });
     
-    console.log(`✅ Created relationship: ${taskId} (${relationship}) → ${toTaskId}`);
+    taskHttpLog(dbgHttp, `✅ Created relationship: ${taskId} (${relationship}) → ${toTaskId}`);
     
     // Verify the insertion was successful
     if (!insertResult || insertResult.changes === 0) {
@@ -2694,9 +2710,10 @@ router.get('/:taskId/flow-chart', authenticateToken, async (req, res) => {
   try {
     const { taskId } = req.params;
     const db = getRequestDatabase(req);
+    const dbgHttp = await serverDebug(db, 'SERVER_DEBUG_HTTP');
     const tTranslator = await getTranslator(db);
     
-    console.log(`🌳 FlowChart API: Building flow chart for task: ${taskId}`);
+    taskHttpLog(dbgHttp, `🌳 FlowChart API: Building flow chart for task: ${taskId}`);
     
     // Step 1: Get all connected tasks using a simpler approach
     // First, collect all task IDs that are connected through relationships
@@ -2722,7 +2739,7 @@ router.get('/:taskId/flow-chart', authenticateToken, async (req, res) => {
       });
     }
     
-    console.log(`🔍 FlowChart API: Found ${connectedTaskIds.size} connected tasks`);
+    taskHttpLog(dbgHttp, `🔍 FlowChart API: Found ${connectedTaskIds.size} connected tasks`);
     
     // MIGRATED: Step 2: Get full task data for all connected tasks
     if (connectedTaskIds.size > 0) {
@@ -2732,7 +2749,7 @@ router.get('/:taskId/flow-chart', authenticateToken, async (req, res) => {
       // MIGRATED: Step 3: Get all relationships between these tasks
       const relationships = await taskQueries.getRelationshipsForFlowChart(db, taskIdsArray);
       
-      console.log(`✅ FlowChart API: Found ${tasks.length} tasks and ${relationships.length} relationships`);
+      taskHttpLog(dbgHttp, `✅ FlowChart API: Found ${tasks.length} tasks and ${relationships.length} relationships`);
 
       const jsonSafeId = (v) => (typeof v === 'bigint' ? v.toString() : v);
       

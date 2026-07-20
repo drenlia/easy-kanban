@@ -373,6 +373,79 @@
     "saving": "Saving...",
     "saveChanges": "Save Changes",
     "notificationQueue": "Notification Queue",
+    "troubleshooting": "Troubleshooting",
+    "troubleshootingTitle": "Troubleshooting",
+    "troubleshootingDescription": "Enable diagnostic logging and performance tools. Keep these off in normal use.",
+    "troubleshootingBrowserSection": "Browser console (FE_DEBUG_*)",
+    "troubleshootingBrowserSectionDescription": "Verbose logs in the browser DevTools console. Useful when diagnosing client issues.",
+    "troubleshootingServerSection": "Server logs (SERVER_DEBUG_*)",
+    "troubleshootingServerSectionDescription": "Verbose logs in the Node.js server stdout. SERVER_DEBUG_SQL can slow the app under load — use briefly.",
+    "perfTests": "Performance Test Overlay",
+    "perfTestsDescription": "When enabled, admins see a floating Perf Tests control center on the Kanban board for load scenarios and metrics. Keep disabled when not troubleshooting.",
+    "enableAll": "Enable all",
+    "disableAll": "Disable all",
+    "debugFlags": {
+      "FE_DEBUG_AUTH": {
+        "label": "Auth",
+        "description": "Login, token, and session-related client logs."
+      },
+      "FE_DEBUG_WEBSOCKET": {
+        "label": "WebSocket",
+        "description": "Realtime connection and message handling logs."
+      },
+      "FE_DEBUG_APP_CORE": {
+        "label": "App core",
+        "description": "Board load, refresh, and core app lifecycle logs."
+      },
+      "FE_DEBUG_TASK_LINKING": {
+        "label": "Task linking",
+        "description": "Task relationship / linking UI logs."
+      },
+      "FE_DEBUG_REPORTS_UI": {
+        "label": "Reports UI",
+        "description": "Reporting screens and chart UI logs."
+      },
+      "FE_DEBUG_FLOWCHART": {
+        "label": "Flow chart",
+        "description": "Task flow chart component logs."
+      },
+      "FE_DEBUG_TASK_CARD": {
+        "label": "Task card",
+        "description": "Kanban task card component logs."
+      },
+      "FE_DEBUG_TASK_PAGE": {
+        "label": "Task page",
+        "description": "Full task page logs."
+      },
+      "FE_DEBUG_TASK_DETAILS": {
+        "label": "Task details",
+        "description": "Task details panel logs."
+      },
+      "FE_DEBUG_SETTINGS_CONTEXT": {
+        "label": "Settings context",
+        "description": "Settings fetch, cache, and sync logs."
+      },
+      "FE_DEBUG_API": {
+        "label": "API",
+        "description": "Axios request/response summaries (Authorization redacted)."
+      },
+      "FE_DEBUG_DND": {
+        "label": "Drag and drop",
+        "description": "Drag, drop, and reorder client logs."
+      },
+      "SERVER_DEBUG_HTTP": {
+        "label": "HTTP / tasks",
+        "description": "Task API timing and related HTTP route logs (including batch position updates)."
+      },
+      "SERVER_DEBUG_SQL": {
+        "label": "SQL",
+        "description": "Per-query SQL logging. Can reduce performance — enable only while diagnosing."
+      },
+      "SERVER_DEBUG_SETTINGS": {
+        "label": "Settings",
+        "description": "Verbose logs when settings are updated (OAuth cache, publish payloads)."
+      }
+    },
     "emailThrottling": "Email Throttling",
     "notificationDelay": "Notification Delay (minutes)",
     "notificationDelayDescription": "Accumulate task changes and send consolidated notifications. Set to 0 for immediate notifications.",
