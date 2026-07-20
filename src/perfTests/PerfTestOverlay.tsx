@@ -16,12 +16,16 @@ export interface PerfTestOverlayProps {
   columns: Columns;
   members: TeamMember[];
   availablePriorities: PriorityOption[];
+  /** Column IDs currently shown on the board (Archive hidden unless user unhid it). */
+  visibleColumnIds: string[];
   /** Same path as DnD */
   onMoveTask: (
     taskId: string,
     targetColumnId: string,
     placement: TaskDropPlacement
   ) => Promise<void>;
+  /** Resync board + pill counts from the server after a scenario stops */
+  onRefreshBoard?: () => Promise<void>;
 }
 
 type ActiveScenario = 'generate' | 'move' | 'cleanup' | null;
@@ -32,7 +36,9 @@ const PerfTestOverlay: React.FC<PerfTestOverlayProps> = ({
   columns,
   members,
   availablePriorities,
+  visibleColumnIds,
   onMoveTask,
+  onRefreshBoard,
 }) => {
   const [collapsed, setCollapsed] = useState(false);
   const [memberId, setMemberId] = useState(members[0]?.id || '');
@@ -45,6 +51,20 @@ const PerfTestOverlay: React.FC<PerfTestOverlayProps> = ({
   const abortRef = useRef<AbortController | null>(null);
   const columnsRef = useRef(columns);
   columnsRef.current = columns;
+  const visibleColumnIdsRef = useRef(visibleColumnIds);
+  visibleColumnIdsRef.current = visibleColumnIds;
+
+  const resyncBoard = useCallback(async () => {
+    if (!onRefreshBoard) return;
+    try {
+      // Clear move-race flags so a forced refresh isn't fighting stale optimistic state
+      window.justUpdatedFromWebSocket = false;
+      (window as any).reorderingInProgress = false;
+      await onRefreshBoard();
+    } catch {
+      // non-fatal — metrics/status already recorded
+    }
+  }, [onRefreshBoard]);
 
   useEffect(() => {
     if (!memberId && members[0]) setMemberId(members[0].id);
@@ -83,6 +103,7 @@ const PerfTestOverlay: React.FC<PerfTestOverlayProps> = ({
       const run = await runGenerateTasks({
         boardId,
         columns: columnsRef.current,
+        visibleColumnIds: visibleColumnIdsRef.current,
         member: selectedMember,
         count,
         defaultPriority: resolveDefaultPriority(availablePriorities),
@@ -102,6 +123,7 @@ const PerfTestOverlay: React.FC<PerfTestOverlayProps> = ({
     } finally {
       abortRef.current = null;
       setActive(null);
+      await resyncBoard();
     }
   };
 
@@ -115,6 +137,7 @@ const PerfTestOverlay: React.FC<PerfTestOverlayProps> = ({
       const run = await runMoveTasks({
         boardId,
         getColumns: () => columnsRef.current,
+        getVisibleColumnIds: () => visibleColumnIdsRef.current,
         moveTask: async (taskId, targetColumnId, placement) => {
           await onMoveTask(taskId, targetColumnId, placement);
         },
@@ -130,6 +153,7 @@ const PerfTestOverlay: React.FC<PerfTestOverlayProps> = ({
     } finally {
       abortRef.current = null;
       setActive(null);
+      await resyncBoard();
     }
   };
 
@@ -157,6 +181,7 @@ const PerfTestOverlay: React.FC<PerfTestOverlayProps> = ({
     } finally {
       abortRef.current = null;
       setActive(null);
+      await resyncBoard();
     }
   };
 

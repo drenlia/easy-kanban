@@ -1808,7 +1808,12 @@ router.post('/batch-update-positions', authenticateToken, async (req, res) => {
     // Batch fetch column info for activity logging
     if (columnMoves.length > 0) {
       const activityStartTime = Date.now();
-      const columnIds = [...new Set([...columnMoves.map(m => m.columnid), ...columnMoves.map(m => m.previousColumnId)])];
+      // Moves use camelCase columnId (not columnid) — undefined IDs made toColumn resolve as "Unknown"
+      const columnIds = [...new Set(
+        columnMoves
+          .flatMap(m => [m.columnId, m.previousColumnId])
+          .filter(Boolean)
+      )];
       // MIGRATED: Use sqlManager to get columns (getColumnWithStatus now includes id)
       const columns = await Promise.all(columnIds.map(columnId => helpers.getColumnWithStatus(db, columnId)));
       const columnMap = new Map(columns.filter(c => c).map(c => [c.id, c]));

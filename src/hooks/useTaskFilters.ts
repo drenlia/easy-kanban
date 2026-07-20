@@ -4,6 +4,7 @@ import { SavedFilterView, getSavedFilterView } from '../api';
 import { TaskViewMode, ViewMode, loadUserPreferences, updateUserPreference } from '../utils/userPreferences';
 import { filterTasks, hasActiveFilters } from '../utils/taskUtils';
 import { SYSTEM_MEMBER_ID } from '../constants/appConstants';
+import { dedupeTasksInColumns } from '../utils/taskReorderingUtils';
 
 // Extend Window interface for justUpdatedFromWebSocket flag
 declare global {
@@ -84,6 +85,9 @@ export const useTaskFilters = ({
       if (!columnsToFilter || Object.keys(columnsToFilter).length === 0) {
         return;
       }
+
+      // Safety net: one task id must not appear in multiple columns
+      const uniqueColumns = dedupeTasksInColumns(columnsToFilter);
       
       // Do not bail when all columns have zero tasks — that is valid (e.g. newly created board).
       // Previously we returned here, which left filteredColumns stuck on the previous board until
@@ -93,7 +97,7 @@ export const useTaskFilters = ({
       const isFiltering = isSearchActive || selectedMembers.length > 0 || includeAssignees || includeWatchers || includeCollaborators || includeRequesters;
       
       if (!isFiltering) {
-        setFilteredColumns(columnsToFilter);
+        setFilteredColumns(uniqueColumns);
         return;
       }
 
@@ -190,7 +194,7 @@ export const useTaskFilters = ({
 
       const filteredColumns: any = {};
       
-      for (const [columnId, column] of Object.entries(columnsToFilter)) {
+      for (const [columnId, column] of Object.entries(uniqueColumns)) {
         let columnTasks = column.tasks;
 
         // FIRST: Apply sprint filtering (if a sprint is selected)

@@ -88,6 +88,7 @@ import {
   hasActiveFilters,
   wouldTaskBeFilteredOut 
 } from './utils/taskUtils';
+import { dedupeTasksInColumns } from './utils/taskReorderingUtils';
 import { moveTaskToBoard } from './api';
 import { customCollisionDetection, calculateGridStyle } from './utils/dragDropUtils';
 import { clearCustomCursor } from './utils/cursorUtils';
@@ -3523,8 +3524,9 @@ function AppContent() {
     }
 
     // Prefer live columns for the selected board; otherwise use board snapshot
-    const boardColumns: Columns =
+    const boardColumnsRaw: Columns =
       board.id === selectedBoard ? columns : (board.columns || {});
+    const boardColumns = dedupeTasksInColumns(boardColumnsRaw);
 
     // Explicit visibility list (user toggled columns). Default: all non-archived.
     const explicitVisibility = boardColumnVisibility[board.id];
@@ -3547,8 +3549,9 @@ function AppContent() {
         currentBoardColumnIds.every((id) => filteredColumnIds.includes(id));
 
       if (isValidForCurrentBoard) {
+        const dedupedFiltered = dedupeTasksInColumns(taskFilters.filteredColumns);
         let totalCount = 0;
-        Object.values(taskFilters.filteredColumns).forEach((column) => {
+        Object.values(dedupedFiltered).forEach((column) => {
           if (visibleSet.has(column.id)) {
             totalCount += column.tasks?.length || 0;
           }
@@ -4030,7 +4033,12 @@ function AppContent() {
               columns={columns}
               members={members}
               availablePriorities={availablePriorities}
+              visibleColumnIds={
+                boardColumnVisibility[selectedBoard] ||
+                Object.keys(columns).filter((id) => !Boolean(columns[id]?.is_archived))
+              }
               onMoveTask={handleMoveTaskToColumn}
+              onRefreshBoard={() => refreshBoardData({ force: true })}
             />
           </Suspense>
         )}

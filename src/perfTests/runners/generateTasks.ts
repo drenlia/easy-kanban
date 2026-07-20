@@ -8,6 +8,8 @@ import { isAbortError, memberDisplayName, pickRandom, randomLorem, sleep } from 
 export interface GenerateTasksOptions {
   boardId: string;
   columns: Columns;
+  /** Prefer creating into these columns (visible on the board). Falls back to all columns. */
+  visibleColumnIds?: string[];
   member: TeamMember;
   count: number;
   defaultPriority: string;
@@ -17,7 +19,9 @@ export interface GenerateTasksOptions {
 }
 
 export async function runGenerateTasks(opts: GenerateTasksOptions): Promise<PerfRunRecord> {
-  const columnIds = Object.keys(opts.columns);
+  const allIds = Object.keys(opts.columns);
+  const preferred = (opts.visibleColumnIds || []).filter((id) => opts.columns[id]);
+  const columnIds = preferred.length > 0 ? preferred : allIds;
   if (columnIds.length === 0) {
     throw new Error('No columns on the current board');
   }

@@ -2,6 +2,7 @@ import { useCallback, useRef, useEffect, RefObject } from 'react';
 import { Board, Columns, Task, TeamMember } from '../types';
 import { getBoardTaskRelationships } from '../api';
 import { feDebug } from '../utils/clientDebug';
+import { dedupeTasksInColumns, stripTaskFromAllColumns } from '../utils/taskReorderingUtils';
 
 function wsHookLog(...args: unknown[]) {
   if (feDebug('FE_DEBUG_WEBSOCKET')) console.log(...args);
@@ -379,8 +380,21 @@ export const useTaskWebSocket = ({
           tasks: sortedTasks
         };
       });
-      
-      
+
+      // Invariant: each updated task exists in at most one column (target wins)
+      let normalizedColumns = updatedColumns;
+      updatedTaskIds.forEach((taskId) => {
+        const data = taskUpdatesMap.get(taskId);
+        const targetColumnId =
+          data?.task?.columnId || data?.task?.columnid || taskSourceColumns.get(taskId);
+        if (!targetColumnId) return;
+        normalizedColumns = stripTaskFromAllColumns(normalizedColumns, taskId, {
+          exceptColumnId: targetColumnId,
+          renumber: false,
+        });
+      });
+      normalizedColumns = dedupeTasksInColumns(normalizedColumns);
+
       // Track updated selectedTask if it's one of the updated tasks
       // We'll update it after setColumns completes
       // CRITICAL: Always update selectedTask if it's one of the updated tasks, even if only field values changed
@@ -389,8 +403,8 @@ export const useTaskWebSocket = ({
         // Check if this task was updated in the batch
         if (updatedTaskIds.has(taskId)) {
           // Find the updated task in the columns
-          Object.keys(updatedColumns).forEach(columnId => {
-            const column = updatedColumns[columnId];
+          Object.keys(normalizedColumns).forEach(columnId => {
+            const column = normalizedColumns[columnId];
             if (!column || !column.tasks) return;
             const task = column.tasks.find((t: any) => t && t.id === taskId);
             if (task) {
@@ -401,7 +415,7 @@ export const useTaskWebSocket = ({
       }
       
       
-      return updatedColumns;
+      return normalizedColumns;
     });
     }
     
@@ -433,23 +447,17 @@ export const useTaskWebSocket = ({
               
               const targetColumnId = data.task.columnId;
               if (!targetColumnId) return;
-              
-              // Find and remove task from source column (if it exists)
+
+              // Strip from every column first (including accidental duplicates)
               Object.keys(updatedColumns).forEach(columnId => {
+                if (columnId === targetColumnId) return;
                 const column = updatedColumns[columnId];
                 if (!column || !column.tasks) return;
-                
-                const taskIndex = column.tasks.findIndex((t: any) => t && t.id === taskId);
-                if (taskIndex !== -1 && columnId !== targetColumnId) {
-                  // Remove from source column
-                  updatedColumns[columnId] = {
-                    ...column,
-                    tasks: [
-                      ...column.tasks.slice(0, taskIndex),
-                      ...column.tasks.slice(taskIndex + 1)
-                    ]
-                  };
-                }
+                if (!column.tasks.some((t: any) => t && t.id === taskId)) return;
+                updatedColumns[columnId] = {
+                  ...column,
+                  tasks: column.tasks.filter((t: any) => t && t.id !== taskId),
+                };
               });
               
               // Add/update task in target column
@@ -492,6 +500,9 @@ export const useTaskWebSocket = ({
                 };
               }
             });
+
+            // Final pass: unique task ids across this board's columns
+            Object.assign(updatedColumns, dedupeTasksInColumns(updatedColumns));
             
             updatedBoard.columns = updatedColumns;
             return updatedBoard;
@@ -756,7 +767,11 @@ export const useTaskWebSocket = ({
             };
           }
         }
-        return updatedColumns;
+        // Ensure created task isn't also lingering in another column
+        return stripTaskFromAllColumns(updatedColumns, data.task.id, {
+          exceptColumnId: targetColumnId,
+          renumber: false,
+        });
       });
       
       // DON'T update filteredColumns here - let the filtering useEffect handle it
