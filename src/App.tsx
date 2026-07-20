@@ -29,6 +29,10 @@ const PageLoader = () => (
 );
 // Lazy load ModalManager to reduce initial bundle size (only needed when authenticated) with retry logic
 const ModalManager = lazyWithRetry(() => import('./components/layout/ModalManager'));
+const PerfTestOverlay = lazyWithRetry(() =>
+  import('./perfTests/PerfTestOverlay').then((m) => ({ default: m.default }))
+);
+import { shouldShowPerfTests } from './perfTests';
 import TaskDeleteConfirmation from './components/TaskDeleteConfirmation';
 import CrossBoardMoveConfirmation from './components/CrossBoardMoveConfirmation';
 import ActivityFeed from './components/ActivityFeed';
@@ -81,7 +85,6 @@ import {
 } from './utils/routingUtils';
 import { 
   filterTasks,
-  getFilteredTaskCountForBoard, 
   hasActiveFilters,
   wouldTaskBeFilteredOut 
 } from './utils/taskUtils';
@@ -339,7 +342,7 @@ function AppContent() {
     setBoardColumnVisibility(newVisibility);
     
     // Save to user settings for persistence across page reloads
-    updateUserPreference('boardColumnVisibility' as any, newVisibility);
+    updateCurrentUserPreference('boardColumnVisibility', newVisibility);
     
     // Save to current filter view if it exists
     if (taskFilters.currentFilterView) {
@@ -777,6 +780,11 @@ function AppContent() {
           } else {
             // No saved sprint, make sure state is cleared
             taskFilters.setSelectedSprintId(null);
+          }
+
+          // Restore per-board column visibility (e.g. Archive shown until user hides it)
+          if (prefs.boardColumnVisibility && typeof prefs.boardColumnVisibility === 'object') {
+            setBoardColumnVisibility(prefs.boardColumnVisibility);
           }
         } catch (error) {
           console.error('Failed to restore preferences:', error);
@@ -1591,6 +1599,11 @@ function AppContent() {
         taskFilters.setIsAdvancedSearchExpanded(userSpecificPrefs.isAdvancedSearchExpanded);
         taskFilters.setSearchFilters(userSpecificPrefs.searchFilters);
         taskFilters.setSelectedSprintId(userSpecificPrefs.selectedSprintId); // Load sprint selection from DB
+        
+        // Per-board column visibility (Archive shown stays until user hides it)
+        if (userSpecificPrefs.boardColumnVisibility && typeof userSpecificPrefs.boardColumnVisibility === 'object') {
+          setBoardColumnVisibility(userSpecificPrefs.boardColumnVisibility);
+        }
         
         // Activity Feed Settings (from the same getUserSettings call above)
         const defaultFromSystem = systemSettings.SHOW_ACTIVITY_FEED !== 'false';
@@ -3509,190 +3522,106 @@ function AppContent() {
       return lastTaskCountsRef.current[board.id];
     }
 
-    let taskCount = 0;
+    // Prefer live columns for the selected board; otherwise use board snapshot
+    const boardColumns: Columns =
+      board.id === selectedBoard ? columns : (board.columns || {});
 
-    // For the currently selected board, apply both search filtering AND column visibility filtering
-    if (board.id === selectedBoard) {
-      // Get visible columns for this board
-      const visibleColumnIds = boardColumnVisibility[selectedBoard] || Object.keys(columns);
-      
-      // Apply column visibility filtering first (excluding archived columns)
-      const columnFilteredColumns: Columns = {};
-      visibleColumnIds.forEach(columnId => {
-        if (columns[columnId] && !columns[columnId].is_archived) {
-          columnFilteredColumns[columnId] = columns[columnId];
-        }
-      });
-      
-      // Then apply search filtering to the visible columns
-      if (taskFilters.filteredColumns && Object.keys(taskFilters.filteredColumns).length > 0) {
-        // Additional validation: check if filteredColumns contain columns that belong to this board
-        const currentBoardData = boards.find(b => b.id === selectedBoard);
-        const currentBoardColumnIds = currentBoardData ? Object.keys(currentBoardData.columns || {}) : [];
-        const filteredColumnIds = Object.keys(taskFilters.filteredColumns);
-        
-        // Only use filteredColumns if they match the current board's column structure
-        const isValidForCurrentBoard = currentBoardColumnIds.length > 0 && 
-          filteredColumnIds.every(id => currentBoardColumnIds.includes(id)) &&
-          currentBoardColumnIds.every(id => filteredColumnIds.includes(id));
-        
-        if (isValidForCurrentBoard) {
-          // Apply search filtering to visible columns only (excluding archived)
-          let totalCount = 0;
-          Object.values(taskFilters.filteredColumns).forEach(column => {
-            if (visibleColumnIds.includes(column.id) && !column.is_archived) {
-              totalCount += column.tasks.length;
-            }
-          });
-          taskCount = totalCount;
-        }
-      }
-      
-      // If filteredColumns wasn't used (or wasn't valid), apply filters manually
-      if (taskCount === 0 || !taskFilters.filteredColumns || Object.keys(taskFilters.filteredColumns).length === 0) {
+    // Explicit visibility list (user toggled columns). Default: all non-archived.
+    const explicitVisibility = boardColumnVisibility[board.id];
+    const visibleColumnIds = explicitVisibility
+      ? explicitVisibility
+      : Object.values(boardColumns)
+          .filter((col) => col && !Boolean(col.is_archived))
+          .map((col) => col.id);
+
+    const visibleSet = new Set(visibleColumnIds);
+
+    // Selected board: filteredColumns already has search/member/sprint applied — count visible cols only
+    if (board.id === selectedBoard && taskFilters.filteredColumns && Object.keys(taskFilters.filteredColumns).length > 0) {
+      const currentBoardData = boards.find((b) => b.id === selectedBoard);
+      const currentBoardColumnIds = currentBoardData ? Object.keys(currentBoardData.columns || {}) : [];
+      const filteredColumnIds = Object.keys(taskFilters.filteredColumns);
+      const isValidForCurrentBoard =
+        currentBoardColumnIds.length > 0 &&
+        filteredColumnIds.every((id) => currentBoardColumnIds.includes(id)) &&
+        currentBoardColumnIds.every((id) => filteredColumnIds.includes(id));
+
+      if (isValidForCurrentBoard) {
         let totalCount = 0;
-        Object.values(columnFilteredColumns).forEach(column => {
-          // Apply sprint filtering if active
-          let columnTasks = column.tasks;
-          if (taskFilters.selectedSprintId !== null) {
-            if (taskFilters.selectedSprintId === 'backlog') {
-              columnTasks = columnTasks.filter(task => !task.sprintId);
-            } else {
-              columnTasks = columnTasks.filter(task => task.sprintId === taskFilters.selectedSprintId);
-            }
+        Object.values(taskFilters.filteredColumns).forEach((column) => {
+          if (visibleSet.has(column.id)) {
+            totalCount += column.tasks?.length || 0;
           }
-          totalCount += columnTasks.length;
         });
-        taskCount = totalCount;
+        lastTaskCountsRef.current[board.id] = totalCount;
+        return totalCount;
       }
     }
-    
-    // For other boards, apply the same filtering logic used in performFiltering
-    const isFiltering = taskFilters.isSearchActive || taskFilters.selectedMembers.length > 0 || taskFilters.includeAssignees || taskFilters.includeWatchers || taskFilters.includeCollaborators || taskFilters.includeRequesters || taskFilters.selectedSprintId !== null;
-    
-    if (!isFiltering) {
-      // No filters active - return total count (excluding archived columns)
-      let totalCount = 0;
-      Object.values(board.columns || {}).forEach(column => {
-        // Convert to boolean to handle SQLite integer values (0/1)
-        const isArchived = Boolean(column.is_archived);
-        if (!isArchived) {
-          totalCount += column.tasks?.length || 0;
-        }
-      });
-      taskCount = totalCount;
-    }
-    
-    // Apply search filters using the utility function
-    let searchFilteredCount = getFilteredTaskCountForBoard(board, taskFilters.searchFilters, taskFilters.isSearchActive, members, boards);
-    
-    // If no member filtering is needed (no members selected AND no member-specific checkboxes enabled)
-    // OR if we're only doing search filtering (text, dates, tags, project/task identifiers)
-    const hasMemberFiltering = taskFilters.selectedMembers.length > 0 || 
-      (taskFilters.includeAssignees && taskFilters.selectedMembers.length > 0) || 
-      (taskFilters.includeWatchers && taskFilters.selectedMembers.length > 0) || 
-      (taskFilters.includeCollaborators && taskFilters.selectedMembers.length > 0) || 
-      (taskFilters.includeRequesters && taskFilters.selectedMembers.length > 0);
-    
-    if (!hasMemberFiltering && taskFilters.selectedSprintId === null) {
-      taskCount = searchFilteredCount;
-    }
-    
-    // Apply member filtering and sprint filtering on top of search filtering
+
+    // Other boards (or fallback): count visible columns with search/sprint; member filter only when members selected
+    const applyMemberFilter = taskFilters.selectedMembers.length > 0;
+
     let totalCount = 0;
-    Object.values(board.columns || {}).forEach(column => {
-      if (!column.tasks || !Array.isArray(column.tasks)) return;
-      
-      // Skip archived columns
-      const isArchived = Boolean(column.is_archived);
-      if (isArchived) return;
-      
-      const filteredTasks = column.tasks.filter(task => {
+    Object.values(boardColumns).forEach((column) => {
+      if (!column?.tasks || !Array.isArray(column.tasks)) return;
+      if (!visibleSet.has(column.id)) return;
+
+      const filteredTasks = column.tasks.filter((task) => {
         if (!task) return false;
-        
-        // FIRST: Apply sprint filtering (if a sprint is selected)
+
         if (taskFilters.selectedSprintId !== null) {
           if (taskFilters.selectedSprintId === 'backlog') {
-            // Show only tasks NOT assigned to any sprint (backlog)
-            if (task.sprintId !== null && task.sprintId !== undefined) {
-              return false;
-            }
-          } else {
-            // Show only tasks with matching sprint_id (explicit assignment)
-            if (task.sprintId !== taskFilters.selectedSprintId) {
-              return false;
-            }
+            if (task.sprintId !== null && task.sprintId !== undefined) return false;
+          } else if (task.sprintId !== taskFilters.selectedSprintId) {
+            return false;
           }
         }
-        
-        // SECOND: Apply search filters using the same logic as performFiltering
+
         if (taskFilters.isSearchActive) {
-          const searchFiltered = filterTasks([task], taskFilters.searchFilters, taskFilters.isSearchActive, members, boards);
+          const searchFiltered = filterTasks(
+            [task],
+            taskFilters.searchFilters,
+            taskFilters.isSearchActive,
+            members,
+            boards
+          );
           if (searchFiltered.length === 0) return false;
         }
-        
-        // Then apply member filtering
-        if (taskFilters.selectedMembers.length === 0 && !taskFilters.includeAssignees && !taskFilters.includeWatchers && !taskFilters.includeCollaborators && !taskFilters.includeRequesters) {
-          return true;
-        }
-        
-        // If no members selected, treat as "all members" (empty array = show all)
-        const showAllMembers = taskFilters.selectedMembers.length === 0;
+
+        if (!applyMemberFilter) return true;
+
         const memberIds = new Set(taskFilters.selectedMembers);
         let hasMatchingMember = false;
-        
-        if (taskFilters.includeAssignees) {
-          if (showAllMembers) {
-            // Show all tasks with assignees (any member)
-            if (task.memberId) hasMatchingMember = true;
-          } else {
-            // Show only tasks assigned to selected members
-            if (task.memberId && memberIds.has(task.memberId)) hasMatchingMember = true;
-          }
+
+        if (taskFilters.includeAssignees && task.memberId && memberIds.has(task.memberId)) {
+          hasMatchingMember = true;
         }
-        
-        if (!hasMatchingMember && taskFilters.includeRequesters) {
-          if (showAllMembers) {
-            // Show all tasks with requesters
-            if (task.requesterId) hasMatchingMember = true;
-          } else {
-            // Show only tasks requested by selected members
-            if (task.requesterId && memberIds.has(task.requesterId)) hasMatchingMember = true;
-          }
+        if (!hasMatchingMember && taskFilters.includeRequesters && task.requesterId && memberIds.has(task.requesterId)) {
+          hasMatchingMember = true;
         }
-        
-        if (!hasMatchingMember && taskFilters.includeWatchers && task.watchers && Array.isArray(task.watchers)) {
-          if (showAllMembers) {
-            // Show all tasks with watchers
-            if (task.watchers.length > 0) hasMatchingMember = true;
-          } else {
-            // Show only tasks watched by selected members
-            if (task.watchers.some(w => w && memberIds.has(w.id))) hasMatchingMember = true;
-          }
+        if (
+          !hasMatchingMember &&
+          taskFilters.includeWatchers &&
+          task.watchers?.some((w) => w && memberIds.has(w.id))
+        ) {
+          hasMatchingMember = true;
         }
-        
-        if (!hasMatchingMember && taskFilters.includeCollaborators && task.collaborators && Array.isArray(task.collaborators)) {
-          if (showAllMembers) {
-            // Show all tasks with collaborators
-            if (task.collaborators.length > 0) hasMatchingMember = true;
-          } else {
-            // Show only tasks with selected members as collaborators
-            if (task.collaborators.some(c => c && memberIds.has(c.id))) hasMatchingMember = true;
-          }
+        if (
+          !hasMatchingMember &&
+          taskFilters.includeCollaborators &&
+          task.collaborators?.some((c) => c && memberIds.has(c.id))
+        ) {
+          hasMatchingMember = true;
         }
-        
+
         return hasMatchingMember;
       });
-      
+
       totalCount += filteredTasks.length;
     });
-    
-    taskCount = totalCount;
-    
-    // Store the calculated count for potential use during board switching
-    lastTaskCountsRef.current[board.id] = taskCount;
-    
-    return taskCount;
+
+    lastTaskCountsRef.current[board.id] = totalCount;
+    return totalCount;
   };
 
 
@@ -4091,6 +4020,20 @@ function AppContent() {
         onDimensionsChange={activityFeed.setActivityFeedDimensions}
         userId={currentUser?.id || null}
       />
+
+      {shouldShowPerfTests(siteSettings, currentUser) &&
+        currentPage === 'kanban' &&
+        selectedBoard && (
+          <Suspense fallback={null}>
+            <PerfTestOverlay
+              boardId={selectedBoard}
+              columns={columns}
+              members={members}
+              availablePriorities={availablePriorities}
+              onMoveTask={handleMoveTaskToColumn}
+            />
+          </Suspense>
+        )}
 
       {/* Task Linking Overlay */}
       <TaskLinkingOverlay

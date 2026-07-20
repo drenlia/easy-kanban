@@ -55,6 +55,8 @@ export interface UserPreferences {
   selectedSprintId: string | null; // Selected sprint for filtering
   lastReportTab: string | null; // Last accessed report tab (persists across sessions)
   language: 'en' | 'fr'; // User's preferred language
+  /** Per-board visible column IDs (includes Archive when the user unhides it). */
+  boardColumnVisibility: { [boardId: string]: string[] };
 
   searchFilters: {
     text: string;
@@ -161,6 +163,7 @@ const BASE_DEFAULT_PREFERENCES: UserPreferences = {
   selectedSprintId: null, // Default to "All Sprints" (no filter)
   lastReportTab: null, // Default to no last report (will use burndown)
   language: 'en', // Default to English
+  boardColumnVisibility: {}, // Default: no overrides (archived columns hidden by Kanban UI)
   listViewColumnVisibility: {
     // Default column visibility - all columns visible except some less important ones
     ticket: true,
@@ -437,6 +440,7 @@ export const saveUserPreferences = async (preferences: UserPreferences, userId: 
           // List View Column Visibility
           saveIfDefined('listViewColumnVisibility', JSON.stringify(preferences.listViewColumnVisibility)),
           saveIfDefined('listViewShowDependencies', preferences.listViewShowDependencies),
+          saveIfDefined('boardColumnVisibility', JSON.stringify(preferences.boardColumnVisibility)),
           
           // Member Filter Preferences
           saveIfDefined('includeAssignees', preferences.includeAssignees),
@@ -498,6 +502,10 @@ export const loadUserPreferences = (userId: string | null = null): UserPreferenc
       return {
         ...defaults,
         ...loadedPrefs,
+        boardColumnVisibility: {
+          ...defaults.boardColumnVisibility,
+          ...(loadedPrefs.boardColumnVisibility || {})
+        },
         listViewColumnVisibility: {
           ...defaults.listViewColumnVisibility,
           ...loadedPrefs.listViewColumnVisibility
@@ -626,6 +634,27 @@ export const loadUserPreferencesAsync = async (userId: string | null = null): Pr
           dbSettings.listViewShowDependencies,
           defaults.listViewShowDependencies
         ),
+
+        boardColumnVisibility: (() => {
+          const cookieVis = preferences.boardColumnVisibility || {};
+          let dbVis: { [boardId: string]: string[] } | undefined;
+          try {
+            dbVis = dbSettings.boardColumnVisibility
+              ? JSON.parse(dbSettings.boardColumnVisibility)
+              : undefined;
+          } catch {
+            dbVis = undefined;
+          }
+
+          if (!isDefaultValue(cookieVis, defaults.boardColumnVisibility)) {
+            return cookieVis;
+          }
+          if (dbVis && !isDefaultValue(dbVis, defaults.boardColumnVisibility)) {
+            needsCookieUpdate = true;
+            return { ...defaults.boardColumnVisibility, ...dbVis };
+          }
+          return cookieVis;
+        })(),
         
         // App Settings
         appSettings: {
@@ -733,6 +762,7 @@ export const updateUserPreference = async <K extends keyof UserPreferences>(
         'searchFilters': 'searchFilters',
         'listViewColumnVisibility': 'listViewColumnVisibility',
         'listViewShowDependencies': 'listViewShowDependencies',
+        'boardColumnVisibility': 'boardColumnVisibility',
         'ganttScrollPositions': 'ganttScrollPositions',
         'language': 'language',
       };
@@ -749,7 +779,7 @@ export const updateUserPreference = async <K extends keyof UserPreferences>(
       }
       
       // Special handling for JSON-serialized values
-      if (dbKey === 'selectedMembers' || dbKey === 'listViewColumnVisibility' || dbKey === 'ganttScrollPositions' || dbKey === 'searchFilters') {
+      if (dbKey === 'selectedMembers' || dbKey === 'listViewColumnVisibility' || dbKey === 'boardColumnVisibility' || dbKey === 'ganttScrollPositions' || dbKey === 'searchFilters') {
         dbValue = JSON.stringify(value);
       }
       

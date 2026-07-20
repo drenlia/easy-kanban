@@ -811,6 +811,7 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
                             // Sprint filtering
                             selectedSprintId={selectedSprintId}
                             availableSprints={availableSprints}
+                            hasActiveFilters={activeFilters}
                           />
                           {/* Resize handle between columns (not after the last one) */}
                           {index < array.length - 1 && onColumnWidthResize && (
@@ -888,6 +889,7 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
                       // Sprint filtering
                       selectedSprintId={selectedSprintId}
                       availableSprints={availableSprints}
+                      hasActiveFilters={activeFilters}
                         />
                         {/* Resize handle between columns (not after the last one) */}
                         {index < array.length - 1 && onColumnWidthResize && (

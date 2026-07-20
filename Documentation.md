@@ -519,6 +519,12 @@ The Admin section provides comprehensive system management capabilities.
 - **Solution**: Check user role and permissions
 - **Prevention**: Ensure proper user role assignment
 
+#### Performance Test Overlay (admin troubleshooting)
+- **Enable**: Admin → Site Settings → **Performance Test Overlay** (`FE_PERF_TESTS`), or `PUT /api/admin/settings` with `{ "key": "FE_PERF_TESTS", "value": "true" }`
+- **Use**: On the Kanban board as an admin, open the floating **PERF TESTS** panel — Generate tasks, Move tasks (0.5–2s random moves), Cleanup, and report modals (last run / session history)
+- **Disable**: Turn the same setting off when finished so the overlay does not mount
+- **Multi-user load**: Open multiple browsers/accounts with the flag enabled; each tab runs its own client-driven scenarios
+
 #### Performance Issues
 - **Symptoms**: Slow loading, laggy interface
 - **Solution**: Clear browser cache, check internet connection

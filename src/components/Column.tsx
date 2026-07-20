@@ -75,6 +75,9 @@ interface KanbanColumnProps {
   // Sprint filtering
   selectedSprintId?: string | null;
   availableSprints?: any[]; // Optional: sprints passed from parent (avoids duplicate API calls)
+
+  /** When true, task count pill uses the blue “filtered” style (same as board tabs). */
+  hasActiveFilters?: boolean;
 }
 
 export default function KanbanColumn({
@@ -136,7 +139,8 @@ export default function KanbanColumn({
   
   // Sprint filtering
   selectedSprintId = null,
-  availableSprints
+  availableSprints,
+  hasActiveFilters = false
 }: KanbanColumnProps) {
   const { t, i18n } = useTranslation(['tasks', 'common']);
   const [isEditing, setIsEditing] = useState(false);
@@ -887,11 +891,11 @@ export default function KanbanColumn({
                         ? t('column.hoverToEnterCrossBoard')
                         : t('column.columnTitle')
                 }
-                wrapperClassName="flex-1 min-w-0"
+                wrapperClassName="min-w-0"
               >
                 <h3
                   data-column-title
-                  className={`text-lg font-semibold text-gray-700 dark:text-gray-100 select-none ${
+                  className={`text-lg font-semibold text-gray-700 dark:text-gray-100 select-none truncate ${
                     isAdmin && showColumnDeleteConfirm === null
                       ? 'cursor-pointer hover:text-gray-900 dark:hover:text-white'
                       : 'cursor-default'
@@ -906,6 +910,16 @@ export default function KanbanColumn({
                   {column.title}
                 </h3>
               </KanbanChromeTooltip>
+              {filteredTasks.length > 0 && (
+                <span
+                  className={`
+                    shrink-0 px-1.5 py-0.5 text-[0.65rem] leading-none rounded-full font-semibold min-w-[1.25rem] text-center pointer-events-none tabular-nums
+                    ${hasActiveFilters ? 'bg-blue-600 text-white dark:bg-blue-500' : 'bg-gray-200 text-gray-700 dark:bg-gray-600 dark:text-gray-100'}
+                  `}
+                >
+                  {filteredTasks.length}
+                </span>
+              )}
               <KanbanChromeTooltip label={!isOnline ? t('column.networkOffline') : t('column.addTask')}>
                 <button
                   data-column-header

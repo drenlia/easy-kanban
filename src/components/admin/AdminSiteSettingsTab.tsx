@@ -14,6 +14,7 @@ interface Settings {
   SITE_LOGO_DARK?: string;
   HIDE_GITHUB_LINK?: string;
   HIDE_SITE_LOGO?: string;
+  FE_PERF_TESTS?: string;
   [key: string]: string | undefined;
 }
 
@@ -189,6 +190,7 @@ const AdminSiteSettingsTab: React.FC<AdminSiteSettingsTabProps> = ({
   };
 
   const hideGithub = editingSettings.HIDE_GITHUB_LINK === 'true';
+  const perfTestsEnabled = editingSettings.FE_PERF_TESTS === 'true';
   const hideSiteLogo = editingSettings.HIDE_SITE_LOGO === 'true';
 
   return (
@@ -402,6 +404,52 @@ const AdminSiteSettingsTab: React.FC<AdminSiteSettingsTabProps> = ({
                 <span
                   className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white dark:bg-gray-300 shadow ring-0 transition duration-200 ease-in-out ${
                     hideGithub ? 'translate-x-5' : 'translate-x-0'
+                  }`}
+                />
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Performance Test Overlay */}
+        <div className="border-t border-gray-200 dark:border-gray-700 pt-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                {t('siteSettings.perfTests')}
+              </label>
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                {t('siteSettings.perfTestsDescription')}
+              </p>
+            </div>
+            <div className="flex items-center">
+              <span className="text-sm font-medium mr-3 text-gray-700 dark:text-gray-300">
+                {perfTestsEnabled ? t('siteSettings.enabled') : t('siteSettings.disabled')}
+              </span>
+              <button
+                type="button"
+                onClick={async () => {
+                  const newValue = perfTestsEnabled ? 'false' : 'true';
+                  handleInputChange('FE_PERF_TESTS', newValue);
+                  try {
+                    if (onAutoSave) {
+                      await onAutoSave('FE_PERF_TESTS', newValue);
+                    } else {
+                      await api.put('/admin/settings', { key: 'FE_PERF_TESTS', value: newValue });
+                    }
+                    updateSiteSetting('FE_PERF_TESTS', newValue);
+                  } catch (error) {
+                    console.error('Failed to save FE_PERF_TESTS toggle:', error);
+                    handleInputChange('FE_PERF_TESTS', perfTestsEnabled ? 'true' : 'false');
+                  }
+                }}
+                className={`relative inline-flex h-6 w-11 flex-shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 cursor-pointer ${
+                  perfTestsEnabled ? 'bg-blue-600 dark:bg-blue-500' : 'bg-gray-200 dark:bg-gray-600'
+                }`}
+              >
+                <span
+                  className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white dark:bg-gray-300 shadow ring-0 transition duration-200 ease-in-out ${
+                    perfTestsEnabled ? 'translate-x-5' : 'translate-x-0'
                   }`}
                 />
               </button>

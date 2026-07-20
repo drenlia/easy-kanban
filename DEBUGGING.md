@@ -77,6 +77,12 @@ The server caches whether SQL debug is enabled for about **15 seconds** (`server
 
 **Authoritative list** (keep docs in sync with code): `server/constants/debugSettings.js` → `FE_PUBLIC_DEBUG_FLAG_KEYS`, and `src/constants/clientDebugKeys.ts` → `FE_CLIENT_DEBUG_KEYS`.
 
+### Feature flag: Performance Test Overlay
+
+| Key | Where it applies | What you get |
+|-----|------------------|--------------|
+| `FE_PERF_TESTS` | Public settings + Admin Site Settings toggle; overlay in `src/perfTests/` | When `"true"`, **admins** see a floating Perf Tests control center on the Kanban page (generate/move/cleanup scenarios + metrics modals). Default `"false"`. Not a console debug logger. |
+
 ---
 
 ## Server debug flags (`SERVER_DEBUG_*`)

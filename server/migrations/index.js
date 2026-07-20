@@ -81,6 +81,18 @@ const migrations = [
         }
       }
     }
+  },
+  {
+    version: 14,
+    name: 'add_fe_perf_tests_setting',
+    description: 'Insert FE_PERF_TESTS feature flag (default false) for Performance Test Overlay',
+    up: async (db) => {
+      const { settings: settingsQueries } = await import('../utils/sqlManager/index.js');
+      const existing = await settingsQueries.getSettingByKey(db, 'FE_PERF_TESTS');
+      if (!existing) {
+        await settingsQueries.createSetting(db, 'FE_PERF_TESTS', 'false');
+      }
+    }
   }
 ];
 

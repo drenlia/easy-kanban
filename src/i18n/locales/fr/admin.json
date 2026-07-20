@@ -233,6 +233,8 @@
     "hideSiteLogoDescription": "Lorsqu'activé, aucun logo n'est affiché dans l'en-tête (y compris le logo par défaut). Par défaut : désactivé (logo visible).",
     "hideGithubLink": "Masquer le lien GitHub",
     "hideGithubLinkDescription": "Lorsqu'activé, l'icône GitHub est masquée dans l'en-tête. Par défaut : désactivé (lien visible).",
+    "perfTests": "Superposition de tests de performance",
+    "perfTestsDescription": "Lorsqu'activé, les administrateurs voient un panneau flottant de tests de performance sur le tableau Kanban. À désactiver hors dépannage. Par défaut : désactivé.",
     "opensNewTab": "Ouvrir les liens dans un nouvel onglet",
     "opensNewTabDescription": "Lorsqu'activé, les liens s'ouvriront dans un nouvel onglet du navigateur. Lorsque désactivé, les liens s'ouvriront dans la même page.",
     "enabled": "Activé",

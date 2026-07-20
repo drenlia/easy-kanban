@@ -232,6 +232,8 @@
     "hideSiteLogoDescription": "When enabled, no logo is shown in the header (including the default). Default: disabled (logo visible).",
     "hideGithubLink": "Hide GitHub Link",
     "hideGithubLinkDescription": "When enabled, the GitHub icon is hidden from the header. Default: disabled (link visible).",
+    "perfTests": "Performance Test Overlay",
+    "perfTestsDescription": "When enabled, admins see a floating Perf Tests control center on the Kanban board for load scenarios and metrics. Keep disabled when not troubleshooting. Default: disabled.",
     "opensNewTab": "Open Links in New Tab",
     "opensNewTabDescription": "When enabled, links will open in a new browser tab. When disabled, links will open in the same page. Default: enabled.",
     "enabled": "Enabled",
