@@ -205,10 +205,17 @@ api.interceptors.response.use(
         error.message
       );
     }
-    // Only clear token for 401 (unauthorized) errors - true authentication failures
-    // 403 (forbidden) means insufficient permissions, not expired token - user should stay logged in
-    // 404 errors might be temporary (user promotion/demotion) and shouldn't force logout
-    if (error.response?.status === 401 && !isRedirecting) {
+    // Only clear token for true auth failures:
+    // - 401 unauthorized (invalid/expired token, or user no longer in DB)
+    // - 404 on identity endpoints (legacy: /me returned 404 before middleware always checked DB)
+    // 403 means insufficient permissions — stay logged in
+    const status = error.response?.status;
+    const url = String(error.config?.url || '');
+    const isIdentity404 =
+      status === 404 &&
+      (url.includes('/auth/me') || url.includes('/user/status') || url.endsWith('/me'));
+
+    if ((status === 401 || isIdentity404) && !isRedirecting) {
       // Check if this is a token expiration (we had a token before)
       // vs never having logged in (no token)
       const currentToken = localStorage.getItem('authToken');
@@ -216,7 +223,7 @@ api.interceptors.response.use(
       
       if (hadToken && currentToken) {
         if (feDebug('FE_DEBUG_AUTH')) {
-          console.log(`🔑 Auth error 401 detected for ${error.config?.url} - token expired, redirecting to login`);
+          console.log(`🔑 Auth error ${status} detected for ${error.config?.url} - clearing session, redirecting to login`);
           console.log(`🔑 Error details:`, {
             url: error.config?.url,
             method: error.config?.method,
@@ -228,7 +235,7 @@ api.interceptors.response.use(
         }
         handleInvalidToken();
       } else if (feDebug('FE_DEBUG_AUTH')) {
-        console.log(`🔑 Auth error 401 detected - no token present (user not logged in)`);
+        console.log(`🔑 Auth error ${status} detected - no token present (user not logged in)`);
       }
     } else if (error.message === 'No auth token available') {
       // This is a request rejection, not a response error - don't clear token
@@ -247,7 +254,8 @@ api.interceptors.response.use(
 export const getMembers = async (includeSystem?: boolean) => {
   const params = includeSystem ? { includeSystem: 'true' } : {};
   const { data } = await api.get<TeamMember[]>('/members', { params });
-  return data;
+  // Guard against non-array payloads (proxy/error bodies) that crash Column via members.find
+  return Array.isArray(data) ? data : [];
 };
 
 export const createMember = async (member: TeamMember) => {

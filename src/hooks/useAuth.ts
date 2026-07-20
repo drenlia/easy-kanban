@@ -258,7 +258,7 @@ export const useAuth = (callbacks: UseAuthCallbacks): UseAuthReturn => {
           markAsAuthenticated(); // Mark as authenticated for auth error handler
         })
         .catch((error) => {
-          // Only clear token if it's a real auth error (401), not network errors
+          // Clear token on auth failures: 401 (invalid/expired) and 404 (user deleted, e.g. demo reset)
           // Network errors or 503s shouldn't clear the token
           console.log('🔑 getCurrentUser on mount failed:', {
             status: error.response?.status,
@@ -266,8 +266,9 @@ export const useAuth = (callbacks: UseAuthCallbacks): UseAuthReturn => {
             hasToken: !!localStorage.getItem('authToken')
           });
           
-          if (error.response?.status === 401) {
-            console.log('🔑 Token validation failed on mount (401) - clearing token');
+          const status = error.response?.status;
+          if (status === 401 || status === 404) {
+            console.log(`🔑 Token validation failed on mount (${status}) - clearing token`);
             // Clear all authentication data on error
             localStorage.removeItem('authToken');
             setIsAuthenticated(false);
@@ -278,14 +279,11 @@ export const useAuth = (callbacks: UseAuthCallbacks): UseAuthReturn => {
             callbacks.onPageChange('kanban');
           } else {
             // Network error or other issue - don't clear token, just mark as checked
-            console.warn('⚠️ Failed to verify token on mount (non-401 error), keeping token:', error.message);
+            console.warn('⚠️ Failed to verify token on mount (non-auth error), keeping token:', error.message);
             setAuthChecked(true);
             mountCheckCompletedRef.current = true;
-            // Still try to set user as authenticated if we have a token
-            const token = localStorage.getItem('authToken');
-            if (token) {
-              setIsAuthenticated(true);
-            }
+            // Do not set isAuthenticated without a verified user (demo reset used to leave
+            // a ghost session: authenticated + null user + empty board UI).
           }
         });
     } else {

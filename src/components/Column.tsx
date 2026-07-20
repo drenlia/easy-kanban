@@ -528,7 +528,8 @@ export default function KanbanColumn({
       draggedTask.columnId !== column.id; // Only for cross-column moves
     
     tasksToRender.forEach((task, index) => {
-      const member = members.find(m => m.id === task.memberId);
+      const memberList = Array.isArray(members) ? members : [];
+      const member = memberList.find(m => m.id === task.memberId);
       if (!member) return;
 
       const isBeingDragged = draggedTask?.id === task.id;

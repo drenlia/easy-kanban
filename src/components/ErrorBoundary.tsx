@@ -10,6 +10,50 @@ interface State {
   error?: Error;
 }
 
+function isDemoMode(): boolean {
+  try {
+    // Vite envPrefix exposes DEMO_ENABLED; define may also rewrite process.env
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const meta = (import.meta as any)?.env?.DEMO_ENABLED;
+    return meta === 'true' || process.env.DEMO_ENABLED === 'true';
+  } catch {
+    return process.env.DEMO_ENABLED === 'true';
+  }
+}
+
+function shouldAutoRecover(error: Error | undefined): boolean {
+  const msg = error?.message || '';
+  // Corrupt session / wiped demo DB
+  if (msg.includes('members.find is not a function')) return true;
+  // React dispatcher gone (common when Vite/app container restarts under an open SPA tab)
+  if (/Cannot read properties of null \(reading 'use(?:Memo|State|Effect|Callback|Ref|Context)'\)/.test(msg)) {
+    return true;
+  }
+  // On the public demo, any hard crash during/after hourly reset should bounce to login
+  if (isDemoMode()) return true;
+  return false;
+}
+
+function recoverToLogin(): void {
+  if (sessionStorage.getItem('ebRecovering') === '1') return;
+  sessionStorage.setItem('ebRecovering', '1');
+  try {
+    localStorage.removeItem('authToken');
+    sessionStorage.setItem('tokenExpiredRedirect', 'true');
+  } catch {
+    /* ignore */
+  }
+  // Full navigation clears broken module/React state better than reload alone
+  setTimeout(() => {
+    try {
+      sessionStorage.removeItem('ebRecovering');
+    } catch {
+      /* ignore */
+    }
+    window.location.replace(`${window.location.origin}${window.location.pathname}#kanban`);
+  }, 0);
+}
+
 export default class ErrorBoundary extends Component<Props, State> {
   constructor(props: Props) {
     super(props);
@@ -22,6 +66,9 @@ export default class ErrorBoundary extends Component<Props, State> {
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
     console.error('Error caught by boundary:', error, errorInfo);
+    if (shouldAutoRecover(error)) {
+      recoverToLogin();
+    }
   }
 
   render() {
@@ -46,12 +93,7 @@ export default class ErrorBoundary extends Component<Props, State> {
               </pre>
             </details>
             <button
-              onClick={() => {
-                // Force a hard reload (bypass cache) to ensure we get fresh JavaScript bundles
-                // Remove any existing query parameters first to avoid interfering with asset loading
-                const baseUrl = window.location.origin + window.location.pathname;
-                window.location.href = baseUrl;
-              }}
+              onClick={() => recoverToLogin()}
               className="w-full bg-blue-500 hover:bg-blue-600 text-white font-medium py-2 px-4 rounded transition-colors"
             >
               Refresh Page

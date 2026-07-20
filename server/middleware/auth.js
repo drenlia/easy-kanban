@@ -35,20 +35,20 @@ export const authenticateToken = async (req, res, next) => {
       });
     });
     
-    // In multi-tenant mode, verify user exists in the current tenant's database
-    // This ensures tokens from one tenant cannot be used on another tenant
+    // Verify user still exists in the tenant DB (demo resets, deleted accounts, tenant switches).
+    // Previously this ran only when MULTI_TENANT=true; single-tenant demo wipe left valid JWTs
+    // for deleted user IDs and the UI got stuck off the login page.
     const db = getRequestDatabase(req);
-    if (process.env.MULTI_TENANT === 'true' && db) {
+    if (db) {
       try {
         const userInDb = await wrapQuery(db.prepare('SELECT id FROM users WHERE id = ?'), 'SELECT').get(user.id);
         
         if (!userInDb) {
-          console.log(`❌ [AUTH] Token validation failed: User ${user.email} (${user.id}) does not exist in current tenant's database`);
-          return res.status(401).json({ error: 'Invalid token for this tenant' });
+          console.log(`❌ [AUTH] Token validation failed: User ${user.email} (${user.id}) does not exist in database`);
+          return res.status(401).json({ error: 'Invalid or expired token' });
         }
       } catch (dbError) {
-        console.error('❌ [AUTH] Error checking user in tenant database:', dbError);
-        // If database check fails, reject the token for security
+        console.error('❌ [AUTH] Error checking user in database:', dbError);
         return res.status(401).json({ error: 'Authentication failed' });
       }
     }

@@ -33,33 +33,42 @@ export const useMemberWebSocket = ({
 }: UseMemberWebSocketProps) => {
   
   const handleMemberCreated = useCallback((data: any) => {
-    // Refresh members list
-    handleMembersUpdate([data.member]);
-  }, [handleMembersUpdate]);
+    if (!data?.member) return;
+    // Merge into list — do not replace the whole members array with a single entry
+    setMembers(prev => {
+      const list = Array.isArray(prev) ? prev : [];
+      const exists = list.some(m => m.id === data.member.id);
+      if (exists) {
+        return list.map(m => (m.id === data.member.id ? { ...m, ...data.member } : m));
+      }
+      return [...list, data.member];
+    });
+  }, [setMembers]);
 
   const handleMemberUpdated = useCallback(async (data: any) => {
     // Update the specific member in the members list
     if (data.member) {
       setMembers(prevMembers => {
+        const list = Array.isArray(prevMembers) ? prevMembers : [];
         // Check if member exists in current list
-        const memberExists = prevMembers.some(member => member.id === data.member.id);
+        const memberExists = list.some(member => member.id === data.member.id);
         
         if (memberExists) {
           // Update existing member
-          return prevMembers.map(member => 
+          return list.map(member => 
             member.id === data.member.id ? { ...member, ...data.member } : member
           );
         } else {
           // Member doesn't exist, add it to the list
           console.log('📨 Adding new member to list:', data.member);
-          return [...prevMembers, data.member];
+          return [...list, data.member];
         }
       });
     } else {
       // Fallback: refresh entire members list
       try {
         const loadedMembers = await getMembers(taskFilters.includeSystem);
-        setMembers(loadedMembers);
+        setMembers(Array.isArray(loadedMembers) ? loadedMembers : []);
       } catch (error) {
         console.error('Failed to refresh members after update:', error);
       }
@@ -70,7 +79,7 @@ export const useMemberWebSocket = ({
     // Refresh members list from server (don't pass empty array!)
     try {
       const loadedMembers = await getMembers(taskFilters.includeSystem);
-      setMembers(loadedMembers);
+      setMembers(Array.isArray(loadedMembers) ? loadedMembers : []);
     } catch (error) {
       console.error('Failed to refresh members after deletion:', error);
     }
@@ -90,7 +99,7 @@ export const useMemberWebSocket = ({
     // Refresh members list to update display name and avatar
     try {
       const loadedMembers = await getMembers(taskFilters.includeSystem);
-      setMembers(loadedMembers);
+      setMembers(Array.isArray(loadedMembers) ? loadedMembers : []);
     } catch (error) {
       console.error('Failed to refresh members after profile update:', error);
     }

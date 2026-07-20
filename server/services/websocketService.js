@@ -110,27 +110,34 @@ class WebSocketService {
         const hostname = socket.handshake.headers.host || socket.handshake.headers['x-forwarded-host'] || '';
         const tenantId = extractTenantId(hostname);
         
-        // In multi-tenant mode, verify user exists in the tenant's database
-        if (process.env.MULTI_TENANT === 'true' && tenantId) {
-          try {
-            const dbInfo = await getTenantDatabase(tenantId);
-            if (dbInfo && dbInfo.db) {
-              const userInDb = await wrapQuery(dbInfo.db.prepare('SELECT id FROM users WHERE id = ?'), 'SELECT').get(decoded.id);
-              if (!userInDb) {
-                console.log(`❌ WebSocket auth failed: User ${decoded.email} (${decoded.id}) does not exist in tenant ${tenantId}'s database`);
-                return next(new Error('Invalid token for this tenant'));
-              }
-              console.log(`✅ WebSocket tenant validation passed: User ${decoded.email} exists in tenant ${tenantId}`);
-            } else {
-              console.warn(`⚠️ WebSocket auth: Could not get database for tenant ${tenantId}`);
+        // Always verify user still exists (demo resets wipe users while JWTs remain cryptographically valid)
+        try {
+          let db = null;
+          if (process.env.MULTI_TENANT === 'true') {
+            if (!tenantId) {
+              console.warn(`⚠️ WebSocket auth: Multi-tenant mode but no tenant ID extracted from hostname: ${hostname}`);
+              return next(new Error('Authentication failed'));
             }
-          } catch (dbError) {
-            console.error('❌ Error checking user in tenant database for WebSocket:', dbError);
-            console.error('❌ Error details:', dbError.message, dbError.stack);
+            const dbInfo = await getTenantDatabase(tenantId);
+            db = dbInfo?.db || null;
+          } else {
+            const dbInfo = await getTenantDatabase(null);
+            db = dbInfo?.db || null;
+          }
+
+          if (!db) {
+            console.warn('⚠️ WebSocket auth: Could not get database for user validation');
             return next(new Error('Authentication failed'));
           }
-        } else if (process.env.MULTI_TENANT === 'true' && !tenantId) {
-          console.warn(`⚠️ WebSocket auth: Multi-tenant mode but no tenant ID extracted from hostname: ${hostname}`);
+
+          const userInDb = await wrapQuery(db.prepare('SELECT id FROM users WHERE id = ?'), 'SELECT').get(decoded.id);
+          if (!userInDb) {
+            console.log(`❌ WebSocket auth failed: User ${decoded.email} (${decoded.id}) does not exist in database`);
+            return next(new Error('Invalid token'));
+          }
+        } catch (dbError) {
+          console.error('❌ Error checking user in database for WebSocket:', dbError);
+          return next(new Error('Authentication failed'));
         }
         
         // Attach user info to socket
