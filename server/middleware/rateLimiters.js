@@ -69,3 +69,29 @@ export const activationLimiter = rateLimit({
   validate: false, // Disable all validations - we handle trust proxy explicitly
 });
 
+// Dev credential minting (API tokens / SSH keys): 20 per hour
+export const tokenMintLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 20,
+  message: {
+    error: 'Too many credential requests, please try again later'
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  trustProxy: shouldTrustProxy,
+  validate: false,
+});
+
+// Agent task claim: 120 per 15 minutes
+export const agentClaimLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 120,
+  message: {
+    error: 'Too many claim requests, please try again later'
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  trustProxy: shouldTrustProxy,
+  validate: false,
+});
+

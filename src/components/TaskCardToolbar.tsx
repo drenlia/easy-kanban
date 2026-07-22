@@ -1,16 +1,14 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { createPortal } from 'react-dom';
-import { Copy, FileText, Eye, UserPlus, GripVertical, MessageSquarePlus, TagIcon, Plus, Trash2, Link, Archive } from 'lucide-react';
+import { Copy, FileText, Eye, UserPlus, GripVertical, MessageSquarePlus, TagIcon, Plus, Trash2, Link, Archive, Loader2, Pause, Play, Square } from 'lucide-react';
 import { Task, TeamMember, Tag } from '../types';
 import { formatMembersTooltip } from '../utils/taskUtils';
 import { getAuthenticatedAvatarUrl } from '../utils/authImageUrl';
 import { truncateMemberName } from '../utils/memberUtils';
 import AddTagModal from './AddTagModal';
 import { KanbanChromeTooltip } from './KanbanChromeTooltip';
-
-// System user member ID constant
-const SYSTEM_MEMBER_ID = '00000000-0000-0000-0000-000000000001';
+import { AGENT_MEMBER_ID, SYSTEM_MEMBER_ID, AGENT_ACTIVE_WORK_STATUSES } from '../constants/appConstants';
 
 interface TaskCardToolbarProps {
   task: Task;
@@ -33,6 +31,10 @@ interface TaskCardToolbarProps {
   onTagAdd?: (tagId: string) => void;
   columnIsFinished?: boolean;
   columns?: { [key: string]: { id: string; title: string; is_archived?: boolean; is_finished?: boolean } };
+  /** Agent task_work.status when assigned to Agent */
+  agentWorkStatus?: string | null;
+  onOpenAgentActivity?: () => void;
+  onAgentControl?: (control: 'pause' | 'stop' | 'resume') => void;
   
   // Task linking props
   isLinkingMode?: boolean;
@@ -71,6 +73,9 @@ export default function TaskCardToolbar({
   onTagAdd,
   columnIsFinished = false,
   columns,
+  agentWorkStatus = null,
+  onOpenAgentActivity,
+  onAgentControl,
   
   // Task linking props
   isLinkingMode,
@@ -90,6 +95,7 @@ export default function TaskCardToolbar({
   const _priorityButtonRef = useRef<HTMLButtonElement>(null);
   const [showQuickTagDropdown, setShowQuickTagDropdown] = useState(false);
   const [showAddTagModal, setShowAddTagModal] = useState(false);
+  const [showAgentControls, setShowAgentControls] = useState(false);
   const [tagDropdownPosition, setTagDropdownPosition] = useState<{left: number, top: number}>({left: 0, top: 0});
   const quickTagButtonRef = useRef<HTMLButtonElement>(null);
   const quickTagDropdownRef = useRef<HTMLDivElement>(null);
@@ -350,22 +356,110 @@ export default function TaskCardToolbar({
     onToggleMemberSelect();
   };
 
+  const showAgentSpinner =
+    member.id === AGENT_MEMBER_ID &&
+    !!agentWorkStatus &&
+    (AGENT_ACTIVE_WORK_STATUSES as readonly string[]).includes(agentWorkStatus);
+
   return (
     <>
-      {/* Drag Handle - Top Left - Always visible */}
-      <KanbanChromeTooltip label={t('toolbar.dragToMove')} wrapperClassName="absolute top-1 left-1 z-[6]">
+      {/* Drag handle, or Agent spinner when work is active */}
+      {showAgentSpinner ? (
         <div
-          {...listeners}
-          {...attributes}
-          className={`p-1 rounded ${
-            !isDragDisabled
-              ? 'cursor-grab active:cursor-grabbing hover:bg-gray-200 opacity-60 hover:opacity-100'
-              : 'cursor-not-allowed opacity-0'
-          } transition-all duration-200`}
+          className="absolute top-1 left-1 z-[6]"
+          data-no-dnd="true"
+          onMouseEnter={() => setShowAgentControls(true)}
+          onMouseLeave={() => setShowAgentControls(false)}
         >
-          <GripVertical size={12} className="text-gray-400" />
+          <button
+            type="button"
+            data-no-dnd="true"
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpenAgentActivity?.();
+            }}
+            className="p-1 rounded hover:bg-teal-100 dark:hover:bg-teal-900/40"
+            title={t('agent.openActivity')}
+          >
+            {agentWorkStatus === 'waiting' ? (
+              <MessageSquarePlus size={14} className="text-amber-600" />
+            ) : (
+              <Loader2 size={14} className="text-teal-600 animate-spin" />
+            )}
+          </button>
+          {showAgentControls && (
+            <div
+              data-no-dnd="true"
+              className="absolute left-0 top-7 min-w-[140px] rounded-md border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 shadow-lg p-1 z-[50]"
+            >
+              <button
+                type="button"
+                className="w-full flex items-center gap-2 px-2 py-1.5 text-xs hover:bg-gray-50 dark:hover:bg-gray-700 rounded"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onOpenAgentActivity?.();
+                }}
+              >
+                {t('agent.openActivity')}
+              </button>
+              {(agentWorkStatus === 'running' || agentWorkStatus === 'queued') && (
+                <button
+                  type="button"
+                  className="w-full flex items-center gap-2 px-2 py-1.5 text-xs hover:bg-gray-50 dark:hover:bg-gray-700 rounded"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onAgentControl?.('pause');
+                  }}
+                >
+                  <Pause size={12} /> {t('agent.pause')}
+                </button>
+              )}
+              {(agentWorkStatus === 'paused' ||
+                agentWorkStatus === 'waiting' ||
+                agentWorkStatus === 'stopped') && (
+                <button
+                  type="button"
+                  className="w-full flex items-center gap-2 px-2 py-1.5 text-xs hover:bg-gray-50 dark:hover:bg-gray-700 rounded"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onAgentControl?.('resume');
+                  }}
+                >
+                  <Play size={12} /> {t('agent.resume')}
+                </button>
+              )}
+              {agentWorkStatus !== 'stopped' &&
+                agentWorkStatus !== 'done' &&
+                agentWorkStatus !== 'failed' && (
+                  <button
+                    type="button"
+                    className="w-full flex items-center gap-2 px-2 py-1.5 text-xs hover:bg-gray-50 dark:hover:bg-gray-700 rounded text-red-700"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onAgentControl?.('stop');
+                    }}
+                  >
+                    <Square size={12} /> {t('agent.stop')}
+                  </button>
+                )}
+            </div>
+          )}
         </div>
-      </KanbanChromeTooltip>
+      ) : (
+        <KanbanChromeTooltip label={t('toolbar.dragToMove')} wrapperClassName="absolute top-1 left-1 z-[6]">
+          <div
+            {...listeners}
+            {...attributes}
+            className={`p-1 rounded ${
+              !isDragDisabled
+                ? 'cursor-grab active:cursor-grabbing hover:bg-gray-200 opacity-60 hover:opacity-100'
+                : 'cursor-not-allowed opacity-0'
+            } transition-all duration-200`}
+          >
+            <GripVertical size={12} className="text-gray-400" />
+          </div>
+        </KanbanChromeTooltip>
+      )}
 
       {/* Unified Toolbar - visibility via parent `group` hover so reorder under cursor still shows toolbar */}
       <div
@@ -688,7 +782,11 @@ export default function TaskCardToolbar({
                     className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium text-white"
                     style={{ backgroundColor: m.color }}
                   >
-                    {m.id === SYSTEM_MEMBER_ID ? '🤖' : m.name.charAt(0).toUpperCase()}
+                    {m.id === SYSTEM_MEMBER_ID
+                      ? '🤖'
+                      : m.id === AGENT_MEMBER_ID
+                        ? 'A'
+                        : m.name.charAt(0).toUpperCase()}
                   </div>
                 )}
                 <span className="text-sm text-gray-900 dark:text-gray-100">{truncateMemberName(m.name)}</span>

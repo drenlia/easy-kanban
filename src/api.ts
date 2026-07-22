@@ -1117,4 +1117,89 @@ export const deleteNotifications = async (notificationIds: string[]) => {
   return response.data;
 };
 
+// ─── AI Agent / Dev credentials ─────────────────────────────────────────────
+
+export type TaskWorkMap = Record<string, string | null | undefined>;
+
+export const getTaskWork = async (taskId: string): Promise<{ work: TaskWorkMap }> => {
+  const { data } = await api.get(`/tasks/${taskId}/work`);
+  return data;
+};
+
+export const putTaskWork = async (
+  taskId: string,
+  body: { repoUrl?: string; repoBranch?: string; status?: string; entries?: TaskWorkMap }
+): Promise<{ work: TaskWorkMap }> => {
+  const { data } = await api.put(`/tasks/${taskId}/work`, body);
+  return data;
+};
+
+export const setTaskWorkControl = async (
+  taskId: string,
+  control: 'pause' | 'stop' | 'resume' | 'none'
+): Promise<{ work: TaskWorkMap }> => {
+  const { data } = await api.put(`/tasks/${taskId}/work/control`, { control });
+  return data;
+};
+
+export const getTaskWorkMaps = async (
+  taskIds: string[]
+): Promise<{ workByTaskId: Record<string, TaskWorkMap> }> => {
+  const { data } = await api.post('/tasks/work-maps', { taskIds });
+  return data;
+};
+
+export interface UserApiTokenMeta {
+  id: string;
+  name: string;
+  tokenPrefix: string;
+  createdAt: string;
+  lastUsedAt?: string | null;
+  revokedAt?: string | null;
+}
+
+export const listUserApiTokens = async (): Promise<UserApiTokenMeta[]> => {
+  const { data } = await api.get('/user/dev/tokens');
+  return data;
+};
+
+export const createUserApiToken = async (
+  name?: string
+): Promise<{ token: UserApiTokenMeta; rawToken: string }> => {
+  const { data } = await api.post('/user/dev/tokens', { name });
+  return data;
+};
+
+export const revokeUserApiToken = async (id: string): Promise<void> => {
+  await api.delete(`/user/dev/tokens/${id}`);
+};
+
+export interface UserSshKeyMeta {
+  publicKey: string;
+  fingerprint: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export const getUserSshKey = async (): Promise<{ key: UserSshKeyMeta | null }> => {
+  const { data } = await api.get('/user/dev/ssh-key');
+  return data;
+};
+
+export const generateUserSshKey = async (): Promise<{
+  key: UserSshKeyMeta;
+  privateKey: string;
+}> => {
+  const { data } = await api.post('/user/dev/ssh-key');
+  return data;
+};
+
+export const downloadUserSshPrivateKey = async (): Promise<{
+  privateKey: string;
+  fingerprint: string;
+}> => {
+  const { data } = await api.get('/user/dev/ssh-key/private');
+  return data;
+};
+
 export default api;

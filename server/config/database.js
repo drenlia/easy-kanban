@@ -6,6 +6,13 @@ import crypto from 'crypto';
 import bcrypt from 'bcrypt';
 import { runMigrations } from '../migrations/index.js';
 import { DEBUG_SETTING_DEFAULTS } from '../constants/debugSettings.js';
+import { AI_SETTING_DEFAULTS } from '../constants/aiSettings.js';
+import {
+  AGENT_USER_ID,
+  AGENT_MEMBER_ID,
+  AGENT_DEFAULT_NAME,
+  AGENT_DEFAULT_COLOR
+} from '../constants/agentIdentity.js';
 import { initializeDemoData } from './demoData.js';
 import { wrapQuery } from '../utils/queryLogger.js';
 import { dbExec, dbGet, dbAll, dbRun } from '../utils/dbAsync.js';
@@ -275,6 +282,38 @@ const CREATE_SCHEMA_SQL = `
     CREATE TABLE IF NOT EXISTS settings (
       key TEXT PRIMARY KEY,
       value TEXT,
+      updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS task_work (
+      task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+      key TEXT NOT NULL,
+      value TEXT,
+      updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (task_id, key)
+    );
+    CREATE INDEX IF NOT EXISTS idx_task_work_task_id ON task_work(task_id);
+    CREATE INDEX IF NOT EXISTS idx_task_work_key_value ON task_work(key, value);
+
+    CREATE TABLE IF NOT EXISTS user_api_tokens (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      name TEXT NOT NULL DEFAULT 'default',
+      token_prefix TEXT NOT NULL,
+      token_hash TEXT NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+      last_used_at TIMESTAMPTZ,
+      revoked_at TIMESTAMPTZ
+    );
+    CREATE INDEX IF NOT EXISTS idx_user_api_tokens_user_id ON user_api_tokens(user_id);
+    CREATE INDEX IF NOT EXISTS idx_user_api_tokens_prefix ON user_api_tokens(token_prefix);
+
+    CREATE TABLE IF NOT EXISTS user_ssh_keys (
+      user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+      public_key TEXT NOT NULL,
+      private_key_encrypted TEXT NOT NULL,
+      fingerprint TEXT NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -790,6 +829,7 @@ const initializeDefaultData = async (db, tenantId = null) => {
       ['GOOGLE_CLIENT_SECRET', ''],
       ['GOOGLE_SSO_DEBUG', 'false'],
       ...DEBUG_SETTING_DEFAULTS,
+      ...AI_SETTING_DEFAULTS,
       // Admin-configurable user preference defaults
       ['DEFAULT_VIEW_MODE', 'kanban'], // Default view mode for new users
       ['DEFAULT_TASK_VIEW_MODE', 'expand'], // Default task view mode for new users
@@ -974,6 +1014,45 @@ const initializeDefaultData = async (db, tenantId = null) => {
       await dbRun(systemMemberStmt, systemMemberId, 'SYSTEM', '#1E40AF', systemUserId);
       
       console.log('🤖 System account created for orphaned task management');
+    }
+
+    // Create AI Agent pseudo-user (assignable when AI_ENABLED; cannot log in)
+    const agentPasswordHash = bcrypt.hashSync(crypto.randomBytes(32).toString('hex'), 10);
+    const agentAvatarPath = createLetterAvatar('A', AGENT_USER_ID, 'agent', tenantId);
+    const existingAgentUser = await wrapQuery(db.prepare('SELECT id FROM users WHERE id = ?'), 'SELECT').get(AGENT_USER_ID);
+    if (!existingAgentUser) {
+      await wrapQuery(db.prepare(`
+        INSERT INTO users (id, email, password_hash, first_name, last_name, avatar_path, auth_provider, is_active)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `), 'INSERT').run(
+        AGENT_USER_ID,
+        'agent@local',
+        agentPasswordHash,
+        'AI',
+        'Agent',
+        agentAvatarPath,
+        'local',
+        false
+      );
+
+      const userRoleResult = await wrapQuery(db.prepare('SELECT id FROM roles WHERE name = ?'), 'SELECT').get('user');
+      if (userRoleResult?.id) {
+        await dbRun(
+          db.prepare('INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)'),
+          AGENT_USER_ID,
+          userRoleResult.id
+        );
+      }
+
+      await dbRun(
+        db.prepare('INSERT INTO members (id, name, color, user_id) VALUES (?, ?, ?, ?)'),
+        AGENT_MEMBER_ID,
+        AGENT_DEFAULT_NAME,
+        AGENT_DEFAULT_COLOR,
+        AGENT_USER_ID
+      );
+
+      console.log('🤖 AI Agent account created for task automation');
     }
   }
 

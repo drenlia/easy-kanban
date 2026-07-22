@@ -6,6 +6,8 @@ import notificationService from '../services/notificationService.js';
 import { getTenantId, getRequestDatabase } from '../middleware/tenantRouting.js';
 import { settings as settingsQueries, users as userQueries } from '../utils/sqlManager/index.js';
 import { FE_PUBLIC_DEBUG_FLAG_KEYS } from '../constants/debugSettings.js';
+import { AI_PUBLIC_SETTING_KEYS, AI_SECRET_SETTING_KEYS } from '../constants/aiSettings.js';
+import { AGENT_MEMBER_ID } from '../constants/agentIdentity.js';
 import { clearSqlDebugSettingsCache } from '../utils/sqlDebugSettingsCache.js';
 import { serverDebug } from '../utils/serverDebug.js';
 import { avatarUpload } from '../config/multer.js';
@@ -36,7 +38,8 @@ router.get('/', async (req, res, next) => {
       'GOOGLE_CLIENT_ID',
       'HIGHLIGHT_OVERDUE_TASKS',
       'DEFAULT_FINISHED_COLUMN_NAMES',
-      ...FE_PUBLIC_DEBUG_FLAG_KEYS
+      ...FE_PUBLIC_DEBUG_FLAG_KEYS,
+      ...AI_PUBLIC_SETTING_KEYS
     ];
     const settings = await settingsQueries.getSettingsByKeys(db, publicKeys);
     const settingsObj = {};
@@ -74,6 +77,10 @@ router.get('/', authenticateToken, requireRole(['admin']), async (req, res, next
       // But allow SMTP_FROM_EMAIL and SMTP_FROM_NAME to be visible/editable
       if (mailManaged && ['SMTP_HOST', 'SMTP_PORT', 'SMTP_USERNAME', 'SMTP_PASSWORD', 'SMTP_SECURE'].includes(setting.key)) {
         settingsObj[setting.key] = '';
+      } else if (AI_SECRET_SETTING_KEYS.includes(setting.key) && setting.value) {
+        // Mask AI API key (show empty so admin can enter a new value; presence indicated separately)
+        settingsObj[setting.key] = '';
+        settingsObj.AI_API_KEY_SET = 'true';
       } else {
         settingsObj[setting.key] = setting.value;
       }
@@ -123,11 +130,29 @@ router.put('/', authenticateToken, requireRole(['admin']), async (req, res, next
       safeValue = JSON.stringify(value);
     }
     
+    // Do not clear AI_API_KEY when admin saves an empty masked field
+    if (key === 'AI_API_KEY' && (safeValue === '' || safeValue == null)) {
+      return res.json({ message: 'Setting unchanged' });
+    }
+
     // MIGRATED: Upsert setting using sqlManager
     const result = await settingsQueries.upsertSetting(db, key, safeValue);
     if (key === 'SERVER_DEBUG_SQL') {
       clearSqlDebugSettingsCache();
     }
+
+    // Keep Agent member display name in sync with AI_AGENT_NAME
+    if (key === 'AI_AGENT_NAME' && safeValue) {
+      try {
+        await wrapQuery(
+          db.prepare('UPDATE members SET name = $1 WHERE id = $2'),
+          'UPDATE'
+        ).run(String(safeValue).slice(0, 100), AGENT_MEMBER_ID);
+      } catch (e) {
+        console.error('Failed to sync Agent member name:', e);
+      }
+    }
+
     const dbgSettings = await serverDebug(db, 'SERVER_DEBUG_SETTINGS');
 
     // If this is a Google OAuth setting, reload the OAuth configuration

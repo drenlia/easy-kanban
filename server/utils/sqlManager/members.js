@@ -8,19 +8,30 @@
  */
 
 import { wrapQuery } from '../queryLogger.js';
+import { SYSTEM_MEMBER_ID, AGENT_MEMBER_ID } from '../../constants/agentIdentity.js';
 
 /**
  * Get all members with user info
- * 
+ *
  * @param {Database} db - Database connection
- * @param {boolean} includeSystem - Whether to include System User (id: '00000000-0000-0000-0000-000000000001')
+ * @param {boolean|object} includeSystemOrOpts - Whether to include System User, or opts `{ includeSystem, includeAgent }`
  * @returns {Promise<Array>} Array of member objects with user info
  */
-export async function getAllMembers(db, includeSystem = false) {
-  const whereClause = includeSystem 
-    ? '' 
-    : "WHERE m.id != '00000000-0000-0000-0000-000000000001'";
-  
+export async function getAllMembers(db, includeSystemOrOpts = false) {
+  const opts =
+    typeof includeSystemOrOpts === 'object' && includeSystemOrOpts !== null
+      ? includeSystemOrOpts
+      : { includeSystem: !!includeSystemOrOpts, includeAgent: true };
+
+  const { includeSystem = false, includeAgent = true } = opts;
+  const exclusions = [];
+  if (!includeSystem) exclusions.push(SYSTEM_MEMBER_ID);
+  if (!includeAgent) exclusions.push(AGENT_MEMBER_ID);
+
+  const whereClause = exclusions.length
+    ? `WHERE m.id NOT IN (${exclusions.map((_, i) => `$${i + 1}`).join(', ')})`
+    : '';
+
   const query = `
     SELECT 
       m.id, 
@@ -38,7 +49,7 @@ export async function getAllMembers(db, includeSystem = false) {
   `;
   
   const stmt = wrapQuery(db.prepare(query), 'SELECT');
-  const members = await stmt.all();
+  const members = await stmt.all(...exclusions);
   
   // Transform to match expected format (camelCase)
   return members.map(member => ({

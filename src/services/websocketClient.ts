@@ -381,6 +381,10 @@ class WebSocketClient {
     this.addEventListener('task-updated', callback);
   }
 
+  onTaskWorkUpdated(callback: (data: any) => void) {
+    this.addEventListener('task-work-updated', callback);
+  }
+
   onTaskDeleted(callback: (data: any) => void) {
     this.addEventListener('task-deleted', callback);
   }
@@ -508,6 +512,10 @@ class WebSocketClient {
 
   offTaskUpdated(callback?: (data: any) => void) {
     this.removeEventListener('task-updated', callback);
+  }
+
+  offTaskWorkUpdated(callback?: (data: any) => void) {
+    this.removeEventListener('task-work-updated', callback);
   }
 
   offTaskDeleted(callback?: (data: any) => void) {

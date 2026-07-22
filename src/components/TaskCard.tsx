@@ -8,7 +8,14 @@ import TaskCardToolbar from './TaskCardToolbar';
 import AddCommentModal from './AddCommentModal';
 import DateRangePicker from './DateRangePicker';
 import { formatToYYYYMMDD, formatToYYYYMMDDHHmmss, parseLocalDate } from '../utils/dateUtils';
-import { createComment, fetchTaskAttachments } from '../api';
+import {
+  createComment,
+  fetchTaskAttachments,
+  putTaskWork,
+  getTaskWork,
+  setTaskWorkControl,
+  type TaskWorkMap
+} from '../api';
 import { generateTaskUrl } from '../utils/routingUtils';
 import { generateUUID } from '../utils/uuid';
 import { mergeTaskTagsWithLiveData, getTagDisplayStyle } from '../utils/tagUtils';
@@ -22,13 +29,18 @@ import TextEditor from './TextEditor';
 import { KanbanChromeTooltip } from './KanbanChromeTooltip';
 import { getLinkTarget, shouldOpenLinkInNewTab } from '../utils/linkUtils';
 import { feDebug } from '../utils/clientDebug';
+import {
+  AGENT_MEMBER_ID,
+  SYSTEM_MEMBER_ID,
+  AGENT_ACTIVE_WORK_STATUSES
+} from '../constants/appConstants';
+import AssignToAgentModal from './AssignToAgentModal';
+import AgentWorkingModal from './AgentWorkingModal';
+import websocketClient from '../services/websocketClient';
 
 function cardLog(...args: unknown[]) {
   if (feDebug('FE_DEBUG_TASK_CARD')) console.log(...args);
 }
-
-// System user member ID constant
-const SYSTEM_MEMBER_ID = '00000000-0000-0000-0000-000000000001';
 
 // Helper function to get priority colors from hex
 const getPriorityColors = (hexColor: string) => {
@@ -278,6 +290,10 @@ const TaskCard = React.memo(function TaskCard({
   const [dropdownPosition, setDropdownPosition] = useState<'above' | 'below'>('below');
   const [showAddCommentModal, setShowAddCommentModal] = useState(false);
   const [showAttachmentsDropdown, setShowAttachmentsDropdown] = useState(false);
+  const [showAssignAgentModal, setShowAssignAgentModal] = useState(false);
+  const [showAgentWorkingModal, setShowAgentWorkingModal] = useState(false);
+  const [agentWork, setAgentWork] = useState<TaskWorkMap>({});
+  const [agentControlBusy, setAgentControlBusy] = useState(false);
   const [attachmentsDropdownPosition, setAttachmentsDropdownPosition] = useState<{top: number, left: number, direction: 'above' | 'below'}>({top: 0, left: 0, direction: 'below'});
   const [priorityDropdownPosition, setPriorityDropdownPosition] = useState<{top: number, left: number, direction: 'above' | 'below'}>({top: 0, left: 0, direction: 'below'});
   const priorityButtonRef = useRef<HTMLButtonElement>(null);
@@ -297,7 +313,13 @@ const TaskCard = React.memo(function TaskCard({
   const isSelectingRef = useRef<boolean>(false); // Track if we're in the process of selecting this task
 
   // Check if any editing is active to disable drag
-  const isAnyEditingActive = isEditingTitle || isEditingEffort || isEditingDescription || showMemberSelect || showPrioritySelect || showCommentTooltip || showTagRemovalMenu || showAttachmentsDropdown || showSprintSelector || showDateRangePicker;
+  const agentStatus = agentWork.status || null;
+  const isAgentWorkActive =
+    task.memberId === AGENT_MEMBER_ID &&
+    !!agentStatus &&
+    (AGENT_ACTIVE_WORK_STATUSES as readonly string[]).includes(agentStatus);
+
+  const isAnyEditingActive = isEditingTitle || isEditingEffort || isEditingDescription || showMemberSelect || showPrioritySelect || showCommentTooltip || showTagRemovalMenu || showAttachmentsDropdown || showSprintSelector || showDateRangePicker || isAgentWorkActive;
 
   // Sync editedEffort with task.effort when task updates (but not while editing)
   useEffect(() => {
@@ -529,9 +551,65 @@ const TaskCard = React.memo(function TaskCard({
 
 
   const handleMemberChange = (memberId: string) => {
-    onEdit({ ...task, memberId });
     setShowMemberSelect(false);
+    if (memberId === AGENT_MEMBER_ID) {
+      setShowAssignAgentModal(true);
+      return;
+    }
+    onEdit({ ...task, memberId });
   };
+
+  const handleAssignAgentConfirm = async (repoUrl: string, repoBranch: string) => {
+    onEdit({ ...task, memberId: AGENT_MEMBER_ID });
+    const { work } = await putTaskWork(task.id, {
+      repoUrl,
+      repoBranch,
+      status: 'queued',
+      entries: { control: 'none' }
+    });
+    setAgentWork(work);
+    setShowAssignAgentModal(false);
+  };
+
+  const handleAgentControl = async (control: 'pause' | 'stop' | 'resume') => {
+    setAgentControlBusy(true);
+    try {
+      const { work } = await setTaskWorkControl(task.id, control);
+      setAgentWork(work);
+    } catch (error) {
+      console.error('Agent control failed:', error);
+    } finally {
+      setAgentControlBusy(false);
+    }
+  };
+
+  useEffect(() => {
+    if (task.memberId !== AGENT_MEMBER_ID) {
+      setAgentWork({});
+      return;
+    }
+    let cancelled = false;
+    getTaskWork(task.id)
+      .then(({ work }) => {
+        if (!cancelled) setAgentWork(work || {});
+      })
+      .catch(() => {
+        if (!cancelled) setAgentWork({});
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [task.id, task.memberId]);
+
+  useEffect(() => {
+    const handler = (data: { taskId?: string; work?: TaskWorkMap }) => {
+      if (data?.taskId === task.id && data.work) {
+        setAgentWork(data.work);
+      }
+    };
+    websocketClient.onTaskWorkUpdated(handler);
+    return () => websocketClient.offTaskWorkUpdated(handler);
+  }, [task.id]);
 
   const handleAddComment = () => {
     setShowAddCommentModal(true);
@@ -1602,7 +1680,7 @@ const TaskCard = React.memo(function TaskCard({
           task={task}
           member={member}
           members={members}
-          isDragDisabled={isDragDisabled || isAnyEditingActive || isDndGloballyDisabled()}
+          isDragDisabled={isDragDisabled || isAnyEditingActive || isDndGloballyDisabled() || isAgentWorkActive}
           showMemberSelect={showMemberSelect}
           onCopy={onCopy}
           onEdit={onEdit}
@@ -1619,6 +1697,9 @@ const TaskCard = React.memo(function TaskCard({
           onTagAdd={onTagAdd}
           columnIsFinished={columnIsFinished}
           columns={columns}
+          agentWorkStatus={agentStatus}
+          onOpenAgentActivity={() => setShowAgentWorkingModal(true)}
+          onAgentControl={handleAgentControl}
           
           // Task linking props
           isLinkingMode={isLinkingMode}
@@ -2364,6 +2445,21 @@ const TaskCard = React.memo(function TaskCard({
 
 
       {/* Add Comment Modal */}
+      {showAssignAgentModal && (
+        <AssignToAgentModal
+          onCancel={() => setShowAssignAgentModal(false)}
+          onConfirm={handleAssignAgentConfirm}
+        />
+      )}
+      {showAgentWorkingModal && (
+        <AgentWorkingModal
+          taskTitle={task.title}
+          work={agentWork}
+          busy={agentControlBusy}
+          onClose={() => setShowAgentWorkingModal(false)}
+          onControl={handleAgentControl}
+        />
+      )}
       <AddCommentModal
         isOpen={showAddCommentModal}
         taskTitle={task.title}

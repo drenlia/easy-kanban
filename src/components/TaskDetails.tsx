@@ -4,7 +4,7 @@ import { Task, TeamMember, Comment, Attachment, Tag, PriorityOption, CurrentUser
 import { X, Paperclip, ChevronDown, Check, Edit2, Plus } from 'lucide-react';
 import DOMPurify from 'dompurify';
 import TextEditor from './TextEditor';
-import { createComment, uploadFile, updateTask, deleteComment, updateComment, fetchCommentAttachments, getAllTags, getTaskTags, addTagToTask, removeTagFromTask, getAllPriorities, addWatcherToTask, removeWatcherFromTask, addCollaboratorToTask, removeCollaboratorFromTask, fetchTaskAttachments, deleteAttachment, getTaskRelationships, getAvailableTasksForRelationship, addTaskRelationship, removeTaskRelationship } from '../api';
+import { createComment, uploadFile, updateTask, deleteComment, updateComment, fetchCommentAttachments, getAllTags, getTaskTags, addTagToTask, removeTagFromTask, getAllPriorities, addWatcherToTask, removeWatcherFromTask, addCollaboratorToTask, removeCollaboratorFromTask, fetchTaskAttachments, deleteAttachment, getTaskRelationships, getAvailableTasksForRelationship, addTaskRelationship, removeTaskRelationship, putTaskWork } from '../api';
 import { useFileUpload } from '../hooks/useFileUpload';
 import { getLocalISOString, formatToYYYYMMDDHHmmss } from '../utils/dateUtils';
 import { generateUUID } from '../utils/uuid';
@@ -14,6 +14,8 @@ import { mergeTaskTagsWithLiveData, getTagDisplayStyle } from '../utils/tagUtils
 import { getAuthenticatedAttachmentUrl } from '../utils/authImageUrl';
 import { truncateMemberName } from '../utils/memberUtils';
 import AddTagModal from './AddTagModal';
+import AssignToAgentModal from './AssignToAgentModal';
+import { AGENT_MEMBER_ID } from '../constants/appConstants';
 import { feDebug } from '../utils/clientDebug';
 
 function detailsLog(...args: unknown[]) {
@@ -43,6 +45,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
     return board?.project || null;
   };
   const [isResizing, setIsResizing] = useState(false);
+  const [showAssignAgentModal, setShowAssignAgentModal] = useState(false);
   const [editedTask, setEditedTask] = useState<Task>(() => ({
     ...task,
     memberId: task.memberId || members[0]?.id || '',
@@ -382,6 +385,11 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
   const handleUpdate = async (updatedFields: Partial<Task>) => {
     if (isSubmitting) return;
 
+    if (updatedFields.memberId === AGENT_MEMBER_ID) {
+      setShowAssignAgentModal(true);
+      return;
+    }
+
     const updatedTask = { ...editedTask, ...updatedFields };
     setEditedTask(updatedTask);
 
@@ -398,6 +406,27 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
       } finally {
         setIsSubmitting(false);
       }
+    }
+  };
+
+  const handleAssignAgentConfirm = async (repoUrl: string, repoBranch: string) => {
+    const updatedTask = { ...editedTask, memberId: AGENT_MEMBER_ID };
+    setEditedTask(updatedTask);
+    setIsSubmitting(true);
+    try {
+      await onUpdate(updatedTask);
+      await putTaskWork(task.id, {
+        repoUrl,
+        repoBranch,
+        status: 'queued',
+        entries: { control: 'none' }
+      });
+      setShowAssignAgentModal(false);
+    } catch (error) {
+      console.error('Failed to assign agent:', error);
+      throw error;
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -2142,6 +2171,12 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
         <AddTagModal
           onClose={() => setShowAddTagModal(false)}
           onTagCreated={handleTagCreated}
+        />
+      )}
+      {showAssignAgentModal && (
+        <AssignToAgentModal
+          onCancel={() => setShowAssignAgentModal(false)}
+          onConfirm={handleAssignAgentConfirm}
         />
       )}
     </div>

@@ -93,6 +93,106 @@ const migrations = [
         await settingsQueries.createSetting(db, 'FE_PERF_TESTS', 'false');
       }
     }
+  },
+  {
+    version: 15,
+    name: 'add_ai_agent_platform',
+    description: 'task_work KV store, user API tokens, SSH keys, AI settings, and Agent pseudo-user',
+    up: async (db) => {
+      await dbExec(db, `
+        CREATE TABLE IF NOT EXISTS task_work (
+          task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+          key TEXT NOT NULL,
+          value TEXT,
+          updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY (task_id, key)
+        );
+        CREATE INDEX IF NOT EXISTS idx_task_work_task_id ON task_work(task_id);
+        CREATE INDEX IF NOT EXISTS idx_task_work_key_value ON task_work(key, value);
+
+        CREATE TABLE IF NOT EXISTS user_api_tokens (
+          id TEXT PRIMARY KEY,
+          user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          name TEXT NOT NULL DEFAULT 'default',
+          token_prefix TEXT NOT NULL,
+          token_hash TEXT NOT NULL,
+          created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+          last_used_at TIMESTAMPTZ,
+          revoked_at TIMESTAMPTZ
+        );
+        CREATE INDEX IF NOT EXISTS idx_user_api_tokens_user_id ON user_api_tokens(user_id);
+        CREATE INDEX IF NOT EXISTS idx_user_api_tokens_prefix ON user_api_tokens(token_prefix);
+
+        CREATE TABLE IF NOT EXISTS user_ssh_keys (
+          user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+          public_key TEXT NOT NULL,
+          private_key_encrypted TEXT NOT NULL,
+          fingerprint TEXT NOT NULL,
+          created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+        );
+      `);
+
+      const { settings: settingsQueries } = await import('../utils/sqlManager/index.js');
+      const { AI_SETTING_DEFAULTS } = await import('../constants/aiSettings.js');
+      for (const [key, value] of AI_SETTING_DEFAULTS) {
+        const existing = await settingsQueries.getSettingByKey(db, key);
+        if (!existing) {
+          await settingsQueries.createSetting(db, key, value);
+        }
+      }
+
+      const {
+        AGENT_USER_ID,
+        AGENT_MEMBER_ID,
+        AGENT_DEFAULT_NAME,
+        AGENT_DEFAULT_COLOR
+      } = await import('../constants/agentIdentity.js');
+      const crypto = await import('crypto');
+      const bcrypt = (await import('bcrypt')).default;
+
+      const existingAgent = await dbAll(
+        db.prepare('SELECT id FROM users WHERE id = $1'),
+        AGENT_USER_ID
+      );
+      if (!existingAgent.length) {
+        const passwordHash = bcrypt.hashSync(crypto.randomBytes(32).toString('hex'), 10);
+        await dbRun(
+          db.prepare(`
+            INSERT INTO users (id, email, password_hash, first_name, last_name, avatar_path, auth_provider, is_active)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+          `),
+          AGENT_USER_ID,
+          'agent@local',
+          passwordHash,
+          'AI',
+          'Agent',
+          null,
+          'local',
+          false
+        );
+
+        const roles = await dbAll(db.prepare("SELECT id FROM roles WHERE name = 'user'"));
+        if (roles.length) {
+          await dbRun(
+            db.prepare('INSERT INTO user_roles (user_id, role_id) VALUES ($1, $2) ON CONFLICT (user_id, role_id) DO NOTHING'),
+            AGENT_USER_ID,
+            roles[0].id
+          );
+        }
+
+        await dbRun(
+          db.prepare('INSERT INTO members (id, name, color, user_id) VALUES ($1, $2, $3, $4) ON CONFLICT (id) DO NOTHING'),
+          AGENT_MEMBER_ID,
+          AGENT_DEFAULT_NAME,
+          AGENT_DEFAULT_COLOR,
+          AGENT_USER_ID
+        );
+        console.log('✅ Migration 15: AI Agent account seeded');
+      }
+
+      console.log('✅ Migration 15: AI agent platform tables and settings ready');
+    }
   }
 ];
 

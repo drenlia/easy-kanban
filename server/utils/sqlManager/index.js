@@ -29,6 +29,9 @@ import * as passwordReset from './passwordReset.js';
 import * as adminUsers from './adminUsers.js';
 import * as licenseSettings from './licenseSettings.js';
 import * as notificationQueue from './notificationQueue.js';
+import * as taskWork from './taskWork.js';
+import * as userApiTokens from './userApiTokens.js';
+import * as userSshKeys from './userSshKeys.js';
 
 // Export all domain managers
 export const sqlManager = {
@@ -51,11 +54,14 @@ export const sqlManager = {
   passwordReset,
   adminUsers,
   licenseSettings,
-  notificationQueue
+  notificationQueue,
+  taskWork,
+  userApiTokens,
+  userSshKeys
 };
 
 // Also export individual domains for convenience
-export { tasks, helpers, boards, comments, priorities, sprints, users, reports, settings, files, activity, health, members, auth, tags, views, passwordReset, adminUsers, licenseSettings, notificationQueue };
+export { tasks, helpers, boards, comments, priorities, sprints, users, reports, settings, files, activity, health, members, auth, tags, views, passwordReset, adminUsers, licenseSettings, notificationQueue, taskWork, userApiTokens, userSshKeys };
 // export { users };
 // etc.
 
