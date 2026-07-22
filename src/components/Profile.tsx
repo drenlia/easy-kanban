@@ -6,6 +6,7 @@ import { loadUserPreferences, loadUserPreferencesAsync, updateUserPreference } f
 import api from '../api';
 import { getAuthenticatedAvatarUrl } from '../utils/authImageUrl';
 import { useSettings } from '../contexts/SettingsContext';
+import ProfileDevTab from './profile/ProfileDevTab';
 
 interface ProfileProps {
   isOpen: boolean;
@@ -20,8 +21,9 @@ interface ProfileProps {
 
 export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated, isProfileBeingEdited, onProfileEditingChange, onActivityFeedToggle, onAccountDeleted }: ProfileProps) {
   const { t } = useTranslation('common');
-  const { systemSettings: contextSystemSettings } = useSettings(); // Use SettingsContext instead of fetching
-  const [activeTab, setActiveTab] = useState<'profile' | 'app-settings' | 'notifications'>('profile');
+  const { systemSettings: contextSystemSettings, siteSettings } = useSettings(); // Use SettingsContext instead of fetching
+  const aiEnabled = siteSettings?.AI_ENABLED === 'true' || contextSystemSettings?.AI_ENABLED === 'true';
+  const [activeTab, setActiveTab] = useState<'profile' | 'app-settings' | 'notifications' | 'dev'>('profile');
   const [displayName, setDisplayName] = useState(currentUser?.firstName + ' ' + currentUser?.lastName || '');
   const [systemSettings, setSystemSettings] = useState<{ TASK_DELETE_CONFIRM?: string; SHOW_ACTIVITY_FEED?: string; MAIL_ENABLED?: string }>({});
   const [userSettings, setUserSettings] = useState<{ showActivityFeed?: boolean }>({});
@@ -97,6 +99,13 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
       onProfileEditingChange(false); // Reset editing state when modal opens
     }
   }, [isOpen, onProfileEditingChange]); // Removed currentUser dependency to prevent resets during editing
+
+  // Leave Dev tab if AI is turned off while modal is open
+  useEffect(() => {
+    if (!aiEnabled && activeTab === 'dev') {
+      setActiveTab('profile');
+    }
+  }, [aiEnabled, activeTab]);
 
   // Monitor for changes to display name or avatar to set editing state
   useEffect(() => {
@@ -417,6 +426,18 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
               >
                 {t('profile.notifications')}
               </button>
+              {aiEnabled && (
+                <button
+                  onClick={() => setActiveTab('dev')}
+                  className={`py-2 px-1 border-b-2 font-medium text-sm ${
+                    activeTab === 'dev'
+                      ? 'border-blue-500 text-blue-600'
+                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  }`}
+                >
+                  {t('profile.dev')}
+                </button>
+              )}
             </nav>
           </div>
 
@@ -957,6 +978,12 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
                   {t('profile.changesSavedAutomatically')}
                 </div>
               </div>
+            </div>
+          )}
+
+          {activeTab === 'dev' && aiEnabled && (
+            <div className="space-y-6">
+              <ProfileDevTab />
             </div>
           )}
         </div>

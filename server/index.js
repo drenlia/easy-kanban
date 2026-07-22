@@ -65,6 +65,9 @@ import settingsRouter from './routes/settings.js';
 // import adminSystemRouter from './routes/adminSystem.js';
 // import adminNotificationQueueRouter from './routes/adminNotificationQueue.js';
 import taskRelationsRouter from './routes/taskRelations.js';
+import taskWorkRouter from './routes/taskWork.js';
+import agentRouter from './routes/agent.js';
+import userDevRouter from './routes/userDev.js';
 import activityRouter from './routes/activity.js';
 import testNotificationsRouter from './routes/testNotifications.js';
 
@@ -416,7 +419,10 @@ app.use('/api/admin/settings', settingsRouter);
 app.use('/api/storage', settingsRouter);
 app.use('/api/admin', lazyRouteLoader('./routes/adminSystem.js'));
 app.use('/api/admin/notification-queue', lazyRouteLoader('./routes/adminNotificationQueue.js'));
+app.use('/api/tasks', taskWorkRouter); // task_work KV + control (before param-heavy routers where possible)
 app.use('/api/tasks', taskRelationsRouter);
+app.use('/api/agent', agentRouter);
+app.use('/api/user/dev', userDevRouter);
 app.use('/api/activity', activityRouter);
 app.use('/api/user', activityRouter);
 app.use('/api/user', usersRouter); // User settings routes
