@@ -1128,7 +1128,13 @@ export const getTaskWork = async (taskId: string): Promise<{ work: TaskWorkMap }
 
 export const putTaskWork = async (
   taskId: string,
-  body: { repoUrl?: string; repoBranch?: string; status?: string; entries?: TaskWorkMap }
+  body: {
+    repoUrl?: string;
+    repoBranch?: string;
+    status?: string;
+    llmModel?: string;
+    entries?: TaskWorkMap;
+  }
 ): Promise<{ work: TaskWorkMap }> => {
   const { data } = await api.put(`/tasks/${taskId}/work`, body);
   return data;
@@ -1199,6 +1205,70 @@ export const downloadUserSshPrivateKey = async (): Promise<{
   fingerprint: string;
 }> => {
   const { data } = await api.get('/user/dev/ssh-key/private');
+  return data;
+};
+
+export interface UserGithubTokenMeta {
+  hint: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export const getUserGithubToken = async (): Promise<{
+  configured: boolean;
+  token: UserGithubTokenMeta | null;
+}> => {
+  const { data } = await api.get('/user/dev/github-token');
+  return data;
+};
+
+export const saveUserGithubToken = async (
+  token: string
+): Promise<{ configured: boolean; token: UserGithubTokenMeta }> => {
+  const { data } = await api.put('/user/dev/github-token', { token });
+  return data;
+};
+
+export const deleteUserGithubToken = async (): Promise<void> => {
+  await api.delete('/user/dev/github-token');
+};
+
+export interface GithubRepoProbeResult {
+  ok: boolean;
+  reason?: string;
+  authMethod?: 'pat';
+  defaultBranch?: string;
+  branches?: string[];
+  error?: string;
+  httpStatus?: number;
+}
+
+export const probeGithubRepo = async (
+  repoUrl: string
+): Promise<GithubRepoProbeResult> => {
+  const { data } = await api.post('/user/dev/github-repo-probe', { repoUrl });
+  return data;
+};
+
+export interface AiModelOption {
+  id: string;
+  name?: string;
+}
+
+/** List models from the tenant's configured AI provider (admin only). */
+export const listAdminAiModels = async (): Promise<{
+  ok: boolean;
+  models?: AiModelOption[];
+  error?: string;
+  provider?: string;
+}> => {
+  const { data } = await api.post('/admin/settings/ai/models', {});
+  return data;
+};
+
+/** Tenant default model name (authenticated; no API key). */
+export const getAgentLlmInfo = async (): Promise<{ tenantModel: string }> => {
+  const { data } = await api.get('/user/dev/agent-llm');
   return data;
 };
 

@@ -297,6 +297,8 @@
     "title": "Task Flow Chart",
     "building": "Building task flow chart...",
     "noRelatedTasks": "No related tasks found. This task has no parent or child relationships.",
+    "soloTitle": "No related tasks yet",
+    "soloDescription": "Link a parent or child from Task Association to see the flow here.",
     "filterByStatus": "Filter by Status",
     "clearAll": "Clear All",
     "zoomOut": "Zoom out",

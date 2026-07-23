@@ -22,12 +22,29 @@ export const AGENT_WORK_STATUSES = {
 
 export type AgentWorkStatus = (typeof AGENT_WORK_STATUSES)[keyof typeof AGENT_WORK_STATUSES];
 
-/** Statuses that show spinner / disable drag on the card */
+/** Statuses that show spinner / disable drag on the card (active work) */
 export const AGENT_ACTIVE_WORK_STATUSES: readonly AgentWorkStatus[] = [
   'queued',
   'running',
   'paused',
   'waiting'
+];
+
+/** Statuses where the card should not be dragged (in-flight agent work) */
+export const AGENT_DRAG_BLOCKING_STATUSES: readonly AgentWorkStatus[] = [
+  'queued',
+  'running',
+  'paused',
+  'waiting'
+];
+
+/** Statuses that can be resumed / restarted from the card menu */
+export const AGENT_RESUMABLE_STATUSES: readonly AgentWorkStatus[] = [
+  'paused',
+  'waiting',
+  'stopped',
+  'failed',
+  'done'
 ];
 
 // WebSocket throttle duration in milliseconds

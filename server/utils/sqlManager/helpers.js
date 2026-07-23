@@ -383,9 +383,15 @@ export async function getAttachmentsForComments(db, commentIds) {
  */
 export async function getCommentsForTask(db, taskId) {
   const query = `
-    SELECT c.*, 
-           m.name as authorName,
-           m.color as authorColor
+    SELECT 
+      c.id,
+      c.taskid as "taskId",
+      c.text,
+      c.authorid as "authorId",
+      c.createdat as "createdAt",
+      c.updated_at as "updatedAt",
+      m.name as "authorName",
+      m.color as "authorColor"
     FROM comments c
     LEFT JOIN members m ON c.authorid = m.id
     WHERE c.taskid = $1

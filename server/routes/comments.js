@@ -81,7 +81,12 @@ router.post('/', authenticateToken, async (req, res) => {
       comment.id,
       comment.taskId,
       `added comment: "${comment.text.length > 50 ? comment.text.substring(0, 50) + '...' : comment.text}"`,
-      { commentContent: comment.text, db: db, tenantId: getTenantId(req) }
+      {
+        commentContent: comment.text,
+        db: db,
+        tenantId: getTenantId(req),
+        authType: req.user?.authType
+      }
     );
     
     // Log to reporting system
@@ -182,7 +187,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
       id,
       originalComment.taskId,
       `updated comment from: "${originalComment.text.length > 30 ? originalComment.text.substring(0, 30) + '...' : originalComment.text}" to: "${text.length > 30 ? text.substring(0, 30) + '...' : text}"`,
-      { db: db, tenantId: getTenantId(req) }
+      { db: db, tenantId: getTenantId(req), authType: req.user?.authType }
     );
     
     // MIGRATED: Get the task's board ID using sqlManager
@@ -285,7 +290,7 @@ router.delete('/:id', authenticateToken, async (req, res) => {
       id,
       commentToDelete.taskId,
       `deleted comment: "${commentToDelete.text.length > 50 ? commentToDelete.text.substring(0, 50) + '...' : commentToDelete.text}"`,
-      { db: db, tenantId: getTenantId(req) }
+      { db: db, tenantId: getTenantId(req), authType: req.user?.authType }
     );
 
     // MIGRATED: Get the task's board ID using sqlManager

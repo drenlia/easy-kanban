@@ -13,6 +13,7 @@ import { mergeTaskTagsWithLiveData, getTagDisplayStyle } from '../utils/tagUtils
 import { getAuthenticatedAvatarUrl, getAuthenticatedAttachmentUrl } from '../utils/authImageUrl';
 import { getLinkTarget, shouldOpenLinkInNewTab } from '../utils/linkUtils';
 import { truncateMemberName } from '../utils/memberUtils';
+import { commentTextToHtml } from '../utils/commentContent';
 import ExportMenu from './ExportMenu';
 import TextEditor from './TextEditor';
 import AddTagModal from './AddTagModal';
@@ -2211,7 +2212,7 @@ export default function ListView({
                       // Function to render HTML content with safe link handling and blob URL fixing
                       const renderCommentHTML = (htmlText: string) => {
                         // First, fix blob URLs by replacing them with authenticated server URLs
-                        let fixedContent = htmlText;
+                        let fixedContent = commentTextToHtml(htmlText);
                         const blobPattern = /blob:[^"]*#(img-[^"]*)/g;
                         fixedContent = fixedContent.replace(blobPattern, (_match, filename) => {
                           // Convert blob URL to authenticated server URL
@@ -2273,7 +2274,7 @@ export default function ListView({
                               <Paperclip size={12} className="text-gray-400" title={`${comment.attachments.length} attachment(s)`} />
                             )}
                           </div>
-                          <div className="text-gray-300 text-xs leading-relaxed select-text">
+                          <div className="text-gray-300 text-xs leading-relaxed select-text comment-md">
                             <div dangerouslySetInnerHTML={renderCommentHTML(comment.text)} />
                           </div>
                         </div>

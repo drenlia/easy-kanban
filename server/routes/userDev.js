@@ -10,17 +10,37 @@ import { getRequestDatabase } from '../middleware/tenantRouting.js';
 import { requireAiEnabledMiddleware } from '../utils/aiEnabled.js';
 import {
   userApiTokens as tokenQueries,
-  userSshKeys as sshQueries
+  userSshKeys as sshQueries,
+  userGithubTokens as githubTokenQueries,
+  settings as settingsQueries
 } from '../utils/sqlManager/index.js';
 import {
   generateEd25519SshKeyPair,
   encryptSecret,
   decryptSecret
 } from '../utils/sshKeyCrypto.js';
-import { tokenMintLimiter } from '../middleware/rateLimiters.js';
+import { tokenMintLimiter, githubRepoProbeLimiter } from '../middleware/rateLimiters.js';
+import { maskApiKey, isMaskedOrEmptyApiKey } from '../utils/maskSecret.js';
+import { probeGithubRepoWithPat } from '../utils/githubRepoProbe.js';
 
 const router = express.Router();
 const requireAi = requireAiEnabledMiddleware(getRequestDatabase);
+
+/**
+ * Tenant LLM model name for display (no secrets).
+ * Used so non-admins can see which model a task will use (read-only in the UI).
+ */
+router.get('/agent-llm', authenticateToken, requireAi, async (req, res) => {
+  try {
+    const db = getRequestDatabase(req);
+    const row = await settingsQueries.getSettingByKey(db, 'AI_MODEL');
+    const tenantModel = String(row?.value || '').trim();
+    res.json({ tenantModel });
+  } catch (error) {
+    console.error('Get agent LLM info error:', error);
+    res.status(500).json({ error: 'Failed to load agent LLM info' });
+  }
+});
 
 function serializeToken(row) {
   return {
@@ -156,5 +176,121 @@ router.get('/ssh-key/private', authenticateToken, requireAi, async (req, res) =>
     res.status(500).json({ error: 'Failed to download private key' });
   }
 });
+
+// GitHub PAT metadata (never returns raw token)
+router.get('/github-token', authenticateToken, requireAi, async (req, res) => {
+  try {
+    const db = getRequestDatabase(req);
+    const row = await githubTokenQueries.getGithubTokenMeta(db, req.user.id);
+    if (!row) {
+      return res.json({ configured: false, token: null });
+    }
+    res.json({
+      configured: true,
+      token: {
+        hint: row.token_hint || '',
+        createdAt: row.created_at,
+        updatedAt: row.updated_at
+      }
+    });
+  } catch (error) {
+    console.error('Get GitHub token error:', error);
+    res.status(500).json({ error: 'Failed to get GitHub token' });
+  }
+});
+
+// Save / replace GitHub PAT
+router.put('/github-token', authenticateToken, requireAi, tokenMintLimiter, async (req, res) => {
+  try {
+    const db = getRequestDatabase(req);
+    const raw = String(req.body?.token || '').trim();
+    const existing = await githubTokenQueries.getGithubTokenMeta(db, req.user.id);
+    if (isMaskedOrEmptyApiKey(raw, existing?.token_hint || '')) {
+      return res.status(400).json({ error: 'Provide a new GitHub personal access token' });
+    }
+    if (raw.length < 20 || raw.length > 255) {
+      return res.status(400).json({ error: 'Invalid token length' });
+    }
+    const hint = maskApiKey(raw);
+    const row = await githubTokenQueries.upsertGithubToken(db, {
+      userId: req.user.id,
+      tokenEncrypted: encryptSecret(raw),
+      tokenHint: hint
+    });
+    res.json({
+      configured: true,
+      token: {
+        hint: row.token_hint || hint,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at
+      }
+    });
+  } catch (error) {
+    console.error('Save GitHub token error:', error);
+    res.status(500).json({ error: 'Failed to save GitHub token' });
+  }
+});
+
+// Delete GitHub PAT
+router.delete('/github-token', authenticateToken, requireAi, async (req, res) => {
+  try {
+    const db = getRequestDatabase(req);
+    await githubTokenQueries.deleteGithubToken(db, req.user.id);
+    res.json({ success: true, configured: false });
+  } catch (error) {
+    console.error('Delete GitHub token error:', error);
+    res.status(500).json({ error: 'Failed to delete GitHub token' });
+  }
+});
+
+/**
+ * Probe GitHub repo access with the current user's PAT (no runner).
+ * Body: { repoUrl: string }
+ * Used for Connected/Failed badge + branch suggestions in assign/config UI.
+ */
+router.post(
+  '/github-repo-probe',
+  authenticateToken,
+  requireAi,
+  githubRepoProbeLimiter,
+  async (req, res) => {
+    try {
+      const db = getRequestDatabase(req);
+      const repoUrl = String(req.body?.repoUrl || '').trim();
+      if (!repoUrl) {
+        return res.status(400).json({
+          ok: false,
+          reason: 'invalid_url',
+          error: 'Repository URL is required'
+        });
+      }
+
+      let githubToken = '';
+      const patRow = await githubTokenQueries.getGithubTokenEncrypted(db, req.user.id);
+      if (patRow?.token_encrypted) {
+        try {
+          githubToken = decryptSecret(patRow.token_encrypted);
+        } catch (e) {
+          console.error('Decrypt GitHub PAT for probe failed:', e);
+          return res.status(500).json({
+            ok: false,
+            reason: 'decrypt_error',
+            error: 'Failed to read GitHub token'
+          });
+        }
+      }
+
+      const result = await probeGithubRepoWithPat(githubToken, repoUrl);
+      res.json(result);
+    } catch (error) {
+      console.error('GitHub repo probe error:', error);
+      res.status(500).json({
+        ok: false,
+        reason: 'server_error',
+        error: 'Failed to probe repository'
+      });
+    }
+  }
+);
 
 export default router;

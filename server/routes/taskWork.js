@@ -13,6 +13,8 @@ import {
 } from '../utils/sqlManager/index.js';
 import { AGENT_MEMBER_ID } from '../constants/agentIdentity.js';
 import notificationService from '../services/notificationService.js';
+import { tryLaunchQueuedTasks } from '../services/agentJobDispatcher.js';
+import { cancelJob } from '../services/agentRunnerClient.js';
 
 const router = express.Router();
 
@@ -29,6 +31,12 @@ async function publishWork(req, taskId, work) {
     },
     getTenantId(req)
   );
+}
+
+function dispatchCtx(req) {
+  const proto = (req.get('x-forwarded-proto') || req.protocol || 'http').split(',')[0].trim();
+  const host = (req.get('x-forwarded-host') || req.get('host') || '').split(',')[0].trim();
+  return { reqHost: host, reqProtocol: proto };
 }
 
 router.get('/:taskId/work', authenticateToken, async (req, res) => {
@@ -58,13 +66,15 @@ router.put('/:taskId/work', authenticateToken, async (req, res) => {
       return res.status(404).json({ error: 'Task not found' });
     }
 
+    const existing = await taskWorkQueries.getWorkMapByTaskId(db, req.params.taskId);
+    const isAdmin =
+      req.user?.role === 'admin' ||
+      (Array.isArray(req.user?.roles) && req.user.roles.includes('admin'));
+
     const entries = {};
     if (req.body?.repoUrl !== undefined) {
-      const url = String(req.body.repoUrl).trim();
-      if (!url) {
-        return res.status(400).json({ error: 'repoUrl is required' });
-      }
-      entries.repo_url = url;
+      // Empty string = assist-only (no code repo)
+      entries.repo_url = String(req.body.repoUrl).trim();
     }
     if (req.body?.repoBranch !== undefined) {
       entries.repo_branch = String(req.body.repoBranch || '').trim();
@@ -76,19 +86,98 @@ router.put('/:taskId/work', authenticateToken, async (req, res) => {
       Object.assign(entries, req.body.entries);
     }
 
-    // Convenience: assigning agent work defaults
-    if (entries.repo_url && !entries.status) {
-      entries.status = 'queued';
+    // Per-task LLM model override — admins only (strip if sneaked via entries)
+    if (!isAdmin) {
+      delete entries.llm_model;
+    } else if (req.body?.llmModel !== undefined) {
+      entries.llm_model = String(req.body.llmModel || '').trim();
+    }
+
+    // Only auto-queue when status is explicitly queued (initial assign).
+    // Repo-only config updates must not relaunch the agent.
+    if (entries.status === 'queued' && entries.control === undefined) {
       entries.control = 'none';
+    }
+
+    // Hard stop: cannot queue agent work without a real description
+    if (entries.status === 'queued') {
+      const plain = String(task.description || '')
+        .replace(/<br\s*\/?>/gi, ' ')
+        .replace(/<\/p>/gi, ' ')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/&nbsp;/gi, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+      if (!plain) {
+        return res.status(400).json({
+          error: 'Task description is required before assigning the agent'
+        });
+      }
+    }
+
+    // Bind coding credentials to the assigning user (not admin/global PAT)
+    if (entries.status === 'queued' && req.user?.id) {
+      if (req.body?.repoUrl !== undefined) {
+        // Fresh assign from modal — owner is the current user
+        entries.agent_owner_user_id = req.user.id;
+      } else if (!existing.agent_owner_user_id) {
+        entries.agent_owner_user_id = req.user.id;
+      }
+    }
+
+    // Clear stale PR/branch outcomes when the linked repo changes
+    const repoChanged =
+      entries.repo_url !== undefined && entries.repo_url !== (existing.repo_url || '');
+    if (repoChanged) {
+      entries.pr_url = '';
+      entries.agent_branch = '';
     }
 
     if (!Object.keys(entries).length) {
       return res.status(400).json({ error: 'No work entries provided' });
     }
 
+    const isConfigOnly =
+      entries.status === undefined &&
+      (entries.repo_url !== undefined ||
+        entries.repo_branch !== undefined ||
+        entries.llm_model !== undefined);
+
     await taskWorkQueries.upsertWorkEntries(db, req.params.taskId, entries);
-    const work = await taskWorkQueries.getWorkMapByTaskId(db, req.params.taskId);
+
+    if (isConfigOnly) {
+      const repoLabel = entries.repo_url !== undefined
+        ? (entries.repo_url || '(assist / no repo)')
+        : existing.repo_url || '(unchanged)';
+      const branchLabel =
+        entries.repo_branch !== undefined
+          ? entries.repo_branch || '(default)'
+          : existing.repo_branch || '(unchanged)';
+      const modelLabel =
+        entries.llm_model !== undefined
+          ? entries.llm_model || '(tenant default)'
+          : existing.llm_model || '(unchanged)';
+      await taskWorkQueries.appendWorkLog(
+        db,
+        req.params.taskId,
+        `[${new Date().toISOString()}] User updated agent configuration: ${repoLabel} @ ${branchLabel}; model=${modelLabel}`
+      );
+    }
+
+    let work = await taskWorkQueries.getWorkMapByTaskId(db, req.params.taskId);
     await publishWork(req, req.params.taskId, work);
+
+    // Push-launch when newly queued
+    if (work.status === 'queued') {
+      const tenantId = getTenantId(req);
+      try {
+        await tryLaunchQueuedTasks(db, tenantId, dispatchCtx(req));
+        work = await taskWorkQueries.getWorkMapByTaskId(db, req.params.taskId);
+      } catch (e) {
+        console.error('Agent dispatch after assign failed:', e);
+      }
+    }
+
     res.json({ work });
   } catch (error) {
     console.error('Put task work error:', error);
@@ -126,11 +215,12 @@ router.put('/:taskId/work/control', authenticateToken, async (req, res) => {
     const updates = { control };
 
     if (control === 'resume') {
-      // Re-queue so the runner can claim again (covers waiting / paused / stopped)
       updates.status = 'queued';
       updates.control = 'resume';
+      if (!workBefore.agent_owner_user_id && req.user?.id) {
+        updates.agent_owner_user_id = req.user.id;
+      }
     } else if (control === 'stop') {
-      // Cooperative stop: set control; also set status stopped immediately for UI
       updates.status = 'stopped';
       updates.control = 'stop';
     } else if (control === 'pause') {
@@ -147,8 +237,34 @@ router.put('/:taskId/work/control', authenticateToken, async (req, res) => {
       `[${new Date().toISOString()}] User control: ${control}`
     );
 
-    const work = await taskWorkQueries.getWorkMapByTaskId(db, req.params.taskId);
+    // Cancel remote job on pause/stop
+    if (
+      (control === 'pause' || control === 'stop') &&
+      workBefore.runner_job_id
+    ) {
+      const cancel = await cancelJob(db, workBefore.runner_job_id, control);
+      if (!cancel.ok && !cancel.missing) {
+        await taskWorkQueries.appendWorkLog(
+          db,
+          req.params.taskId,
+          `[${new Date().toISOString()}] Runner cancel warning: ${cancel.error}`
+        );
+      }
+    }
+
+    let work = await taskWorkQueries.getWorkMapByTaskId(db, req.params.taskId);
     await publishWork(req, req.params.taskId, work);
+
+    if (control === 'resume') {
+      const tenantId = getTenantId(req);
+      try {
+        await tryLaunchQueuedTasks(db, tenantId, dispatchCtx(req));
+        work = await taskWorkQueries.getWorkMapByTaskId(db, req.params.taskId);
+      } catch (e) {
+        console.error('Agent dispatch after resume failed:', e);
+      }
+    }
+
     res.json({ work });
   } catch (error) {
     console.error('Task work control error:', error);

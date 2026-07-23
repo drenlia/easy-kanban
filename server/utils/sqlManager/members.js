@@ -82,6 +82,42 @@ export async function checkMemberNameExists(db, name) {
 }
 
 /**
+ * Get a member by id (with optional user join fields for WS payloads)
+ *
+ * @param {Database} db
+ * @param {string} id
+ * @returns {Promise<object|null>}
+ */
+export async function getMemberById(db, id) {
+  const query = `
+    SELECT 
+      m.id, 
+      m.name, 
+      m.color, 
+      m.user_id as "userId", 
+      m.created_at as "createdAt",
+      u.avatar_path as "avatarPath", 
+      u.auth_provider as "authProvider", 
+      u.google_avatar_url as "googleAvatarUrl"
+    FROM members m
+    LEFT JOIN users u ON m.user_id = u.id
+    WHERE m.id = $1
+  `;
+  const stmt = wrapQuery(db.prepare(query), 'SELECT');
+  const member = await stmt.get(id);
+  if (!member) return null;
+  return {
+    id: member.id,
+    name: member.name,
+    color: member.color,
+    user_id: member.userId,
+    avatarUrl: member.avatarPath,
+    authProvider: member.authProvider,
+    googleAvatarUrl: member.googleAvatarUrl
+  };
+}
+
+/**
  * Create a new member
  * 
  * @param {Database} db - Database connection

@@ -223,7 +223,7 @@ class LicenseManager {
           FROM boards b
           LEFT JOIN tasks t ON b.id = t.boardid
           GROUP BY b.id, b.title
-          ORDER BY taskCount DESC, b.title ASC
+          ORDER BY "taskCount" DESC, b.title ASC
         `),
         'SELECT'
       ).all();

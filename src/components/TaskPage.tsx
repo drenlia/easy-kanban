@@ -14,8 +14,10 @@ import ModalManager from './layout/ModalManager';
 import Header from './layout/Header';
 import TaskFlowChart from './TaskFlowChart';
 import DOMPurify from 'dompurify';
-import { getAuthenticatedAttachmentUrl } from '../utils/authImageUrl';
+import { getAuthenticatedAttachmentUrl, getAuthenticatedAvatarUrl } from '../utils/authImageUrl';
+import { commentTextToHtml } from '../utils/commentContent';
 import { feDebug } from '../utils/clientDebug';
+import { AGENT_MEMBER_ID, SYSTEM_MEMBER_ID } from '../constants/appConstants';
 
 function pageLog(...args: unknown[]) {
   if (feDebug('FE_DEBUG_TASK_PAGE')) console.log(...args);
@@ -1023,8 +1025,8 @@ export default function TaskPage({
             )}
 
             {/* Comments */}
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6">
-              <h3 className="text-sm font-medium text-gray-700 mb-4 flex items-center">
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6 border border-transparent dark:border-gray-700">
+              <h3 className="text-sm font-medium text-gray-700 dark:text-gray-200 mb-4 flex items-center">
                 <Users className="h-4 w-4 mr-2" />
                 {t('taskPage.comments', { count: (editedTask.comments || []).filter(comment => 
                   comment && 
@@ -1088,17 +1090,31 @@ export default function TaskPage({
                   const author = members.find(m => m.id === comment.authorId);
                   
                   return (
-                    <div key={comment.id} className="border border-gray-200 rounded-md p-4">
+                    <div key={comment.id} className="border border-gray-200 dark:border-gray-600 rounded-md p-4 bg-white dark:bg-gray-900/40">
                       <div className="flex items-start justify-between mb-2">
                         <div className="flex items-center space-x-2">
-                          <div 
-                            className="h-6 w-6 rounded-full flex items-center justify-center text-xs font-medium text-white"
-                            style={{ backgroundColor: author?.color || '#6b7280' }}
-                          >
-                            {author?.name?.[0] || 'U'}
-                          </div>
-                          <span className="text-sm font-medium text-gray-900">{author?.name || 'Unknown'}</span>
-                          <span className="text-xs text-gray-500">
+                          {author?.googleAvatarUrl || author?.avatarUrl ? (
+                            <img
+                              src={getAuthenticatedAvatarUrl(
+                                author.googleAvatarUrl || author.avatarUrl
+                              )}
+                              alt={author?.name || ''}
+                              className="h-6 w-6 rounded-full object-cover shrink-0"
+                            />
+                          ) : (
+                            <div
+                              className="h-6 w-6 rounded-full flex items-center justify-center text-xs font-medium text-white shrink-0"
+                              style={{ backgroundColor: author?.color || '#6b7280' }}
+                            >
+                              {author?.id === SYSTEM_MEMBER_ID
+                                ? '🤖'
+                                : author?.id === AGENT_MEMBER_ID
+                                  ? '✨'
+                                  : author?.name?.[0]?.toUpperCase() || 'U'}
+                            </div>
+                          )}
+                          <span className="text-sm font-medium text-gray-900 dark:text-gray-100">{author?.name || 'Unknown'}</span>
+                          <span className="text-xs text-gray-500 dark:text-gray-400">
                             {new Date(comment.createdAt).toLocaleDateString()} {new Date(comment.createdAt).toLocaleTimeString()}
                           </span>
                         </div>
@@ -1106,14 +1122,14 @@ export default function TaskPage({
                           <div className="flex items-center gap-1">
                             <button
                               onClick={() => handleEditComment(comment)}
-                              className="p-1 text-gray-400 hover:text-blue-500 hover:bg-gray-100 rounded-full transition-colors"
+                              className="p-1 text-gray-400 hover:text-blue-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-colors"
                               title={t('taskPage.editComment')}
                             >
                               <Edit2 size={14} />
                             </button>
                             <button
                               onClick={() => handleDeleteCommentClick(comment.id)}
-                              className="p-1 text-gray-400 hover:text-red-500 hover:bg-gray-100 rounded-full transition-colors"
+                              className="p-1 text-gray-400 hover:text-red-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-colors"
                               title={t('taskPage.deleteComment')}
                             >
                               <X size={14} />
@@ -1152,13 +1168,13 @@ export default function TaskPage({
                       ) : (
                         <>
                           <div 
-                            className="text-sm text-gray-700 prose prose-sm max-w-none"
+                            className="text-sm text-gray-700 dark:text-gray-200 prose prose-sm dark:prose-invert max-w-none"
                             dangerouslySetInnerHTML={{ 
                               __html: DOMPurify.sanitize(
                                 (() => {
                                   // Fix blob URLs in comment text by replacing them with server URLs (matching TaskDetails)
                                   const attachments = commentAttachments[comment.id] || [];
-                                  let fixedContent = comment.text;
+                                  let fixedContent = commentTextToHtml(comment.text);
                                   
                                   attachments.forEach(attachment => {
                                     if (attachment.name.startsWith('img-')) {
@@ -1209,7 +1225,7 @@ export default function TaskPage({
                 })}
                 
                 {(!editedTask.comments || editedTask.comments.length === 0) && (
-                  <p className="text-sm text-gray-500 text-center py-4">{t('taskPage.noComments')}</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-4">{t('taskPage.noComments')}</p>
                 )}
               </div>
             </div>
@@ -1220,7 +1236,7 @@ export default function TaskPage({
                 className={`p-6 cursor-pointer flex items-center justify-between ${collapsedSections.taskFlow ? 'pb-3' : 'pb-0'}`}
                 onClick={() => toggleSection('taskFlow')}
               >
-                <h3 className="text-sm font-medium text-gray-700 flex items-center">
+                <h3 className="text-sm font-medium text-gray-700 dark:text-gray-200 flex items-center">
                   <GitBranch className="h-4 w-4 mr-2" />
                   {t('taskPage.taskFlowChart')}
                 </h3>
@@ -1250,7 +1266,7 @@ export default function TaskPage({
                 className={`p-6 cursor-pointer flex items-center justify-between ${collapsedSections.assignment ? 'pb-3' : 'pb-0'}`}
                 onClick={() => toggleSection('assignment')}
               >
-                <h3 className="text-sm font-medium text-gray-700 flex items-center">
+                <h3 className="text-sm font-medium text-gray-700 dark:text-gray-200 flex items-center">
                   <User className="h-4 w-4 mr-2" />
                   {t('taskPage.assignment')}
                 </h3>
@@ -1407,7 +1423,7 @@ export default function TaskPage({
                 className={`p-6 cursor-pointer flex items-center justify-between ${collapsedSections.schedule ? 'pb-3' : 'pb-0'}`}
                 onClick={() => toggleSection('schedule')}
               >
-                <h3 className="text-sm font-medium text-gray-700 flex items-center">
+                <h3 className="text-sm font-medium text-gray-700 dark:text-gray-200 flex items-center">
                   <Calendar className="h-4 w-4 mr-2" />
                   {t('taskPage.scheduleAndPriority')}
                 </h3>
@@ -1492,7 +1508,7 @@ export default function TaskPage({
                 className={`p-6 cursor-pointer flex items-center justify-between ${collapsedSections.tags ? 'pb-3' : 'pb-0'}`}
                 onClick={() => toggleSection('tags')}
               >
-                <h3 className="text-sm font-medium text-gray-700 flex items-center">
+                <h3 className="text-sm font-medium text-gray-700 dark:text-gray-200 flex items-center">
                   <Tag className="h-4 w-4 mr-2" />
                   {t('labels.tags')}
                 </h3>
@@ -1570,7 +1586,7 @@ export default function TaskPage({
                 className={`p-6 cursor-pointer flex items-center justify-between ${collapsedSections.associations ? 'pb-3' : 'pb-0'}`}
                 onClick={() => toggleSection('associations')}
               >
-                <h3 className="text-sm font-medium text-gray-700 flex items-center">
+                <h3 className="text-sm font-medium text-gray-700 dark:text-gray-200 flex items-center">
                   <Users className="h-4 w-4 mr-2" />
                   {t('taskPage.taskAssociation')}
                 </h3>
@@ -1714,41 +1730,41 @@ export default function TaskPage({
                 className={`p-6 cursor-pointer flex items-center justify-between ${collapsedSections.taskInfo ? 'pb-3' : 'pb-0'}`}
                 onClick={() => toggleSection('taskInfo')}
               >
-                <h3 className="text-sm font-medium text-gray-700">{t('taskPage.taskInformation')}</h3>
+                <h3 className="text-sm font-medium text-gray-700 dark:text-gray-200">{t('taskPage.taskInformation')}</h3>
                 {collapsedSections.taskInfo ? (
-                  <ChevronDown className="h-4 w-4 text-gray-400 hover:text-gray-600" />
+                  <ChevronDown className="h-4 w-4 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200" />
                 ) : (
-                  <ChevronUp className="h-4 w-4 text-gray-400 hover:text-gray-600" />
+                  <ChevronUp className="h-4 w-4 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200" />
                 )}
               </div>
               {!collapsedSections.taskInfo && (
                 <div className="px-6 pb-6">
               <div className="space-y-2 text-sm">
                 <div className="flex justify-between">
-                  <span className="text-gray-600">{t('taskPage.taskId')}:</span>
-                  <span className="font-mono text-gray-900">{taskId}</span>
+                  <span className="text-gray-600 dark:text-gray-400">{t('taskPage.taskId')}:</span>
+                  <span className="font-mono text-gray-900 dark:text-gray-100">{taskId}</span>
                 </div>
                 {getProjectIdentifier() && (
                   <div className="flex justify-between">
-                    <span className="text-gray-600">{t('taskPage.project')}:</span>
-                    <span className="font-mono text-gray-900">{getProjectIdentifier()}</span>
+                    <span className="text-gray-600 dark:text-gray-400">{t('taskPage.project')}:</span>
+                    <span className="font-mono text-gray-900 dark:text-gray-100">{getProjectIdentifier()}</span>
                   </div>
                 )}
                 <div className="flex justify-between">
-                  <span className="text-gray-600">{t('taskPage.status')}:</span>
-                  <span className="capitalize text-gray-900">{editedTask.status || t('taskPage.unknown')}</span>
+                  <span className="text-gray-600 dark:text-gray-400">{t('taskPage.status')}:</span>
+                  <span className="capitalize text-gray-900 dark:text-gray-100">{editedTask.status || t('taskPage.unknown')}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-gray-600">{t('labels.created')}:</span>
-                  <span className="text-gray-900">
+                  <span className="text-gray-600 dark:text-gray-400">{t('labels.created')}:</span>
+                  <span className="text-gray-900 dark:text-gray-100">
                     {editedTask.created_at ? new Date(editedTask.created_at).toLocaleDateString() : 
                      editedTask.createdAt ? new Date(editedTask.createdAt).toLocaleDateString() : t('taskPage.unknown')}
                   </span>
                 </div>
                 {(editedTask.updated_at || editedTask.updatedAt) && (
                   <div className="flex justify-between">
-                    <span className="text-gray-600">{t('labels.updated')}:</span>
-                    <span className="text-gray-900">
+                    <span className="text-gray-600 dark:text-gray-400">{t('labels.updated')}:</span>
+                    <span className="text-gray-900 dark:text-gray-100">
                       {editedTask.updated_at ? new Date(editedTask.updated_at).toLocaleDateString() :
                        editedTask.updatedAt ? new Date(editedTask.updatedAt).toLocaleDateString() : t('taskPage.unknown')}
                     </span>

@@ -4,17 +4,74 @@ import { wrapQuery } from '../utils/queryLogger.js';
 import { getStorageUsage, getStorageLimit, formatBytes } from '../utils/storageUtils.js';
 import notificationService from '../services/notificationService.js';
 import { getTenantId, getRequestDatabase } from '../middleware/tenantRouting.js';
-import { settings as settingsQueries, users as userQueries } from '../utils/sqlManager/index.js';
+import { settings as settingsQueries, users as userQueries, members as memberQueries } from '../utils/sqlManager/index.js';
 import { FE_PUBLIC_DEBUG_FLAG_KEYS } from '../constants/debugSettings.js';
 import { AI_PUBLIC_SETTING_KEYS, AI_SECRET_SETTING_KEYS } from '../constants/aiSettings.js';
 import { AGENT_MEMBER_ID } from '../constants/agentIdentity.js';
 import { clearSqlDebugSettingsCache } from '../utils/sqlDebugSettingsCache.js';
 import { serverDebug } from '../utils/serverDebug.js';
+import { validateAiConnectivity, listAiModels } from '../utils/aiConnectivity.js';
+import { AI_PROVIDER_PRESETS } from '../constants/aiProviders.js';
+import { maskApiKey, isMaskedOrEmptyApiKey } from '../utils/maskSecret.js';
 import { avatarUpload } from '../config/multer.js';
 import path from 'path';
 import fs from 'fs';
 
 const router = express.Router();
+
+async function getSettingValue(db, key) {
+  const row = await settingsQueries.getSettingByKey(db, key);
+  return row?.value ?? '';
+}
+
+/**
+ * Publish Agent member create/update/delete so clients refresh assignee lists without a page reload.
+ */
+async function publishAgentMemberVisibility(db, tenantId, { enabled, nameUpdated = false }) {
+  try {
+    if (enabled) {
+      const member = await memberQueries.getMemberById(db, AGENT_MEMBER_ID);
+      if (member) {
+        await notificationService.publish(
+          'member-updated',
+          { member, timestamp: new Date().toISOString() },
+          tenantId
+        );
+      }
+    } else {
+      await notificationService.publish(
+        'member-deleted',
+        { memberId: AGENT_MEMBER_ID, timestamp: new Date().toISOString() },
+        tenantId
+      );
+    }
+  } catch (e) {
+    console.error('Failed to publish Agent member visibility update:', e);
+  }
+}
+
+async function resolveAiCredentials(db, overrides = {}) {
+  const provider =
+    overrides.provider !== undefined
+      ? String(overrides.provider)
+      : await getSettingValue(db, 'AI_PROVIDER');
+  const baseUrl =
+    overrides.baseUrl !== undefined
+      ? String(overrides.baseUrl)
+      : await getSettingValue(db, 'AI_API_BASE_URL');
+  const model =
+    overrides.model !== undefined
+      ? String(overrides.model)
+      : await getSettingValue(db, 'AI_MODEL');
+  let apiKey =
+    overrides.apiKey !== undefined && String(overrides.apiKey).trim() !== ''
+      ? String(overrides.apiKey).trim()
+      : '';
+  if (!apiKey) {
+    apiKey = await getSettingValue(db, 'AI_API_KEY');
+  }
+  return { provider, baseUrl, apiKey, model };
+}
 
 // Public settings endpoint for non-admin users
 router.get('/', async (req, res, next) => {
@@ -78,9 +135,9 @@ router.get('/', authenticateToken, requireRole(['admin']), async (req, res, next
       if (mailManaged && ['SMTP_HOST', 'SMTP_PORT', 'SMTP_USERNAME', 'SMTP_PASSWORD', 'SMTP_SECURE'].includes(setting.key)) {
         settingsObj[setting.key] = '';
       } else if (AI_SECRET_SETTING_KEYS.includes(setting.key) && setting.value) {
-        // Mask AI API key (show empty so admin can enter a new value; presence indicated separately)
-        settingsObj[setting.key] = '';
-        settingsObj.AI_API_KEY_SET = 'true';
+        // Return Anthropic-style partial mask only — never the raw secret
+        settingsObj[setting.key] = maskApiKey(setting.value);
+        settingsObj[`${setting.key}_SET`] = 'true';
       } else {
         settingsObj[setting.key] = setting.value;
       }
@@ -90,6 +147,100 @@ router.get('/', authenticateToken, requireRole(['admin']), async (req, res, next
   } catch (error) {
     console.error('Error fetching admin settings:', error);
     res.status(500).json({ error: 'Failed to fetch settings' });
+  }
+});
+
+/**
+ * Validate AI provider reachability (admin).
+ * Body may include draft provider / baseUrl / apiKey / model; omitted fields use saved settings.
+ */
+router.post('/ai/validate', authenticateToken, requireRole(['admin']), async (req, res, next) => {
+  if (req.baseUrl !== '/api/admin/settings') {
+    return next();
+  }
+  try {
+    const db = getRequestDatabase(req);
+    const creds = await resolveAiCredentials(db, {
+      provider: req.body?.provider,
+      baseUrl: req.body?.baseUrl,
+      apiKey: req.body?.apiKey,
+      model: req.body?.model
+    });
+    const result = await validateAiConnectivity(creds);
+    if (!result.ok) {
+      return res.status(400).json({ ok: false, error: result.error, status: result.status });
+    }
+    return res.json({
+      ok: true,
+      detail: result.detail,
+      provider: result.provider,
+      models: result.models || []
+    });
+  } catch (error) {
+    console.error('AI validate error:', error);
+    return res.status(500).json({ ok: false, error: 'Failed to validate AI connectivity' });
+  }
+});
+
+/** Static provider presets for the admin UI (suggested URLs / hints). */
+router.get('/ai/providers', authenticateToken, requireRole(['admin']), async (req, res, next) => {
+  if (req.baseUrl !== '/api/admin/settings') {
+    return next();
+  }
+  return res.json({
+    providers: AI_PROVIDER_PRESETS.map((p) => ({
+      id: p.id,
+      label: p.label,
+      suggestedBaseUrl: p.suggestedBaseUrl,
+      apiKeyRequired: p.apiKeyRequired,
+      hint: p.hint
+    }))
+  });
+});
+
+/** List models from the configured (or draft) provider. */
+router.post('/ai/models', authenticateToken, requireRole(['admin']), async (req, res, next) => {
+  if (req.baseUrl !== '/api/admin/settings') {
+    return next();
+  }
+  try {
+    const db = getRequestDatabase(req);
+    const creds = await resolveAiCredentials(db, {
+      provider: req.body?.provider,
+      baseUrl: req.body?.baseUrl,
+      apiKey: req.body?.apiKey,
+      model: req.body?.model
+    });
+    const result = await listAiModels(creds);
+    if (!result.ok) {
+      return res.status(400).json({ ok: false, error: result.error, status: result.status });
+    }
+    return res.json({ ok: true, provider: result.provider, models: result.models });
+  } catch (error) {
+    console.error('AI models list error:', error);
+    return res.status(500).json({ ok: false, error: 'Failed to list AI models' });
+  }
+});
+
+/** Probe the push agent runner (admin). */
+router.post('/ai/runner/probe', authenticateToken, requireRole(['admin']), async (req, res, next) => {
+  if (req.baseUrl !== '/api/admin/settings') {
+    return next();
+  }
+  try {
+    const db = getRequestDatabase(req);
+    const { probeRunner } = await import('../services/agentRunnerClient.js');
+    const result = await probeRunner(db, {
+      runnerUrl: req.body?.runnerUrl,
+      runnerToken: req.body?.runnerToken
+    });
+    if (!result.ok) {
+      return res.status(400).json(result);
+    }
+    return res.json(result);
+  } catch (error) {
+    console.error('AI runner probe error:', error);
+    return res.status(500).json({ ok: false, error: 'Failed to probe agent runner' });
   }
 });
 
@@ -130,9 +281,49 @@ router.put('/', authenticateToken, requireRole(['admin']), async (req, res, next
       safeValue = JSON.stringify(value);
     }
     
-    // Do not clear AI_API_KEY when admin saves an empty masked field
-    if (key === 'AI_API_KEY' && (safeValue === '' || safeValue == null)) {
-      return res.json({ message: 'Setting unchanged' });
+    // Do not clear / overwrite masked AI secrets when admin leaves the display value
+    if (AI_SECRET_SETTING_KEYS.includes(key)) {
+      const existing = await getSettingValue(db, key);
+      if (isMaskedOrEmptyApiKey(safeValue, existing)) {
+        return res.json({
+          message: 'Setting unchanged',
+          key,
+          value: existing ? maskApiKey(existing) : '',
+          [`${key}_SET`]: Boolean(existing)
+        });
+      }
+    }
+
+    if (key === 'AI_MAX_CONCURRENT') {
+      const { clampAiMaxConcurrent } = await import('../constants/aiSettings.js');
+      safeValue = String(clampAiMaxConcurrent(safeValue));
+    }
+
+    // Enabling AI requires a reachable configured provider (+ runner when configured)
+    if (key === 'AI_ENABLED' && String(safeValue) === 'true') {
+      const creds = await resolveAiCredentials(db, {});
+      const probe = await validateAiConnectivity(creds);
+      if (!probe.ok) {
+        return res.status(400).json({
+          error: probe.error || 'AI provider is not reachable',
+          code: 'AI_CONNECTIVITY_FAILED'
+        });
+      }
+      try {
+        const { probeRunner } = await import('../services/agentRunnerClient.js');
+        const runnerProbe = await probeRunner(db);
+        if (!runnerProbe.ok) {
+          return res.status(400).json({
+            error: runnerProbe.error || 'Agent runner is not reachable',
+            code: 'AI_RUNNER_UNREACHABLE'
+          });
+        }
+      } catch (e) {
+        return res.status(400).json({
+          error: e?.message || 'Agent runner is not reachable',
+          code: 'AI_RUNNER_UNREACHABLE'
+        });
+      }
     }
 
     // MIGRATED: Upsert setting using sqlManager
@@ -173,12 +364,32 @@ router.put('/', authenticateToken, requireRole(['admin']), async (req, res, next
     }
     await notificationService.publish('settings-updated', {
       key: key,
-      value: value,
+      value: AI_SECRET_SETTING_KEYS.includes(key) ? maskApiKey(String(safeValue)) : value,
       timestamp: new Date().toISOString()
     }, tenantId);
     if (dbgSettings) console.log('✅ Settings-updated published to Redis');
+
+    // Agent assignee visibility follows AI_ENABLED; name follows AI_AGENT_NAME
+    if (key === 'AI_ENABLED') {
+      await publishAgentMemberVisibility(db, tenantId, {
+        enabled: String(safeValue) === 'true'
+      });
+    } else if (key === 'AI_AGENT_NAME' && safeValue) {
+      const aiOn = (await getSettingValue(db, 'AI_ENABLED')) === 'true';
+      if (aiOn) {
+        await publishAgentMemberVisibility(db, tenantId, {
+          enabled: true,
+          nameUpdated: true
+        });
+      }
+    }
     
-    res.json({ message: 'Setting updated successfully' });
+    res.json({
+      message: 'Setting updated successfully',
+      key,
+      value: AI_SECRET_SETTING_KEYS.includes(key) ? maskApiKey(String(safeValue)) : safeValue,
+      ...(AI_SECRET_SETTING_KEYS.includes(key) ? { [`${key}_SET`]: true } : {})
+    });
   } catch (error) {
     console.error('❌ Error updating settings:', error);
     console.error('❌ Error details:', { key: req.body.key, value: req.body.value, error: error.message, stack: error.stack });

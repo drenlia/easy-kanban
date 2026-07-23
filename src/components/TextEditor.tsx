@@ -1884,12 +1884,12 @@ export default function TextEditor({
 
       {/* Submit Buttons */}
       {showSubmitButtons && (
-        <div className="flex justify-end gap-2 p-2 border-t bg-gray-50">
+        <div className="flex justify-end gap-2 p-2 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
           {onCancel && (
             <button
               type="button"
               onClick={handleCancel}
-              className="px-3 py-1 text-sm text-gray-600 hover:text-gray-800 transition-colors"
+              className="px-3 py-1 text-sm text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-gray-100 transition-colors"
             >
               {cancelButtonText || t('buttons.cancel')}
             </button>

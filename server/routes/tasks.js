@@ -127,6 +127,10 @@ async function fetchTaskWithRelationships(db, taskId) {
       });
     }
   }
+
+  if (Array.isArray(task.comments)) {
+    task.comments = mapCommentsForClient(task.comments);
+  }
   
   // Get priority information - prefer JOIN values over tasks.priority field (which can be stale)
   // CRITICAL: Use priorityId/priorityName/priorityColor from JOIN, not task.priority (text field can be outdated)
@@ -172,6 +176,22 @@ async function fetchTaskWithRelationships(db, taskId) {
     memberId: task.memberid || task.memberId,
     requesterId: task.requesterid || task.requesterId
   };
+}
+
+/** Normalize comment rows for frontend (defensive camelCase). */
+function mapCommentsForClient(comments = []) {
+  return (comments || []).map((c) => ({
+    ...c,
+    id: c.id,
+    taskId: c.taskId || c.taskid || c.task_id,
+    text: c.text,
+    authorId: c.authorId || c.authorid || c.author_id,
+    createdAt: c.createdAt || c.createdat || c.created_at,
+    updatedAt: c.updatedAt || c.updated_at,
+    authorName: c.authorName || c.authorname || c.author_name,
+    authorColor: c.authorColor || c.authorcolor || c.author_color,
+    attachments: Array.isArray(c.attachments) ? c.attachments : []
+  }));
 }
 
 /** Normalize member rows for WS / frontend TeamMember shape */
@@ -432,10 +452,12 @@ router.get('/:id', authenticateToken, async (req, res) => {
       taskHttpLog(dbgHttp, '🏷️ [TASK API] Found tags:', tags.length);
       
       // Add all related data to task
-      task.comments = comments || [];
+      task.comments = mapCommentsForClient(comments || []);
       task.watchers = watchers || [];
       task.collaborators = collaborators || [];
       task.tags = tags || [];
+    } else if (Array.isArray(task.comments)) {
+      task.comments = mapCommentsForClient(task.comments);
     }
     
     // Convert snake_case to camelCase for frontend
@@ -556,6 +578,7 @@ router.post('/', authenticateToken, checkTaskLimit, async (req, res) => {
         columnId: task.columnId,
         boardId: task.boardId,
         tenantId: getTenantId(req),
+        authType: req.user?.authType,
         db: db
       }
     ).catch(error => {
@@ -696,6 +719,7 @@ router.post('/add-at-top', authenticateToken, checkTaskLimit, async (req, res) =
         columnId: task.columnId,
         boardId: task.boardId,
         tenantId: getTenantId(req),
+        authType: req.user?.authType,
         db: db
       }
     ).catch(error => {
@@ -911,6 +935,7 @@ router.post('/copy', authenticateToken, checkTaskLimit, async (req, res) => {
         columnId: columnId,
         boardId: boardId,
         tenantId: getTenantId(req),
+        authType: req.user?.authType,
         db: db
       }
     ).catch(error => {
@@ -1322,6 +1347,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
           oldValue,
           newValue,
           tenantId: getTenantId(req),
+          authType: req.user?.authType,
           db: db
         }
       ).catch(error => {
@@ -1677,6 +1703,7 @@ router.delete('/:id', authenticateToken, async (req, res) => {
         columnId: columnId,  // Use normalized columnId
         boardId: boardId,  // Use normalized boardId
         tenantId: getTenantId(req),
+        authType: req.user?.authType,
         db: db,
         taskTicket: taskTicket,  // Pass ticket so it can be appended to the message
         projectIdentifier: projectIdentifier  // Pass project identifier so it can be appended
@@ -1865,6 +1892,7 @@ router.post('/batch-update-positions', authenticateToken, async (req, res) => {
             columnId: move.columnId,
             boardId: move.previousBoardId,
             tenantId: getTenantId(req),
+            authType: req.user?.authType,
             db: db
           }
         ).catch(error => {
@@ -2053,6 +2081,7 @@ router.post('/reorder', authenticateToken, async (req, res) => {
         columnId: columnId,
         boardId: currentTask.boardId,
         tenantId: getTenantId(req),
+        authType: req.user?.authType,
         db: db
       }
     ).catch(error => {
@@ -2231,6 +2260,7 @@ router.post('/move-to-board', authenticateToken, async (req, res) => {
         columnId: targetColumn.id,
         boardId: targetBoardId,
         tenantId: getTenantId(req),
+        authType: req.user?.authType,
         db: db
       }
     ).catch(error => {

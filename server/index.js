@@ -421,6 +421,7 @@ app.use('/api/admin', lazyRouteLoader('./routes/adminSystem.js'));
 app.use('/api/admin/notification-queue', lazyRouteLoader('./routes/adminNotificationQueue.js'));
 app.use('/api/tasks', taskWorkRouter); // task_work KV + control (before param-heavy routers where possible)
 app.use('/api/tasks', taskRelationsRouter);
+app.use('/api/agent/runner', lazyRouteLoader('./routes/agentRunnerCallback.js'));
 app.use('/api/agent', agentRouter);
 app.use('/api/user/dev', userDevRouter);
 app.use('/api/activity', activityRouter);

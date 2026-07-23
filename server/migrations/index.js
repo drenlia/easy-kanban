@@ -193,6 +193,68 @@ const migrations = [
 
       console.log('✅ Migration 15: AI agent platform tables and settings ready');
     }
+  },
+  {
+    version: 16,
+    name: 'add_ai_provider_setting',
+    description: 'Add AI_PROVIDER for multi-provider LLM configuration (OpenAI, Anthropic, Ollama, …)',
+    up: async (db) => {
+      const { settings: settingsQueries } = await import('../utils/sqlManager/index.js');
+      const existing = await settingsQueries.getSettingByKey(db, 'AI_PROVIDER');
+      if (!existing) {
+        await settingsQueries.createSetting(db, 'AI_PROVIDER', 'openai');
+      }
+      console.log('✅ Migration 16: AI_PROVIDER setting ready');
+    }
+  },
+  {
+    version: 17,
+    name: 'add_ai_runner_settings',
+    description: 'Add push-runner settings: concurrency, runner URL/token, GitHub token',
+    up: async (db) => {
+      const { settings: settingsQueries } = await import('../utils/sqlManager/index.js');
+      const defaults = [
+        ['AI_MAX_CONCURRENT', '1'],
+        ['AI_RUNNER_URL', process.env.AI_RUNNER_URL || ''],
+        ['AI_RUNNER_TOKEN', '']
+      ];
+      for (const [key, value] of defaults) {
+        const existing = await settingsQueries.getSettingByKey(db, key);
+        if (!existing) {
+          await settingsQueries.createSetting(db, key, value);
+        }
+      }
+      console.log('✅ Migration 17: AI runner settings ready');
+    }
+  },
+  {
+    version: 18,
+    name: 'user_github_tokens_remove_admin_pat',
+    description:
+      'Per-user GitHub PATs for agent git auth; clear tenant AI_GITHUB_TOKEN (moved out of admin scope)',
+    up: async (db) => {
+      await dbExec(
+        db,
+        `
+        CREATE TABLE IF NOT EXISTS user_github_tokens (
+          user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+          token_encrypted TEXT NOT NULL,
+          token_hint TEXT NOT NULL DEFAULT '',
+          created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+        );
+      `
+      );
+
+      const { settings: settingsQueries } = await import('../utils/sqlManager/index.js');
+      try {
+        await settingsQueries.updateSetting(db, 'AI_GITHUB_TOKEN', '');
+      } catch {
+        /* setting may not exist on all tenants */
+      }
+
+      console.log('✅ Migration 18: user_github_tokens ready; AI_GITHUB_TOKEN cleared');
+    }
   }
 ];
 

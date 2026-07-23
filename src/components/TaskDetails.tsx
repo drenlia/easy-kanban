@@ -11,12 +11,13 @@ import { generateUUID } from '../utils/uuid';
 import { loadUserPreferences, updateUserPreference } from '../utils/userPreferences';
 import { generateTaskUrl } from '../utils/routingUtils';
 import { mergeTaskTagsWithLiveData, getTagDisplayStyle } from '../utils/tagUtils';
-import { getAuthenticatedAttachmentUrl } from '../utils/authImageUrl';
+import { getAuthenticatedAttachmentUrl, getAuthenticatedAvatarUrl } from '../utils/authImageUrl';
 import { truncateMemberName } from '../utils/memberUtils';
 import AddTagModal from './AddTagModal';
 import AssignToAgentModal from './AssignToAgentModal';
-import { AGENT_MEMBER_ID } from '../constants/appConstants';
+import { AGENT_MEMBER_ID, SYSTEM_MEMBER_ID } from '../constants/appConstants';
 import { feDebug } from '../utils/clientDebug';
+import { commentTextToHtml } from '../utils/commentContent';
 
 function detailsLog(...args: unknown[]) {
   if (feDebug('FE_DEBUG_TASK_DETAILS')) console.log(...args);
@@ -46,6 +47,8 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
   };
   const [isResizing, setIsResizing] = useState(false);
   const [showAssignAgentModal, setShowAssignAgentModal] = useState(false);
+  const [agentModalAnchor, setAgentModalAnchor] = useState<DOMRect | null>(null);
+  const detailsPanelRef = useRef<HTMLDivElement>(null);
   const [editedTask, setEditedTask] = useState<Task>(() => ({
     ...task,
     memberId: task.memberId || members[0]?.id || '',
@@ -386,6 +389,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
     if (isSubmitting) return;
 
     if (updatedFields.memberId === AGENT_MEMBER_ID) {
+      setAgentModalAnchor(detailsPanelRef.current?.getBoundingClientRect() ?? null);
       setShowAssignAgentModal(true);
       return;
     }
@@ -409,19 +413,27 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
     }
   };
 
-  const handleAssignAgentConfirm = async (repoUrl: string, repoBranch: string) => {
+  const handleAssignAgentConfirm = async (
+    repoUrl: string,
+    repoBranch: string,
+    options?: { restart?: boolean; llmModel?: string; launch?: boolean }
+  ) => {
     const updatedTask = { ...editedTask, memberId: AGENT_MEMBER_ID };
     setEditedTask(updatedTask);
     setIsSubmitting(true);
     try {
       await onUpdate(updatedTask);
+      const shouldLaunch = options?.launch !== false;
       await putTaskWork(task.id, {
         repoUrl,
         repoBranch,
-        status: 'queued',
-        entries: { control: 'none' }
+        ...(shouldLaunch
+          ? { status: 'queued', entries: { control: 'none' } }
+          : {}),
+        ...(options?.llmModel !== undefined ? { llmModel: options.llmModel } : {}),
       });
       setShowAssignAgentModal(false);
+      setAgentModalAnchor(null);
     } catch (error) {
       console.error('Failed to assign agent:', error);
       throw error;
@@ -1319,8 +1331,9 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
   const displayAttachments = React.useMemo(() => taskAttachments, [taskAttachments]);
 
   return (
-    <div 
-      className="fixed right-0 bg-white dark:bg-gray-800 border-l border-gray-200 dark:border-gray-700 flex z-50" 
+    <div
+      ref={detailsPanelRef}
+      className="fixed right-0 bg-white dark:bg-gray-800 border-l border-gray-200 dark:border-gray-700 flex z-50"
       style={{ 
         width: `${width}px`,
         top: '65px', // Position below header (adjusted for proper clearance)
@@ -2037,16 +2050,35 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                 return fixedContent;
               };
 
-              const displayContent = fixImageUrls(comment.text, attachments);
+              const displayContent = fixImageUrls(
+                commentTextToHtml(comment.text),
+                attachments
+              );
 
               return (
                 <div key={comment.id} className="border-b border-gray-200 pb-6">
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2">
-                      <div
-                        className="w-2 h-2 rounded-full"
-                        style={{ backgroundColor: author.color }}
-                      />
+                      {author.googleAvatarUrl || author.avatarUrl ? (
+                        <img
+                          src={getAuthenticatedAvatarUrl(
+                            author.googleAvatarUrl || author.avatarUrl
+                          )}
+                          alt={author.name}
+                          className="w-7 h-7 rounded-full object-cover shrink-0"
+                        />
+                      ) : (
+                        <div
+                          className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-medium text-white shrink-0"
+                          style={{ backgroundColor: author.color }}
+                        >
+                          {author.id === SYSTEM_MEMBER_ID
+                            ? '🤖'
+                            : author.id === AGENT_MEMBER_ID
+                              ? '✨'
+                              : author.name.charAt(0).toUpperCase()}
+                        </div>
+                      )}
                       <span className="font-medium">{author.name}</span>
                       <span className="text-sm text-gray-500">
                         {formatToYYYYMMDDHHmmss(comment.createdAt)}
@@ -2133,7 +2165,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                     />
                   ) : (
                     <div
-                      className="prose prose-sm max-w-none"
+                      className="prose prose-sm max-w-none comment-md"
                       dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(displayContent) }}
                     />
                   )}
@@ -2175,7 +2207,14 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
       )}
       {showAssignAgentModal && (
         <AssignToAgentModal
-          onCancel={() => setShowAssignAgentModal(false)}
+          taskTitle={editedTask.title}
+          taskDescription={editedTask.description}
+          isAdmin={Boolean(currentUser?.roles?.includes('admin'))}
+          anchorRect={agentModalAnchor}
+          onCancel={() => {
+            setShowAssignAgentModal(false);
+            setAgentModalAnchor(null);
+          }}
           onConfirm={handleAssignAgentConfirm}
         />
       )}

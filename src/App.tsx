@@ -1074,6 +1074,10 @@ function AppContent() {
     setAvailablePriorities,
     setAvailableSprints,
     // setSiteSettings removed - use refreshContextSettings from SettingsContext instead
+    refreshMembers: async () => {
+      const loadedMembers = await getMembers(taskFilters.includeSystem);
+      setMembers(Array.isArray(loadedMembers) ? loadedMembers : []);
+    },
     versionStatus,
   });
 

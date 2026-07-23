@@ -317,6 +317,14 @@ const CREATE_SCHEMA_SQL = `
       updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
     );
 
+    CREATE TABLE IF NOT EXISTS user_github_tokens (
+      user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+      token_encrypted TEXT NOT NULL,
+      token_hint TEXT NOT NULL DEFAULT '',
+      created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+    );
+
     CREATE TABLE IF NOT EXISTS tags (
       id SERIAL PRIMARY KEY,
       tag TEXT NOT NULL UNIQUE,

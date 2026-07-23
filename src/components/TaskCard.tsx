@@ -13,6 +13,7 @@ import {
   fetchTaskAttachments,
   putTaskWork,
   getTaskWork,
+  getTaskById,
   setTaskWorkControl,
   type TaskWorkMap
 } from '../api';
@@ -29,10 +30,12 @@ import TextEditor from './TextEditor';
 import { KanbanChromeTooltip } from './KanbanChromeTooltip';
 import { getLinkTarget, shouldOpenLinkInNewTab } from '../utils/linkUtils';
 import { feDebug } from '../utils/clientDebug';
+import { commentTextToHtml } from '../utils/commentContent';
 import {
   AGENT_MEMBER_ID,
   SYSTEM_MEMBER_ID,
-  AGENT_ACTIVE_WORK_STATUSES
+  AGENT_DRAG_BLOCKING_STATUSES,
+  AGENT_RESUMABLE_STATUSES,
 } from '../constants/appConstants';
 import AssignToAgentModal from './AssignToAgentModal';
 import AgentWorkingModal from './AgentWorkingModal';
@@ -66,7 +69,7 @@ interface TaskCardProps {
   members: TeamMember[];
   currentUser?: CurrentUser | null;
   onRemove: (taskId: string, event?: React.MouseEvent) => void;
-  onEdit: (task: Task) => void;
+  onEdit: (task: Task) => void | Promise<void>;
   onCopy: (task: Task) => void;
   onDragStart: (task: Task) => void;
   onDragEnd: () => void;
@@ -291,9 +294,14 @@ const TaskCard = React.memo(function TaskCard({
   const [showAddCommentModal, setShowAddCommentModal] = useState(false);
   const [showAttachmentsDropdown, setShowAttachmentsDropdown] = useState(false);
   const [showAssignAgentModal, setShowAssignAgentModal] = useState(false);
+  const [assignAgentMode, setAssignAgentMode] = useState<'assign' | 'configure'>('assign');
   const [showAgentWorkingModal, setShowAgentWorkingModal] = useState(false);
+  const [agentModalAnchor, setAgentModalAnchor] = useState<DOMRect | null>(null);
+  /** Snapshot after flushing in-progress edits so the assign modal sees latest text immediately */
+  const [agentFormTask, setAgentFormTask] = useState<{ title: string; description: string } | null>(null);
   const [agentWork, setAgentWork] = useState<TaskWorkMap>({});
   const [agentControlBusy, setAgentControlBusy] = useState(false);
+  const [agentModalComments, setAgentModalComments] = useState(task.comments || []);
   const [attachmentsDropdownPosition, setAttachmentsDropdownPosition] = useState<{top: number, left: number, direction: 'above' | 'below'}>({top: 0, left: 0, direction: 'below'});
   const [priorityDropdownPosition, setPriorityDropdownPosition] = useState<{top: number, left: number, direction: 'above' | 'below'}>({top: 0, left: 0, direction: 'below'});
   const priorityButtonRef = useRef<HTMLButtonElement>(null);
@@ -317,7 +325,7 @@ const TaskCard = React.memo(function TaskCard({
   const isAgentWorkActive =
     task.memberId === AGENT_MEMBER_ID &&
     !!agentStatus &&
-    (AGENT_ACTIVE_WORK_STATUSES as readonly string[]).includes(agentStatus);
+    (AGENT_DRAG_BLOCKING_STATUSES as readonly string[]).includes(agentStatus);
 
   const isAnyEditingActive = isEditingTitle || isEditingEffort || isEditingDescription || showMemberSelect || showPrioritySelect || showCommentTooltip || showTagRemovalMenu || showAttachmentsDropdown || showSprintSelector || showDateRangePicker || isAgentWorkActive;
 
@@ -550,25 +558,127 @@ const TaskCard = React.memo(function TaskCard({
 
 
 
-  const handleMemberChange = (memberId: string) => {
-    setShowMemberSelect(false);
-    if (memberId === AGENT_MEMBER_ID) {
-      setShowAssignAgentModal(true);
-      return;
+  const flushPendingEdits = async (): Promise<Task> => {
+    let next: Task = { ...task };
+    let dirty = false;
+
+    if (isEditingTitle) {
+      const trimmed = editedTitle.trim();
+      if (trimmed && trimmed !== task.title) {
+        next = { ...next, title: trimmed };
+        dirty = true;
+      }
+      setIsEditingTitle(false);
     }
-    onEdit({ ...task, memberId });
+
+    if (isEditingDescription) {
+      if (editedDescription !== task.description) {
+        next = { ...next, description: editedDescription };
+        dirty = true;
+      }
+      setIsEditingDescription(false);
+    }
+
+    if (dirty) {
+      await Promise.resolve(onEdit(next));
+    }
+    return next;
   };
 
-  const handleAssignAgentConfirm = async (repoUrl: string, repoBranch: string) => {
-    onEdit({ ...task, memberId: AGENT_MEMBER_ID });
+  const openAssignAgentModal = async () => {
+    const latest = await flushPendingEdits();
+    setAgentFormTask({ title: latest.title, description: latest.description || '' });
+    setAssignAgentMode('assign');
+    setAgentModalAnchor(cardElement?.getBoundingClientRect() ?? null);
+    setShowAssignAgentModal(true);
+  };
+
+  const openAgentConfigModal = async () => {
+    const latest = await flushPendingEdits();
+    setAgentFormTask({ title: latest.title, description: latest.description || '' });
+    setAssignAgentMode('configure');
+    setAgentModalAnchor(cardElement?.getBoundingClientRect() ?? null);
+    setShowAssignAgentModal(true);
+  };
+
+  const openAgentWorkingModal = () => {
+    setAgentModalAnchor(cardElement?.getBoundingClientRect() ?? null);
+    setAgentModalComments(task.comments || []);
+    setShowAgentWorkingModal(true);
+  };
+
+  // While activity panel is open, poll work + comments so UI recovers if WebSocket drops
+  useEffect(() => {
+    if (!showAgentWorkingModal || task.memberId !== AGENT_MEMBER_ID) return;
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const [{ work }, fresh] = await Promise.all([
+          getTaskWork(task.id),
+          getTaskById(task.id),
+        ]);
+        if (cancelled) return;
+        if (work) setAgentWork(work);
+        if (fresh?.comments) {
+          setAgentModalComments(fresh.comments);
+        }
+      } catch {
+        /* ignore */
+      }
+    };
+    void tick();
+    const id = window.setInterval(tick, 2500);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [showAgentWorkingModal, task.id, task.memberId]);
+
+  const handleMemberChange = async (memberId: string) => {
+    setShowMemberSelect(false);
+    if (memberId === AGENT_MEMBER_ID) {
+      await openAssignAgentModal();
+      return;
+    }
+    const latest = await flushPendingEdits();
+    await Promise.resolve(onEdit({ ...latest, memberId }));
+  };
+
+  const handleAssignAgentConfirm = async (
+    repoUrl: string,
+    repoBranch: string,
+    options?: { restart?: boolean; llmModel?: string; launch?: boolean }
+  ) => {
+    const latest = await flushPendingEdits();
+    if (assignAgentMode === 'configure') {
+      const { work } = await putTaskWork(task.id, {
+        repoUrl,
+        repoBranch,
+        ...(options?.llmModel !== undefined ? { llmModel: options.llmModel } : {}),
+      });
+      setAgentWork(work);
+      setShowAssignAgentModal(false);
+      setAgentModalAnchor(null);
+      setAgentFormTask(null);
+      if (options?.restart) {
+        await handleAgentControl('resume');
+      }
+      return;
+    }
+    await Promise.resolve(onEdit({ ...latest, memberId: AGENT_MEMBER_ID }));
+    const shouldLaunch = options?.launch !== false;
     const { work } = await putTaskWork(task.id, {
       repoUrl,
       repoBranch,
-      status: 'queued',
-      entries: { control: 'none' }
+      ...(shouldLaunch
+        ? { status: 'queued', entries: { control: 'none' } }
+        : {}),
+      ...(options?.llmModel !== undefined ? { llmModel: options.llmModel } : {}),
     });
     setAgentWork(work);
     setShowAssignAgentModal(false);
+    setAgentModalAnchor(null);
+    setAgentFormTask(null);
   };
 
   const handleAgentControl = async (control: 'pause' | 'stop' | 'resume') => {
@@ -610,6 +720,19 @@ const TaskCard = React.memo(function TaskCard({
     websocketClient.onTaskWorkUpdated(handler);
     return () => websocketClient.offTaskWorkUpdated(handler);
   }, [task.id]);
+
+  const handleAgentRefine = async (text: string, options: { restart: boolean }) => {
+    await handleCommentSubmit(text);
+    try {
+      const fresh = await getTaskById(task.id);
+      if (fresh?.comments) setAgentModalComments(fresh.comments);
+    } catch {
+      /* ignore */
+    }
+    if (options.restart) {
+      await handleAgentControl('resume');
+    }
+  };
 
   const handleAddComment = () => {
     setShowAddCommentModal(true);
@@ -1688,7 +1811,14 @@ const TaskCard = React.memo(function TaskCard({
           onRemove={onRemove}
           onAddComment={handleAddComment}
           onMemberChange={handleMemberChange}
-          onToggleMemberSelect={() => setShowMemberSelect(!showMemberSelect)}
+          onToggleMemberSelect={() => {
+            void (async () => {
+              if (!showMemberSelect) {
+                await flushPendingEdits();
+              }
+              setShowMemberSelect(!showMemberSelect);
+            })();
+          }}
           setDropdownPosition={setDropdownPosition}
           dropdownPosition={dropdownPosition}
           listeners={listeners}
@@ -1698,8 +1828,7 @@ const TaskCard = React.memo(function TaskCard({
           columnIsFinished={columnIsFinished}
           columns={columns}
           agentWorkStatus={agentStatus}
-          onOpenAgentActivity={() => setShowAgentWorkingModal(true)}
-          onAgentControl={handleAgentControl}
+          onOpenAgentActivity={openAgentWorkingModal}
           
           // Task linking props
           isLinkingMode={isLinkingMode}
@@ -2447,7 +2576,36 @@ const TaskCard = React.memo(function TaskCard({
       {/* Add Comment Modal */}
       {showAssignAgentModal && (
         <AssignToAgentModal
-          onCancel={() => setShowAssignAgentModal(false)}
+          mode={assignAgentMode}
+          taskTitle={agentFormTask?.title ?? task.title}
+          taskDescription={agentFormTask?.description ?? task.description}
+          isAdmin={Boolean(currentUser?.roles?.includes('admin'))}
+          initialLlmModel={
+            assignAgentMode === 'configure' ? String(agentWork.llm_model || '') : ''
+          }
+          initialRepoUrl={
+            assignAgentMode === 'configure' ? String(agentWork.repo_url || '') : ''
+          }
+          initialRepoBranch={
+            assignAgentMode === 'configure' ? String(agentWork.repo_branch || '') : ''
+          }
+          canRestart={
+            assignAgentMode === 'configure' &&
+            (!agentStatus ||
+              (AGENT_RESUMABLE_STATUSES as readonly string[]).includes(agentStatus))
+          }
+          appliesNextRun={
+            assignAgentMode === 'configure' &&
+            !!agentStatus &&
+            (AGENT_DRAG_BLOCKING_STATUSES as readonly string[]).includes(agentStatus)
+          }
+          anchorRect={agentModalAnchor}
+          onCancel={() => {
+            setShowAssignAgentModal(false);
+            setAgentModalAnchor(null);
+            setAgentFormTask(null);
+            setAssignAgentMode('assign');
+          }}
           onConfirm={handleAssignAgentConfirm}
         />
       )}
@@ -2455,9 +2613,16 @@ const TaskCard = React.memo(function TaskCard({
         <AgentWorkingModal
           taskTitle={task.title}
           work={agentWork}
+          comments={agentModalComments}
+          members={members}
           busy={agentControlBusy}
-          onClose={() => setShowAgentWorkingModal(false)}
+          onClose={() => {
+            setShowAgentWorkingModal(false);
+            setAgentModalAnchor(null);
+          }}
           onControl={handleAgentControl}
+          onOpenConfig={openAgentConfigModal}
+          onRefine={handleAgentRefine}
         />
       )}
       <AddCommentModal
@@ -2492,7 +2657,7 @@ const TaskCard = React.memo(function TaskCard({
                         // Function to render HTML content with safe link handling and blob URL fixing
                         const renderCommentHTML = (htmlText: string) => {
                           // First, fix blob URLs by replacing them with authenticated server URLs (matching TaskDetails/TaskPage)
-                          let fixedContent = htmlText;
+                          let fixedContent = commentTextToHtml(htmlText);
                           const blobPattern = /blob:[^"]*#(img-[^"]*)/g;
                           fixedContent = fixedContent.replace(blobPattern, (_match, filename) => {
                             // Convert blob URL to authenticated server URL
@@ -2571,7 +2736,7 @@ const TaskCard = React.memo(function TaskCard({
                                 </KanbanChromeTooltip>
                               )}
                             </div>
-                            <div className="text-gray-300 dark:text-gray-700 text-xs leading-relaxed select-text">
+                            <div className="text-gray-300 dark:text-gray-700 text-xs leading-relaxed select-text comment-md">
                               {renderCommentHTML(comment.text)}
                             </div>
                           </div>

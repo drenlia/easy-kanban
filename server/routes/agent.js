@@ -13,7 +13,9 @@ import {
   taskWork as taskWorkQueries,
   comments as commentQueries
 } from '../utils/sqlManager/index.js';
-import { AGENT_MEMBER_ID } from '../constants/agentIdentity.js';
+import { AGENT_MEMBER_ID, AGENT_USER_ID } from '../constants/agentIdentity.js';
+import { COMMENT_ACTIONS } from '../constants/activityActions.js';
+import { logCommentActivity } from '../services/activityLogger.js';
 import notificationService from '../services/notificationService.js';
 import { agentClaimLimiter } from '../middleware/rateLimiters.js';
 import { updateStorageUsage } from '../utils/storageUtils.js';
@@ -209,6 +211,15 @@ router.post('/tasks/:id/comments', async (req, res) => {
       },
       tenantId
     );
+
+    logCommentActivity(
+      AGENT_USER_ID,
+      COMMENT_ACTIONS.CREATE,
+      commentId,
+      req.params.id,
+      'agent comment',
+      { db, tenantId, commentContent: text }
+    ).catch((err) => console.error('Agent comment activity log failed:', err));
 
     // Optional: mark waiting when agent asks a question
     if (req.body?.markWaiting === true) {

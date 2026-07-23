@@ -58,6 +58,7 @@ export async function getActivityFeed(db, limit = 20, userLanguage = 'en') {
         if (parsed.en && parsed.fr) {
           // Bilingual JSON - return user's language
           activity.details = parsed[normalizedLang] || parsed.en;
+          activity.viaApi = Boolean(parsed.viaApi);
         }
         // If not valid bilingual JSON, keep as-is (backward compatibility)
       } catch {

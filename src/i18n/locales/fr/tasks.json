@@ -297,6 +297,8 @@
     "title": "Graphique de flux des tâches",
     "building": "Construction du graphique de flux des tâches...",
     "noRelatedTasks": "Aucune tâche liée trouvée. Cette tâche n'a pas de relations parent-enfant.",
+    "soloTitle": "Aucune tâche liée pour le moment",
+    "soloDescription": "Liez un parent ou un enfant dans Association de tâches pour voir le flux ici.",
     "filterByStatus": "Filtrer par statut",
     "clearAll": "Tout effacer",
     "zoomOut": "Dézoomer",

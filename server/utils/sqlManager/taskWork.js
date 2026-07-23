@@ -138,3 +138,24 @@ export async function claimAgentTask(db, taskId, claimedBy) {
   await upsertWorkEntry(db, taskId, 'control', 'none');
   return await getWorkMapByTaskId(db, taskId);
 }
+
+/**
+ * Count Agent-assigned tasks currently in a given work status (e.g. running).
+ * @param {object} db
+ * @param {string} status
+ * @returns {Promise<number>}
+ */
+export async function countAgentTasksByStatus(db, status) {
+  const stmt = wrapQuery(
+    db.prepare(`
+      SELECT COUNT(*)::int AS cnt
+      FROM tasks t
+      INNER JOIN task_work tw
+        ON tw.task_id = t.id AND tw.key = 'status' AND tw.value = $2
+      WHERE t.memberid = $1
+    `),
+    'SELECT'
+  );
+  const row = await stmt.get(AGENT_MEMBER_ID, status);
+  return row?.cnt ?? 0;
+}

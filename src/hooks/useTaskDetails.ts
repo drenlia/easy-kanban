@@ -56,37 +56,60 @@ export const useTaskDetails = ({ task, members, currentUser, onUpdate, siteSetti
 
   // Update editedTask when task prop changes (e.g., when data is loaded)
   useEffect(() => {
-    if (task.id && task.id !== editedTask.id) {
-      setEditedTask({
-        ...task,
-        memberId: task.memberId || members[0]?.id || '',
-        requesterId: task.requesterId || members[0]?.id || '',
-        comments: (task.comments || [])
-          .filter(comment => 
-            comment && 
-            comment.id && 
-            comment.text && 
-            comment.authorId && 
+    if (!task.id) return;
+
+    const normalizeComments = (comments: Comment[] | undefined) =>
+      (comments || [])
+        .map((comment: any) => ({
+          id: comment.id,
+          text: comment.text,
+          authorId: comment.authorId || comment.authorid || comment.author_id,
+          createdAt: comment.createdAt || comment.createdat || comment.created_at,
+          taskId: task.id,
+          attachments: Array.isArray(comment.attachments)
+            ? comment.attachments.map((att: any) => ({
+                id: att.id,
+                name: att.name,
+                url: att.url,
+                commentId: comment.id,
+                size: att.size || 0,
+                uploadedAt: att.uploadedAt || new Date().toISOString()
+              }))
+            : []
+        }))
+        .filter(
+          (comment) =>
+            comment &&
+            comment.id &&
+            comment.text &&
+            comment.authorId &&
             comment.createdAt
-          )
-          .map(comment => ({
-            id: comment.id,
-            text: comment.text,
-            authorId: comment.authorId,
-            createdAt: comment.createdAt,
-            taskId: task.id,
-            attachments: Array.isArray(comment.attachments) 
-              ? comment.attachments.map(att => ({
-                  id: att.id,
-                  name: att.name,
-                  url: att.url,
-                  commentId: comment.id,
-                  size: att.size || 0,
-                  uploadedAt: att.uploadedAt || new Date().toISOString()
-                }))
-              : []
-          }))
-      });
+        );
+
+    const nextComments = normalizeComments(task.comments as Comment[]);
+    const taskIdChanged = task.id !== editedTask.id;
+    const prevIds = (editedTask.comments || []).map((c) => c.id).sort().join(',');
+    const nextIds = nextComments.map((c) => c.id).sort().join(',');
+    const commentsChanged = prevIds !== nextIds;
+
+    if (taskIdChanged || commentsChanged) {
+      setEditedTask((prev) => ({
+        ...(taskIdChanged ? task : prev),
+        ...(!taskIdChanged
+          ? {
+              // Keep local edits for same task; refresh comments from server
+              title: task.title ?? prev.title,
+              description: task.description ?? prev.description,
+              watchers: task.watchers ?? prev.watchers,
+              collaborators: task.collaborators ?? prev.collaborators,
+              tags: task.tags ?? prev.tags,
+            }
+          : {}),
+        id: task.id,
+        memberId: task.memberId || members[0]?.id || prev.memberId || '',
+        requesterId: task.requesterId || members[0]?.id || prev.requesterId || '',
+        comments: nextComments
+      }));
     }
   }, [task, members]);
 

@@ -15,6 +15,7 @@ interface ActivityItem {
   boardTitle: string;
   columnTitle: string;
   taskId: string;
+  viaApi?: boolean;
 }
 
 interface ActivityFeedProps {
@@ -461,7 +462,7 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
   };
 
   const formatActivityDescription = (activity: ActivityItem) => {
-    const { memberName, details, boardTitle } = activity;
+    const { memberName, details, boardTitle, viaApi } = activity;
     const name = memberName || t('activityFeed.unknownUser');
     
     // Extract the main action from details
@@ -484,10 +485,12 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
       return `(${identifiers})`;
     });
 
-    return { name, description };
+    return { name, description, viaApi: Boolean(viaApi) };
   };
 
   const getActionIcon = (action: string) => {
+    if (action.includes('agent_job_done')) return '✅';
+    if (action.includes('agent_job_failed')) return '⚠️';
     if (action.includes('create')) return '➕';
     if (action.includes('update') || action.includes('move')) return '✏️';
     if (action.includes('delete')) return '🗑️';
@@ -507,7 +510,8 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
         activity.details || '',
         activity.action || '',
         activity.boardTitle || '',
-        activity.columnTitle || ''
+        activity.columnTitle || '',
+        activity.viaApi ? 'via api' : ''
       ].join(' ').toLowerCase();
       
       return searchableText.includes(searchTerm);
@@ -727,6 +731,9 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
                 <span className="font-medium text-blue-600">
                   {highlightText(latestActivity.memberName || t('activityFeed.unknownUser'), filterText)}
                 </span>
+                {latestActivity.viaApi && (
+                  <span className="ml-1 text-gray-400 font-normal">{t('activityFeed.viaApi')}</span>
+                )}
                 {' '}
                 <span>{highlightText(latestActivity.details, filterText)}</span>
               </div>
@@ -750,6 +757,9 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
               <div className="flex items-center space-x-1">
                 {getActionIcon(latestActivity.action)}
                 <span className="font-medium">{highlightText(latestActivity.memberName || t('activityFeed.unknownUser'), filterText)}</span>
+                {latestActivity.viaApi && (
+                  <span className="text-gray-400 font-normal">{t('activityFeed.viaApi')}</span>
+                )}
               </div>
               <div className="text-gray-300">{highlightText(latestActivity.details, filterText)}</div>
               {latestActivity.boardTitle && (
@@ -890,7 +900,7 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
 
         <div className="space-y-1">
           {displayActivities.map((activity) => {
-            const { name, description } = formatActivityDescription(activity);
+            const { name, description, viaApi } = formatActivityDescription(activity);
             const isUnread = activity.id > lastSeenActivityId;
             return (
               <div 
@@ -915,6 +925,9 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
                       <div className="space-y-0.5">
                         <div className={`font-medium truncate ${isUnread ? 'text-blue-700 dark:text-blue-300' : 'text-blue-600 dark:text-blue-400'}`}>
                           {highlightText(name, filterText)}
+                          {viaApi && (
+                            <span className="ml-1 text-gray-400 dark:text-gray-500 font-normal">{t('activityFeed.viaApi')}</span>
+                          )}
                         </div>
                         <div 
                           className="text-gray-700 dark:text-gray-200 text-xs leading-tight break-words"
@@ -933,6 +946,9 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
                         <span className={`font-medium ${isUnread ? 'text-blue-700 dark:text-blue-300' : 'text-blue-600 dark:text-blue-400'}`}>
                           {highlightText(name, filterText)}
                         </span>
+                        {viaApi && (
+                          <span className="ml-1 text-gray-400 dark:text-gray-500 font-normal">{t('activityFeed.viaApi')}</span>
+                        )}
                         {' '}
                         <span 
                           className="text-gray-700 dark:text-gray-200 break-words"

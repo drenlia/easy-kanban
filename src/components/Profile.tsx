@@ -376,7 +376,7 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
       onClick={handleClose}
     >
       <div
-        className="relative top-20 mx-auto p-6 border w-[480px] shadow-xl rounded-lg bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700"
+        className="relative top-10 sm:top-16 mx-auto p-6 border w-[calc(100%-2rem)] max-w-2xl shadow-xl rounded-lg bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700"
         role="dialog"
         aria-modal="true"
         onClick={e => e.stopPropagation()}
