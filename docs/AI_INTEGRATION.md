@@ -30,14 +30,15 @@ Related user-facing docs: [`Documentation.md`](../Documentation.md) (Admin AI Se
                                         └──────────────────┘
 ```
 
-**Two job modes:**
+**Three job modes:**
 
 | Mode | When | Runner needs | Outcome |
 |------|------|--------------|---------|
+| **assist** | Empty `repo_url`, `agent_mode`≠automation | Runner + LLM only | Comment / Q&A from task context |
 | **code** | Task has `repo_url` | Runner + owner GitHub PAT and/or SSH key | Clone → tool loop → commit/push → optional PR |
-| **assist** | Empty `repo_url` | Runner + LLM only (no git creds) | Comment / Q&A style work without a repo |
+| **automation** | `agent_mode=automation` (admins only) | Runner + short-lived `ea_…` job token | LLM tools call `/api/agent/automation`; dry-run → Apply → journal undo |
 
-The app **pushes** jobs to the runner (`agentJobDispatcher` → `agentRunnerClient`). The runner does **not** poll `/api/agent` for work in the default path (those claim APIs remain for alternate/external runners).
+The app **pushes** jobs to the runner (`agentJobDispatcher` → `agentRunnerClient`).
 
 ---
 
@@ -215,9 +216,20 @@ Real-time: `notificationService.publish('task-work-updated', …)` (and comment/
 | Method | Path | Purpose |
 |--------|------|---------|
 | GET | `/:taskId/work` | Work map |
-| PUT | `/:taskId/work` | Bind repo / queue / config |
-| PUT | `/:taskId/work/control` | pause \| stop \| resume \| none |
+| PUT | `/:taskId/work` | Bind repo / queue / config (incl. `agentMode`, automation scope) |
+| PUT | `/:taskId/work/control` | pause \| stop \| resume \| apply \| none |
 | POST | `/work-maps` | Batch work maps for board UI |
+
+### `/api/agent/automation` (job token `ea_…` or admin JWT for undo)
+
+| Method | Path | Auth | Purpose |
+|--------|------|------|---------|
+| POST | `/tools` | Automation Bearer | Execute allowlisted tool (`dryRun` supported) |
+| GET | `/status` | Automation Bearer | Poll status/control (`apply` signal) |
+| POST | `/apply` | Automation Bearer | Apply stored dry-run plan (journaled, idempotent) |
+| POST | `/undo/:taskId` | Admin JWT | Reverse journal for last job |
+
+Automation tools wrap sqlManager (tasks, boards, columns, sprints, tags, comments, exports). Deletes of tasks/boards/columns are denied. See `server/constants/automation.js` and `server/services/automationTools.js`.
 
 ### Runner (`runner/`, Bearer `RUNNER_TOKEN`)
 
@@ -229,12 +241,15 @@ Real-time: `notificationService.publish('task-work-updated', …)` (and comment/
 | GET | `/v1/jobs/:jobId` | Job snapshot |
 | POST | `/v1/jobs/:jobId/cancel` | Request cancel |
 
+Automation jobs run `runner/src/automationLoop.js` (discover → `submit_dry_run_plan` → wait for `control=apply` → `/apply` → `finish`).
+
 ---
 
 ## Auth notes
 
 - Standard routes: `Authorization: Bearer <JWT>`.
 - PATs (`ek_…`) are accepted by `authenticateToken` when JWT verify fails / token looks like a PAT (`server/middleware/auth.js`).
+- **Automation job tokens** (`ea_…`): short-lived, sha256-hashed in `agent_automation_tokens`, scoped to boards; not user Profile Dev PATs.
 - Runner ↔ app: shared `RUNNER_TOKEN` for job APIs; **per-job** callback token for callbacks (do not reuse runner token as callback auth).
 - Never log raw API keys, PATs, or SSH private keys. Admin GETs mask `AI_API_KEY` / `AI_RUNNER_TOKEN` like SMTP secrets.
 
@@ -244,8 +259,9 @@ Real-time: `notificationService.publish('task-work-updated', …)` (and comment/
 
 - **Admin → AI Settings**: enable AI, provider/model, runner URL/token, max concurrent, validate LLM + probe runner.
 - **Profile → Dev** (when AI on): mint API tokens, SSH key, GitHub PAT, repo probe.
-- **Assign to Agent** modal: repo/branch (or assist), queues work.
-- **Task cards**: spinner / drag block while status in `AGENT_ACTIVE_WORK_STATUSES`; activity modal with live log; pause/stop/resume.
+- **Assign to Agent**: Assist | Code | **Automation** (admins); automation scope this board / selected / all boards.
+- **Task cards**: spinner / drag block; activity screen with live log; pause/stop/resume; for automation **Apply** / **Undo**.
+- Copy of an automation task clones config keys (`agent_mode`, scope, board ids) and resets runtime; edit + Re-run starts a new job.
 - Public settings sync includes `AI_ENABLED`, `AI_AGENT_NAME`, `AI_PROVIDER`, `AI_MAX_CONCURRENT` for UI gating.
 
 ---
@@ -256,7 +272,8 @@ Real-time: `notificationService.publish('task-work-updated', …)` (and comment/
 2. Align `RUNNER_TOKEN` on app and runner; set `AI_RUNNER_URL` and `AI_CALLBACK_BASE_URL` for in-network callbacks.
 3. In Admin → AI Settings: enable AI, configure provider/key/model, set runner URL/token (or rely on env defaults), **Validate** LLM and **Probe** runner.
 4. In Profile → Dev: add GitHub PAT (and/or SSH) for private repos / PRs.
-5. Assign a task with a description to Agent; watch `task_work` / Agent Working modal / runner logs.
+5. Assign a task with a description to Agent; watch `task_work` / Agent activity screen / runner logs.
+6. For Automation: admin assigns with scope → review dry-run → **Apply** → optional **Undo**.
 
 **Ollama from Docker:** use `host.docker.internal` (or host LAN IP), not `localhost` inside the container — see provider hint in `aiProviders.js`.
 
@@ -265,11 +282,13 @@ Real-time: `notificationService.publish('task-work-updated', …)` (and comment/
 ## Security & multi-tenant checklist
 
 - All agent/user-dev routes authenticated; AI routes also check `AI_ENABLED`.
+- Automation assign/apply/undo are **admin-only**; job token is board-scoped with blast-radius caps.
+- Mutation journal (`agent_automation_journal`) enables undo; apply is idempotent per plan hash.
 - Secrets encrypted or hashed at rest; masked in admin responses.
 - Git credentials are **per assigning user**, not a shared tenant admin PAT.
-- Concurrent launches capped per tenant (`AI_MAX_CONCURRENT`); claim/update paths are conditional for multi-pod safety.
+- Concurrent launches capped per tenant (`AI_MAX_CONCURRENT`); automation also uses a simple concurrency lock across active automation jobs.
 - Rate limiters: agent claim, token mint, GitHub repo probe (`server/middleware/rateLimiters.js`).
-- Agent must not rewrite task title/description via PATCH (comments only).
+- Agent must not rewrite task title/description via PATCH (comments only); automation may update titles via allowlisted tools after Apply.
 - Callback token is single-job scoped and cleared on terminal events.
 
 ---
@@ -277,6 +296,7 @@ Real-time: `notificationService.publish('task-work-updated', …)` (and comment/
 ## Extending the platform
 
 - **New `task_work` keys**: write via sqlManager upsert; no schema migration.
+- **New automation tool**: add to `AUTOMATION_CAPABILITIES`, implement in `automationTools.js`, expose schema in `runner/src/automationLoop.js`.
 - **New LLM provider**: add preset in `server/constants/aiProviders.js` + FE mirror; extend `aiConnectivity.js` / runner `llmClient.js` if auth/style differs.
 - **Alternate runner**: implement push consumer of `/v1/jobs` or poll `/api/agent` claim APIs with a user PAT; always callback with the minted token.
 - **New activity events**: use `AGENT_ACTIONS` in `activityActions.js` and bilingual locale keys.

@@ -12,9 +12,10 @@ import {
   createComment,
   fetchTaskAttachments,
   putTaskWork,
+  setTaskWorkControl,
+  undoAutomationJob,
   getTaskWork,
   getTaskById,
-  setTaskWorkControl,
   type TaskWorkMap
 } from '../api';
 import { generateTaskUrl } from '../utils/routingUtils';
@@ -647,13 +648,28 @@ const TaskCard = React.memo(function TaskCard({
   const handleAssignAgentConfirm = async (
     repoUrl: string,
     repoBranch: string,
-    options?: { restart?: boolean; llmModel?: string; launch?: boolean }
+    options?: {
+      restart?: boolean;
+      llmModel?: string;
+      launch?: boolean;
+      agentMode?: 'assist' | 'code' | 'automation';
+      automationScope?: 'this_board' | 'selected' | 'all_boards';
+      automationBoardIds?: string[];
+    }
   ) => {
     const latest = await flushPendingEdits();
+    const agentMode = options?.agentMode || (repoUrl.trim() ? 'code' : 'assist');
     if (assignAgentMode === 'configure') {
       const { work } = await putTaskWork(task.id, {
-        repoUrl,
-        repoBranch,
+        repoUrl: agentMode === 'automation' ? '' : repoUrl,
+        repoBranch: agentMode === 'automation' ? '' : repoBranch,
+        agentMode,
+        ...(agentMode === 'automation'
+          ? {
+              automationScope: options?.automationScope || 'this_board',
+              automationBoardIds: options?.automationBoardIds || [],
+            }
+          : {}),
         ...(options?.llmModel !== undefined ? { llmModel: options.llmModel } : {}),
       });
       setAgentWork(work);
@@ -668,8 +684,15 @@ const TaskCard = React.memo(function TaskCard({
     await Promise.resolve(onEdit({ ...latest, memberId: AGENT_MEMBER_ID }));
     const shouldLaunch = options?.launch !== false;
     const { work } = await putTaskWork(task.id, {
-      repoUrl,
-      repoBranch,
+      repoUrl: agentMode === 'automation' ? '' : repoUrl,
+      repoBranch: agentMode === 'automation' ? '' : repoBranch,
+      agentMode,
+      ...(agentMode === 'automation'
+        ? {
+            automationScope: options?.automationScope || 'this_board',
+            automationBoardIds: options?.automationBoardIds || [],
+          }
+        : {}),
       ...(shouldLaunch
         ? { status: 'queued', entries: { control: 'none' } }
         : {}),
@@ -681,13 +704,28 @@ const TaskCard = React.memo(function TaskCard({
     setAgentFormTask(null);
   };
 
-  const handleAgentControl = async (control: 'pause' | 'stop' | 'resume') => {
+  const handleAgentControl = async (
+    control: 'pause' | 'stop' | 'resume' | 'apply'
+  ) => {
     setAgentControlBusy(true);
     try {
       const { work } = await setTaskWorkControl(task.id, control);
       setAgentWork(work);
     } catch (error) {
       console.error('Agent control failed:', error);
+    } finally {
+      setAgentControlBusy(false);
+    }
+  };
+
+  const handleAutomationUndo = async () => {
+    setAgentControlBusy(true);
+    try {
+      await undoAutomationJob(task.id);
+      const { work } = await getTaskWork(task.id);
+      setAgentWork(work || {});
+    } catch (error) {
+      console.error('Automation undo failed:', error);
     } finally {
       setAgentControlBusy(false);
     }
@@ -2580,6 +2618,22 @@ const TaskCard = React.memo(function TaskCard({
           taskTitle={agentFormTask?.title ?? task.title}
           taskDescription={agentFormTask?.description ?? task.description}
           isAdmin={Boolean(currentUser?.roles?.includes('admin'))}
+          boards={(boards || []).map((b: { id: string; title?: string; name?: string }) => ({
+            id: b.id,
+            title: b.title || b.name || b.id,
+          }))}
+          initialAgentMode={
+            (String(agentWork.agent_mode || '') as 'assist' | 'code' | 'automation') ||
+            undefined
+          }
+          initialAutomationScope={String(agentWork.automation_scope || 'this_board')}
+          initialAutomationBoardIds={(() => {
+            try {
+              return JSON.parse(String(agentWork.automation_board_ids || '[]'));
+            } catch {
+              return [];
+            }
+          })()}
           initialLlmModel={
             assignAgentMode === 'configure' ? String(agentWork.llm_model || '') : ''
           }
@@ -2616,11 +2670,13 @@ const TaskCard = React.memo(function TaskCard({
           comments={agentModalComments}
           members={members}
           busy={agentControlBusy}
+          isAdmin={Boolean(currentUser?.roles?.includes('admin'))}
           onClose={() => {
             setShowAgentWorkingModal(false);
             setAgentModalAnchor(null);
           }}
           onControl={handleAgentControl}
+          onUndo={handleAutomationUndo}
           onOpenConfig={openAgentConfigModal}
           onRefine={handleAgentRefine}
         />

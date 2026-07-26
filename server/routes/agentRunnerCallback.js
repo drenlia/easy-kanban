@@ -131,16 +131,21 @@ router.post('/callback', async (req, res) => {
 
     const terminal = ['done', 'failed', 'stopped', 'cancelled'].includes(event);
     if (event === 'progress' || event === 'log') {
-      // keep running
+      if (req.body?.status) {
+        updates.status = String(req.body.status);
+      }
     } else if (event === 'done') {
       updates.status = 'done';
       updates.control = 'none';
+      updates.awaiting_apply = '';
     } else if (event === 'failed') {
       updates.status = 'failed';
       updates.control = 'none';
+      updates.awaiting_apply = '';
     } else if (event === 'stopped' || event === 'cancelled') {
       updates.status = 'stopped';
       updates.control = 'stop';
+      updates.awaiting_apply = '';
     } else if (req.body?.status) {
       updates.status = String(req.body.status);
     }

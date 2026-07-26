@@ -1133,6 +1133,9 @@ export const putTaskWork = async (
     repoBranch?: string;
     status?: string;
     llmModel?: string;
+    agentMode?: 'assist' | 'code' | 'automation';
+    automationScope?: 'this_board' | 'selected' | 'all_boards';
+    automationBoardIds?: string[];
     entries?: TaskWorkMap;
   }
 ): Promise<{ work: TaskWorkMap }> => {
@@ -1142,9 +1145,16 @@ export const putTaskWork = async (
 
 export const setTaskWorkControl = async (
   taskId: string,
-  control: 'pause' | 'stop' | 'resume' | 'none'
+  control: 'pause' | 'stop' | 'resume' | 'none' | 'apply'
 ): Promise<{ work: TaskWorkMap }> => {
   const { data } = await api.put(`/tasks/${taskId}/work/control`, { control });
+  return data;
+};
+
+export const undoAutomationJob = async (
+  taskId: string
+): Promise<{ undone?: number; ok?: boolean; error?: string }> => {
+  const { data } = await api.post(`/agent/automation/undo/${taskId}`);
   return data;
 };
 

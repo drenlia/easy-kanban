@@ -33,6 +33,8 @@ import * as taskWork from './taskWork.js';
 import * as userApiTokens from './userApiTokens.js';
 import * as userSshKeys from './userSshKeys.js';
 import * as userGithubTokens from './userGithubTokens.js';
+import * as automationTokens from './automationTokens.js';
+import * as automationJournal from './automationJournal.js';
 
 // Export all domain managers
 export const sqlManager = {
@@ -59,11 +61,13 @@ export const sqlManager = {
   taskWork,
   userApiTokens,
   userSshKeys,
-  userGithubTokens
+  userGithubTokens,
+  automationTokens,
+  automationJournal
 };
 
 // Also export individual domains for convenience
-export { tasks, helpers, boards, comments, priorities, sprints, users, reports, settings, files, activity, health, members, auth, tags, views, passwordReset, adminUsers, licenseSettings, notificationQueue, taskWork, userApiTokens, userSshKeys, userGithubTokens };
+export { tasks, helpers, boards, comments, priorities, sprints, users, reports, settings, files, activity, health, members, auth, tags, views, passwordReset, adminUsers, licenseSettings, notificationQueue, taskWork, userApiTokens, userSshKeys, userGithubTokens, automationTokens, automationJournal };
 // export { users };
 // etc.
 

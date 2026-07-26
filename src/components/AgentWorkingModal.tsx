@@ -2,7 +2,7 @@ import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 're
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import DOMPurify from 'dompurify';
-import { X, Pause, Play, Square, Send, Settings2 } from 'lucide-react';
+import { X, Pause, Play, Square, Send, Settings2, CheckCircle2, Undo2 } from 'lucide-react';
 import type { TaskWorkMap } from '../api';
 import type { Comment, TeamMember } from '../types';
 import { commentTextToHtml } from '../utils/commentContent';
@@ -15,11 +15,13 @@ interface AgentWorkingModalProps {
   comments?: Comment[];
   members?: TeamMember[];
   onClose: () => void;
-  onControl: (control: 'pause' | 'stop' | 'resume') => void | Promise<void>;
+  onControl: (control: 'pause' | 'stop' | 'resume' | 'apply') => void | Promise<void>;
   /** Open repo/branch configuration (parent shows shared modal). */
   onOpenConfig?: () => void;
   /** Post a refine comment; optionally restart the agent afterward. */
   onRefine?: (text: string, options: { restart: boolean }) => void | Promise<void>;
+  isAdmin?: boolean;
+  onUndo?: () => void | Promise<void>;
   busy?: boolean;
 }
 
@@ -32,10 +34,16 @@ const AgentWorkingModal: React.FC<AgentWorkingModalProps> = ({
   onControl,
   onOpenConfig,
   onRefine,
+  isAdmin = false,
+  onUndo,
   busy,
 }) => {
   const { t } = useTranslation('common');
   const status = work.status || 'unknown';
+  const isAutomation = work.agent_mode === 'automation';
+  const awaitingApply =
+    work.awaiting_apply === 'true' ||
+    (isAutomation && status === 'waiting' && !!work.automation_pending_plan);
   const log = work.log || '';
   const progress = work.progress;
   const repoUrl = work.repo_url;
@@ -72,6 +80,20 @@ const AgentWorkingModal: React.FC<AgentWorkingModalProps> = ({
           new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
       );
   }, [comments]);
+
+  const automationPlanSummary = useMemo(() => {
+    const raw = work.automation_pending_plan;
+    if (!raw) return null;
+    try {
+      const plan = JSON.parse(raw) as { summary?: unknown };
+      return typeof plan?.summary === 'string' ? plan.summary : null;
+    } catch {
+      return null;
+    }
+  }, [work.automation_pending_plan]);
+
+  const showUndo =
+    isAdmin && isAutomation && (status === 'done' || status === 'failed') && !!onUndo;
 
   useLayoutEffect(() => {
     const el = conversationRef.current;
@@ -166,7 +188,27 @@ const AgentWorkingModal: React.FC<AgentWorkingModalProps> = ({
             {t('agent.llmModelOverride')}: {llmModelOverride}
           </span>
         )}
-        <div className="ml-auto flex gap-1.5">
+        <div className="ml-auto flex flex-wrap gap-1.5 justify-end">
+          {awaitingApply && isAdmin && (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => onControl('apply')}
+              className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded bg-teal-700 text-white hover:bg-teal-800 disabled:opacity-50"
+            >
+              <CheckCircle2 size={14} /> {t('agent.applyAutomation')}
+            </button>
+          )}
+          {showUndo && (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void onUndo?.()}
+              className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded bg-gray-100 text-gray-800 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-100 dark:hover:bg-gray-600 disabled:opacity-50"
+            >
+              <Undo2 size={12} /> {t('agent.undoAutomation')}
+            </button>
+          )}
           {onOpenConfig && (
             <button
               type="button"
@@ -211,9 +253,24 @@ const AgentWorkingModal: React.FC<AgentWorkingModalProps> = ({
         </div>
       </div>
 
+      {awaitingApply && isAdmin && (
+        <div className="px-4 py-2 border-b border-teal-100 dark:border-teal-900/40 bg-teal-50 dark:bg-teal-900/20 shrink-0">
+          <p className="text-xs font-medium text-teal-900 dark:text-teal-100 mb-1.5">
+            {t('agent.automationAwaitingApply')}
+          </p>
+          {automationPlanSummary && (
+            <pre className="text-xs font-mono whitespace-pre-wrap text-teal-950 dark:text-teal-50 bg-white/70 dark:bg-gray-900/50 border border-teal-200 dark:border-teal-800 rounded-md p-2.5 m-0 max-h-40 overflow-auto">
+              {automationPlanSummary}
+            </pre>
+          )}
+        </div>
+      )}
+
       {status === 'waiting' && (
         <div className="px-4 py-1.5 bg-amber-50 dark:bg-amber-900/20 text-xs text-amber-900 dark:text-amber-100 shrink-0">
-          {t('agent.waitingHint')}
+          {isAutomation && awaitingApply
+            ? t('agent.automationWaitingApplyHint')
+            : t('agent.waitingHint')}
         </div>
       )}
 

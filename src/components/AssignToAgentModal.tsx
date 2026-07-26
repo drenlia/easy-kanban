@@ -1,7 +1,7 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
-import { X, Settings2, MessageSquare, Code2, Rocket } from 'lucide-react';
+import { X, Settings2, MessageSquare, Code2, Rocket, Workflow } from 'lucide-react';
 import {
   computeAnchoredPosition,
   type RectLike,
@@ -13,12 +13,17 @@ import {
 } from '../utils/agentTaskHints';
 
 export type AssignToAgentModalMode = 'assign' | 'configure';
-export type AgentJobMode = 'assist' | 'code';
+export type AgentJobMode = 'assist' | 'code' | 'automation';
+export type AutomationScope = 'this_board' | 'selected' | 'all_boards';
 
 interface AssignToAgentModalProps {
   mode?: AssignToAgentModalMode;
   initialRepoUrl?: string;
   initialRepoBranch?: string;
+  initialAgentMode?: AgentJobMode;
+  initialAutomationScope?: string;
+  initialAutomationBoardIds?: string[];
+  boards?: { id: string; title: string }[];
   /** Admin-only per-task model override (empty = tenant default). */
   initialLlmModel?: string;
   /** Task title/description for empty-description hard stop + soft code warning. */
@@ -33,7 +38,14 @@ interface AssignToAgentModalProps {
   onConfirm: (
     repoUrl: string,
     repoBranch: string,
-    options?: { restart?: boolean; llmModel?: string; launch?: boolean }
+    options?: {
+      restart?: boolean;
+      llmModel?: string;
+      launch?: boolean;
+      agentMode?: AgentJobMode;
+      automationScope?: AutomationScope;
+      automationBoardIds?: string[];
+    }
   ) => void | Promise<void>;
   onCancel: () => void;
   /** When set, panel is positioned near this rect instead of viewport-centered. */
@@ -51,6 +63,10 @@ const AssignToAgentModal: React.FC<AssignToAgentModalProps> = ({
   mode = 'assign',
   initialRepoUrl = '',
   initialRepoBranch = '',
+  initialAgentMode,
+  initialAutomationScope = '',
+  initialAutomationBoardIds = [],
+  boards = [],
   initialLlmModel = '',
   taskTitle = '',
   taskDescription = '',
@@ -63,8 +79,21 @@ const AssignToAgentModal: React.FC<AssignToAgentModalProps> = ({
 }) => {
   const { t } = useTranslation('common');
   const isConfigure = mode === 'configure';
-  const [jobMode, setJobMode] = useState<AgentJobMode>(() =>
-    initialRepoUrl.trim() ? 'code' : 'assist'
+  const parseAutomationScope = (value: string): AutomationScope => {
+    const trimmed = value.trim();
+    if (trimmed === 'selected' || trimmed === 'all_boards') return trimmed;
+    return 'this_board';
+  };
+  const [jobMode, setJobMode] = useState<AgentJobMode>(() => {
+    if (initialAgentMode === 'automation') return 'automation';
+    if (initialRepoUrl.trim()) return 'code';
+    return 'assist';
+  });
+  const [automationScope, setAutomationScope] = useState<AutomationScope>(() =>
+    parseAutomationScope(initialAutomationScope)
+  );
+  const [automationBoardIds, setAutomationBoardIds] = useState<string[]>(
+    () => [...initialAutomationBoardIds]
   );
   const [repoUrl, setRepoUrl] = useState(initialRepoUrl);
   const [repoBranch, setRepoBranch] = useState(initialRepoBranch);
@@ -187,12 +216,21 @@ const AssignToAgentModal: React.FC<AssignToAgentModalProps> = ({
     setJobMode(next);
     setError(null);
     setSoftWarnDismissed(false);
-    if (next === 'assist') {
+    if (next === 'assist' || next === 'automation') {
       setRepoUrl('');
       setRepoBranch('');
       setBranches([]);
       setProbeState({ kind: 'idle' });
     }
+    if (next === 'automation') {
+      setAutomationScope('this_board');
+    }
+  };
+
+  const toggleAutomationBoard = (boardId: string) => {
+    setAutomationBoardIds((prev) =>
+      prev.includes(boardId) ? prev.filter((id) => id !== boardId) : [...prev, boardId]
+    );
   };
 
   const runProbe = async (url: string, opts?: { force?: boolean }) => {
@@ -272,6 +310,20 @@ const AssignToAgentModal: React.FC<AssignToAgentModalProps> = ({
   const effectiveRepoBranch = jobMode === 'code' ? repoBranch.trim() : '';
   const codeRepoMissing = jobMode === 'code' && !repoUrl.trim();
 
+  const buildConfirmOptions = (opts: { restart?: boolean; launch?: boolean } = {}) => ({
+    restart: opts.restart,
+    launch: isConfigure ? undefined : opts.launch,
+    agentMode: jobMode,
+    ...(isAdmin ? { llmModel: llmModel.trim() } : {}),
+    ...(jobMode === 'automation'
+      ? {
+          automationScope,
+          automationBoardIds:
+            automationScope === 'selected' ? [...automationBoardIds] : [],
+        }
+      : {}),
+  });
+
   const handleSubmit = async (
     e: React.FormEvent,
     opts: { restart?: boolean; launch?: boolean } = {}
@@ -299,11 +351,7 @@ const AssignToAgentModal: React.FC<AssignToAgentModalProps> = ({
           : 'assign'
     );
     try {
-      await onConfirm(effectiveRepoUrl, effectiveRepoBranch, {
-        restart: opts.restart,
-        launch: isConfigure ? undefined : launch,
-        ...(isAdmin ? { llmModel: llmModel.trim() } : {}),
-      });
+      await onConfirm(effectiveRepoUrl, effectiveRepoBranch, buildConfirmOptions(opts));
     } catch (err: any) {
       setError(
         err?.message ||
@@ -322,6 +370,7 @@ const AssignToAgentModal: React.FC<AssignToAgentModalProps> = ({
     try {
       await onConfirm('', '', {
         restart: false,
+        agentMode: 'assist',
         ...(isAdmin ? { llmModel: llmModel.trim() } : {}),
       });
     } catch (err: any) {
@@ -408,12 +457,12 @@ const AssignToAgentModal: React.FC<AssignToAgentModalProps> = ({
           </div>
         )}
 
-        {/* Explicit mode: Assist (default) vs Code */}
+        {/* Explicit mode: Assist (default) vs Code vs Automation (admin) */}
         <div>
           <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
             {t('agent.jobModeLabel')}
           </p>
-          <div className="grid grid-cols-2 gap-2">
+          <div className={`grid gap-2 ${isAdmin ? 'grid-cols-3' : 'grid-cols-2'}`}>
             <button
               type="button"
               onClick={() => selectJobMode('assist')}
@@ -448,9 +497,32 @@ const AssignToAgentModal: React.FC<AssignToAgentModalProps> = ({
                 {t('agent.jobModeCodeHint')}
               </span>
             </button>
+            {isAdmin && (
+              <button
+                type="button"
+                onClick={() => selectJobMode('automation')}
+                className={`flex flex-col items-start gap-1 rounded-md border px-3 py-2.5 text-left transition-colors ${
+                  jobMode === 'automation'
+                    ? 'border-teal-600 bg-teal-50 dark:bg-teal-900/30 ring-1 ring-teal-600'
+                    : 'border-gray-200 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700/50'
+                }`}
+              >
+                <span className="inline-flex items-center gap-1.5 text-sm font-medium text-gray-900 dark:text-gray-100">
+                  <Workflow size={14} />
+                  {t('agent.jobModeAutomation', 'Automation')}
+                </span>
+                <span className="text-[11px] text-gray-500 dark:text-gray-400 leading-snug">
+                  {t('agent.jobModeAutomationHint', 'Preview and apply board automation rules.')}
+                </span>
+              </button>
+            )}
           </div>
           <p className="mt-2 text-xs text-gray-600 dark:text-gray-300">
-            {jobMode === 'code' ? t('agent.previewCode') : t('agent.previewAssist')}
+            {jobMode === 'code'
+              ? t('agent.previewCode')
+              : jobMode === 'automation'
+                ? t('agent.previewAutomation')
+                : t('agent.previewAssist')}
           </p>
         </div>
 
@@ -536,6 +608,72 @@ const AssignToAgentModal: React.FC<AssignToAgentModalProps> = ({
           <p className="text-xs text-amber-700 dark:text-amber-300">
             {t('agent.configAppliesNextRun')}
           </p>
+        )}
+
+        {jobMode === 'automation' && (
+          <div className="space-y-3">
+            <div>
+              <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                {t('agent.automationScopeLabel', 'Automation scope')}
+              </p>
+              <div className="space-y-2">
+                {(
+                  [
+                    ['this_board', t('agent.automationScopeThisBoard', 'This board only')],
+                    ['selected', t('agent.automationScopeSelected', 'Selected boards')],
+                    ['all_boards', t('agent.automationScopeAllBoards', 'All boards')],
+                  ] as const
+                ).map(([value, label]) => (
+                  <label
+                    key={value}
+                    className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 cursor-pointer"
+                  >
+                    <input
+                      type="radio"
+                      name="automationScope"
+                      value={value}
+                      checked={automationScope === value}
+                      onChange={() => setAutomationScope(value)}
+                      disabled={busy}
+                      className="text-teal-600 focus:ring-teal-500"
+                    />
+                    {label}
+                  </label>
+                ))}
+              </div>
+              <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                {t('agent.automationScopeHint')}
+              </p>
+            </div>
+            {automationScope === 'selected' && (
+              <div className="rounded-md border border-gray-200 dark:border-gray-600 p-3 max-h-40 overflow-y-auto space-y-2">
+                {boards.length === 0 ? (
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    {t('agent.automationNoBoards', 'No boards available.')}
+                  </p>
+                ) : (
+                  boards.map((board) => (
+                    <label
+                      key={board.id}
+                      className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 cursor-pointer"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={automationBoardIds.includes(board.id)}
+                        onChange={() => toggleAutomationBoard(board.id)}
+                        disabled={busy}
+                        className="rounded text-teal-600 focus:ring-teal-500"
+                      />
+                      <span className="truncate">{board.title}</span>
+                    </label>
+                  ))
+                )}
+              </div>
+            )}
+            <div className="rounded-md border border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-900/20 px-3 py-2 text-xs text-amber-900 dark:text-amber-100">
+              {t('agent.automationAdminOnlyHint')}
+            </div>
+          </div>
         )}
 
         {jobMode === 'code' && (

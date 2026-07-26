@@ -20,6 +20,15 @@ import {
   mintCallbackToken,
   mintJobId
 } from './agentRunnerClient.js';
+import {
+  mintAutomationToken,
+  parseScopeBoardIds
+} from '../utils/automationToken.js';
+import {
+  AUTOMATION_MODE,
+  AUTOMATION_SCOPE
+} from '../constants/automation.js';
+import { wrapQuery } from '../utils/queryLogger.js';
 
 async function getSetting(db, key) {
   const row = await settingsQueries.getSettingByKey(db, key);
@@ -166,10 +175,87 @@ export async function launchSingleTask(db, tenantId, taskId, ctx = {}) {
 
   const ownerUserId = work.agent_owner_user_id || '';
   const { githubToken, sshPrivateKey } = await loadUserGitCredentials(db, ownerUserId);
-  const mode = work.repo_url ? 'code' : 'assist';
+  const explicitMode = String(work.agent_mode || '').trim();
+  const mode =
+    explicitMode === AUTOMATION_MODE
+      ? AUTOMATION_MODE
+      : work.repo_url
+        ? 'code'
+        : 'assist';
   const tenantModel = (await getSetting(db, 'AI_MODEL')) || '';
   const taskModel = String(work.llm_model || '').trim();
   const effectiveModel = taskModel || tenantModel;
+
+  const launchBoardId = task.boardid || task.boardId || '';
+  let automationToken = '';
+  let automationApiBase = '';
+  let scopeType = work.automation_scope || AUTOMATION_SCOPE.THIS_BOARD;
+  let boardIds = parseScopeBoardIds(work);
+
+  if (mode === AUTOMATION_MODE) {
+    // Board-level concurrency: reject if another automation is awaiting_apply/running on overlapping boards
+    try {
+      const lockCheck = wrapQuery(
+        db.prepare(`
+          SELECT t.id
+          FROM tasks t
+          INNER JOIN task_work tw_mode ON tw_mode.task_id = t.id AND tw_mode.key = 'agent_mode' AND tw_mode.value = 'automation'
+          INNER JOIN task_work tw_status ON tw_status.task_id = t.id AND tw_status.key = 'status'
+          WHERE t.id <> $1
+            AND tw_status.value IN ('running', 'waiting')
+          LIMIT 1
+        `),
+        'SELECT'
+      );
+      const conflict = await lockCheck.get(taskId);
+      if (conflict) {
+        await taskWorkQueries.appendWorkLog(
+          db,
+          taskId,
+          `[${new Date().toISOString()}] Launch delayed: another automation is active (board concurrency lock)`
+        );
+        await publishWork(db, tenantId, taskId);
+        return { launched: false, reason: 'concurrency_lock' };
+      }
+    } catch (e) {
+      console.warn('Automation concurrency check failed:', e?.message || e);
+    }
+
+    if (!ownerUserId) {
+      await taskWorkQueries.appendWorkLog(
+        db,
+        taskId,
+        `[${new Date().toISOString()}] Launch skipped: automation requires an admin owner`
+      );
+      await publishWork(db, tenantId, taskId);
+      return { launched: false, reason: 'no_owner' };
+    }
+
+    if (scopeType === AUTOMATION_SCOPE.THIS_BOARD && launchBoardId) {
+      boardIds = [launchBoardId];
+    }
+
+    const minted = await mintAutomationToken(db, {
+      jobId,
+      taskId,
+      ownerUserId,
+      scopeType,
+      boardIds,
+      launchBoardId
+    });
+    automationToken = minted.rawToken;
+    boardIds = minted.boardIds;
+    scopeType = minted.scopeType;
+
+    // API base for runner → app tool calls (same host as callbacks, without path)
+    const cb = buildCallbackUrl({
+      siteUrl,
+      tenantId,
+      reqHost: ctx.reqHost,
+      reqProtocol: ctx.reqProtocol
+    });
+    automationApiBase = cb.replace(/\/api\/agent\/runner\/callback\/?$/, '');
+  }
 
   const payload = {
     jobId,
@@ -179,12 +265,12 @@ export async function launchSingleTask(db, tenantId, taskId, ctx = {}) {
     title: task.title || '',
     description: task.description || '',
     comments: commentList,
-    repoUrl: work.repo_url || '',
-    repoBranch: work.repo_branch || '',
+    repoUrl: mode === AUTOMATION_MODE ? '' : work.repo_url || '',
+    repoBranch: mode === AUTOMATION_MODE ? '' : work.repo_branch || '',
     mode,
     ownerUserId,
-    githubToken,
-    sshPrivateKey,
+    githubToken: mode === AUTOMATION_MODE ? '' : githubToken,
+    sshPrivateKey: mode === AUTOMATION_MODE ? '' : sshPrivateKey,
     llm: {
       provider: await getSetting(db, 'AI_PROVIDER'),
       baseUrl: await getSetting(db, 'AI_API_BASE_URL'),
@@ -197,7 +283,16 @@ export async function launchSingleTask(db, tenantId, taskId, ctx = {}) {
     callbackUrl,
     callbackToken,
     agentUserId: AGENT_USER_ID,
-    agentMemberId: AGENT_MEMBER_ID
+    agentMemberId: AGENT_MEMBER_ID,
+    automation: mode === AUTOMATION_MODE
+      ? {
+          apiBaseUrl: automationApiBase,
+          token: automationToken,
+          scopeType,
+          boardIds,
+          launchBoardId
+        }
+      : undefined
   };
 
   if (!payload.llm.apiKey) {
@@ -244,7 +339,11 @@ export async function launchSingleTask(db, tenantId, taskId, ctx = {}) {
   await taskWorkQueries.upsertWorkEntries(db, taskId, {
     callback_token: callbackToken,
     runner_job_id: jobId,
-    launch_attempt_at: new Date().toISOString()
+    launch_attempt_at: new Date().toISOString(),
+    agent_mode: mode,
+    awaiting_apply: '',
+    automation_pending_plan: mode === AUTOMATION_MODE ? '' : work.automation_pending_plan || '',
+    automation_apply_hash: mode === AUTOMATION_MODE ? '' : work.automation_apply_hash || ''
   });
 
   const launch = await launchJob(db, payload);

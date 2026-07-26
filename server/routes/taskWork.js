@@ -82,6 +82,18 @@ router.put('/:taskId/work', authenticateToken, async (req, res) => {
     if (req.body?.status !== undefined) {
       entries.status = String(req.body.status);
     }
+    if (req.body?.agentMode !== undefined) {
+      entries.agent_mode = String(req.body.agentMode || '').trim();
+    }
+    if (req.body?.automationScope !== undefined) {
+      entries.automation_scope = String(req.body.automationScope || '').trim();
+    }
+    if (req.body?.automationBoardIds !== undefined) {
+      const ids = Array.isArray(req.body.automationBoardIds)
+        ? req.body.automationBoardIds
+        : [];
+      entries.automation_board_ids = JSON.stringify(ids.filter(Boolean));
+    }
     if (req.body?.entries && typeof req.body.entries === 'object') {
       Object.assign(entries, req.body.entries);
     }
@@ -89,8 +101,23 @@ router.put('/:taskId/work', authenticateToken, async (req, res) => {
     // Per-task LLM model override — admins only (strip if sneaked via entries)
     if (!isAdmin) {
       delete entries.llm_model;
+      // Non-admins cannot launch automation
+      if (entries.agent_mode === 'automation') {
+        return res.status(403).json({ error: 'Only admins can run Automation jobs' });
+      }
     } else if (req.body?.llmModel !== undefined) {
       entries.llm_model = String(req.body.llmModel || '').trim();
+    }
+
+    if (entries.agent_mode === 'automation' && entries.status === 'queued') {
+      if (!isAdmin) {
+        return res.status(403).json({ error: 'Only admins can run Automation jobs' });
+      }
+      entries.repo_url = '';
+      entries.repo_branch = '';
+      if (!entries.automation_scope) {
+        entries.automation_scope = 'this_board';
+      }
     }
 
     // Only auto-queue when status is explicitly queued (initial assign).
@@ -115,12 +142,13 @@ router.put('/:taskId/work', authenticateToken, async (req, res) => {
       }
     }
 
-    // Bind coding credentials to the assigning user (not admin/global PAT)
+    // Bind coding/automation credentials to the assigning user (not admin/global PAT)
     if (entries.status === 'queued' && req.user?.id) {
-      if (req.body?.repoUrl !== undefined) {
-        // Fresh assign from modal — owner is the current user
-        entries.agent_owner_user_id = req.user.id;
-      } else if (!existing.agent_owner_user_id) {
+      if (
+        req.body?.repoUrl !== undefined ||
+        req.body?.agentMode !== undefined ||
+        !existing.agent_owner_user_id
+      ) {
         entries.agent_owner_user_id = req.user.id;
       }
     }
@@ -207,18 +235,45 @@ router.put('/:taskId/work/control', authenticateToken, async (req, res) => {
     }
 
     const control = String(req.body?.control || '').toLowerCase();
-    if (!['pause', 'stop', 'resume', 'none'].includes(control)) {
-      return res.status(400).json({ error: 'control must be pause, stop, resume, or none' });
+    if (!['pause', 'stop', 'resume', 'none', 'apply'].includes(control)) {
+      return res.status(400).json({
+        error: 'control must be pause, stop, resume, apply, or none'
+      });
     }
 
     const workBefore = await taskWorkQueries.getWorkMapByTaskId(db, req.params.taskId);
     const updates = { control };
 
-    if (control === 'resume') {
+    if (control === 'apply') {
+      const isAdmin =
+        req.user?.role === 'admin' ||
+        (Array.isArray(req.user?.roles) && req.user.roles.includes('admin'));
+      if (!isAdmin) {
+        return res.status(403).json({ error: 'Only admins can apply automations' });
+      }
+      if (workBefore.awaiting_apply !== 'true' && workBefore.agent_mode === 'automation') {
+        // Allow apply when waiting with pending plan
+        if (!workBefore.automation_pending_plan) {
+          return res.status(400).json({ error: 'No automation dry-run plan to apply' });
+        }
+      }
+      updates.control = 'apply';
+      // Keep status waiting/running so runner can pick up apply signal
+      if (workBefore.status === 'waiting') {
+        updates.status = 'waiting';
+      }
+    } else if (control === 'resume') {
       updates.status = 'queued';
       updates.control = 'resume';
       if (!workBefore.agent_owner_user_id && req.user?.id) {
         updates.agent_owner_user_id = req.user.id;
+      }
+      // Clear prior automation apply state for a fresh re-run
+      if (workBefore.agent_mode === 'automation') {
+        updates.awaiting_apply = '';
+        updates.automation_pending_plan = '';
+        updates.automation_plan_hash = '';
+        updates.automation_apply_hash = '';
       }
     } else if (control === 'stop') {
       updates.status = 'stopped';

@@ -325,6 +325,37 @@ const CREATE_SCHEMA_SQL = `
       updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
     );
 
+    CREATE TABLE IF NOT EXISTS agent_automation_tokens (
+      id TEXT PRIMARY KEY,
+      task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+      token_hash TEXT NOT NULL,
+      owner_user_id TEXT NOT NULL,
+      scope_type TEXT NOT NULL DEFAULT 'this_board',
+      scope_board_ids TEXT NOT NULL DEFAULT '[]',
+      expires_at TIMESTAMPTZ NOT NULL,
+      revoked_at TIMESTAMPTZ,
+      apply_plan_hash TEXT,
+      created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_auto_tokens_hash ON agent_automation_tokens(token_hash);
+    CREATE INDEX IF NOT EXISTS idx_agent_auto_tokens_task ON agent_automation_tokens(task_id);
+
+    CREATE TABLE IF NOT EXISTS agent_automation_journal (
+      id TEXT PRIMARY KEY,
+      job_id TEXT NOT NULL,
+      task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+      seq INTEGER NOT NULL,
+      op TEXT NOT NULL,
+      entity_type TEXT NOT NULL,
+      entity_id TEXT NOT NULL,
+      before_json TEXT,
+      after_json TEXT,
+      created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+      undone_at TIMESTAMPTZ
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_auto_journal_job ON agent_automation_journal(job_id);
+    CREATE INDEX IF NOT EXISTS idx_agent_auto_journal_task ON agent_automation_journal(task_id);
+
     CREATE TABLE IF NOT EXISTS tags (
       id SERIAL PRIMARY KEY,
       tag TEXT NOT NULL UNIQUE,

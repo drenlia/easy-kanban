@@ -34,7 +34,7 @@ Easy-Kanban is a comprehensive project management platform that combines Kanban 
 - **Role-based access control** (Admin/User permissions)
 - **Team management** with color-coded member assignments
 - **Task management** with priorities, comments, and file attachments
-- **AI Agent** (optional) — assign tasks to an Agent that can comment, work a linked Git repo, and open pull requests (see [AI Agent](#ai-agent))
+- **AI Agent** (optional) — assign tasks to an Agent that can comment (**Assist**), work a linked Git repo (**Code**), or (admins) run board **Automation** with dry-run Apply/Undo (see [AI Agent](#ai-agent))
 - **Admin panel** for user management and system configuration
 - **File uploads** for task attachments and user avatars
 - **Site branding** - custom logo (light/dark), optional hide logo / GitHub link
@@ -525,32 +525,39 @@ Optional feature. Requires an administrator to enable AI and configure an LLM (a
 
 ### What it does
 - Adds an **Agent** assignee (system member — not a licensed login seat)
-- Lets you **queue work** on a task: coding against a Git repo, or **assist** (comment-oriented, no repo)
-- Shows **live progress** on the card and in an activity modal (logs, pause / stop / resume)
+- Lets you **queue work** on a task: coding against a Git repo, **assist** (comment-oriented, no repo), or **Automation** (admins — board-wide tool ops with preview)
+- Shows **live progress** on the card and in an activity screen (logs, pause / stop / resume)
 - For coding jobs, can commit, push a branch, and open a **pull request** when GitHub credentials allow
+- For Automation: dry-run plan → admin **Apply** → optional **Undo**; copy the task to reuse the recipe, or edit and Re-run
 
 ### Assigning work
 1. Ensure the task has a **description** (required before the Agent can be queued)
 2. Open **Assign to Agent** from the task card toolbar (or assignee flow when AI is on)
 3. Choose:
-   - **Repository URL + branch** for coding work, or leave the repo empty for assist-only
+   - **Assist** — no repository
+   - **Code** — repository URL + optional branch
+   - **Automation** (admins) — scope: this board / selected boards / all boards
    - Optional model override (admins) when allowed
 4. Confirm — the task is assigned to the Agent and status becomes **queued**, then **running** when a runner slot is available
+5. For Automation, review the dry-run on the activity screen and click **Apply** before changes run
 
 ### Controlling a running job
-- Open the **Agent activity** modal from the card
+- Open the **Agent activity** screen from the card
 - **Pause** / **Stop** — requests the runner to cancel; status updates on the card
-- **Resume** — re-queues work after pause, wait, stop, or failure (as allowed by status)
+- **Resume** / **Re-run** — re-queues work after pause, wait, stop, or failure (as allowed by status)
+- **Apply** / **Undo** (Automation, admins) — execute or reverse the dry-run plan
 - While the Agent is actively working, dragging the card may be blocked
 
 ### Waiting for your reply
 - The Agent may post a comment and enter a **waiting** state
 - Reply in comments, then **resume** when you want work to continue
+- Automation waiting for Apply is a separate admin confirmation step (not a comment reply)
 
 ### Prerequisites checklist
 | Who | Need |
 |-----|------|
-| Admin | AI enabled; LLM provider/key/model; runner URL/token for coding jobs |
+| Admin | AI enabled; LLM provider/key/model; runner URL/token for coding/automation jobs |
+| Admin (automation) | Use Automation mode; review dry-run; Apply/Undo |
 | User (coding) | Profile → Dev: GitHub PAT and/or SSH key with access to the repo |
 | User (assist) | AI enabled; no Git credentials required |
 

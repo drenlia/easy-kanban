@@ -12,7 +12,8 @@ import { getRequestDatabase } from '../middleware/tenantRouting.js';
 import { serverDebug } from '../utils/serverDebug.js';
 import { dbTransaction } from '../utils/dbAsync.js';
 // MIGRATED: Import sqlManager
-import { tasks as taskQueries, boards as boardQueries, helpers, sprints as sprintQueries } from '../utils/sqlManager/index.js';
+import { tasks as taskQueries, boards as boardQueries, helpers, sprints as sprintQueries, taskWork as taskWorkQueries } from '../utils/sqlManager/index.js';
+import { AUTOMATION_CONFIG_KEYS } from '../constants/automation.js';
 
 const router = express.Router();
 
@@ -906,6 +907,20 @@ router.post('/copy', authenticateToken, checkTaskLimit, async (req, res) => {
         if (collaborator && collaborator.id) {
           const memberId = collaborator.id;
           await helpers.addCollaborator(db, newTaskId, memberId);
+        }
+      }
+
+      // Copy Agent Automation config keys only (reset runtime on new card)
+      const originalWork = await taskWorkQueries.getWorkMapByTaskId(db, taskId);
+      if (originalWork?.agent_mode === 'automation') {
+        const configEntries = {};
+        for (const key of AUTOMATION_CONFIG_KEYS) {
+          if (originalWork[key] != null && originalWork[key] !== '') {
+            configEntries[key] = originalWork[key];
+          }
+        }
+        if (Object.keys(configEntries).length) {
+          await taskWorkQueries.upsertWorkEntries(db, newTaskId, configEntries);
         }
       }
     });

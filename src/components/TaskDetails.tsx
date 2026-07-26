@@ -416,8 +416,16 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
   const handleAssignAgentConfirm = async (
     repoUrl: string,
     repoBranch: string,
-    options?: { restart?: boolean; llmModel?: string; launch?: boolean }
+    options?: {
+      restart?: boolean;
+      llmModel?: string;
+      launch?: boolean;
+      agentMode?: 'assist' | 'code' | 'automation';
+      automationScope?: 'this_board' | 'selected' | 'all_boards';
+      automationBoardIds?: string[];
+    }
   ) => {
+    const agentMode = options?.agentMode || (repoUrl.trim() ? 'code' : 'assist');
     const updatedTask = { ...editedTask, memberId: AGENT_MEMBER_ID };
     setEditedTask(updatedTask);
     setIsSubmitting(true);
@@ -425,8 +433,15 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
       await onUpdate(updatedTask);
       const shouldLaunch = options?.launch !== false;
       await putTaskWork(task.id, {
-        repoUrl,
-        repoBranch,
+        repoUrl: agentMode === 'automation' ? '' : repoUrl,
+        repoBranch: agentMode === 'automation' ? '' : repoBranch,
+        agentMode,
+        ...(agentMode === 'automation'
+          ? {
+              automationScope: options?.automationScope || 'this_board',
+              automationBoardIds: options?.automationBoardIds || [],
+            }
+          : {}),
         ...(shouldLaunch
           ? { status: 'queued', entries: { control: 'none' } }
           : {}),

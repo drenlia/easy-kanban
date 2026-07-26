@@ -19,6 +19,7 @@ import {
   cleanupWorkspace
 } from './git.js';
 import { updateJob, removeJob } from './jobQueue.js';
+import { runAutomationJob } from './automationLoop.js';
 
 const execFileAsync = promisify(execFile);
 const MAX_STEPS = 40;
@@ -262,6 +263,11 @@ export async function runAgentJob(job) {
 
     const assistOnly =
       payload.mode === 'assist' || !String(payload.repoUrl || '').trim();
+
+    if (payload.mode === 'automation') {
+      await runAutomationJob(job);
+      return;
+    }
 
     if (assistOnly) {
       await runAssistJob(job, payload);

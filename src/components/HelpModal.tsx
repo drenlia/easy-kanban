@@ -465,6 +465,12 @@ export default function HelpModal({ isOpen, onClose, currentUser }: HelpModalPro
               ['help.ai.adminSettingsDesc1', 'help.ai.adminSettingsDesc2'],
               Settings,
               'text-red-500'
+            ),
+            renderSection(
+              'help.ai.automation',
+              ['help.ai.automationDesc1', 'help.ai.automationDesc2'],
+              Bot,
+              'text-teal-700'
             )
           ]
         : []),
@@ -640,7 +646,14 @@ export default function HelpModal({ isOpen, onClose, currentUser }: HelpModalPro
             'help.ai.devCredentialsSsh', 'help.ai.devCredentialsGithub', 'help.ai.devCredentialsProbe'
           );
           if (isAdmin) {
-            tabKeys.push('help.ai.adminSettings', 'help.ai.adminSettingsDesc1', 'help.ai.adminSettingsDesc2');
+            tabKeys.push(
+              'help.ai.adminSettings',
+              'help.ai.adminSettingsDesc1',
+              'help.ai.adminSettingsDesc2',
+              'help.ai.automation',
+              'help.ai.automationDesc1',
+              'help.ai.automationDesc2'
+            );
           }
         }
         break;
