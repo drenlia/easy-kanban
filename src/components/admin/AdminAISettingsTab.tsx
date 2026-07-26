@@ -646,7 +646,7 @@ const AdminAISettingsTab: React.FC<AdminAISettingsTabProps> = ({
             <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">
               {t('appSettings.aiModelDescription')}
             </p>
-            <div className="flex flex-wrap items-end gap-2 max-w-xl">
+            <div className="flex flex-wrap items-center gap-2 max-w-3xl">
               <select
                 value={modelSelectValue}
                 onChange={(e) => {
@@ -658,7 +658,7 @@ const AdminAISettingsTab: React.FC<AdminAISettingsTabProps> = ({
                   setModelMode('list');
                   setModel(v);
                 }}
-                className="block w-full max-w-md px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+                className="block min-w-0 flex-1 max-w-md px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
               >
                 <option value={CUSTOM_MODEL}>
                   {t('appSettings.aiModelCustomOption')}
@@ -673,11 +673,19 @@ const AdminAISettingsTab: React.FC<AdminAISettingsTabProps> = ({
                 type="button"
                 disabled={loadingModels || testing}
                 onClick={() => void refreshModels()}
-                className="px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-600 disabled:opacity-50"
+                className="shrink-0 px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-600 disabled:opacity-50"
               >
                 {loadingModels
                   ? t('appSettings.aiLoadingModels')
                   : t('appSettings.aiRefreshModels')}
+              </button>
+              <button
+                type="button"
+                disabled={testing || savingConfig}
+                onClick={() => void testConnection()}
+                className="shrink-0 px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-600 disabled:opacity-50"
+              >
+                {testing ? t('appSettings.aiTesting') : t('appSettings.aiTestConnection')}
               </button>
             </div>
             {(modelMode === 'custom' || models.length === 0) && (
@@ -692,17 +700,6 @@ const AdminAISettingsTab: React.FC<AdminAISettingsTabProps> = ({
                 className="mt-2 block w-full max-w-md px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
               />
             )}
-          </div>
-
-          <div className="flex flex-wrap gap-2 pt-1 border-t border-gray-200 dark:border-gray-700">
-            <button
-              type="button"
-              disabled={testing || savingConfig}
-              onClick={() => void testConnection()}
-              className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-600 disabled:opacity-50"
-            >
-              {testing ? t('appSettings.aiTesting') : t('appSettings.aiTestConnection')}
-            </button>
           </div>
         </section>
 
@@ -758,13 +755,25 @@ const AdminAISettingsTab: React.FC<AdminAISettingsTabProps> = ({
             <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">
               {t('appSettings.aiRunnerUrlDescription')}
             </p>
-            <input
-              type="url"
-              value={runnerUrl}
-              onChange={(e) => setRunnerUrl(e.target.value)}
-              placeholder="http://kanban-runner:8080"
-              className="block w-full max-w-xl px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm font-mono bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-            />
+            <div className="flex flex-wrap items-center gap-2 max-w-3xl">
+              <input
+                type="url"
+                value={runnerUrl}
+                onChange={(e) => setRunnerUrl(e.target.value)}
+                placeholder="http://kanban-runner:8080"
+                className="block min-w-0 flex-1 max-w-xl px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm font-mono bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+              />
+              <button
+                type="button"
+                disabled={testingRunner || savingConfig}
+                onClick={() => void testRunner()}
+                className="shrink-0 px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-600 disabled:opacity-50"
+              >
+                {testingRunner
+                  ? t('appSettings.aiTestingRunner')
+                  : t('appSettings.aiTestRunner')}
+              </button>
+            </div>
           </div>
 
           <div>
@@ -792,19 +801,6 @@ const AdminAISettingsTab: React.FC<AdminAISettingsTabProps> = ({
 
           <div className="rounded-md border border-gray-200 dark:border-gray-600 bg-white/70 dark:bg-gray-800/60 px-3 py-2 text-sm text-gray-600 dark:text-gray-300">
             {t('appSettings.aiRunnerNote')}
-          </div>
-
-          <div className="flex flex-wrap gap-2 pt-1 border-t border-gray-200 dark:border-gray-700">
-            <button
-              type="button"
-              disabled={testingRunner || savingConfig}
-              onClick={() => void testRunner()}
-              className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-600 disabled:opacity-50"
-            >
-              {testingRunner
-                ? t('appSettings.aiTestingRunner')
-                : t('appSettings.aiTestRunner')}
-            </button>
           </div>
         </section>
 
