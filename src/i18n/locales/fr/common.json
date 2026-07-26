@@ -387,6 +387,7 @@
       "listView": "Vue Liste",
       "ganttView": "Vue Gantt",
       "reports": "Rapports",
+      "ai": "Agent IA",
       "admin": "Admin"
     },
     "overview": {
@@ -589,6 +590,28 @@
       "reportingGamification": "Gamification : Lorsqu'elle est activée, les fonctionnalités de gamification suivent les points des utilisateurs, les réalisations et les classements du classement basés sur l'achèvement des tâches, l'effort et la collaboration. Cela peut aider à motiver les membres de l'équipe et à reconnaître les contributions.",
       "licensing": "Onglet Licence",
       "licensingDesc": "Consultez et gérez les informations de licence de l'application, les clés de licence, les détails d'abonnement et les paramètres liés à la licence."
+    },
+    "ai": {
+      "overview": "Vue d'ensemble de l'agent IA",
+      "overviewDesc1": "Lorsque l'IA est activée pour cette instance, vous pouvez assigner des tâches à un Agent — un coéquipier système qui s'appuie sur la description et les commentaires de la tâche. L'Agent peut répondre aux questions (mode assistance) ou travailler sur un dépôt Git (mode codage).",
+      "overviewDesc2": "L'activité de l'Agent apparaît sur la carte de tâche avec une animation pendant que le travail est en file d'attente, en cours ou en attente. Ouvrez l'écran d'activité depuis la barre d'outils de la carte pour les journaux en direct et les commandes.",
+      "assigning": "Assigner du travail",
+      "assigningDesc1": "Ouvrez Assigner à l'Agent depuis la barre d'outils de la carte (ou le sélecteur d'assigné). La tâche doit avoir une description avant de pouvoir être mise en file d'attente.",
+      "assigningDesc2": "Mode codage : indiquez l'URL du dépôt et une branche optionnelle. L'Agent clone le dépôt, apporte des modifications, et peut pousser une branche et ouvrir une pull request lorsque les identifiants le permettent.",
+      "assigningDesc3": "Mode assistance : laissez le dépôt vide. L'Agent utilise le LLM configuré pour commenter et aider sans toucher au code.",
+      "controlling": "Contrôler les tâches",
+      "controllingDesc1": "Depuis l'écran d'activité de l'Agent, vous pouvez Mettre en pause, Arrêter ou Reprendre. Pause et Arrêt annulent le job distant du runner s'il est en cours ; Reprendre remet la tâche en file d'attente.",
+      "controllingDesc2": "Si l'Agent a besoin de votre avis, il peut publier un commentaire et passer en état d'attente. Répondez dans les commentaires, puis Reprenez lorsque vous souhaitez continuer.",
+      "controllingDesc3": "Pendant que l'Agent travaille activement, le déplacement de la carte entre colonnes peut être bloqué jusqu'à la fin ou l'arrêt du job.",
+      "devCredentials": "Identifiants Dev (Profil)",
+      "devCredentialsDesc1": "Ouvrez Profil → Dev pour gérer les identifiants utilisés pour les jobs de codage de l'Agent que vous assignez :",
+      "devCredentialsApiTokens": "Jetons API : jetons d'accès personnels (ek_…) pour l'automatisation des API Agent (affichés une seule fois à la création).",
+      "devCredentialsSsh": "Clé SSH : générez une paire de clés dédiée pour l'accès git ; ajoutez la clé publique sur GitHub ou votre hébergeur git.",
+      "devCredentialsGithub": "PAT GitHub : stockez votre propre jeton d'accès personnel GitHub pour cloner, pousser et ouvrir des pull requests. Les identifiants sont par utilisateur — non partagés avec l'équipe.",
+      "devCredentialsProbe": "Vérification du dépôt : vérifiez que votre PAT peut accéder à l'URL du dépôt avant d'assigner du travail de codage.",
+      "adminSettings": "Paramètres IA (Admin)",
+      "adminSettingsDesc1": "Les administrateurs configurent l'IA sous Admin → Paramètres IA : activer l'IA, choisir un fournisseur LLM (OpenAI, Anthropic, OpenRouter, Ollama ou personnalisé), définir la clé API et le modèle, et connecter le runner d'agent pour les jobs de codage.",
+      "adminSettingsDesc2": "Utilisez Valider la connexion pour tester le LLM et Sonder le runner pour confirmer que le runner de codage est joignable. Le nombre max de jobs simultanés limite combien de tâches Agent peuvent s'exécuter en même temps pour cette instance."
     }
   },
   "renameModal": {

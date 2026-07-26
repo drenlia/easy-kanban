@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { X, Users, Columns, ClipboardList, MessageSquare, ArrowRight, LayoutGrid, List, Calendar, Search, Eye, Settings, Play, BarChart3, Shield, Download } from 'lucide-react';
+import { X, Users, Columns, ClipboardList, MessageSquare, ArrowRight, LayoutGrid, List, Calendar, Search, Eye, Settings, Play, BarChart3, Shield, Download, Bot, KeyRound } from 'lucide-react';
 import { useTour } from '../contexts/TourContext';
+import { useSettings } from '../contexts/SettingsContext';
 import { versionDetection } from '../utils/versionDetection';
 import { CurrentUser } from '../types';
 
@@ -11,10 +12,11 @@ interface HelpModalProps {
   currentUser?: CurrentUser | null;
 }
 
-type TabType = 'overview' | 'kanban' | 'list' | 'gantt' | 'reports' | 'admin';
+type TabType = 'overview' | 'kanban' | 'list' | 'gantt' | 'reports' | 'ai' | 'admin';
 
 export default function HelpModal({ isOpen, onClose, currentUser }: HelpModalProps) {
   const { t } = useTranslation('common');
+  const { siteSettings, systemSettings } = useSettings();
   const modalRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const [activeTab, setActiveTab] = useState<TabType>('overview');
@@ -25,6 +27,15 @@ export default function HelpModal({ isOpen, onClose, currentUser }: HelpModalPro
   
   // Check if user is admin
   const isAdmin = currentUser?.roles?.includes('admin') || false;
+  const aiEnabled =
+    siteSettings?.AI_ENABLED === 'true' || systemSettings?.AI_ENABLED === 'true';
+
+  // Leave AI tab if AI is turned off while the modal is open
+  useEffect(() => {
+    if (!aiEnabled && activeTab === 'ai') {
+      setActiveTab('overview');
+    }
+  }, [aiEnabled, activeTab]);
 
   // Debounce search term
   useEffect(() => {
@@ -126,6 +137,7 @@ export default function HelpModal({ isOpen, onClose, currentUser }: HelpModalPro
     { id: 'list' as TabType, label: t('help.tabs.listView'), icon: List },
     { id: 'gantt' as TabType, label: t('help.tabs.ganttView'), icon: Calendar },
     { id: 'reports' as TabType, label: t('help.tabs.reports'), icon: BarChart3 },
+    ...(aiEnabled ? [{ id: 'ai' as TabType, label: t('help.tabs.ai'), icon: Bot }] : []),
     ...(isAdmin ? [{ id: 'admin' as TabType, label: t('help.tabs.admin'), icon: Shield }] : []),
   ];
 
@@ -414,6 +426,53 @@ export default function HelpModal({ isOpen, onClose, currentUser }: HelpModalPro
     return <div className="space-y-8">{sections}</div>;
   };
 
+  const renderAiTab = () => {
+    const sections = [
+      renderSection(
+        'help.ai.overview',
+        ['help.ai.overviewDesc1', 'help.ai.overviewDesc2'],
+        Bot,
+        'text-teal-600'
+      ),
+      renderSection(
+        'help.ai.assigning',
+        ['help.ai.assigningDesc1', 'help.ai.assigningDesc2', 'help.ai.assigningDesc3'],
+        ClipboardList,
+        'text-orange-500'
+      ),
+      renderSection(
+        'help.ai.controlling',
+        ['help.ai.controllingDesc1', 'help.ai.controllingDesc2', 'help.ai.controllingDesc3'],
+        Play,
+        'text-blue-500'
+      ),
+      renderSectionWithList(
+        'help.ai.devCredentials',
+        ['help.ai.devCredentialsDesc1'],
+        [
+          'help.ai.devCredentialsApiTokens',
+          'help.ai.devCredentialsSsh',
+          'help.ai.devCredentialsGithub',
+          'help.ai.devCredentialsProbe'
+        ],
+        KeyRound,
+        'text-purple-500'
+      ),
+      ...(isAdmin
+        ? [
+            renderSection(
+              'help.ai.adminSettings',
+              ['help.ai.adminSettingsDesc1', 'help.ai.adminSettingsDesc2'],
+              Settings,
+              'text-red-500'
+            )
+          ]
+        : []),
+    ].filter(Boolean);
+
+    return <div className="space-y-8">{sections}</div>;
+  };
+
   const renderAdminTab = () => {
     const sections = [
       renderSection(
@@ -505,6 +564,8 @@ export default function HelpModal({ isOpen, onClose, currentUser }: HelpModalPro
         return renderGanttTab();
       case 'reports':
         return renderReportsTab();
+      case 'ai':
+        return aiEnabled ? renderAiTab() : renderOverviewTab();
       case 'admin':
         return renderAdminTab();
       default:
@@ -569,6 +630,20 @@ export default function HelpModal({ isOpen, onClose, currentUser }: HelpModalPro
           'help.reports.leaderboard', 'help.reports.leaderboardDesc', 'help.reports.burndown', 'help.reports.burndownDesc',
           'help.reports.teamPerformance', 'help.reports.teamPerformanceDesc', 'help.reports.taskList', 'help.reports.taskListDesc');
         break;
+      case 'ai':
+        if (aiEnabled) {
+          tabKeys.push(
+            'help.ai.overview', 'help.ai.overviewDesc1', 'help.ai.overviewDesc2',
+            'help.ai.assigning', 'help.ai.assigningDesc1', 'help.ai.assigningDesc2', 'help.ai.assigningDesc3',
+            'help.ai.controlling', 'help.ai.controllingDesc1', 'help.ai.controllingDesc2', 'help.ai.controllingDesc3',
+            'help.ai.devCredentials', 'help.ai.devCredentialsDesc1', 'help.ai.devCredentialsApiTokens',
+            'help.ai.devCredentialsSsh', 'help.ai.devCredentialsGithub', 'help.ai.devCredentialsProbe'
+          );
+          if (isAdmin) {
+            tabKeys.push('help.ai.adminSettings', 'help.ai.adminSettingsDesc1', 'help.ai.adminSettingsDesc2');
+          }
+        }
+        break;
       case 'admin':
         if (isAdmin) {
           tabKeys.push('help.admin.overview', 'help.admin.overviewDesc', 'help.admin.users', 'help.admin.usersDesc',
@@ -583,7 +658,7 @@ export default function HelpModal({ isOpen, onClose, currentUser }: HelpModalPro
     
     const tabTexts = tabKeys.map(key => t(key));
     return anyTextMatches(tabTexts, debouncedSearchTerm);
-  }, [t, debouncedSearchTerm, anyTextMatches, isAdmin]);
+  }, [t, debouncedSearchTerm, anyTextMatches, isAdmin, aiEnabled]);
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60]">

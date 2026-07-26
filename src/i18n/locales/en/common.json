@@ -387,6 +387,7 @@
       "listView": "List View",
       "ganttView": "Gantt View",
       "reports": "Reports",
+      "ai": "AI Agent",
       "admin": "Admin"
     },
     "overview": {
@@ -589,6 +590,28 @@
       "reportingGamification": "Gamification: When enabled, gamification features track user points, achievements, and leaderboard rankings based on task completion, effort, and collaboration. This can help motivate team members and recognize contributions.",
       "licensing": "Licensing Tab",
       "licensingDesc": "View and manage application licensing information, license keys, subscription details, and licensing-related settings."
+    },
+    "ai": {
+      "overview": "AI Agent Overview",
+      "overviewDesc1": "When AI is enabled for this instance, you can assign tasks to an Agent — a system teammate that works from the task description and comments. The Agent can answer questions (assist mode) or work against a Git repository (coding mode).",
+      "overviewDesc2": "Agent activity appears on the task card with a spinner while work is queued, running, or waiting. Open the activity screen from the card toolbar for live logs and controls.",
+      "assigning": "Assigning Work",
+      "assigningDesc1": "Open Assign to Agent from the task card toolbar (or the assignee control). The task must have a description before it can be queued.",
+      "assigningDesc2": "Coding mode: provide a repository URL and optional branch. The Agent clones the repo, makes changes, and can push a branch and open a pull request when credentials allow.",
+      "assigningDesc3": "Assist mode: leave the repository empty. The Agent uses the configured LLM to comment and help without touching code.",
+      "controlling": "Controlling Jobs",
+      "controllingDesc1": "From the Agent activity screen you can Pause, Stop, or Resume work. Pause and Stop cancel the remote runner job when one is running; Resume re-queues the task.",
+      "controllingDesc2": "If the Agent needs your input, it may post a comment and enter a waiting state. Reply in comments, then Resume when you want work to continue.",
+      "controllingDesc3": "While the Agent is actively working, dragging the card between columns may be blocked until the job finishes or is stopped.",
+      "devCredentials": "Dev Credentials (Profile)",
+      "devCredentialsDesc1": "Open Profile → Dev to manage credentials used for Agent coding jobs you assign:",
+      "devCredentialsApiTokens": "API tokens: Personal access tokens (ek_…) for automation against the Agent APIs (shown once when created).",
+      "devCredentialsSsh": "SSH key: Generate a dedicated keypair for git access; add the public key to GitHub or your git host.",
+      "devCredentialsGithub": "GitHub PAT: Store your own GitHub personal access token for clone, push, and pull requests. Credentials are per user — not shared with the team.",
+      "devCredentialsProbe": "Repo check: Verify that your PAT can access a given repository URL before assigning coding work.",
+      "adminSettings": "Admin AI Settings",
+      "adminSettingsDesc1": "Administrators configure AI under Admin → AI Settings: enable AI, choose an LLM provider (OpenAI, Anthropic, OpenRouter, Ollama, or custom), set the API key and model, and connect the agent runner for coding jobs.",
+      "adminSettingsDesc2": "Use Validate connection to test the LLM and Probe runner to confirm the coding runner is reachable. Max concurrent jobs limits how many Agent tasks can run at once for this instance."
     }
   },
   "renameModal": {
