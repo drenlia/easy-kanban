@@ -298,6 +298,20 @@ const migrations = [
       );
       console.log('✅ Migration 19: agent automation tokens + journal ready');
     }
+  },
+  {
+    version: 20,
+    name: 'agent_bot_avatar',
+    description: 'Install canonical AI Agent bot avatar for agent@local',
+    up: async (db) => {
+      const { syncAgentUserAvatar } = await import('../utils/agentBotAvatar.js');
+      const path = await syncAgentUserAvatar(db, null);
+      if (path) {
+        console.log(`✅ Migration 20: Agent avatar set to ${path}`);
+      } else {
+        console.warn('⚠️ Migration 20: Agent bot avatar asset not found; skipped');
+      }
+    }
   }
 ];
 

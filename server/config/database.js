@@ -1057,7 +1057,16 @@ const initializeDefaultData = async (db, tenantId = null) => {
 
     // Create AI Agent pseudo-user (assignable when AI_ENABLED; cannot log in)
     const agentPasswordHash = bcrypt.hashSync(crypto.randomBytes(32).toString('hex'), 10);
-    const agentAvatarPath = createLetterAvatar('A', AGENT_USER_ID, 'agent', tenantId);
+    let agentAvatarPath = null;
+    try {
+      const { ensureAgentBotAvatarFile } = await import('../utils/agentBotAvatar.js');
+      agentAvatarPath = ensureAgentBotAvatarFile(tenantId);
+    } catch (e) {
+      console.warn('Agent bot avatar install skipped:', e?.message || e);
+    }
+    if (!agentAvatarPath) {
+      agentAvatarPath = createLetterAvatar('A', AGENT_USER_ID, 'agent', tenantId);
+    }
     const existingAgentUser = await wrapQuery(db.prepare('SELECT id FROM users WHERE id = ?'), 'SELECT').get(AGENT_USER_ID);
     if (!existingAgentUser) {
       await wrapQuery(db.prepare(`
@@ -1092,6 +1101,23 @@ const initializeDefaultData = async (db, tenantId = null) => {
       );
 
       console.log('🤖 AI Agent account created for task automation');
+    } else if (agentAvatarPath) {
+      const agentRow = await wrapQuery(
+        db.prepare('SELECT avatar_path FROM users WHERE id = ?'),
+        'SELECT'
+      ).get(AGENT_USER_ID);
+      const current = String(agentRow?.avatar_path || '');
+      if (
+        !current ||
+        current.includes('default-') ||
+        current.endsWith('/agent-bot.jpg') ||
+        current.endsWith('agent-bot.jpg')
+      ) {
+        await wrapQuery(
+          db.prepare('UPDATE users SET avatar_path = ? WHERE id = ?'),
+          'UPDATE'
+        ).run(agentAvatarPath, AGENT_USER_ID);
+      }
     }
   }
 

@@ -262,7 +262,7 @@ Automation jobs run `runner/src/automationLoop.js` (discover → `submit_dry_run
 - **Admin → AI Settings**: enable AI, provider/model, runner URL/token, max concurrent, validate LLM + probe runner.
 - **Profile → Dev** (when AI on): mint API tokens, SSH key, GitHub PAT, repo probe.
 - **Assign to Agent**: Assist | Code | **Automation** (admins); automation scope this board / selected / all boards.
-- **Task cards**: spinner / drag block; activity screen with live log; pause/stop/resume; for automation **Apply** / **Undo**.
+- **Task cards**: Agent-assigned cards use the bot avatar and a soft teal wash while work is active; activity screen with live log; pause/stop/resume; for automation **Apply** / **Undo**. Agent is pinned last in team/assignee lists.
 - Copy of an automation task clones config keys (`agent_mode`, scope, board ids) and resets runtime; edit + Re-run starts a new job.
 - Public settings sync includes `AI_ENABLED`, `AI_AGENT_NAME`, `AI_PROVIDER`, `AI_MAX_CONCURRENT` for UI gating.
 

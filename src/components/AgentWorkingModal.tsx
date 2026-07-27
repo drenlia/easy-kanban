@@ -8,9 +8,11 @@ import type { Comment, TeamMember } from '../types';
 import { commentTextToHtml } from '../utils/commentContent';
 import { formatToYYYYMMDDHHmmss } from '../utils/dateUtils';
 import { AGENT_MEMBER_ID, isAgentIdleStatus } from '../constants/appConstants';
+import { isTaskDescriptionEmpty } from '../utils/agentTaskHints';
 
 interface AgentWorkingModalProps {
   taskTitle: string;
+  taskDescription?: string;
   work: TaskWorkMap;
   comments?: Comment[];
   members?: TeamMember[];
@@ -25,10 +27,13 @@ interface AgentWorkingModalProps {
   busy?: boolean;
   /** Render body only (no portal/backdrop/title chrome) for AgentPanel. */
   embedded?: boolean;
+  /** When false, activity is view-only (AI_ENABLED off). */
+  aiEnabled?: boolean;
 }
 
 const AgentWorkingModal: React.FC<AgentWorkingModalProps> = ({
   taskTitle,
+  taskDescription = '',
   work,
   comments = [],
   members = [],
@@ -40,6 +45,7 @@ const AgentWorkingModal: React.FC<AgentWorkingModalProps> = ({
   onUndo,
   busy,
   embedded = false,
+  aiEnabled = true,
 }) => {
   const { t } = useTranslation('common');
   const rawStatus = String(work.status || '').trim();
@@ -49,6 +55,7 @@ const AgentWorkingModal: React.FC<AgentWorkingModalProps> = ({
     ? t('agent.statusIdle')
     : t(`agent.status_${status}`, { defaultValue: status });
   const isAutomation = work.agent_mode === 'automation';
+  const descriptionEmpty = isTaskDescriptionEmpty(taskDescription);
   const pendingPlan = useMemo(() => {
     const raw = work.automation_pending_plan;
     if (!raw) return null;
@@ -83,20 +90,23 @@ const AgentWorkingModal: React.FC<AgentWorkingModalProps> = ({
   const agentBranch = work.agent_branch;
   const llmModelOverride = String(work.llm_model || '').trim();
 
-  const canPause = status === 'running' || status === 'queued';
+  const actionsAllowed = aiEnabled;
+  const canPause = actionsAllowed && (status === 'running' || status === 'queued');
   const canResume =
-    isIdle ||
-    status === 'paused' ||
-    status === 'waiting' ||
-    status === 'stopped' ||
-    status === 'failed' ||
-    status === 'done' ||
-    status === 'undone';
+    actionsAllowed &&
+    (isIdle ||
+      status === 'paused' ||
+      status === 'waiting' ||
+      status === 'stopped' ||
+      status === 'failed' ||
+      status === 'done' ||
+      status === 'undone');
   const canStop =
-    status === 'running' ||
-    status === 'queued' ||
-    status === 'paused' ||
-    status === 'waiting';
+    actionsAllowed &&
+    (status === 'running' ||
+      status === 'queued' ||
+      status === 'paused' ||
+      status === 'waiting');
   const showStartLabel = isIdle;
   const showRestartLabel =
     status === 'stopped' || status === 'failed' || status === 'done' || status === 'undone';
@@ -126,6 +136,7 @@ const AgentWorkingModal: React.FC<AgentWorkingModalProps> = ({
   const undoableFlag = String(work.automation_undoable || '');
   // Prefer explicit flag; allow legacy Applied jobs (pre-flag) while status is still done
   const showUndo =
+    actionsAllowed &&
     isAdmin &&
     isAutomation &&
     !!onUndo &&
@@ -152,6 +163,7 @@ const AgentWorkingModal: React.FC<AgentWorkingModalProps> = ({
   const submitRefine = async (restart: boolean) => {
     const text = refineText.trim();
     if (!text || !onRefine || refineBusy || busy) return;
+    if (restart && descriptionEmpty) return;
     setRefineBusy(true);
     try {
       await onRefine(text, { restart });
@@ -234,7 +246,7 @@ const AgentWorkingModal: React.FC<AgentWorkingModalProps> = ({
           </span>
         )}
         <div className="ml-auto flex flex-wrap gap-1.5 justify-end">
-          {awaitingApply && isAdmin && (
+          {awaitingApply && isAdmin && actionsAllowed && (
             <button
               type="button"
               disabled={busy}
@@ -277,7 +289,8 @@ const AgentWorkingModal: React.FC<AgentWorkingModalProps> = ({
           {canResume && (
             <button
               type="button"
-              disabled={busy}
+              disabled={busy || descriptionEmpty}
+              title={descriptionEmpty ? t('agent.descriptionRequired') : undefined}
               onClick={() => onControl('resume')}
               className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded bg-teal-100 text-teal-900 hover:bg-teal-200 disabled:opacity-50"
             >
@@ -301,6 +314,34 @@ const AgentWorkingModal: React.FC<AgentWorkingModalProps> = ({
           )}
         </div>
       </div>
+
+      {!aiEnabled && (
+        <div className="px-4 py-2 border-b border-amber-200 dark:border-amber-900/50 bg-amber-50 dark:bg-amber-900/20 shrink-0">
+          <p className="text-xs font-medium text-amber-900 dark:text-amber-100">
+            {t('agent.aiDisabledViewOnly')}
+          </p>
+        </div>
+      )}
+
+      {aiEnabled && descriptionEmpty && (
+        <div className="px-4 py-2 border-b border-amber-200 dark:border-amber-900/50 bg-amber-50 dark:bg-amber-900/20 shrink-0">
+          <p className="text-xs font-medium text-amber-900 dark:text-amber-100">
+            {t('agent.descriptionRequired')}
+            {onOpenConfig ? (
+              <>
+                {' '}
+                <button
+                  type="button"
+                  onClick={() => onOpenConfig()}
+                  className="underline underline-offset-2 hover:text-amber-950 dark:hover:text-amber-50"
+                >
+                  {t('agent.configuration')}
+                </button>
+              </>
+            ) : null}
+          </p>
+        </div>
+      )}
 
       {awaitingApply && isAdmin && (
         <div className="px-4 py-2 border-b border-teal-100 dark:border-teal-900/40 bg-teal-50 dark:bg-teal-900/20 shrink-0">
@@ -387,6 +428,7 @@ const AgentWorkingModal: React.FC<AgentWorkingModalProps> = ({
       </div>
 
       {/* Refine composer */}
+      {actionsAllowed && onRefine ? (
       <div className="shrink-0 border-t border-gray-200 dark:border-gray-700 px-3 py-2.5 bg-gray-50/80 dark:bg-gray-900/40">
         <label className="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">
           {t('agent.refineLabel')}
@@ -419,7 +461,14 @@ const AgentWorkingModal: React.FC<AgentWorkingModalProps> = ({
           </button>
           <button
             type="button"
-            disabled={!refineText.trim() || !onRefine || refineBusy || busy}
+            disabled={
+              !refineText.trim() ||
+              !onRefine ||
+              refineBusy ||
+              busy ||
+              descriptionEmpty
+            }
+            title={descriptionEmpty ? t('agent.descriptionRequired') : undefined}
             onClick={() => void submitRefine(true)}
             className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded bg-teal-700 text-white hover:bg-teal-800 disabled:opacity-50"
           >
@@ -427,6 +476,7 @@ const AgentWorkingModal: React.FC<AgentWorkingModalProps> = ({
           </button>
         </div>
       </div>
+      ) : null}
     </div>
   );
 

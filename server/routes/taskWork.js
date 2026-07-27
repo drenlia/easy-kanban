@@ -263,6 +263,19 @@ router.put('/:taskId/work/control', authenticateToken, async (req, res) => {
         updates.status = 'waiting';
       }
     } else if (control === 'resume') {
+      // Hard stop: cannot start/resume agent work without a real description
+      const plain = String(task.description || '')
+        .replace(/<br\s*\/?>/gi, ' ')
+        .replace(/<\/p>/gi, ' ')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/&nbsp;/gi, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+      if (!plain) {
+        return res.status(400).json({
+          error: 'Task description is required before starting the agent'
+        });
+      }
       updates.status = 'queued';
       updates.control = 'resume';
       if (!workBefore.agent_owner_user_id && req.user?.id) {

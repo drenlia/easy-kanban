@@ -10,6 +10,7 @@ import { CSS } from '@dnd-kit/utilities';
 import { useDroppable } from '@dnd-kit/core';
 import { parseFinishedColumnNames } from '../utils/columnUtils';
 import { KanbanChromeTooltip } from './KanbanChromeTooltip';
+import { resolveTaskMember } from '../utils/agentMemberUi';
 
 interface KanbanColumnProps {
   column: Column;
@@ -533,7 +534,7 @@ export default function KanbanColumn({
     
     tasksToRender.forEach((task, index) => {
       const memberList = Array.isArray(members) ? members : [];
-      const member = memberList.find(m => m.id === task.memberId);
+      const member = resolveTaskMember(memberList, task.memberId);
       if (!member) return;
 
       const isBeingDragged = draggedTask?.id === task.id;

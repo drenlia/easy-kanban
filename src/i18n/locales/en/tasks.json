@@ -87,6 +87,7 @@
     "deleteTask": "Delete Task",
     "changeAssignee": "Change Assignee",
     "assignTo": "Assign to:",
+    "assignToAgentSection": "AI Agent",
     "sourceTaskForLinking": "Source task for linking",
     "holdAndDragToLink": "Hold and drag to link tasks",
     "noMoreTagsAvailable": "No more tags available",

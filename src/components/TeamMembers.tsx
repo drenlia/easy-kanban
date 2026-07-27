@@ -2,6 +2,11 @@ import { TeamMember } from '../types';
 import { useTranslation } from 'react-i18next';
 import { getAuthenticatedAvatarUrl } from '../utils/authImageUrl';
 import { KanbanChromeTooltip } from './KanbanChromeTooltip';
+import {
+  getAgentAvatarSrc,
+  isAgentMemberId,
+  sortMembersAgentLast,
+} from '../utils/agentMemberUi';
 
 export const PRESET_COLORS = [
   '#FF3B30', // Bright Red
@@ -83,7 +88,8 @@ export default function TeamMembers({
 
   // Create system user member object when needed
   // Use members directly - API will include/exclude SYSTEM based on includeSystem parameter
-  const displayMembers = members;
+  // Pin Agent at the end so it reads as a system capability, not a teammate
+  const displayMembers = sortMembersAgentLast(members);
   
   // Function to truncate display name to 12 characters
   const truncateDisplayName = (name: string, maxLength: number = 12): string => {
@@ -95,6 +101,15 @@ export default function TeamMembers({
   
   // Function to get avatar display for a member
   const getMemberAvatar = (member: TeamMember) => {
+    if (isAgentMemberId(member.id)) {
+      return (
+        <img
+          src={getAgentAvatarSrc(member)}
+          alt={member.name}
+          className="w-7 h-7 rounded-full object-cover border-2 border-white shadow-sm bg-white"
+        />
+      );
+    }
     // Priority: Google avatar > Local avatar > Default initials
     if (member.googleAvatarUrl) {
       return (

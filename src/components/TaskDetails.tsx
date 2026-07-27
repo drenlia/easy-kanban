@@ -41,8 +41,11 @@ import { generateTaskUrl } from '../utils/routingUtils';
 import { mergeTaskTagsWithLiveData, getTagDisplayStyle } from '../utils/tagUtils';
 import { getAuthenticatedAttachmentUrl, getAuthenticatedAvatarUrl } from '../utils/authImageUrl';
 import { truncateMemberName } from '../utils/memberUtils';
+import {
+  isAgentMemberId,
+  sortMembersAgentLast,
+} from '../utils/agentMemberUi';
 import AddTagModal from './AddTagModal';
-import AssignToAgentModal from './AssignToAgentModal';
 import AgentPanel from './AgentPanel';
 import type { AgentPanelView } from './AgentPanel';
 import AgentStatusButton from './AgentStatusButton';
@@ -82,8 +85,6 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
     return board?.project || null;
   };
   const [isResizing, setIsResizing] = useState(false);
-  const [showAssignAgentModal, setShowAssignAgentModal] = useState(false);
-  const [agentModalAnchor, setAgentModalAnchor] = useState<DOMRect | null>(null);
   const [showAgentPanel, setShowAgentPanel] = useState(false);
   const [agentPanelView, setAgentPanelView] = useState<AgentPanelView>('activity');
   const [agentPanelRestoreToken, setAgentPanelRestoreToken] = useState(0);
@@ -492,8 +493,10 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
     if (isAgentWorkActive) return;
 
     if (updatedFields.memberId === AGENT_MEMBER_ID) {
-      setAgentModalAnchor(null);
-      setShowAssignAgentModal(true);
+      if (siteSettings?.AI_ENABLED !== 'true') return;
+      setAgentPanelView('configure');
+      setShowAgentPanel(true);
+      setAgentPanelRestoreToken((n) => n + 1);
       return;
     }
 
@@ -516,58 +519,6 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
     }
   };
 
-  const handleAssignAgentConfirm = async (
-    repoUrl: string,
-    repoBranch: string,
-    options?: {
-      restart?: boolean;
-      llmModel?: string;
-      launch?: boolean;
-      agentMode?: 'assist' | 'code' | 'automation';
-      automationScope?: 'this_board' | 'selected' | 'all_boards';
-      automationBoardIds?: string[];
-      description?: string;
-    }
-  ) => {
-    const agentMode = options?.agentMode || (repoUrl.trim() ? 'code' : 'assist');
-    setIsSubmitting(true);
-    try {
-      const updatedTask = {
-        ...editedTask,
-        memberId: AGENT_MEMBER_ID,
-        ...(options?.description !== undefined
-          ? { description: options.description }
-          : {}),
-      };
-      setEditedTask(updatedTask);
-      await onUpdate(updatedTask);
-      const shouldLaunch = options?.launch !== false;
-      const { work } = await putTaskWork(task.id, {
-        repoUrl: agentMode === 'automation' ? '' : repoUrl,
-        repoBranch: agentMode === 'automation' ? '' : repoBranch,
-        agentMode,
-        ...(agentMode === 'automation'
-          ? {
-              automationScope: options?.automationScope || 'this_board',
-              automationBoardIds: options?.automationBoardIds || [],
-            }
-          : {}),
-        ...(shouldLaunch
-          ? { status: 'queued', entries: { control: 'none' } }
-          : {}),
-        ...(options?.llmModel !== undefined ? { llmModel: options.llmModel } : {}),
-      });
-      setAgentWork(work || {});
-      setShowAssignAgentModal(false);
-      setAgentModalAnchor(null);
-    } catch (error) {
-      console.error('Failed to assign agent:', error);
-      throw error;
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
   const handleAgentPanelSaveConfig = async (
     repoUrl: string,
     repoBranch: string,
@@ -582,26 +533,65 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
     }
   ) => {
     const agentMode = options?.agentMode || (repoUrl.trim() ? 'code' : 'assist');
-    if (options?.description !== undefined) {
-      const updatedTask = { ...editedTask, description: options.description };
-      setEditedTask(updatedTask);
-      await onUpdate(updatedTask);
-    }
-    const { work } = await putTaskWork(task.id, {
-      repoUrl: agentMode === 'automation' ? '' : repoUrl,
-      repoBranch: agentMode === 'automation' ? '' : repoBranch,
-      agentMode,
-      ...(agentMode === 'automation'
-        ? {
-            automationScope: options?.automationScope || 'this_board',
-            automationBoardIds: options?.automationBoardIds || [],
-          }
-        : {}),
-      ...(options?.llmModel !== undefined ? { llmModel: options.llmModel } : {}),
-    });
-    setAgentWork(work || {});
-    if (options?.restart) {
-      await handleAgentControl('resume');
+    const isFirstAssign = editedTask.memberId !== AGENT_MEMBER_ID;
+    setIsSubmitting(true);
+    try {
+      if (isFirstAssign) {
+        const updatedTask = {
+          ...editedTask,
+          memberId: AGENT_MEMBER_ID,
+          ...(options?.description !== undefined
+            ? { description: options.description }
+            : {}),
+        };
+        setEditedTask(updatedTask);
+        await onUpdate(updatedTask);
+        const shouldLaunch = options?.launch !== false;
+        const { work } = await putTaskWork(task.id, {
+          repoUrl: agentMode === 'automation' ? '' : repoUrl,
+          repoBranch: agentMode === 'automation' ? '' : repoBranch,
+          agentMode,
+          ...(agentMode === 'automation'
+            ? {
+                automationScope: options?.automationScope || 'this_board',
+                automationBoardIds: options?.automationBoardIds || [],
+              }
+            : {}),
+          ...(shouldLaunch
+            ? { status: 'queued', entries: { control: 'none' } }
+            : {}),
+          ...(options?.llmModel !== undefined ? { llmModel: options.llmModel } : {}),
+        });
+        setAgentWork(work || {});
+        return;
+      }
+
+      if (options?.description !== undefined) {
+        const updatedTask = { ...editedTask, description: options.description };
+        setEditedTask(updatedTask);
+        await onUpdate(updatedTask);
+      }
+      const { work } = await putTaskWork(task.id, {
+        repoUrl: agentMode === 'automation' ? '' : repoUrl,
+        repoBranch: agentMode === 'automation' ? '' : repoBranch,
+        agentMode,
+        ...(agentMode === 'automation'
+          ? {
+              automationScope: options?.automationScope || 'this_board',
+              automationBoardIds: options?.automationBoardIds || [],
+            }
+          : {}),
+        ...(options?.llmModel !== undefined ? { llmModel: options.llmModel } : {}),
+      });
+      setAgentWork(work || {});
+      if (options?.restart) {
+        await handleAgentControl('resume');
+      }
+    } catch (error) {
+      console.error('Failed to save agent configuration:', error);
+      throw error;
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -1749,9 +1739,9 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                       : undefined
                   }
                 >
-                  {members.map(member => (
+                  {sortMembersAgentLast(members).map(member => (
                     <option key={member.id} value={member.id}>
-                      {truncateMemberName(member.name)}
+                      {isAgentMemberId(member.id) ? `🤖 ${truncateMemberName(member.name)}` : truncateMemberName(member.name)}
                     </option>
                   ))}
                 </select>
@@ -1767,7 +1757,9 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                   className="w-full px-3 py-2 border rounded-md bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-100"
                   disabled={isSubmitting}
                 >
-                  {members.map(member => (
+                  {sortMembersAgentLast(members)
+                    .filter((m) => !isAgentMemberId(m.id))
+                    .map(member => (
                     <option key={member.id} value={member.id}>
                       {truncateMemberName(member.name)}
                     </option>
@@ -1805,7 +1797,9 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                         ? 'bottom-full mb-1' 
                         : 'top-full mt-1'
                     }`}>
-                      {members.map(member => {
+                      {members
+                        .filter((m) => !isAgentMemberId(m.id))
+                        .map(member => {
                         const isWatching = taskWatchers.some(w => w.id === member.id);
                         return (
                           <div
@@ -1879,7 +1873,9 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                         ? 'bottom-full mb-1' 
                         : 'top-full mt-1'
                     }`}>
-                      {members.map(member => {
+                      {members
+                        .filter((m) => !isAgentMemberId(m.id))
+                        .map(member => {
                         const isCollaborating = taskCollaborators.some(c => c.id === member.id);
                         return (
                           <div
@@ -2460,36 +2456,6 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
           onTagCreated={handleTagCreated}
         />
       )}
-      {showAssignAgentModal && (
-        <AssignToAgentModal
-          mode="assign"
-          taskTitle={editedTask.title}
-          taskDescription={editedTask.description}
-          isAdmin={Boolean(currentUser?.roles?.includes('admin'))}
-          boards={(boards || []).map((b: { id: string; title?: string; name?: string }) => ({
-            id: b.id,
-            title: b.title || b.name || b.id,
-          }))}
-          initialAgentMode={
-            (String(agentWork.agent_mode || '') as 'assist' | 'code' | 'automation') ||
-            undefined
-          }
-          initialAutomationScope={String(agentWork.automation_scope || 'this_board')}
-          initialAutomationBoardIds={(() => {
-            try {
-              return JSON.parse(String(agentWork.automation_board_ids || '[]'));
-            } catch {
-              return [];
-            }
-          })()}
-          anchorRect={agentModalAnchor}
-          onCancel={() => {
-            setShowAssignAgentModal(false);
-            setAgentModalAnchor(null);
-          }}
-          onConfirm={handleAssignAgentConfirm}
-        />
-      )}
       {showAgentPanel && (
         <AgentPanel
           panelId={task.id}
@@ -2516,6 +2482,8 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
           onUndo={handleAutomationUndo}
           onRefine={handleAgentRefine}
           onSaveConfig={handleAgentPanelSaveConfig}
+          aiEnabled={siteSettings?.AI_ENABLED === 'true'}
+          isAssigned={isAgentAssigned}
         />
       )}
     </div>

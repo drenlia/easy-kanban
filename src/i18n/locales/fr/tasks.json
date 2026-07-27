@@ -87,6 +87,7 @@
     "deleteTask": "Supprimer la tâche",
     "changeAssignee": "Changer l'assigné",
     "assignTo": "Assigner à :",
+    "assignToAgentSection": "Agent IA",
     "sourceTaskForLinking": "Tâche source pour le lien",
     "holdAndDragToLink": "Maintenir et glisser pour lier les tâches",
     "noMoreTagsAvailable": "Aucune autre étiquette disponible",

@@ -8,6 +8,8 @@ export const SYSTEM_MEMBER_ID = '00000000-0000-0000-0000-000000000001';
 // AI Agent pseudo-member (assignable when AI_ENABLED); mirrors SYSTEM fixed UUIDs
 export const AGENT_USER_ID = '00000000-0000-0000-0000-000000000010';
 export const AGENT_MEMBER_ID = '00000000-0000-0000-0000-000000000011';
+export const AGENT_DEFAULT_NAME = 'Agent';
+export const AGENT_DEFAULT_COLOR = '#0F766E';
 
 /** task_work.status values for agent automation */
 export const AGENT_WORK_STATUSES = {

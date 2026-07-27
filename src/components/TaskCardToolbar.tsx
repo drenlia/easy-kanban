@@ -14,6 +14,11 @@ import {
   SYSTEM_MEMBER_ID,
   AGENT_DRAG_BLOCKING_STATUSES,
 } from '../constants/appConstants';
+import {
+  getAgentAvatarSrc,
+  isAgentMemberId,
+  sortMembersAgentLast,
+} from '../utils/agentMemberUi';
 
 interface TaskCardToolbarProps {
   task: Task;
@@ -626,7 +631,13 @@ export default function TaskCardToolbar({
               }`}
               data-member-button="true"
             >
-            {member.googleAvatarUrl || member.avatarUrl ? (
+            {isAgentMemberId(member.id) ? (
+              <img
+                src={getAgentAvatarSrc(member)}
+                alt={member.name}
+                className="w-8 h-8 rounded-full object-cover border-2 border-white bg-white"
+              />
+            ) : member.googleAvatarUrl || member.avatarUrl ? (
               <img
                 src={getAuthenticatedAvatarUrl(member.googleAvatarUrl || member.avatarUrl)}
                 alt={member.name}
@@ -734,42 +745,68 @@ export default function TaskCardToolbar({
           >
           <div className="p-2">
             <div className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">{t('toolbar.assignTo')}</div>
-            {members.map(m => (
-              <button
-                key={m.id}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onMemberChange(m.id);
-                }}
-                className={`w-full flex items-center gap-2 p-2 rounded hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors ${
-                  member.id === SYSTEM_MEMBER_ID ? 'bg-yellow-50 dark:bg-yellow-900/20' : 
-                  m.id === member.id ? 'bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700' : ''
-                }`}
-              >
-                {m.googleAvatarUrl || m.avatarUrl ? (
-                  <img
-                    src={getAuthenticatedAvatarUrl(m.googleAvatarUrl || m.avatarUrl)}
-                    alt={m.name}
-                    className="w-6 h-6 rounded-full object-cover"
-                  />
-                ) : (
-                  <div 
-                    className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium text-white"
-                    style={{ backgroundColor: m.color }}
-                  >
-                    {m.id === SYSTEM_MEMBER_ID
-                      ? '🤖'
-                      : m.id === AGENT_MEMBER_ID
-                        ? 'A'
-                        : m.name.charAt(0).toUpperCase()}
-                  </div>
-                )}
-                <span className="text-sm text-gray-900 dark:text-gray-100">{truncateMemberName(m.name)}</span>
-                {m.id === member.id && (
-                  <span className="ml-auto text-blue-600 dark:text-blue-400 text-xs">✓</span>
-                )}
-              </button>
-            ))}
+            {(() => {
+              const ordered = sortMembersAgentLast(members);
+              const people = ordered.filter((m) => !isAgentMemberId(m.id));
+              const agent = ordered.find((m) => isAgentMemberId(m.id));
+              const renderRow = (m: TeamMember) => (
+                <button
+                  key={m.id}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onMemberChange(m.id);
+                  }}
+                  className={`w-full flex items-center gap-2 p-2 rounded hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors ${
+                    m.id === SYSTEM_MEMBER_ID ? 'bg-yellow-50 dark:bg-yellow-900/20' : ''
+                  } ${
+                    m.id === member.id
+                      ? 'bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700'
+                      : ''
+                  }`}
+                >
+                  {isAgentMemberId(m.id) ? (
+                    <img
+                      src={getAgentAvatarSrc(m)}
+                      alt={m.name}
+                      className="w-6 h-6 rounded-full object-cover bg-white"
+                    />
+                  ) : m.googleAvatarUrl || m.avatarUrl ? (
+                    <img
+                      src={getAuthenticatedAvatarUrl(m.googleAvatarUrl || m.avatarUrl)}
+                      alt={m.name}
+                      className="w-6 h-6 rounded-full object-cover"
+                    />
+                  ) : (
+                    <div
+                      className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium text-white"
+                      style={{ backgroundColor: m.color }}
+                    >
+                      {m.id === SYSTEM_MEMBER_ID ? '🤖' : m.name.charAt(0).toUpperCase()}
+                    </div>
+                  )}
+                  <span className="text-sm text-gray-900 dark:text-gray-100">
+                    {truncateMemberName(m.name)}
+                  </span>
+                  {m.id === member.id && (
+                    <span className="ml-auto text-blue-600 dark:text-blue-400 text-xs">✓</span>
+                  )}
+                </button>
+              );
+              return (
+                <>
+                  {people.map(renderRow)}
+                  {agent && (
+                    <>
+                      <div className="my-1.5 border-t border-gray-200 dark:border-gray-600" />
+                      <div className="text-[10px] uppercase tracking-wide text-gray-400 dark:text-gray-500 px-2 mb-1">
+                        {t('toolbar.assignToAgentSection')}
+                      </div>
+                      {renderRow(agent)}
+                    </>
+                  )}
+                </>
+              );
+            })()}
           </div>
           </div>,
           document.body

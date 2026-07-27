@@ -54,6 +54,10 @@ interface AgentPanelProps {
       description?: string;
     }
   ) => void | Promise<void>;
+  /** When false, panel is view-only (tenant AI_ENABLED off). */
+  aiEnabled?: boolean;
+  /** False during first-time assign (before memberId is Agent). */
+  isAssigned?: boolean;
 }
 
 /**
@@ -80,6 +84,8 @@ const AgentPanel: React.FC<AgentPanelProps> = ({
   onUndo,
   onRefine,
   onSaveConfig,
+  aiEnabled = true,
+  isAssigned = true,
 }) => {
   const { t } = useTranslation('common');
   const [internalView, setInternalView] = useState<AgentPanelView>(initialView);
@@ -90,6 +96,8 @@ const AgentPanel: React.FC<AgentPanelProps> = ({
     onViewChange?.(next);
     if (controlledView === undefined) setInternalView(next);
   };
+
+  const formMode: 'assign' | 'configure' = isAssigned ? 'configure' : 'assign';
 
   useEffect(() => {
     if (controlledView !== undefined) return;
@@ -114,11 +122,13 @@ const AgentPanel: React.FC<AgentPanelProps> = ({
   }, [panelId, minimized]);
 
   const agentStatus = work.status || null;
-  const statusLabel = isAgentIdleStatus(agentStatus)
-    ? t('agent.statusIdle')
-    : t(`agent.status_${agentStatus}`, {
-        defaultValue: String(agentStatus || t('agent.status')),
-      });
+  const statusLabel = !isAssigned
+    ? t('agent.statusSetup')
+    : isAgentIdleStatus(agentStatus)
+      ? t('agent.statusIdle')
+      : t(`agent.status_${agentStatus}`, {
+          defaultValue: String(agentStatus || t('agent.status')),
+        });
 
   const label = taskTicket || taskTitle;
   const chipTitle = `${label} — ${statusLabel}`;
@@ -239,28 +249,47 @@ const AgentPanel: React.FC<AgentPanelProps> = ({
 
         <div className="flex-1 min-h-0 flex flex-col">
           {view === 'activity' ? (
-            <AgentWorkingModal
-              embedded
-              taskTitle={taskTitle}
-              work={work}
-              comments={comments}
-              members={members}
-              busy={busy}
-              isAdmin={isAdmin}
-              onClose={onClose}
-              onControl={onControl}
-              onUndo={onUndo}
-              onRefine={onRefine}
-              onOpenConfig={() => setView('configure')}
-            />
+            !isAssigned ? (
+              <div className="flex-1 flex flex-col items-center justify-center gap-3 px-6 text-center">
+                <p className="text-sm text-gray-600 dark:text-gray-300">
+                  {t('agent.setupBeforeActivity')}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setView('configure')}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-teal-800 bg-teal-50 hover:bg-teal-100 dark:bg-teal-900/40 dark:text-teal-200 rounded-md"
+                >
+                  <Settings2 size={14} />
+                  {t('agent.configuration')}
+                </button>
+              </div>
+            ) : (
+              <AgentWorkingModal
+                embedded
+                taskTitle={taskTitle}
+                taskDescription={taskDescription}
+                work={work}
+                comments={comments}
+                members={members}
+                busy={busy}
+                isAdmin={isAdmin}
+                aiEnabled={aiEnabled}
+                onClose={onClose}
+                onControl={onControl}
+                onUndo={onUndo}
+                onRefine={onRefine}
+                onOpenConfig={() => setView('configure')}
+              />
+            )
           ) : (
             <AssignToAgentModal
               embedded
-              mode="configure"
+              mode={formMode}
               taskTitle={taskTitle}
               taskDescription={taskDescription}
               isAdmin={isAdmin}
               boards={boards}
+              readOnly={!aiEnabled}
               initialAgentMode={
                 (String(work.agent_mode || '') as AgentJobMode) || undefined
               }
@@ -275,9 +304,11 @@ const AgentPanel: React.FC<AgentPanelProps> = ({
               initialLlmModel={String(work.llm_model || '')}
               initialRepoUrl={String(work.repo_url || '')}
               initialRepoBranch={String(work.repo_branch || '')}
-              canRestart={canStartOrRestartAgent(agentStatus)}
+              canRestart={aiEnabled && isAssigned && canStartOrRestartAgent(agentStatus)}
               isFirstStart={isAgentIdleStatus(agentStatus)}
               appliesNextRun={
+                aiEnabled &&
+                isAssigned &&
                 !!agentStatus &&
                 !isAgentIdleStatus(agentStatus) &&
                 ['queued', 'running', 'paused', 'waiting'].includes(
@@ -285,14 +316,23 @@ const AgentPanel: React.FC<AgentPanelProps> = ({
                 )
               }
               descriptionLocked={
-                !!agentStatus &&
-                !isAgentIdleStatus(agentStatus) &&
-                ['queued', 'running', 'paused', 'waiting'].includes(
-                  String(agentStatus)
-                )
+                !aiEnabled ||
+                (isAssigned &&
+                  !!agentStatus &&
+                  !isAgentIdleStatus(agentStatus) &&
+                  ['queued', 'running', 'paused', 'waiting'].includes(
+                    String(agentStatus)
+                  ))
               }
-              onCancel={() => setView('activity')}
+              onCancel={() => {
+                if (!isAssigned) {
+                  onClose();
+                  return;
+                }
+                setView('activity');
+              }}
               onConfirm={async (repoUrl, repoBranch, options) => {
+                if (!aiEnabled) return;
                 await onSaveConfig(repoUrl, repoBranch, options);
                 setView('activity');
               }}

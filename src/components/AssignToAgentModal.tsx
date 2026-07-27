@@ -41,6 +41,8 @@ interface AssignToAgentModalProps {
   appliesNextRun?: boolean;
   /** Lock task description editing (agent actively running). */
   descriptionLocked?: boolean;
+  /** View-only when tenant AI is disabled. */
+  readOnly?: boolean;
   onConfirm: (
     repoUrl: string,
     repoBranch: string,
@@ -84,6 +86,7 @@ const AssignToAgentModal: React.FC<AssignToAgentModalProps> = ({
   isFirstStart = false,
   appliesNextRun = false,
   descriptionLocked = false,
+  readOnly = false,
   onConfirm,
   onCancel,
   anchorRect,
@@ -118,6 +121,7 @@ const AssignToAgentModal: React.FC<AssignToAgentModalProps> = ({
   const [branches, setBranches] = useState<string[]>([]);
   const [probeState, setProbeState] = useState<ProbeUiState>({ kind: 'idle' });
   const [busy, setBusy] = useState(false);
+  const fieldsDisabled = readOnly || busy;
   /** Which footer action is in flight (for button labels). */
   const [busyAction, setBusyAction] = useState<
     'assign' | 'launch' | 'save' | 'restart' | 'clear' | null
@@ -143,7 +147,7 @@ const AssignToAgentModal: React.FC<AssignToAgentModalProps> = ({
     return looksLikeNonCodingRequest(taskTitle, descriptionDraft);
   }, [jobMode, softWarnDismissed, taskTitle, descriptionDraft]);
 
-  const canEditDescription = !descriptionLocked;
+  const canEditDescription = !descriptionLocked && !readOnly;
 
   const sortedBranches = useMemo(() => {
     const defaultBranch =
@@ -349,6 +353,7 @@ const AssignToAgentModal: React.FC<AssignToAgentModalProps> = ({
     opts: { restart?: boolean; launch?: boolean } = {}
   ) => {
     e.preventDefault();
+    if (readOnly) return;
     setError(null);
     const launch = opts.launch !== false;
     // Launch / configure save require a description; assign-only can omit one
@@ -401,9 +406,9 @@ const AssignToAgentModal: React.FC<AssignToAgentModalProps> = ({
   };
 
   const anchored = Boolean(anchorRect) && !embedded;
-  const assignOnlyDisabled = busy || codeRepoMissing;
-  const launchDisabled = busy || descriptionEmpty || codeRepoMissing;
-  const configureSaveDisabled = busy || codeRepoMissing;
+  const assignOnlyDisabled = busy || codeRepoMissing || readOnly;
+  const launchDisabled = busy || descriptionEmpty || codeRepoMissing || readOnly;
+  const configureSaveDisabled = busy || codeRepoMissing || readOnly;
 
   const probeBadge = (() => {
     if (probeState.kind === 'checking') {
@@ -475,8 +480,13 @@ const AssignToAgentModal: React.FC<AssignToAgentModalProps> = ({
         <div
           className={`px-4 sm:px-6 py-4 flex-1 min-h-0 overflow-y-auto ${
             embedded ? 'space-y-3' : 'space-y-4'
-          }`}
+          } ${readOnly ? 'pointer-events-none opacity-80' : ''}`}
         >
+        {readOnly && (
+          <div className="rounded-md border border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-900/20 px-3 py-2 text-xs text-amber-900 dark:text-amber-100">
+            {t('agent.aiDisabledViewOnly')}
+          </div>
+        )}
         <p className="text-sm text-gray-500 dark:text-gray-400">
           {isConfigure ? t('agent.configDescription') : t('agent.assignDescription')}
         </p>
@@ -896,17 +906,37 @@ const AssignToAgentModal: React.FC<AssignToAgentModalProps> = ({
         {error && <p className="text-sm text-red-600">{error}</p>}
         </div>
         <div className="flex flex-wrap justify-end gap-2 px-4 sm:px-6 py-3 border-t border-gray-200 dark:border-gray-700 shrink-0 bg-white dark:bg-gray-800 rounded-b-lg">
+          {readOnly ? (
+            <button
+              type="button"
+              onClick={onCancel}
+              className="px-3 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md"
+            >
+              {embedded ? t('agent.backToActivity') : t('buttons.cancel')}
+            </button>
+          ) : (
+          <>
           {isConfigure && (initialRepoUrl || jobMode === 'code') && (
             <button
               type="button"
               onClick={() => void handleClearRepo()}
-              disabled={busy}
+              disabled={fieldsDisabled}
               className="mr-auto px-3 py-2 text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md disabled:opacity-50"
             >
               {t('agent.configClearRepo')}
             </button>
           )}
           {!embedded && (
+            <button
+              type="button"
+              onClick={onCancel}
+              disabled={busy}
+              className="px-3 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md"
+            >
+              {t('buttons.cancel')}
+            </button>
+          )}
+          {embedded && !isConfigure && (
             <button
               type="button"
               onClick={onCancel}
@@ -972,6 +1002,8 @@ const AssignToAgentModal: React.FC<AssignToAgentModalProps> = ({
                   : t('agent.assignConfirm')}
               </button>
             </>
+          )}
+          </>
           )}
         </div>
       </form>
