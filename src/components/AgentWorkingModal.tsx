@@ -7,7 +7,7 @@ import type { TaskWorkMap } from '../api';
 import type { Comment, TeamMember } from '../types';
 import { commentTextToHtml } from '../utils/commentContent';
 import { formatToYYYYMMDDHHmmss } from '../utils/dateUtils';
-import { AGENT_MEMBER_ID } from '../constants/appConstants';
+import { AGENT_MEMBER_ID, isAgentIdleStatus } from '../constants/appConstants';
 
 interface AgentWorkingModalProps {
   taskTitle: string;
@@ -23,6 +23,8 @@ interface AgentWorkingModalProps {
   isAdmin?: boolean;
   onUndo?: () => void | Promise<void>;
   busy?: boolean;
+  /** Render body only (no portal/backdrop/title chrome) for AgentPanel. */
+  embedded?: boolean;
 }
 
 const AgentWorkingModal: React.FC<AgentWorkingModalProps> = ({
@@ -37,13 +39,42 @@ const AgentWorkingModal: React.FC<AgentWorkingModalProps> = ({
   isAdmin = false,
   onUndo,
   busy,
+  embedded = false,
 }) => {
   const { t } = useTranslation('common');
-  const status = work.status || 'unknown';
+  const rawStatus = String(work.status || '').trim();
+  const isIdle = isAgentIdleStatus(rawStatus);
+  const status = isIdle ? 'idle' : rawStatus;
+  const statusLabel = isIdle
+    ? t('agent.statusIdle')
+    : t(`agent.status_${status}`, { defaultValue: status });
   const isAutomation = work.agent_mode === 'automation';
+  const pendingPlan = useMemo(() => {
+    const raw = work.automation_pending_plan;
+    if (!raw) return null;
+    try {
+      return JSON.parse(raw) as {
+        summary?: unknown;
+        operations?: unknown[];
+        empty?: boolean;
+      };
+    } catch {
+      return null;
+    }
+  }, [work.automation_pending_plan]);
+
+  const pendingOpsCount = Array.isArray(pendingPlan?.operations)
+    ? pendingPlan.operations.length
+    : 0;
+  const hasApplyablePlan =
+    !!pendingPlan &&
+    pendingPlan.empty !== true &&
+    pendingOpsCount > 0;
+
   const awaitingApply =
-    work.awaiting_apply === 'true' ||
-    (isAutomation && status === 'waiting' && !!work.automation_pending_plan);
+    hasApplyablePlan &&
+    (work.awaiting_apply === 'true' ||
+      (isAutomation && status === 'waiting'));
   const log = work.log || '';
   const progress = work.progress;
   const repoUrl = work.repo_url;
@@ -54,18 +85,21 @@ const AgentWorkingModal: React.FC<AgentWorkingModalProps> = ({
 
   const canPause = status === 'running' || status === 'queued';
   const canResume =
+    isIdle ||
     status === 'paused' ||
     status === 'waiting' ||
     status === 'stopped' ||
     status === 'failed' ||
-    status === 'done';
+    status === 'done' ||
+    status === 'undone';
   const canStop =
     status === 'running' ||
     status === 'queued' ||
     status === 'paused' ||
     status === 'waiting';
+  const showStartLabel = isIdle;
   const showRestartLabel =
-    status === 'stopped' || status === 'failed' || status === 'done';
+    status === 'stopped' || status === 'failed' || status === 'done' || status === 'undone';
 
   const [refineText, setRefineText] = useState('');
   const [refineBusy, setRefineBusy] = useState(false);
@@ -81,19 +115,24 @@ const AgentWorkingModal: React.FC<AgentWorkingModalProps> = ({
       );
   }, [comments]);
 
-  const automationPlanSummary = useMemo(() => {
-    const raw = work.automation_pending_plan;
-    if (!raw) return null;
-    try {
-      const plan = JSON.parse(raw) as { summary?: unknown };
-      return typeof plan?.summary === 'string' ? plan.summary : null;
-    } catch {
-      return null;
-    }
-  }, [work.automation_pending_plan]);
+  const automationPlanSummary =
+    typeof pendingPlan?.summary === 'string' ? pendingPlan.summary : null;
 
+  const undoSummary =
+    typeof work.automation_undo_summary === 'string' && work.automation_undo_summary.trim()
+      ? work.automation_undo_summary.trim()
+      : null;
+
+  const undoableFlag = String(work.automation_undoable || '');
+  // Prefer explicit flag; allow legacy Applied jobs (pre-flag) while status is still done
   const showUndo =
-    isAdmin && isAutomation && (status === 'done' || status === 'failed') && !!onUndo;
+    isAdmin &&
+    isAutomation &&
+    !!onUndo &&
+    (undoableFlag === 'true' ||
+      (undoableFlag === '' &&
+        !work.automation_undone_at &&
+        status === 'done'));
 
   useLayoutEffect(() => {
     const el = conversationRef.current;
@@ -126,29 +165,35 @@ const AgentWorkingModal: React.FC<AgentWorkingModalProps> = ({
 
   const panel = (
     <div
-      role="dialog"
-      aria-modal="true"
-      className="w-full max-w-5xl h-[min(80vh,720px)] flex flex-col rounded-lg bg-white dark:bg-gray-800 shadow-xl border border-gray-200 dark:border-gray-700"
+      role={embedded ? undefined : 'dialog'}
+      aria-modal={embedded ? undefined : true}
+      className={
+        embedded
+          ? 'flex-1 min-h-0 flex flex-col'
+          : 'w-full max-w-5xl h-[min(80vh,720px)] flex flex-col rounded-lg bg-white dark:bg-gray-800 shadow-xl border border-gray-200 dark:border-gray-700'
+      }
       onMouseDown={(e) => e.stopPropagation()}
       onClick={(e) => e.stopPropagation()}
     >
-      {/* Header */}
-      <div className="flex items-center justify-between border-b border-gray-200 dark:border-gray-700 px-4 py-2.5 shrink-0">
-        <div className="min-w-0">
-          <h3 className="text-base font-medium text-gray-900 dark:text-gray-100 truncate">
-            {t('agent.workingTitle')}
-          </h3>
-          <p className="text-xs text-gray-500 truncate">{taskTitle}</p>
+      {/* Header — standalone modal only (AgentPanel provides chrome when embedded) */}
+      {!embedded && (
+        <div className="flex items-center justify-between border-b border-gray-200 dark:border-gray-700 px-4 py-2.5 shrink-0">
+          <div className="min-w-0">
+            <h3 className="text-base font-medium text-gray-900 dark:text-gray-100 truncate">
+              {t('agent.workingTitle')}
+            </h3>
+            <p className="text-xs text-gray-500 truncate">{taskTitle}</p>
+          </div>
+          <button type="button" onClick={onClose} className="text-gray-400 hover:text-gray-600 shrink-0">
+            <X size={20} />
+          </button>
         </div>
-        <button type="button" onClick={onClose} className="text-gray-400 hover:text-gray-600 shrink-0">
-          <X size={20} />
-        </button>
-      </div>
+      )}
 
       {/* Status + controls */}
       <div className="px-4 py-2 flex flex-wrap items-center gap-2 border-b border-gray-100 dark:border-gray-700 shrink-0">
         <span className="text-xs text-gray-600 dark:text-gray-300">
-          {t('agent.status')}: <strong className="capitalize">{status}</strong>
+          {t('agent.status')}: <strong>{statusLabel}</strong>
         </span>
         {waitingForSlot && (
           <span className="text-xs text-amber-700 dark:text-amber-300">
@@ -237,7 +282,11 @@ const AgentWorkingModal: React.FC<AgentWorkingModalProps> = ({
               className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded bg-teal-100 text-teal-900 hover:bg-teal-200 disabled:opacity-50"
             >
               <Play size={12} />{' '}
-              {showRestartLabel ? t('agent.restart') : t('agent.resume')}
+              {showStartLabel
+                ? t('agent.start')
+                : showRestartLabel
+                  ? t('agent.restart')
+                  : t('agent.resume')}
             </button>
           )}
           {canStop && (
@@ -271,6 +320,17 @@ const AgentWorkingModal: React.FC<AgentWorkingModalProps> = ({
           {isAutomation && awaitingApply
             ? t('agent.automationWaitingApplyHint')
             : t('agent.waitingHint')}
+        </div>
+      )}
+
+      {status === 'undone' && (
+        <div className="px-4 py-2 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/40 shrink-0">
+          <p className="text-xs font-medium text-gray-800 dark:text-gray-100">
+            {t('agent.automationUndoneBanner')}
+          </p>
+          {undoSummary && (
+            <p className="text-xs text-gray-600 dark:text-gray-300 mt-1">{undoSummary}</p>
+          )}
         </div>
       )}
 
@@ -369,6 +429,10 @@ const AgentWorkingModal: React.FC<AgentWorkingModalProps> = ({
       </div>
     </div>
   );
+
+  if (embedded) {
+    return panel;
+  }
 
   return createPortal(
     <div

@@ -17,7 +17,8 @@ export const AGENT_WORK_STATUSES = {
   waiting: 'waiting',
   stopped: 'stopped',
   done: 'done',
-  failed: 'failed'
+  failed: 'failed',
+  undone: 'undone'
 } as const;
 
 export type AgentWorkStatus = (typeof AGENT_WORK_STATUSES)[keyof typeof AGENT_WORK_STATUSES];
@@ -44,8 +45,23 @@ export const AGENT_RESUMABLE_STATUSES: readonly AgentWorkStatus[] = [
   'waiting',
   'stopped',
   'failed',
-  'done'
+  'done',
+  'undone'
 ];
+
+/** True when assigned but never launched (Assign without Assign & Launch). */
+export function isAgentIdleStatus(status: string | null | undefined): boolean {
+  const s = String(status || '').trim().toLowerCase();
+  return !s || s === 'idle' || s === 'unknown';
+}
+
+/** Configure / activity may start or restart (idle or a finished/paused state). */
+export function canStartOrRestartAgent(status: string | null | undefined): boolean {
+  return (
+    isAgentIdleStatus(status) ||
+    (AGENT_RESUMABLE_STATUSES as readonly string[]).includes(String(status || ''))
+  );
+}
 
 // WebSocket throttle duration in milliseconds
 // Throttles to max 20 updates per second for better performance

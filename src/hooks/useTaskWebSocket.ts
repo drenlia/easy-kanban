@@ -445,8 +445,9 @@ export const useTaskWebSocket = ({
               const taskId = data.task?.id;
               if (!taskId) return;
               
-              const targetColumnId = data.task.columnId;
+              const targetColumnId = data.task.columnId || data.task.columnid;
               if (!targetColumnId) return;
+              if (!data.task.columnId) data.task.columnId = targetColumnId;
 
               // Strip from every column first (including accidental duplicates)
               Object.keys(updatedColumns).forEach(columnId => {

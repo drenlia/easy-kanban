@@ -11,6 +11,8 @@ import {
   isTaskDescriptionEmpty,
   looksLikeNonCodingRequest,
 } from '../utils/agentTaskHints';
+import TextEditor from './TextEditor';
+import DOMPurify from 'dompurify';
 
 export type AssignToAgentModalMode = 'assign' | 'configure';
 export type AgentJobMode = 'assist' | 'code' | 'automation';
@@ -33,8 +35,12 @@ interface AssignToAgentModalProps {
   isAdmin?: boolean;
   /** When true, show Save & restart (configure mode). */
   canRestart?: boolean;
+  /** Configure: never launched yet — use "Save & start" instead of "Save & restart". */
+  isFirstStart?: boolean;
   /** Agent is running/queued — save applies on next restart. */
   appliesNextRun?: boolean;
+  /** Lock task description editing (agent actively running). */
+  descriptionLocked?: boolean;
   onConfirm: (
     repoUrl: string,
     repoBranch: string,
@@ -45,11 +51,14 @@ interface AssignToAgentModalProps {
       agentMode?: AgentJobMode;
       automationScope?: AutomationScope;
       automationBoardIds?: string[];
+      description?: string;
     }
   ) => void | Promise<void>;
   onCancel: () => void;
   /** When set, panel is positioned near this rect instead of viewport-centered. */
   anchorRect?: RectLike | null;
+  /** Body-only render for AgentPanel (no portal / title chrome). */
+  embedded?: boolean;
 }
 
 type ProbeUiState =
@@ -72,10 +81,13 @@ const AssignToAgentModal: React.FC<AssignToAgentModalProps> = ({
   taskDescription = '',
   isAdmin = false,
   canRestart = false,
+  isFirstStart = false,
   appliesNextRun = false,
+  descriptionLocked = false,
   onConfirm,
   onCancel,
   anchorRect,
+  embedded = false,
 }) => {
   const { t } = useTranslation('common');
   const isConfigure = mode === 'configure';
@@ -112,19 +124,26 @@ const AssignToAgentModal: React.FC<AssignToAgentModalProps> = ({
   >(null);
   const [error, setError] = useState<string | null>(null);
   const [softWarnDismissed, setSoftWarnDismissed] = useState(false);
+  const [descriptionDraft, setDescriptionDraft] = useState(taskDescription);
   const panelRef = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
   const probeSeq = useRef(0);
 
+  useEffect(() => {
+    setDescriptionDraft(taskDescription);
+  }, [taskDescription]);
+
   const descriptionEmpty = useMemo(
-    () => isTaskDescriptionEmpty(taskDescription),
-    [taskDescription]
+    () => isTaskDescriptionEmpty(descriptionDraft),
+    [descriptionDraft]
   );
 
   const showNonCodingSoftWarn = useMemo(() => {
     if (jobMode !== 'code' || softWarnDismissed) return false;
-    return looksLikeNonCodingRequest(taskTitle, taskDescription);
-  }, [jobMode, softWarnDismissed, taskTitle, taskDescription]);
+    return looksLikeNonCodingRequest(taskTitle, descriptionDraft);
+  }, [jobMode, softWarnDismissed, taskTitle, descriptionDraft]);
+
+  const canEditDescription = !descriptionLocked;
 
   const sortedBranches = useMemo(() => {
     const defaultBranch =
@@ -314,6 +333,7 @@ const AssignToAgentModal: React.FC<AssignToAgentModalProps> = ({
     restart: opts.restart,
     launch: isConfigure ? undefined : opts.launch,
     agentMode: jobMode,
+    description: descriptionDraft,
     ...(isAdmin ? { llmModel: llmModel.trim() } : {}),
     ...(jobMode === 'automation'
       ? {
@@ -331,8 +351,8 @@ const AssignToAgentModal: React.FC<AssignToAgentModalProps> = ({
     e.preventDefault();
     setError(null);
     const launch = opts.launch !== false;
-    // Launch requires a description; assign-only can save without one
-    if (!isConfigure && launch && descriptionEmpty) {
+    // Launch / configure save require a description; assign-only can omit one
+    if ((isConfigure || launch) && descriptionEmpty) {
       setError(t('agent.descriptionRequired'));
       return;
     }
@@ -380,7 +400,7 @@ const AssignToAgentModal: React.FC<AssignToAgentModalProps> = ({
     }
   };
 
-  const anchored = Boolean(anchorRect);
+  const anchored = Boolean(anchorRect) && !embedded;
   const assignOnlyDisabled = busy || codeRepoMissing;
   const launchDisabled = busy || descriptionEmpty || codeRepoMissing;
   const configureSaveDisabled = busy || codeRepoMissing;
@@ -416,9 +436,13 @@ const AssignToAgentModal: React.FC<AssignToAgentModalProps> = ({
   const panel = (
     <div
       ref={panelRef}
-      role="dialog"
-      aria-modal="true"
-      className="w-full max-w-xl min-h-[28rem] max-h-[min(90vh,720px)] flex flex-col rounded-lg bg-white dark:bg-gray-800 shadow-xl border border-gray-200 dark:border-gray-700"
+      role={embedded ? undefined : 'dialog'}
+      aria-modal={embedded ? undefined : true}
+      className={
+        embedded
+          ? 'flex-1 min-h-0 flex flex-col bg-white dark:bg-gray-800'
+          : 'w-full max-w-xl min-h-[28rem] max-h-[min(90vh,720px)] flex flex-col rounded-lg bg-white dark:bg-gray-800 shadow-xl border border-gray-200 dark:border-gray-700'
+      }
       style={
         anchored && pos
           ? {
@@ -433,20 +457,26 @@ const AssignToAgentModal: React.FC<AssignToAgentModalProps> = ({
       onMouseDown={(e) => e.stopPropagation()}
       onClick={(e) => e.stopPropagation()}
     >
-      <div className="flex items-center justify-between border-b border-gray-200 dark:border-gray-700 px-4 py-3 shrink-0">
-        <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 flex items-center gap-2">
-          {isConfigure && <Settings2 size={18} className="text-gray-500" />}
-          {isConfigure ? t('agent.configTitle') : t('agent.assignTitle')}
-        </h3>
-        <button type="button" onClick={onCancel} className="text-gray-400 hover:text-gray-600">
-          <X size={20} />
-        </button>
-      </div>
+      {!embedded && (
+        <div className="flex items-center justify-between border-b border-gray-200 dark:border-gray-700 px-4 py-3 shrink-0">
+          <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 flex items-center gap-2">
+            {isConfigure && <Settings2 size={18} className="text-gray-500" />}
+            {isConfigure ? t('agent.configTitle') : t('agent.assignTitle')}
+          </h3>
+          <button type="button" onClick={onCancel} className="text-gray-400 hover:text-gray-600">
+            <X size={20} />
+          </button>
+        </div>
+      )}
       <form
         onSubmit={(e) => handleSubmit(e, isConfigure ? {} : { launch: true })}
         className="flex flex-col flex-1 min-h-0"
       >
-        <div className="px-4 py-4 space-y-4 flex-1 min-h-0 overflow-y-auto">
+        <div
+          className={`px-4 sm:px-6 py-4 flex-1 min-h-0 overflow-y-auto ${
+            embedded ? 'space-y-3' : 'space-y-4'
+          }`}
+        >
         <p className="text-sm text-gray-500 dark:text-gray-400">
           {isConfigure ? t('agent.configDescription') : t('agent.assignDescription')}
         </p>
@@ -526,90 +556,149 @@ const AssignToAgentModal: React.FC<AssignToAgentModalProps> = ({
           </p>
         </div>
 
-        {isAdmin ? (
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              {t('agent.llmModelLabel')}
-            </label>
-            <select
-              value={useCustomModel ? '__custom__' : llmModel}
-              onChange={(e) => {
-                const v = e.target.value;
-                if (v === '') {
-                  setUseCustomModel(false);
-                  setLlmModel('');
-                  return;
-                }
-                if (v === '__custom__') {
-                  setUseCustomModel(true);
-                  return;
-                }
-                setUseCustomModel(false);
-                setLlmModel(v);
-              }}
-              disabled={busy || modelsLoading}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 disabled:opacity-50"
-            >
-              <option value="">
-                {tenantDefaultModel
-                  ? t('agent.llmModelDefaultNamed', { model: tenantDefaultModel })
-                  : t('agent.llmModelDefault')}
-              </option>
-              {aiModels.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.name && m.name !== m.id ? `${m.name} (${m.id})` : m.id}
-                </option>
-              ))}
-              <option value="__custom__">{t('agent.llmModelCustom')}</option>
-            </select>
-            {useCustomModel && (
-              <input
-                type="text"
-                value={llmModel}
-                onChange={(e) => setLlmModel(e.target.value)}
-                placeholder={t('agent.llmModelCustomPlaceholder')}
-                className="mt-2 w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-              />
-            )}
-            <p className="mt-1 text-[11px] text-gray-400 dark:text-gray-500">
-              {t('agent.llmModelHint')}
-            </p>
-            {modelsLoading && (
-              <p className="mt-1 text-[11px] text-gray-500">{t('agent.llmModelLoading')}</p>
-            )}
-            {modelsError && (
-              <p className="mt-1 text-[11px] text-amber-700 dark:text-amber-300">{modelsError}</p>
-            )}
-          </div>
-        ) : (
-          <div>
-            <label className="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">
-              {t('agent.llmModelLabelReadonly')}
-            </label>
-            <input
-              type="text"
-              readOnly
-              disabled
-              value={
-                modelsLoading
-                  ? t('agent.llmModelLoading')
-                  : effectiveDisplayModel || t('agent.llmModelUnknown')
-              }
-              className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-md text-sm bg-gray-50 dark:bg-gray-900/50 text-gray-500 dark:text-gray-400 cursor-not-allowed"
-            />
-            <p className="mt-1 text-[11px] text-gray-400 dark:text-gray-500">
-              {(llmModel || initialLlmModel || '').trim()
-                ? t('agent.llmModelReadonlyOverrideHint')
-                : t('agent.llmModelReadonlyDefaultHint')}
-            </p>
-          </div>
-        )}
         {isConfigure && appliesNextRun && (
           <p className="text-xs text-amber-700 dark:text-amber-300">
             {t('agent.configAppliesNextRun')}
           </p>
         )}
 
+        {/* Primary settings | mode options — left column self-start so description stays put */}
+        <div
+          className={
+            embedded
+              ? 'grid grid-cols-1 lg:grid-cols-2 gap-x-8 gap-y-3 items-start'
+              : 'space-y-4'
+          }
+        >
+          <div className="space-y-2 self-start w-full">
+            {isAdmin ? (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  {t('agent.llmModelLabel')}
+                </label>
+                <select
+                  value={useCustomModel ? '__custom__' : llmModel}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    if (v === '') {
+                      setUseCustomModel(false);
+                      setLlmModel('');
+                      return;
+                    }
+                    if (v === '__custom__') {
+                      setUseCustomModel(true);
+                      return;
+                    }
+                    setUseCustomModel(false);
+                    setLlmModel(v);
+                  }}
+                  disabled={busy || modelsLoading}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 disabled:opacity-50"
+                >
+                  <option value="">
+                    {tenantDefaultModel
+                      ? t('agent.llmModelDefaultNamed', { model: tenantDefaultModel })
+                      : t('agent.llmModelDefault')}
+                  </option>
+                  {aiModels.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.name && m.name !== m.id ? `${m.name} (${m.id})` : m.id}
+                    </option>
+                  ))}
+                  <option value="__custom__">{t('agent.llmModelCustom')}</option>
+                </select>
+                {useCustomModel && (
+                  <input
+                    type="text"
+                    value={llmModel}
+                    onChange={(e) => setLlmModel(e.target.value)}
+                    placeholder={t('agent.llmModelCustomPlaceholder')}
+                    className="mt-2 w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+                  />
+                )}
+                <p className="mt-1 text-[11px] text-gray-400 dark:text-gray-500">
+                  {t('agent.llmModelHint')}
+                </p>
+                {modelsLoading && (
+                  <p className="mt-1 text-[11px] text-gray-500">{t('agent.llmModelLoading')}</p>
+                )}
+                {modelsError && (
+                  <p className="mt-1 text-[11px] text-amber-700 dark:text-amber-300">{modelsError}</p>
+                )}
+              </div>
+            ) : (
+              <div>
+                <label className="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">
+                  {t('agent.llmModelLabelReadonly')}
+                </label>
+                <input
+                  type="text"
+                  readOnly
+                  disabled
+                  value={
+                    modelsLoading
+                      ? t('agent.llmModelLoading')
+                      : effectiveDisplayModel || t('agent.llmModelUnknown')
+                  }
+                  className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-md text-sm bg-gray-50 dark:bg-gray-900/50 text-gray-500 dark:text-gray-400 cursor-not-allowed"
+                />
+                <p className="mt-1 text-[11px] text-gray-400 dark:text-gray-500">
+                  {(llmModel || initialLlmModel || '').trim()
+                    ? t('agent.llmModelReadonlyOverrideHint')
+                    : t('agent.llmModelReadonlyDefaultHint')}
+                </p>
+              </div>
+            )}
+
+            {/* Secondary recipe — fixed under model; right column growth does not move it */}
+            <div className="space-y-1.5 pt-2 mt-1 border-t border-gray-100 dark:border-gray-700/80">
+              <div className="flex items-center justify-between gap-2">
+                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">
+                  {t('agent.taskDescriptionLabel')}
+                </label>
+                {descriptionLocked && (
+                  <span className="text-[11px] text-amber-700 dark:text-amber-300">
+                    {t('agent.descriptionLockedWhileRunning')}
+                  </span>
+                )}
+              </div>
+              {canEditDescription ? (
+                <TextEditor
+                  key={descriptionLocked ? 'desc-locked' : 'desc-edit'}
+                  initialContent={descriptionDraft}
+                  onChange={(content) => setDescriptionDraft(content)}
+                  onSubmit={async () => {}}
+                  showSubmitButtons={false}
+                  showAttachments={false}
+                  showToolbar={true}
+                  variant="inline"
+                  compact
+                  minHeight="96px"
+                  placeholder={t('agent.taskDescriptionPlaceholder')}
+                  allowImagePaste={false}
+                  allowImageDelete={false}
+                  className="w-full border border-gray-200 dark:border-gray-600 rounded-md overflow-hidden bg-gray-50/50 dark:bg-gray-900/20"
+                />
+              ) : (
+                <div className="max-h-36 overflow-y-auto rounded-md border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-900/40 px-3 py-2">
+                  {descriptionEmpty ? (
+                    <p className="text-sm text-gray-400 italic m-0">
+                      {t('agent.taskDescriptionEmpty')}
+                    </p>
+                  ) : (
+                    <div
+                      className="prose prose-sm max-w-none dark:prose-invert text-gray-800 dark:text-gray-100"
+                      dangerouslySetInnerHTML={{
+                        __html: DOMPurify.sanitize(descriptionDraft || ''),
+                      }}
+                    />
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className={`self-start w-full ${embedded ? 'space-y-4' : 'space-y-4'}`}>
         {jobMode === 'automation' && (
           <div className="space-y-3">
             <div>
@@ -677,7 +766,7 @@ const AssignToAgentModal: React.FC<AssignToAgentModalProps> = ({
         )}
 
         {jobMode === 'code' && (
-          <>
+          <div className="space-y-4">
             {showNonCodingSoftWarn && (
               <div className="rounded-md border border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-900/20 px-3 py-2 text-xs text-amber-900 dark:text-amber-100 space-y-2">
                 <p>{t('agent.softWarnNonCoding')}</p>
@@ -699,6 +788,7 @@ const AssignToAgentModal: React.FC<AssignToAgentModalProps> = ({
                 </div>
               </div>
             )}
+            <div className={embedded ? 'space-y-4' : 'space-y-4'}>
             <div>
               <div className="flex items-center justify-between gap-2 mb-1">
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
@@ -748,7 +838,6 @@ const AssignToAgentModal: React.FC<AssignToAgentModalProps> = ({
                     onChange={(e) => {
                       const v = e.target.value;
                       if (v === '__custom__') {
-                        // Keep current text if it was already custom; otherwise clear for typing
                         if (sortedBranches.includes(repoBranch.trim())) {
                           setRepoBranch('');
                         }
@@ -797,13 +886,16 @@ const AssignToAgentModal: React.FC<AssignToAgentModalProps> = ({
                   : t('agent.probePatHint')}
               </p>
             </div>
+            </div>
             <p className="text-xs text-gray-500 dark:text-gray-400">{t('agent.agentsMdHint')}</p>
-          </>
+          </div>
         )}
+          </div>
+        </div>
 
         {error && <p className="text-sm text-red-600">{error}</p>}
         </div>
-        <div className="flex flex-wrap justify-end gap-2 px-4 py-3 border-t border-gray-200 dark:border-gray-700 shrink-0 bg-white dark:bg-gray-800 rounded-b-lg">
+        <div className="flex flex-wrap justify-end gap-2 px-4 sm:px-6 py-3 border-t border-gray-200 dark:border-gray-700 shrink-0 bg-white dark:bg-gray-800 rounded-b-lg">
           {isConfigure && (initialRepoUrl || jobMode === 'code') && (
             <button
               type="button"
@@ -814,14 +906,16 @@ const AssignToAgentModal: React.FC<AssignToAgentModalProps> = ({
               {t('agent.configClearRepo')}
             </button>
           )}
-          <button
-            type="button"
-            onClick={onCancel}
-            disabled={busy}
-            className="px-3 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md"
-          >
-            {t('buttons.cancel')}
-          </button>
+          {!embedded && (
+            <button
+              type="button"
+              onClick={onCancel}
+              disabled={busy}
+              className="px-3 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md"
+            >
+              {t('buttons.cancel')}
+            </button>
+          )}
           {isConfigure && canRestart && (
             <button
               type="button"
@@ -833,7 +927,9 @@ const AssignToAgentModal: React.FC<AssignToAgentModalProps> = ({
             >
               {busyAction === 'restart'
                 ? t('agent.configSaving')
-                : t('agent.configSaveAndRestart')}
+                : isFirstStart
+                  ? t('agent.configSaveAndStart')
+                  : t('agent.configSaveAndRestart')}
             </button>
           )}
           {isConfigure ? (
@@ -881,6 +977,10 @@ const AssignToAgentModal: React.FC<AssignToAgentModalProps> = ({
       </form>
     </div>
   );
+
+  if (embedded) {
+    return panel;
+  }
 
   return createPortal(
     <div

@@ -89,7 +89,8 @@
     "assignTo": "Assigner à :",
     "sourceTaskForLinking": "Tâche source pour le lien",
     "holdAndDragToLink": "Maintenir et glisser pour lier les tâches",
-    "noMoreTagsAvailable": "Aucune autre étiquette disponible"
+    "noMoreTagsAvailable": "Aucune autre étiquette disponible",
+    "disabledWhileAgent": "Indisponible pendant que l'Agent travaille sur cette tâche"
   },
   "addTagModal": {
     "title": "Ajouter une nouvelle étiquette",

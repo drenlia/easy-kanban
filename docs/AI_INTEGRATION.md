@@ -227,9 +227,11 @@ Real-time: `notificationService.publish('task-work-updated', …)` (and comment/
 | POST | `/tools` | Automation Bearer | Execute allowlisted tool (`dryRun` supported) |
 | GET | `/status` | Automation Bearer | Poll status/control (`apply` signal) |
 | POST | `/apply` | Automation Bearer | Apply stored dry-run plan (journaled, idempotent) |
-| POST | `/undo/:taskId` | Admin JWT | Reverse journal for last job |
+| POST | `/undo/:taskId` | Admin JWT | Reverse journal for last Apply; sets status `undone`, Agent comment, hides further Undo |
 
 Automation tools wrap sqlManager (tasks, boards, columns, sprints, tags, comments, exports). Deletes of tasks/boards/columns are denied. See `server/constants/automation.js` and `server/services/automationTools.js`.
+
+**Launch-task exclusion:** the recipe/launch card that started the job is never a search or mutation target (so recipe text like “move tasks containing …” does not match itself). **Discovery performance:** `search_tasks` returns `descriptionPreview` by default; prefer that (or bulk `get_tasks`) over many `get_task` calls. **Human summaries:** `search_tasks` / `get_task(s)` include `boardTitle` and `columnTitle`; dry-run and finish text should use titles, not raw board UUIDs (IDs remain for tool arguments).
 
 ### Runner (`runner/`, Bearer `RUNNER_TOKEN`)
 
@@ -283,7 +285,7 @@ Automation jobs run `runner/src/automationLoop.js` (discover → `submit_dry_run
 
 - All agent/user-dev routes authenticated; AI routes also check `AI_ENABLED`.
 - Automation assign/apply/undo are **admin-only**; job token is board-scoped with blast-radius caps.
-- Mutation journal (`agent_automation_journal`) enables undo; apply is idempotent per plan hash.
+- Mutation journal (`agent_automation_journal`) enables undo of the last Apply; successful Apply sets `automation_undoable`; Undo sets status `undone` with a summary comment and disables further Undo until the next Apply.
 - Secrets encrypted or hashed at rest; masked in admin responses.
 - Git credentials are **per assigning user**, not a shared tenant admin PAT.
 - Concurrent launches capped per tenant (`AI_MAX_CONCURRENT`); automation also uses a simple concurrency lock across active automation jobs.

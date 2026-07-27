@@ -75,7 +75,10 @@ router.post('/callback', async (req, res) => {
     }
 
     const updates = {};
-    if (req.body?.progress !== undefined && req.body.progress !== null) {
+    const terminal = ['done', 'failed', 'stopped', 'cancelled'].includes(event);
+    const alreadyUndone = work.status === 'undone';
+
+    if (req.body?.progress !== undefined && req.body.progress !== null && !alreadyUndone) {
       updates.progress = String(req.body.progress);
     }
     if (req.body?.prUrl) {
@@ -129,7 +132,29 @@ router.post('/callback', async (req, res) => {
       }
     }
 
-    const terminal = ['done', 'failed', 'stopped', 'cancelled'].includes(event);
+    // Do not overwrite an admin Undo outcome with a late runner terminal event
+    if (alreadyUndone) {
+      if (terminal) {
+        updates.callback_token = '';
+        updates.waiting_for_slot = '';
+        updates.control = 'none';
+        updates.awaiting_apply = '';
+      }
+      if (Object.keys(updates).length) {
+        await taskWorkQueries.upsertWorkEntries(db, taskId, updates);
+      }
+      await publishWork(req, taskId);
+      if (terminal) {
+        const tenantId = getTenantId(req);
+        setImmediate(() => {
+          tryLaunchQueuedTasks(db, tenantId).catch((e) =>
+            console.error('Dispatcher after callback failed:', e)
+          );
+        });
+      }
+      return res.json({ ok: true, preservedStatus: 'undone' });
+    }
+
     if (event === 'progress' || event === 'log') {
       if (req.body?.status) {
         updates.status = String(req.body.status);

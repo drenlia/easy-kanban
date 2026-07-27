@@ -36,10 +36,10 @@ import {
   AGENT_MEMBER_ID,
   SYSTEM_MEMBER_ID,
   AGENT_DRAG_BLOCKING_STATUSES,
-  AGENT_RESUMABLE_STATUSES,
 } from '../constants/appConstants';
 import AssignToAgentModal from './AssignToAgentModal';
-import AgentWorkingModal from './AgentWorkingModal';
+import AgentPanel from './AgentPanel';
+import type { AgentPanelView } from './AgentPanel';
 import websocketClient from '../services/websocketClient';
 
 function cardLog(...args: unknown[]) {
@@ -296,7 +296,9 @@ const TaskCard = React.memo(function TaskCard({
   const [showAttachmentsDropdown, setShowAttachmentsDropdown] = useState(false);
   const [showAssignAgentModal, setShowAssignAgentModal] = useState(false);
   const [assignAgentMode, setAssignAgentMode] = useState<'assign' | 'configure'>('assign');
-  const [showAgentWorkingModal, setShowAgentWorkingModal] = useState(false);
+  const [showAgentPanel, setShowAgentPanel] = useState(false);
+  const [agentPanelView, setAgentPanelView] = useState<AgentPanelView>('activity');
+  const [agentPanelRestoreToken, setAgentPanelRestoreToken] = useState(0);
   const [agentModalAnchor, setAgentModalAnchor] = useState<DOMRect | null>(null);
   /** Snapshot after flushing in-progress edits so the assign modal sees latest text immediately */
   const [agentFormTask, setAgentFormTask] = useState<{ title: string; description: string } | null>(null);
@@ -594,23 +596,16 @@ const TaskCard = React.memo(function TaskCard({
     setShowAssignAgentModal(true);
   };
 
-  const openAgentConfigModal = async () => {
-    const latest = await flushPendingEdits();
-    setAgentFormTask({ title: latest.title, description: latest.description || '' });
-    setAssignAgentMode('configure');
-    setAgentModalAnchor(cardElement?.getBoundingClientRect() ?? null);
-    setShowAssignAgentModal(true);
-  };
-
   const openAgentWorkingModal = () => {
-    setAgentModalAnchor(cardElement?.getBoundingClientRect() ?? null);
     setAgentModalComments(task.comments || []);
-    setShowAgentWorkingModal(true);
+    setAgentPanelView('activity');
+    setShowAgentPanel(true);
+    setAgentPanelRestoreToken((n) => n + 1);
   };
 
   // While activity panel is open, poll work + comments so UI recovers if WebSocket drops
   useEffect(() => {
-    if (!showAgentWorkingModal || task.memberId !== AGENT_MEMBER_ID) return;
+    if (!showAgentPanel || task.memberId !== AGENT_MEMBER_ID) return;
     let cancelled = false;
     const tick = async () => {
       try {
@@ -633,7 +628,7 @@ const TaskCard = React.memo(function TaskCard({
       cancelled = true;
       window.clearInterval(id);
     };
-  }, [showAgentWorkingModal, task.id, task.memberId]);
+  }, [showAgentPanel, task.id, task.memberId]);
 
   const handleMemberChange = async (memberId: string) => {
     setShowMemberSelect(false);
@@ -655,33 +650,16 @@ const TaskCard = React.memo(function TaskCard({
       agentMode?: 'assist' | 'code' | 'automation';
       automationScope?: 'this_board' | 'selected' | 'all_boards';
       automationBoardIds?: string[];
+      description?: string;
     }
   ) => {
     const latest = await flushPendingEdits();
     const agentMode = options?.agentMode || (repoUrl.trim() ? 'code' : 'assist');
-    if (assignAgentMode === 'configure') {
-      const { work } = await putTaskWork(task.id, {
-        repoUrl: agentMode === 'automation' ? '' : repoUrl,
-        repoBranch: agentMode === 'automation' ? '' : repoBranch,
-        agentMode,
-        ...(agentMode === 'automation'
-          ? {
-              automationScope: options?.automationScope || 'this_board',
-              automationBoardIds: options?.automationBoardIds || [],
-            }
-          : {}),
-        ...(options?.llmModel !== undefined ? { llmModel: options.llmModel } : {}),
-      });
-      setAgentWork(work);
-      setShowAssignAgentModal(false);
-      setAgentModalAnchor(null);
-      setAgentFormTask(null);
-      if (options?.restart) {
-        await handleAgentControl('resume');
-      }
-      return;
-    }
-    await Promise.resolve(onEdit({ ...latest, memberId: AGENT_MEMBER_ID }));
+    const withDescription =
+      options?.description !== undefined
+        ? { ...latest, description: options.description, memberId: AGENT_MEMBER_ID }
+        : { ...latest, memberId: AGENT_MEMBER_ID };
+    await Promise.resolve(onEdit(withDescription));
     const shouldLaunch = options?.launch !== false;
     const { work } = await putTaskWork(task.id, {
       repoUrl: agentMode === 'automation' ? '' : repoUrl,
@@ -704,6 +682,43 @@ const TaskCard = React.memo(function TaskCard({
     setAgentFormTask(null);
   };
 
+  const handleAgentPanelSaveConfig = async (
+    repoUrl: string,
+    repoBranch: string,
+    options?: {
+      restart?: boolean;
+      llmModel?: string;
+      launch?: boolean;
+      agentMode?: 'assist' | 'code' | 'automation';
+      automationScope?: 'this_board' | 'selected' | 'all_boards';
+      automationBoardIds?: string[];
+      description?: string;
+    }
+  ) => {
+    const agentMode = options?.agentMode || (repoUrl.trim() ? 'code' : 'assist');
+    if (options?.description !== undefined) {
+      await Promise.resolve(
+        onEdit({ ...task, description: options.description })
+      );
+    }
+    const { work } = await putTaskWork(task.id, {
+      repoUrl: agentMode === 'automation' ? '' : repoUrl,
+      repoBranch: agentMode === 'automation' ? '' : repoBranch,
+      agentMode,
+      ...(agentMode === 'automation'
+        ? {
+            automationScope: options?.automationScope || 'this_board',
+            automationBoardIds: options?.automationBoardIds || [],
+          }
+        : {}),
+      ...(options?.llmModel !== undefined ? { llmModel: options.llmModel } : {}),
+    });
+    setAgentWork(work);
+    if (options?.restart) {
+      await handleAgentControl('resume');
+    }
+  };
+
   const handleAgentControl = async (
     control: 'pause' | 'stop' | 'resume' | 'apply'
   ) => {
@@ -721,9 +736,19 @@ const TaskCard = React.memo(function TaskCard({
   const handleAutomationUndo = async () => {
     setAgentControlBusy(true);
     try {
-      await undoAutomationJob(task.id);
-      const { work } = await getTaskWork(task.id);
-      setAgentWork(work || {});
+      const result = await undoAutomationJob(task.id);
+      if (result.work) {
+        setAgentWork(result.work);
+      } else {
+        const { work } = await getTaskWork(task.id);
+        setAgentWork(work || {});
+      }
+      try {
+        const fresh = await getTaskById(task.id);
+        if (fresh?.comments) setAgentModalComments(fresh.comments);
+      } catch {
+        /* ignore comment refresh errors */
+      }
     } catch (error) {
       console.error('Automation undo failed:', error);
     } finally {
@@ -2611,10 +2636,10 @@ const TaskCard = React.memo(function TaskCard({
 
 
 
-      {/* Add Comment Modal */}
+      {/* Assign to Agent (initial assign only — configure lives in AgentPanel) */}
       {showAssignAgentModal && (
         <AssignToAgentModal
-          mode={assignAgentMode}
+          mode="assign"
           taskTitle={agentFormTask?.title ?? task.title}
           taskDescription={agentFormTask?.description ?? task.description}
           isAdmin={Boolean(currentUser?.roles?.includes('admin'))}
@@ -2634,25 +2659,6 @@ const TaskCard = React.memo(function TaskCard({
               return [];
             }
           })()}
-          initialLlmModel={
-            assignAgentMode === 'configure' ? String(agentWork.llm_model || '') : ''
-          }
-          initialRepoUrl={
-            assignAgentMode === 'configure' ? String(agentWork.repo_url || '') : ''
-          }
-          initialRepoBranch={
-            assignAgentMode === 'configure' ? String(agentWork.repo_branch || '') : ''
-          }
-          canRestart={
-            assignAgentMode === 'configure' &&
-            (!agentStatus ||
-              (AGENT_RESUMABLE_STATUSES as readonly string[]).includes(agentStatus))
-          }
-          appliesNextRun={
-            assignAgentMode === 'configure' &&
-            !!agentStatus &&
-            (AGENT_DRAG_BLOCKING_STATUSES as readonly string[]).includes(agentStatus)
-          }
           anchorRect={agentModalAnchor}
           onCancel={() => {
             setShowAssignAgentModal(false);
@@ -2663,22 +2669,32 @@ const TaskCard = React.memo(function TaskCard({
           onConfirm={handleAssignAgentConfirm}
         />
       )}
-      {showAgentWorkingModal && (
-        <AgentWorkingModal
+      {showAgentPanel && (
+        <AgentPanel
+          panelId={task.id}
           taskTitle={task.title}
+          taskTicket={task.ticket}
+          taskDescription={task.description}
           work={agentWork}
           comments={agentModalComments}
           members={members}
           busy={agentControlBusy}
           isAdmin={Boolean(currentUser?.roles?.includes('admin'))}
+          boards={(boards || []).map((b: { id: string; title?: string; name?: string }) => ({
+            id: b.id,
+            title: b.title || b.name || b.id,
+          }))}
+          view={agentPanelView}
+          onViewChange={setAgentPanelView}
+          restoreToken={agentPanelRestoreToken}
           onClose={() => {
-            setShowAgentWorkingModal(false);
-            setAgentModalAnchor(null);
+            setShowAgentPanel(false);
+            setAgentPanelView('activity');
           }}
           onControl={handleAgentControl}
           onUndo={handleAutomationUndo}
-          onOpenConfig={openAgentConfigModal}
           onRefine={handleAgentRefine}
+          onSaveConfig={handleAgentPanelSaveConfig}
         />
       )}
       <AddCommentModal

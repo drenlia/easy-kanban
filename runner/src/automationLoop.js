@@ -19,12 +19,12 @@ const TOOLS = [
   },
   {
     name: 'list_boards',
-    description: 'List boards in scope',
+    description: 'List boards in scope (id + title). Use titles in human summaries.',
     parameters: { type: 'object', properties: {} }
   },
   {
     name: 'list_columns',
-    description: 'List columns for a board',
+    description: 'List columns for a board (includes boardTitle). Use titles in human summaries.',
     parameters: {
       type: 'object',
       properties: { boardId: { type: 'string' } },
@@ -54,7 +54,7 @@ const TOOLS = [
   {
     name: 'search_tasks',
     description:
-      'Search tasks in scope (compact summaries). Filter by boardId, sprintId, columnId, text, assigneeId, tagId.',
+      'Search tasks in scope. Excludes the automation launch task. Returns compact rows with boardTitle, columnTitle, and descriptionPreview (first 500 chars) so you usually do NOT need get_task for each match. Filter by boardId, sprintId, columnId, text, assigneeId, tagId. Set includeDescription:false only if you need ids only. Use boardTitle in summaries; boardId only in tool args.',
     parameters: {
       type: 'object',
       properties: {
@@ -64,17 +64,31 @@ const TOOLS = [
         text: { type: 'string' },
         assigneeId: { type: 'string' },
         tagId: { type: 'string' },
-        limit: { type: 'number' }
+        limit: { type: 'number' },
+        includeDescription: { type: 'boolean' }
       }
     }
   },
   {
     name: 'get_task',
-    description: 'Get full details for one task by id',
+    description:
+      'Get full details for one task by id. Prefer search_tasks (descriptionPreview) or get_tasks for bulk. Launch task is excluded.',
     parameters: {
       type: 'object',
       properties: { taskId: { type: 'string' } },
       required: ['taskId']
+    }
+  },
+  {
+    name: 'get_tasks',
+    description:
+      'Get details for many tasks in one call (prefer over many get_task). Launch task ids are skipped.',
+    parameters: {
+      type: 'object',
+      properties: {
+        taskIds: { type: 'array', items: { type: 'string' } }
+      },
+      required: ['taskIds']
     }
   },
   {
@@ -252,7 +266,7 @@ const TOOLS = [
   {
     name: 'submit_dry_run_plan',
     description:
-      'Submit the planned mutations for admin preview. Call this when discovery is done and before waiting for Apply. operations: [{name, arguments}]',
+      'Submit the planned mutations for admin preview. Call this when discovery is done and before waiting for Apply. summary must use board/column titles (not UUIDs). operations: [{name, arguments}]',
     parameters: {
       type: 'object',
       properties: {
@@ -335,14 +349,22 @@ async function applyPlan(automation) {
 }
 
 function buildContext(payload) {
+  const boards = payload.automation?.boards;
+  const boardLines =
+    Array.isArray(boards) && boards.length
+      ? `Boards in scope:\n${boards
+          .map((b) => `- ${b.title || '(untitled)'} (id: ${b.id})`)
+          .join('\n')}`
+      : payload.automation?.boardIds?.length
+        ? `Board IDs: ${payload.automation.boardIds.join(', ')}`
+        : '';
+
   return [
     `Task ticket: ${payload.ticket || '(none)'}`,
     `Title: ${payload.title || ''}`,
     `Description:\n${payload.description || '(none)'}`,
     `Scope: ${payload.automation?.scopeType || 'this_board'}`,
-    payload.automation?.boardIds?.length
-      ? `Board IDs: ${payload.automation.boardIds.join(', ')}`
-      : '',
+    boardLines,
     payload.comments?.length
       ? `Recent comments:\n${payload.comments
           .map((c) => `- ${c.author || 'user'}: ${c.text}`)
@@ -378,10 +400,14 @@ export async function runAutomationJob(job) {
     'You are the Easy Kanban Automation agent (admin-only board operations).',
     'Discover data with list/search tools, then plan mutations with dryRun:true.',
     'Never delete tasks, boards, or columns — those are denied.',
+    'The automation launch task (this recipe card) is NEVER a target: search/get/move/update skip it automatically. Do not try to move or edit it.',
+    'Prefer search_tasks for analysis — results include descriptionPreview, boardTitle, and columnTitle. Avoid calling get_task once per match; use get_tasks only when you need fuller fields for a small set.',
     'When names are ambiguous, prefer IDs from list tools; refuse to guess.',
+    'In human-facing text (submit_dry_run_plan summary, finish, comments), always use board titles and column titles — never raw board/column UUIDs. Keep using IDs only in tool arguments.',
     'When the plan is ready, call submit_dry_run_plan with a clear summary and operations array',
     '(operations should use dryRun:false arguments — the server applies them only after admin Apply).',
-    'After submit_dry_run_plan you will wait; do not mutate further until told Apply succeeded.',
+    'If there is nothing to change, submit_dry_run_plan with an empty operations array, then call finish immediately (no Apply).',
+    'After submit_dry_run_plan with non-empty operations you will wait; do not mutate further until told Apply succeeded.',
     'Finally call finish with a human summary.',
     'Reply with tool calls only when acting; keep summaries concise.',
     buildContext(payload)
@@ -397,6 +423,7 @@ export async function runAutomationJob(job) {
   ];
 
   let submittedPlan = false;
+  let emptyPlan = false;
   let finished = null;
 
   for (let step = 0; step < MAX_STEPS; step++) {
@@ -413,9 +440,11 @@ export async function runAutomationJob(job) {
       messages.push({ role: 'assistant', content: reply.content || '' });
       messages.push({
         role: 'user',
-        content: submittedPlan
-          ? 'Wait for admin Apply — call finish only after apply is confirmed in the next message.'
-          : 'Continue with tools, or submit_dry_run_plan when ready.'
+        content: emptyPlan
+          ? 'There was nothing to apply. Call finish with the summary now.'
+          : submittedPlan
+            ? 'Wait for admin Apply — call finish only after apply is confirmed in the next message.'
+            : 'Continue with tools, or submit_dry_run_plan when ready.'
       });
       continue;
     }
@@ -460,7 +489,7 @@ export async function runAutomationJob(job) {
         'export_tasks_csv'
       ];
       let dryRun = Boolean(args.dryRun);
-      if (!submittedPlan && mutating.includes(tc.name)) {
+      if (!submittedPlan && !emptyPlan && mutating.includes(tc.name)) {
         dryRun = true;
         args.dryRun = true;
       }
@@ -469,7 +498,35 @@ export async function runAutomationJob(job) {
       if (tc.name === 'submit_dry_run_plan') {
         result = await callToolApi(automation, tc.name, args, false);
         if (!result.error) {
+          if (result.emptyPlan || result.awaitingApply === false) {
+            emptyPlan = true;
+            submittedPlan = false;
+            const summaryText = stripModelReasoning(
+              args.summary || 'Nothing to change.'
+            );
+            await sendCallback(job, {
+              event: 'progress',
+              progress: 90,
+              log: `[runner] Empty plan — nothing to apply; finishing`,
+              comment: summaryText
+            });
+            messages.push({
+              role: 'tool',
+              tool_call_id: tc.id,
+              content: JSON.stringify(result).slice(0, 20000)
+            });
+            // Prefer finishing immediately with the plan summary
+            finished = {
+              summary: summaryText,
+              matched: 0,
+              changed: 0,
+              skipped: 0
+            };
+            break;
+          }
+
           submittedPlan = true;
+          emptyPlan = false;
           await sendCallback(job, {
             event: 'progress',
             progress: 75,
@@ -482,11 +539,13 @@ export async function runAutomationJob(job) {
         result = await callToolApi(automation, tc.name, args, dryRun);
       }
 
-      messages.push({
-        role: 'tool',
-        tool_call_id: tc.id,
-        content: JSON.stringify(result).slice(0, 20000)
-      });
+      if (!finished) {
+        messages.push({
+          role: 'tool',
+          tool_call_id: tc.id,
+          content: JSON.stringify(result).slice(0, 20000)
+        });
+      }
 
       await sendCallback(job, {
         event: 'log',

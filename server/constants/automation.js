@@ -35,6 +35,9 @@ export const AUTOMATION_RUNTIME_KEYS = Object.freeze([
   'automation_plan_hash',
   'automation_apply_hash',
   'automation_result',
+  'automation_undoable',
+  'automation_undone_at',
+  'automation_undo_summary',
   'pr_url',
   'agent_branch',
   'launch_attempt_at'
@@ -54,6 +57,7 @@ export const AUTOMATION_CAPABILITIES = Object.freeze({
     'list_priorities',
     'list_capabilities',
     'get_task',
+    'get_tasks',
     'search_tasks',
     'create_task',
     'update_tasks',

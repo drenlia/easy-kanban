@@ -1153,7 +1153,14 @@ export const setTaskWorkControl = async (
 
 export const undoAutomationJob = async (
   taskId: string
-): Promise<{ undone?: number; ok?: boolean; error?: string }> => {
+): Promise<{
+  ok?: boolean;
+  undone?: number;
+  summary?: string;
+  work?: TaskWorkMap;
+  error?: string;
+  alreadyUndone?: boolean;
+}> => {
   const { data } = await api.post(`/agent/automation/undo/${taskId}`);
   return data;
 };

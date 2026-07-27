@@ -54,6 +54,14 @@ function taskColumnId(task) {
   return task?.columnid || task?.columnId || null;
 }
 
+function taskBoardTitle(task) {
+  return task?.board_title || task?.boardTitle || null;
+}
+
+function taskColumnTitle(task) {
+  return task?.column_title || task?.columnTitle || null;
+}
+
 function taskSnapshot(task) {
   if (!task) return null;
   return {
@@ -62,7 +70,9 @@ function taskSnapshot(task) {
     title: task.title,
     description: task.description,
     columnId: taskColumnId(task),
+    columnTitle: taskColumnTitle(task),
     boardId: taskBoardId(task),
+    boardTitle: taskBoardTitle(task),
     sprintId: task.sprint_id || task.sprintId || null,
     priority: task.priority,
     priorityId: task.priority_id || task.priorityId || null,
@@ -74,17 +84,76 @@ function taskSnapshot(task) {
   };
 }
 
-function compactTask(task) {
-  return {
+function compactTask(task, { includeDescription = false } = {}) {
+  const base = {
     id: task.id,
     ticket: task.ticket,
     title: task.title,
     boardId: taskBoardId(task),
+    boardTitle: taskBoardTitle(task),
     columnId: taskColumnId(task),
+    columnTitle: taskColumnTitle(task),
     sprintId: task.sprint_id || task.sprintId || null,
     memberId: task.memberid || task.memberId || null,
     priority: task.priority
   };
+  if (includeDescription) {
+    const plain = stripHtml(task.description);
+    base.descriptionPreview = plain.slice(0, 500);
+    base.descriptionLength = plain.length;
+  }
+  return base;
+}
+
+/** id → title map for boards in scope (cached on ctx for the tool request). */
+async function getBoardTitleMap(ctx) {
+  if (ctx._boardTitleMap) return ctx._boardTitleMap;
+  const boards = await boardQueries.getAllBoards(ctx.db);
+  const map = new Map();
+  for (const b of boards || []) {
+    if (b?.id) map.set(b.id, b.title || '');
+  }
+  ctx._boardTitleMap = map;
+  return map;
+}
+
+async function getColumnTitleMap(ctx) {
+  if (ctx._columnTitleMap) return ctx._columnTitleMap;
+  const allowed = await resolveAllowedBoardIds(ctx);
+  const cols = await helpers.getColumnsForAllBoards(ctx.db, allowed);
+  const map = new Map();
+  for (const c of cols || []) {
+    if (c?.id) map.set(c.id, c.title || '');
+  }
+  ctx._columnTitleMap = map;
+  return map;
+}
+
+async function enrichTaskTitles(ctx, task) {
+  if (!task) return task;
+  const boardId = taskBoardId(task);
+  const columnId = taskColumnId(task);
+  if (boardId && !taskBoardTitle(task)) {
+    const boards = await getBoardTitleMap(ctx);
+    task.boardTitle = boards.get(boardId) || null;
+  }
+  if (columnId && !taskColumnTitle(task)) {
+    const columns = await getColumnTitleMap(ctx);
+    task.columnTitle = columns.get(columnId) || null;
+  }
+  return task;
+}
+
+/** Never mutate/search the automation launch card itself (avoids self-matching the recipe text). */
+function isLaunchTask(ctx, taskId) {
+  return Boolean(ctx.launchTaskId && taskId && String(taskId) === String(ctx.launchTaskId));
+}
+
+function filterOutLaunchTaskIds(ctx, taskIds) {
+  const ids = Array.isArray(taskIds) ? taskIds.filter(Boolean) : [];
+  const filtered = ids.filter((id) => !isLaunchTask(ctx, id));
+  const skippedLaunchTask = filtered.length < ids.length;
+  return { taskIds: filtered, skippedLaunchTask };
 }
 
 function hashPlan(plan) {
@@ -97,13 +166,76 @@ function isDeniedTool(name) {
   return AUTOMATION_CAPABILITIES.denied.includes(name);
 }
 
-async function publishTaskUpdated(ctx, taskId, boardId) {
-  const task = await taskQueries.getTaskWithRelationships(ctx.db, taskId);
-  if (!task || !boardId) return;
+async function publishTaskUpdated(ctx, taskId, boardId, changedFields = null) {
+  const row = await taskQueries.getTaskById(ctx.db, taskId);
+  const resolvedBoardId = boardId || taskBoardId(row);
+  if (!row || !resolvedBoardId) return;
+
+  // Minimal camelCase payload (same idea as PUT /tasks) — full getTaskWithRelationships
+  // often exceeds PostgreSQL NOTIFY's 8KB limit and the shrink stub is ignored by the client.
+  const task = {
+    id: row.id,
+    title: row.title,
+    boardId: taskBoardId(row),
+    columnId: taskColumnId(row),
+    memberId: row.memberid ?? row.memberId ?? null,
+    ticket: row.ticket ?? null,
+    position: row.position ?? 0,
+    sprintId: row.sprint_id ?? row.sprintId ?? null,
+    priority: row.priority ?? null,
+    priorityId: row.priority_id ?? row.priorityId ?? null,
+    effort: row.effort,
+    startDate: row.startdate ?? row.startDate ?? null,
+    dueDate: row.duedate ?? row.dueDate ?? null,
+    requesterId: row.requesterid ?? row.requesterId ?? null
+  };
+
+  if (changedFields && typeof changedFields === 'object') {
+    if (Object.prototype.hasOwnProperty.call(changedFields, 'description')) {
+      const desc = changedFields.description ?? row.description ?? '';
+      if (Buffer.byteLength(String(desc), 'utf8') < 3500) {
+        task.description = desc;
+      }
+    }
+    if (Object.prototype.hasOwnProperty.call(changedFields, 'title')) {
+      task.title = changedFields.title;
+    }
+    if (Object.prototype.hasOwnProperty.call(changedFields, 'memberId')) {
+      task.memberId = changedFields.memberId;
+    }
+    if (Object.prototype.hasOwnProperty.call(changedFields, 'sprintId')) {
+      task.sprintId = changedFields.sprintId;
+    }
+    if (Object.prototype.hasOwnProperty.call(changedFields, 'priority')) {
+      task.priority = changedFields.priority;
+    }
+    if (Object.prototype.hasOwnProperty.call(changedFields, 'priorityId')) {
+      task.priorityId = changedFields.priorityId;
+    }
+    if (Object.prototype.hasOwnProperty.call(changedFields, 'effort')) {
+      task.effort = changedFields.effort;
+    }
+    if (Object.prototype.hasOwnProperty.call(changedFields, 'startDate')) {
+      task.startDate = changedFields.startDate;
+    }
+    if (Object.prototype.hasOwnProperty.call(changedFields, 'dueDate')) {
+      task.dueDate = changedFields.dueDate;
+    }
+    if (Object.prototype.hasOwnProperty.call(changedFields, 'columnId')) {
+      task.columnId = changedFields.columnId;
+    }
+    if (Object.prototype.hasOwnProperty.call(changedFields, 'previousColumnId')) {
+      task.previousColumnId = changedFields.previousColumnId;
+    }
+    if (Object.prototype.hasOwnProperty.call(changedFields, 'previousBoardId')) {
+      task.previousBoardId = changedFields.previousBoardId;
+    }
+  }
+
   await notificationService.publish(
     'task-updated',
     {
-      boardId,
+      boardId: resolvedBoardId,
       task,
       timestamp: new Date().toISOString()
     },
@@ -112,12 +244,37 @@ async function publishTaskUpdated(ctx, taskId, boardId) {
 }
 
 async function publishTaskCreated(ctx, taskId, boardId) {
-  const task = await taskQueries.getTaskWithRelationships(ctx.db, taskId);
-  if (!task || !boardId) return;
+  const row = await taskQueries.getTaskById(ctx.db, taskId);
+  const resolvedBoardId = boardId || taskBoardId(row);
+  if (!row || !resolvedBoardId) return;
+  const task = {
+    id: row.id,
+    title: row.title,
+    boardId: taskBoardId(row),
+    columnId: taskColumnId(row),
+    memberId: row.memberid ?? row.memberId ?? null,
+    ticket: row.ticket ?? null,
+    position: row.position ?? 0,
+    sprintId: row.sprint_id ?? row.sprintId ?? null,
+    priority: row.priority ?? null,
+    priorityId: row.priority_id ?? row.priorityId ?? null,
+    effort: row.effort,
+    startDate: row.startdate ?? row.startDate ?? null,
+    dueDate: row.duedate ?? row.dueDate ?? null,
+    requesterId: row.requesterid ?? row.requesterId ?? null,
+    description: Buffer.byteLength(String(row.description || ''), 'utf8') < 3500
+      ? row.description || ''
+      : undefined,
+    comments: [],
+    tags: [],
+    watchers: [],
+    collaborators: [],
+    attachmentCount: 0
+  };
   await notificationService.publish(
     'task-created',
     {
-      boardId,
+      boardId: resolvedBoardId,
       task,
       timestamp: new Date().toISOString()
     },
@@ -197,7 +354,13 @@ async function searchTasksInternal(ctx, args = {}, allowedBoardIds) {
       ? [args.boardId]
       : allowedBoardIds;
 
-  if (!scopeIds.length) return [];
+  if (!scopeIds.length) return { tasks: [], excludedLaunchTask: false };
+
+  // Always exclude the automation recipe/launch task from discovery
+  if (ctx.launchTaskId) {
+    conditions.push(`t.id <> $${idx++}`);
+    params.push(ctx.launchTaskId);
+  }
 
   const scopePlaceholders = scopeIds.map(() => `$${idx++}`).join(', ');
   conditions.push(`t.boardid IN (${scopePlaceholders})`);
@@ -232,8 +395,11 @@ async function searchTasksInternal(ctx, args = {}, allowedBoardIds) {
 
   params.push(limit);
   const query = `
-    SELECT t.id, t.ticket, t.title, t.boardid, t.columnid, t.sprint_id, t.memberid, t.priority, t.description
+    SELECT t.id, t.ticket, t.title, t.boardid, t.columnid, t.sprint_id, t.memberid, t.priority, t.description,
+           b.title AS board_title, c.title AS column_title
     FROM tasks t
+    LEFT JOIN boards b ON b.id = t.boardid
+    LEFT JOIN columns c ON c.id = t.columnid
     WHERE ${conditions.join(' AND ')}
     ORDER BY t.updated_at DESC NULLS LAST, t.created_at DESC
     LIMIT $${idx}
@@ -250,7 +416,17 @@ async function searchTasksInternal(ctx, args = {}, allowedBoardIds) {
     });
   }
 
-  return rows.slice(0, limit).map(compactTask);
+  // Include description previews by default so the model rarely needs N× get_task
+  const includeDescription = args.includeDescription !== false;
+  const tasks = rows.slice(0, limit).map((row) => compactTask(row, { includeDescription }));
+  return {
+    tasks,
+    count: tasks.length,
+    excludedLaunchTask: Boolean(ctx.launchTaskId),
+    note: ctx.launchTaskId
+      ? 'The automation launch task itself is excluded from search results. Prefer boardTitle/columnTitle in human summaries.'
+      : 'Prefer boardTitle/columnTitle in human summaries; use boardId/columnId only in tool arguments.'
+  };
 }
 
 async function toolListBoards(ctx, allowedBoardIds) {
@@ -264,10 +440,14 @@ async function toolListColumns(ctx, args, allowedBoardIds) {
   const { boardId } = args || {};
   if (!boardId) return { error: 'boardId is required' };
   assertBoardInScope(boardId, allowedBoardIds);
+  const boards = await getBoardTitleMap(ctx);
+  const boardTitle = boards.get(boardId) || null;
   const cols = await helpers.getColumnsForBoard(ctx.db, boardId);
   return cols.map((c) => ({
     id: c.id,
     title: c.title,
+    boardId,
+    boardTitle,
     is_finished: c.is_finished,
     is_archived: c.is_archived,
     position: c.position
@@ -277,10 +457,56 @@ async function toolListColumns(ctx, args, allowedBoardIds) {
 async function toolGetTask(ctx, args, allowedBoardIds) {
   const { taskId } = args || {};
   if (!taskId) return { error: 'taskId is required' };
+  if (isLaunchTask(ctx, taskId)) {
+    return {
+      error: 'Cannot inspect the automation launch task via get_task; it is excluded from automation targets',
+      excludedLaunchTask: true
+    };
+  }
   const task = await taskQueries.getTaskById(ctx.db, taskId);
   if (!task) return { error: 'Task not found' };
   assertTaskInScope(ctx, task, allowedBoardIds);
+  await enrichTaskTitles(ctx, task);
   return taskSnapshot(task);
+}
+
+async function toolGetTasks(ctx, args, allowedBoardIds) {
+  const rawIds = Array.isArray(args?.taskIds) ? args.taskIds : [];
+  if (!rawIds.length) return { error: 'taskIds array is required' };
+  const { taskIds, skippedLaunchTask } = filterOutLaunchTaskIds(ctx, rawIds);
+  if (!taskIds.length) {
+    return {
+      tasks: [],
+      skippedLaunchTask: true,
+      note: 'All requested ids were the automation launch task (excluded).'
+    };
+  }
+
+  const tasks = [];
+  const missing = [];
+  for (const taskId of taskIds.slice(0, AUTOMATION_MAX_TASKS_PER_APPLY)) {
+    const task = await taskQueries.getTaskById(ctx.db, taskId);
+    if (!task) {
+      missing.push(taskId);
+      continue;
+    }
+    try {
+      assertTaskInScope(ctx, task, allowedBoardIds);
+      await enrichTaskTitles(ctx, task);
+      tasks.push({
+        ...taskSnapshot(task),
+        descriptionPreview: stripHtml(task.description).slice(0, 500)
+      });
+    } catch {
+      missing.push(taskId);
+    }
+  }
+  return {
+    tasks,
+    missing,
+    skippedLaunchTask: skippedLaunchTask || undefined,
+    note: 'Prefer search_tasks (includes descriptionPreview + boardTitle) over many get_task calls.'
+  };
 }
 
 async function toolCreateTask(ctx, args, { dryRun }, allowedBoardIds) {
@@ -355,10 +581,18 @@ async function toolCreateTask(ctx, args, { dryRun }, allowedBoardIds) {
 }
 
 async function toolUpdateTasks(ctx, args, { dryRun }, allowedBoardIds) {
-  const { taskIds, fields } = args || {};
-  if (!Array.isArray(taskIds) || !taskIds.length) {
+  const rawIds = args?.taskIds;
+  if (!Array.isArray(rawIds) || !rawIds.length) {
     return { error: 'taskIds array is required' };
   }
+  const { taskIds, skippedLaunchTask } = filterOutLaunchTaskIds(ctx, rawIds);
+  if (!taskIds.length) {
+    return {
+      error: 'No mutable tasks after excluding the automation launch task',
+      skippedLaunchTask: true
+    };
+  }
+  const { fields } = args || {};
   if (!fields || typeof fields !== 'object') {
     return { error: 'fields object is required' };
   }
@@ -391,7 +625,7 @@ async function toolUpdateTasks(ctx, args, { dryRun }, allowedBoardIds) {
   }
 
   if (dryRun) {
-    return { wouldAffect, dryRun: true };
+    return { wouldAffect, dryRun: true, skippedLaunchTask: skippedLaunchTask || undefined };
   }
 
   const updatedIds = [];
@@ -399,17 +633,25 @@ async function toolUpdateTasks(ctx, args, { dryRun }, allowedBoardIds) {
     await taskQueries.updateTask(ctx.db, item.taskId, updates);
     const after = await taskQueries.getTaskById(ctx.db, item.taskId);
     await journal(ctx, 'update_task', 'task', item.taskId, item.before, taskSnapshot(after));
-    await publishTaskUpdated(ctx, item.taskId, taskBoardId(after));
+    await publishTaskUpdated(ctx, item.taskId, taskBoardId(after), updates);
     updatedIds.push(item.taskId);
   }
 
-  return { updated: updatedIds };
+  return { updated: updatedIds, skippedLaunchTask: skippedLaunchTask || undefined };
 }
 
 async function toolMoveTasks(ctx, args, { dryRun }, allowedBoardIds) {
-  const { taskIds, columnId, boardId: targetBoardIdArg } = args || {};
-  if (!Array.isArray(taskIds) || !taskIds.length) {
+  const rawIds = args?.taskIds;
+  const { columnId, boardId: targetBoardIdArg } = args || {};
+  if (!Array.isArray(rawIds) || !rawIds.length) {
     return { error: 'taskIds array is required' };
+  }
+  const { taskIds, skippedLaunchTask } = filterOutLaunchTaskIds(ctx, rawIds);
+  if (!taskIds.length) {
+    return {
+      error: 'No mutable tasks after excluding the automation launch task',
+      skippedLaunchTask: true
+    };
   }
   if (!columnId) return { error: 'columnId is required' };
 
@@ -443,7 +685,7 @@ async function toolMoveTasks(ctx, args, { dryRun }, allowedBoardIds) {
   }
 
   if (dryRun) {
-    return { wouldAffect, dryRun: true };
+    return { wouldAffect, dryRun: true, skippedLaunchTask: skippedLaunchTask || undefined };
   }
 
   const columnTasks = await taskQueries.getTasksForColumnBasic(ctx.db, columnId);
@@ -471,10 +713,15 @@ async function toolMoveTasks(ctx, args, { dryRun }, allowedBoardIds) {
 
     const after = await taskQueries.getTaskById(ctx.db, item.taskId);
     await journal(ctx, 'move_task', 'task', item.taskId, before, taskSnapshot(after));
-    await publishTaskUpdated(ctx, item.taskId, targetBoardId);
+    await publishTaskUpdated(ctx, item.taskId, targetBoardId, {
+      columnId,
+      previousColumnId: prevColumn,
+      previousBoardId: crossBoard ? prevBoard : undefined,
+      position: after?.position
+    });
   }
 
-  return { moved: wouldAffect.map((w) => w.taskId) };
+  return { moved: wouldAffect.map((w) => w.taskId), skippedLaunchTask: skippedLaunchTask || undefined };
 }
 
 async function toolCreateSprint(ctx, args, { dryRun }) {
@@ -541,9 +788,17 @@ async function toolUpdateSprint(ctx, args, { dryRun }) {
 }
 
 async function toolSetTaskSprint(ctx, args, { dryRun }, allowedBoardIds) {
-  const { taskIds, sprintId } = args || {};
-  if (!Array.isArray(taskIds) || !taskIds.length) {
+  const rawIds = args?.taskIds;
+  const { sprintId } = args || {};
+  if (!Array.isArray(rawIds) || !rawIds.length) {
     return { error: 'taskIds array is required' };
+  }
+  const { taskIds, skippedLaunchTask } = filterOutLaunchTaskIds(ctx, rawIds);
+  if (!taskIds.length) {
+    return {
+      error: 'No mutable tasks after excluding the automation launch task',
+      skippedLaunchTask: true
+    };
   }
 
   if (sprintId) {
@@ -560,7 +815,7 @@ async function toolSetTaskSprint(ctx, args, { dryRun }, allowedBoardIds) {
   }
 
   if (dryRun) {
-    return { wouldAffect, dryRun: true };
+    return { wouldAffect, dryRun: true, skippedLaunchTask: skippedLaunchTask || undefined };
   }
 
   for (const item of wouldAffect) {
@@ -570,7 +825,7 @@ async function toolSetTaskSprint(ctx, args, { dryRun }, allowedBoardIds) {
     await publishTaskUpdated(ctx, item.taskId, taskBoardId(after));
   }
 
-  return { updated: wouldAffect.map((w) => w.taskId) };
+  return { updated: wouldAffect.map((w) => w.taskId), skippedLaunchTask: skippedLaunchTask || undefined };
 }
 
 async function toolCreateColumn(ctx, args, { dryRun }, allowedBoardIds) {
@@ -756,6 +1011,12 @@ async function toolRenameBoard(ctx, args, { dryRun }, allowedBoardIds) {
 async function toolAddComment(ctx, args, { dryRun }, allowedBoardIds) {
   const { taskId, text } = args || {};
   if (!taskId || !text) return { error: 'taskId and text are required' };
+  if (isLaunchTask(ctx, taskId)) {
+    return {
+      error: 'Cannot comment on the automation launch task via tools; use finish for the summary',
+      skippedLaunchTask: true
+    };
+  }
 
   const task = await taskQueries.getTaskById(ctx.db, taskId);
   if (!task) return { error: 'Task not found' };
@@ -797,6 +1058,12 @@ async function toolLinkTasks(ctx, args, { dryRun }, allowedBoardIds) {
   const { taskId, toTaskId, relationship } = args || {};
   if (!taskId || !toTaskId || !relationship) {
     return { error: 'taskId, toTaskId, and relationship are required' };
+  }
+  if (isLaunchTask(ctx, taskId) || isLaunchTask(ctx, toTaskId)) {
+    return {
+      error: 'Cannot link the automation launch task',
+      skippedLaunchTask: true
+    };
   }
   if (!['child', 'parent', 'related'].includes(relationship)) {
     return { error: 'Invalid relationship type' };
@@ -851,6 +1118,12 @@ async function toolUnlinkTasks(ctx, args, { dryRun }, allowedBoardIds) {
   if (!taskId || !toTaskId || !relationship) {
     return { error: 'taskId, toTaskId, and relationship are required' };
   }
+  if (isLaunchTask(ctx, taskId) || isLaunchTask(ctx, toTaskId)) {
+    return {
+      error: 'Cannot unlink involving the automation launch task',
+      skippedLaunchTask: true
+    };
+  }
 
   const source = await taskQueries.getTaskById(ctx.db, taskId);
   if (!source) return { error: 'Task not found' };
@@ -898,6 +1171,12 @@ async function toolAssignTags(ctx, args, { dryRun }, allowedBoardIds) {
   const { taskId, tagIds, removeTagIds } = args || {};
   if (!taskId || (!Array.isArray(tagIds) && !Array.isArray(removeTagIds))) {
     return { error: 'taskId and tagIds or removeTagIds are required' };
+  }
+  if (isLaunchTask(ctx, taskId)) {
+    return {
+      error: 'Cannot tag the automation launch task',
+      skippedLaunchTask: true
+    };
   }
 
   const task = await taskQueries.getTaskById(ctx.db, taskId);
@@ -952,11 +1231,12 @@ async function toolCreatePriority(ctx, args, { dryRun }) {
 }
 
 async function buildExportRows(ctx, args, allowedBoardIds) {
-  const tasks = await searchTasksInternal(
+  const search = await searchTasksInternal(
     ctx,
     { ...args, limit: AUTOMATION_MAX_TASKS_PER_APPLY },
     allowedBoardIds
   );
+  const tasks = search.tasks || [];
   const rows = [];
   for (const t of tasks) {
     const full = await taskQueries.getTaskById(ctx.db, t.id);
@@ -1043,7 +1323,31 @@ async function toolSubmitDryRunPlan(ctx, args) {
     return { error: 'summary and operations array are required' };
   }
 
-  const plan = { summary, operations, submittedAt: new Date().toISOString() };
+  const ops = operations.filter((op) => op && (op.name || op.tool));
+  const plan = {
+    summary,
+    operations: ops,
+    submittedAt: new Date().toISOString(),
+    empty: ops.length === 0
+  };
+
+  // Nothing to mutate — store summary for audit, skip Apply gate
+  if (ops.length === 0) {
+    await taskWorkQueries.upsertWorkEntries(ctx.db, ctx.launchTaskId, {
+      automation_pending_plan: JSON.stringify(plan),
+      automation_plan_hash: hashPlan(plan),
+      awaiting_apply: '',
+      control: 'none'
+      // leave status as-is (runner will finish)
+    });
+    return {
+      ok: true,
+      awaitingApply: false,
+      emptyPlan: true,
+      message: 'No operations to apply — call finish with this summary.'
+    };
+  }
+
   await taskWorkQueries.upsertWorkEntries(ctx.db, ctx.launchTaskId, {
     automation_pending_plan: JSON.stringify(plan),
     automation_plan_hash: hashPlan(plan),
@@ -1051,7 +1355,7 @@ async function toolSubmitDryRunPlan(ctx, args) {
     status: 'waiting'
   });
 
-  return { ok: true, awaitingApply: true };
+  return { ok: true, awaitingApply: true, emptyPlan: false };
 }
 
 async function toolFinish(ctx, args) {
@@ -1118,6 +1422,8 @@ export async function executeTool(ctx, name, args = {}, { dryRun = false } = {})
       }
       case 'get_task':
         return await toolGetTask(ctx, args, allowedBoardIds);
+      case 'get_tasks':
+        return await toolGetTasks(ctx, args, allowedBoardIds);
       case 'search_tasks':
         return await searchTasksInternal(ctx, args, allowedBoardIds);
       case 'create_task':
@@ -1371,6 +1677,16 @@ export async function applyStoredPlan(ctx) {
   }
 
   const operations = plan.operations || [];
+  if (!operations.length || plan.empty) {
+    await taskWorkQueries.upsertWorkEntries(ctx.db, ctx.launchTaskId, {
+      automation_apply_hash: planHash,
+      control: 'none',
+      awaiting_apply: '',
+      status: 'done'
+    });
+    return { ok: true, applied: 0, emptyPlan: true };
+  }
+
   const results = [];
 
   try {
@@ -1390,13 +1706,21 @@ export async function applyStoredPlan(ctx) {
     await taskWorkQueries.upsertWorkEntries(ctx.db, ctx.launchTaskId, {
       automation_apply_hash: planHash,
       control: 'none',
-      awaiting_apply: ''
+      awaiting_apply: '',
+      automation_undoable: 'true',
+      automation_undone_at: '',
+      automation_undo_summary: ''
     });
 
     return { ok: true, applied: operations.length, results };
   } catch (error) {
     await undoJob(ctx);
-    await taskWorkQueries.upsertWorkEntry(ctx.db, ctx.launchTaskId, 'status', 'failed');
+    await taskWorkQueries.upsertWorkEntries(ctx.db, ctx.launchTaskId, {
+      status: 'failed',
+      automation_undoable: 'false',
+      automation_undone_at: '',
+      automation_undo_summary: ''
+    });
     return { error: error.message || String(error), results, undone: true };
   }
 }

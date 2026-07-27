@@ -89,7 +89,8 @@
     "assignTo": "Assign to:",
     "sourceTaskForLinking": "Source task for linking",
     "holdAndDragToLink": "Hold and drag to link tasks",
-    "noMoreTagsAvailable": "No more tags available"
+    "noMoreTagsAvailable": "No more tags available",
+    "disabledWhileAgent": "Unavailable while the Agent is working on this task"
   },
   "addTagModal": {
     "title": "Add New Tag",

@@ -4,12 +4,14 @@
  */
 
 import express from 'express';
+import crypto from 'crypto';
 import { getRequestDatabase, getTenantId } from '../middleware/tenantRouting.js';
 import { requireAiEnabledMiddleware } from '../utils/aiEnabled.js';
 import { validateAutomationToken } from '../utils/automationToken.js';
 import {
   taskWork as taskWorkQueries,
   tasks as taskQueries,
+  comments as commentQueries,
   automationJournal
 } from '../utils/sqlManager/index.js';
 import {
@@ -18,9 +20,12 @@ import {
   undoJob,
   buildDryRunArtifactCsv
 } from '../services/automationTools.js';
-import { AGENT_MEMBER_ID } from '../constants/agentIdentity.js';
+import { AGENT_MEMBER_ID, AGENT_USER_ID } from '../constants/agentIdentity.js';
 import notificationService from '../services/notificationService.js';
 import { authenticateToken, requireRole } from '../middleware/auth.js';
+import { COMMENT_ACTIONS } from '../constants/activityActions.js';
+import { logCommentActivity } from '../services/activityLogger.js';
+import { markdownToHtml } from '../utils/markdownToHtml.js';
 
 const router = express.Router();
 const requireAi = requireAiEnabledMiddleware(getRequestDatabase);
@@ -143,7 +148,10 @@ router.post(
       }
       const undoable = await automationJournal.countUndoable(db, jobId);
       if (!undoable) {
-        return res.status(400).json({ error: 'Nothing to undo' });
+        return res.status(400).json({
+          error: 'Nothing to undo',
+          alreadyUndone: work.status === 'undone' || work.automation_undoable === 'false'
+        });
       }
       const ctx = {
         db,
@@ -161,16 +169,70 @@ router.post(
         ctx.boardIds = [];
       }
       const result = await undoJob(ctx);
+      const undoneCount = result.undone || 0;
+      const undoneAt = new Date().toISOString();
+      const summary =
+        undoneCount === 1
+          ? 'Undid the last Apply (1 operation restored).'
+          : `Undid the last Apply (${undoneCount} operations restored).`;
+
       await taskWorkQueries.appendWorkLog(
         db,
         taskId,
-        `[${new Date().toISOString()}] Admin undid automation (${result.undone || 0} ops)`
+        `[${undoneAt}] Admin undid automation (${undoneCount} ops)`
       );
       await taskWorkQueries.upsertWorkEntries(db, taskId, {
-        control: 'none'
+        status: 'undone',
+        control: 'none',
+        automation_undoable: 'false',
+        automation_undone_at: undoneAt,
+        automation_undo_summary: summary
       });
-      await publishWork(req, taskId);
-      res.json(result);
+
+      // Visible audit trail on the recipe task
+      try {
+        const commentId = crypto.randomUUID();
+        const htmlBody = markdownToHtml(summary);
+        await commentQueries.createComment(
+          db,
+          commentId,
+          taskId,
+          htmlBody,
+          AGENT_MEMBER_ID,
+          undoneAt
+        );
+        const created = await commentQueries.getCommentById(db, commentId);
+        const task = await taskQueries.getTaskById(db, taskId);
+        const tenantId = getTenantId(req);
+        await notificationService.publish(
+          'comment-created',
+          {
+            taskId,
+            comment: created,
+            boardId: task?.boardid || task?.boardId,
+            timestamp: undoneAt
+          },
+          tenantId
+        );
+        logCommentActivity(
+          AGENT_USER_ID,
+          COMMENT_ACTIONS.CREATE,
+          commentId,
+          taskId,
+          'automation undo',
+          { db, tenantId, commentContent: htmlBody }
+        ).catch((err) => console.error('Automation undo comment activity failed:', err));
+      } catch (commentErr) {
+        console.error('Automation undo comment failed:', commentErr);
+      }
+
+      const updatedWork = await publishWork(req, taskId);
+      res.json({
+        ok: true,
+        undone: undoneCount,
+        summary,
+        work: updatedWork
+      });
     } catch (error) {
       console.error('Automation undo error:', error);
       res.status(500).json({ error: 'Undo failed' });

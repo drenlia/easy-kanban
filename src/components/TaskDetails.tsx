@@ -4,7 +4,35 @@ import { Task, TeamMember, Comment, Attachment, Tag, PriorityOption, CurrentUser
 import { X, Paperclip, ChevronDown, Check, Edit2, Plus } from 'lucide-react';
 import DOMPurify from 'dompurify';
 import TextEditor from './TextEditor';
-import { createComment, uploadFile, updateTask, deleteComment, updateComment, fetchCommentAttachments, getAllTags, getTaskTags, addTagToTask, removeTagFromTask, getAllPriorities, addWatcherToTask, removeWatcherFromTask, addCollaboratorToTask, removeCollaboratorFromTask, fetchTaskAttachments, deleteAttachment, getTaskRelationships, getAvailableTasksForRelationship, addTaskRelationship, removeTaskRelationship, putTaskWork } from '../api';
+import {
+  createComment,
+  uploadFile,
+  updateTask,
+  deleteComment,
+  updateComment,
+  fetchCommentAttachments,
+  getAllTags,
+  getTaskTags,
+  addTagToTask,
+  removeTagFromTask,
+  getAllPriorities,
+  addWatcherToTask,
+  removeWatcherFromTask,
+  addCollaboratorToTask,
+  removeCollaboratorFromTask,
+  fetchTaskAttachments,
+  deleteAttachment,
+  getTaskRelationships,
+  getAvailableTasksForRelationship,
+  addTaskRelationship,
+  removeTaskRelationship,
+  putTaskWork,
+  getTaskWork,
+  getTaskById,
+  setTaskWorkControl,
+  undoAutomationJob,
+  type TaskWorkMap,
+} from '../api';
 import { useFileUpload } from '../hooks/useFileUpload';
 import { getLocalISOString, formatToYYYYMMDDHHmmss } from '../utils/dateUtils';
 import { generateUUID } from '../utils/uuid';
@@ -15,9 +43,17 @@ import { getAuthenticatedAttachmentUrl, getAuthenticatedAvatarUrl } from '../uti
 import { truncateMemberName } from '../utils/memberUtils';
 import AddTagModal from './AddTagModal';
 import AssignToAgentModal from './AssignToAgentModal';
-import { AGENT_MEMBER_ID, SYSTEM_MEMBER_ID } from '../constants/appConstants';
+import AgentPanel from './AgentPanel';
+import type { AgentPanelView } from './AgentPanel';
+import AgentStatusButton from './AgentStatusButton';
+import {
+  AGENT_MEMBER_ID,
+  SYSTEM_MEMBER_ID,
+  AGENT_DRAG_BLOCKING_STATUSES,
+} from '../constants/appConstants';
 import { feDebug } from '../utils/clientDebug';
 import { commentTextToHtml } from '../utils/commentContent';
+import websocketClient from '../services/websocketClient';
 
 function detailsLog(...args: unknown[]) {
   if (feDebug('FE_DEBUG_TASK_DETAILS')) console.log(...args);
@@ -48,6 +84,12 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
   const [isResizing, setIsResizing] = useState(false);
   const [showAssignAgentModal, setShowAssignAgentModal] = useState(false);
   const [agentModalAnchor, setAgentModalAnchor] = useState<DOMRect | null>(null);
+  const [showAgentPanel, setShowAgentPanel] = useState(false);
+  const [agentPanelView, setAgentPanelView] = useState<AgentPanelView>('activity');
+  const [agentPanelRestoreToken, setAgentPanelRestoreToken] = useState(0);
+  const [agentWork, setAgentWork] = useState<TaskWorkMap>({});
+  const [agentControlBusy, setAgentControlBusy] = useState(false);
+  const [agentModalComments, setAgentModalComments] = useState(task.comments || []);
   const detailsPanelRef = useRef<HTMLDivElement>(null);
   const [editedTask, setEditedTask] = useState<Task>(() => ({
     ...task,
@@ -91,6 +133,66 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
   const [isLoadingTags, setIsLoadingTags] = useState(false);
   const tagsDropdownRef = useRef<HTMLDivElement>(null);
   const [availablePriorities, setAvailablePriorities] = useState<PriorityOption[]>([]);
+
+  const agentStatus = agentWork.status || null;
+  const isAgentAssigned =
+    editedTask.memberId === AGENT_MEMBER_ID || task.memberId === AGENT_MEMBER_ID;
+  const isAgentWorkActive =
+    isAgentAssigned &&
+    !!agentStatus &&
+    (AGENT_DRAG_BLOCKING_STATUSES as readonly string[]).includes(agentStatus);
+
+  useEffect(() => {
+    if (!isAgentAssigned) {
+      setAgentWork({});
+      return;
+    }
+    let cancelled = false;
+    getTaskWork(task.id)
+      .then(({ work }) => {
+        if (!cancelled) setAgentWork(work || {});
+      })
+      .catch(() => {
+        if (!cancelled) setAgentWork({});
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [task.id, isAgentAssigned]);
+
+  useEffect(() => {
+    const handler = (data: { taskId?: string; work?: TaskWorkMap }) => {
+      if (data?.taskId === task.id && data.work) {
+        setAgentWork(data.work);
+      }
+    };
+    websocketClient.onTaskWorkUpdated(handler);
+    return () => websocketClient.offTaskWorkUpdated(handler);
+  }, [task.id]);
+
+  useEffect(() => {
+    if (!showAgentPanel || !isAgentAssigned) return;
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const [{ work }, fresh] = await Promise.all([
+          getTaskWork(task.id),
+          getTaskById(task.id),
+        ]);
+        if (cancelled) return;
+        if (work) setAgentWork(work);
+        if (fresh?.comments) setAgentModalComments(fresh.comments);
+      } catch {
+        /* ignore */
+      }
+    };
+    void tick();
+    const id = window.setInterval(tick, 2500);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [showAgentPanel, task.id, isAgentAssigned]);
   
   // Task relationships state
   const [relationships, setRelationships] = useState<any[]>([]);
@@ -387,9 +489,10 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
 
   const handleUpdate = async (updatedFields: Partial<Task>) => {
     if (isSubmitting) return;
+    if (isAgentWorkActive) return;
 
     if (updatedFields.memberId === AGENT_MEMBER_ID) {
-      setAgentModalAnchor(detailsPanelRef.current?.getBoundingClientRect() ?? null);
+      setAgentModalAnchor(null);
       setShowAssignAgentModal(true);
       return;
     }
@@ -423,16 +526,23 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
       agentMode?: 'assist' | 'code' | 'automation';
       automationScope?: 'this_board' | 'selected' | 'all_boards';
       automationBoardIds?: string[];
+      description?: string;
     }
   ) => {
     const agentMode = options?.agentMode || (repoUrl.trim() ? 'code' : 'assist');
-    const updatedTask = { ...editedTask, memberId: AGENT_MEMBER_ID };
-    setEditedTask(updatedTask);
     setIsSubmitting(true);
     try {
+      const updatedTask = {
+        ...editedTask,
+        memberId: AGENT_MEMBER_ID,
+        ...(options?.description !== undefined
+          ? { description: options.description }
+          : {}),
+      };
+      setEditedTask(updatedTask);
       await onUpdate(updatedTask);
       const shouldLaunch = options?.launch !== false;
-      await putTaskWork(task.id, {
+      const { work } = await putTaskWork(task.id, {
         repoUrl: agentMode === 'automation' ? '' : repoUrl,
         repoBranch: agentMode === 'automation' ? '' : repoBranch,
         agentMode,
@@ -447,6 +557,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
           : {}),
         ...(options?.llmModel !== undefined ? { llmModel: options.llmModel } : {}),
       });
+      setAgentWork(work || {});
       setShowAssignAgentModal(false);
       setAgentModalAnchor(null);
     } catch (error) {
@@ -457,8 +568,113 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
     }
   };
 
+  const handleAgentPanelSaveConfig = async (
+    repoUrl: string,
+    repoBranch: string,
+    options?: {
+      restart?: boolean;
+      llmModel?: string;
+      launch?: boolean;
+      agentMode?: 'assist' | 'code' | 'automation';
+      automationScope?: 'this_board' | 'selected' | 'all_boards';
+      automationBoardIds?: string[];
+      description?: string;
+    }
+  ) => {
+    const agentMode = options?.agentMode || (repoUrl.trim() ? 'code' : 'assist');
+    if (options?.description !== undefined) {
+      const updatedTask = { ...editedTask, description: options.description };
+      setEditedTask(updatedTask);
+      await onUpdate(updatedTask);
+    }
+    const { work } = await putTaskWork(task.id, {
+      repoUrl: agentMode === 'automation' ? '' : repoUrl,
+      repoBranch: agentMode === 'automation' ? '' : repoBranch,
+      agentMode,
+      ...(agentMode === 'automation'
+        ? {
+            automationScope: options?.automationScope || 'this_board',
+            automationBoardIds: options?.automationBoardIds || [],
+          }
+        : {}),
+      ...(options?.llmModel !== undefined ? { llmModel: options.llmModel } : {}),
+    });
+    setAgentWork(work || {});
+    if (options?.restart) {
+      await handleAgentControl('resume');
+    }
+  };
+
+  const openAgentWorkingModal = () => {
+    setAgentModalComments(editedTask.comments || task.comments || []);
+    setAgentPanelView('activity');
+    setShowAgentPanel(true);
+    setAgentPanelRestoreToken((n) => n + 1);
+  };
+
+  const handleAgentControl = async (
+    control: 'pause' | 'stop' | 'resume' | 'apply'
+  ) => {
+    setAgentControlBusy(true);
+    try {
+      const { work } = await setTaskWorkControl(task.id, control);
+      setAgentWork(work);
+    } catch (error) {
+      console.error('Agent control failed:', error);
+    } finally {
+      setAgentControlBusy(false);
+    }
+  };
+
+  const handleAutomationUndo = async () => {
+    setAgentControlBusy(true);
+    try {
+      const result = await undoAutomationJob(task.id);
+      if (result.work) {
+        setAgentWork(result.work);
+      } else {
+        const { work } = await getTaskWork(task.id);
+        setAgentWork(work || {});
+      }
+      try {
+        const fresh = await getTaskById(task.id);
+        if (fresh?.comments) setAgentModalComments(fresh.comments);
+      } catch {
+        /* ignore comment refresh errors */
+      }
+    } catch (error) {
+      console.error('Automation undo failed:', error);
+    } finally {
+      setAgentControlBusy(false);
+    }
+  };
+
+  const handleAgentRefine = async (text: string, options: { restart: boolean }) => {
+    // Reuse comment flow via createComment path used by handleCommentSubmit below —
+    // call the same API used for panel comments.
+    const currentUserMember = members.find((m) => m.user_id === currentUser?.id);
+    if (!currentUserMember) return;
+    const newComment = {
+      id: generateUUID(),
+      text,
+      authorId: currentUserMember.id,
+      createdAt: new Date().toISOString(),
+      taskId: task.id,
+      attachments: [] as Attachment[],
+    };
+    await createComment(newComment);
+    const updatedComments = [...(editedTask.comments || []), newComment];
+    setEditedTask((prev) => ({ ...prev, comments: updatedComments }));
+    setAgentModalComments(updatedComments);
+    await onUpdate({ ...editedTask, comments: updatedComments });
+    if (options.restart) {
+      await handleAgentControl('resume');
+    }
+  };
+
   // Separate function for text field updates with immediate save
   const handleTextUpdate = (field: 'title' | 'description', value: string) => {
+    if (isAgentWorkActive) return;
     const updatedTask = { ...editedTask, [field]: value };
     setEditedTask(updatedTask);
     
@@ -1400,13 +1616,32 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
             <div className="p-3">
               <div className="flex justify-between items-center mb-2">
                 {/* Title - 60% width + 50px when project/task info is shown, 100% when not */}
-                <div className="w-3/5" style={{ width: 'calc(60% + 50px)' }}>
+                <div
+                  className="w-3/5 flex items-center gap-2 min-w-0"
+                  style={{ width: 'calc(60% + 50px)' }}
+                >
+                  {isAgentAssigned && (
+                    <AgentStatusButton
+                      status={agentStatus}
+                      iconSize={18}
+                      className="flex-shrink-0 p-1.5 rounded hover:bg-teal-100 dark:hover:bg-teal-900/40"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openAgentWorkingModal();
+                      }}
+                    />
+                  )}
                   <input
                     type="text"
                     value={editedTask.title}
                     onChange={e => handleTextUpdate('title', e.target.value)}
-                    className="text-xl font-semibold w-full border-none focus:outline-none focus:ring-0 bg-gray-50 dark:bg-gray-700 p-3 rounded text-gray-900 dark:text-white"
-                    disabled={isSubmitting}
+                    className="text-xl font-semibold w-full border-none focus:outline-none focus:ring-0 bg-gray-50 dark:bg-gray-700 p-3 rounded text-gray-900 dark:text-white disabled:opacity-70 disabled:cursor-not-allowed"
+                    disabled={isSubmitting || isAgentWorkActive}
+                    title={
+                      isAgentWorkActive
+                        ? t('toolbar.disabledWhileAgent')
+                        : undefined
+                    }
                   />
                 </div>
                 
@@ -1506,8 +1741,13 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                 <select
                   value={validMemberId}
                   onChange={e => handleUpdate({ memberId: e.target.value })}
-                  className="w-full px-3 py-2 border rounded-md bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-100"
-                  disabled={isSubmitting}
+                  className="w-full px-3 py-2 border rounded-md bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-100 disabled:opacity-70 disabled:cursor-not-allowed"
+                  disabled={isSubmitting || isAgentWorkActive}
+                  title={
+                    isAgentWorkActive
+                      ? t('toolbar.disabledWhileAgent')
+                      : undefined
+                  }
                 >
                   {members.map(member => (
                     <option key={member.id} value={member.id}>
@@ -2222,15 +2462,60 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
       )}
       {showAssignAgentModal && (
         <AssignToAgentModal
+          mode="assign"
           taskTitle={editedTask.title}
           taskDescription={editedTask.description}
           isAdmin={Boolean(currentUser?.roles?.includes('admin'))}
+          boards={(boards || []).map((b: { id: string; title?: string; name?: string }) => ({
+            id: b.id,
+            title: b.title || b.name || b.id,
+          }))}
+          initialAgentMode={
+            (String(agentWork.agent_mode || '') as 'assist' | 'code' | 'automation') ||
+            undefined
+          }
+          initialAutomationScope={String(agentWork.automation_scope || 'this_board')}
+          initialAutomationBoardIds={(() => {
+            try {
+              return JSON.parse(String(agentWork.automation_board_ids || '[]'));
+            } catch {
+              return [];
+            }
+          })()}
           anchorRect={agentModalAnchor}
           onCancel={() => {
             setShowAssignAgentModal(false);
             setAgentModalAnchor(null);
           }}
           onConfirm={handleAssignAgentConfirm}
+        />
+      )}
+      {showAgentPanel && (
+        <AgentPanel
+          panelId={task.id}
+          taskTitle={editedTask.title}
+          taskTicket={task.ticket}
+          taskDescription={editedTask.description}
+          work={agentWork}
+          comments={agentModalComments}
+          members={members}
+          busy={agentControlBusy}
+          isAdmin={Boolean(currentUser?.roles?.includes('admin'))}
+          boards={(boards || []).map((b: { id: string; title?: string; name?: string }) => ({
+            id: b.id,
+            title: b.title || b.name || b.id,
+          }))}
+          view={agentPanelView}
+          onViewChange={setAgentPanelView}
+          restoreToken={agentPanelRestoreToken}
+          onClose={() => {
+            setShowAgentPanel(false);
+            setAgentPanelView('activity');
+          }}
+          onControl={handleAgentControl}
+          onUndo={handleAutomationUndo}
+          onRefine={handleAgentRefine}
+          onSaveConfig={handleAgentPanelSaveConfig}
         />
       )}
     </div>

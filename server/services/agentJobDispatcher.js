@@ -8,7 +8,8 @@ import {
   settings as settingsQueries,
   comments as commentQueries,
   userGithubTokens as githubTokenQueries,
-  userSshKeys as sshQueries
+  userSshKeys as sshQueries,
+  boards as boardQueries
 } from '../utils/sqlManager/index.js';
 import { AGENT_MEMBER_ID, AGENT_USER_ID } from '../constants/agentIdentity.js';
 import { decryptSecret } from '../utils/sshKeyCrypto.js';
@@ -191,6 +192,7 @@ export async function launchSingleTask(db, tenantId, taskId, ctx = {}) {
   let automationApiBase = '';
   let scopeType = work.automation_scope || AUTOMATION_SCOPE.THIS_BOARD;
   let boardIds = parseScopeBoardIds(work);
+  let boardSummaries = [];
 
   if (mode === AUTOMATION_MODE) {
     // Board-level concurrency: reject if another automation is awaiting_apply/running on overlapping boards
@@ -247,6 +249,23 @@ export async function launchSingleTask(db, tenantId, taskId, ctx = {}) {
     boardIds = minted.boardIds;
     scopeType = minted.scopeType;
 
+    // Resolve human-readable board titles for the runner prompt / dry-run summaries
+    try {
+      const allBoards = await boardQueries.getAllBoards(db);
+      const byId = new Map((allBoards || []).map((b) => [b.id, b.title || '']));
+      if (scopeType === AUTOMATION_SCOPE.ALL_BOARDS) {
+        boardSummaries = (allBoards || []).map((b) => ({ id: b.id, title: b.title || '' }));
+      } else {
+        boardSummaries = (boardIds || []).map((id) => ({
+          id,
+          title: byId.get(id) || id
+        }));
+      }
+    } catch (e) {
+      console.warn('Automation board title resolve failed:', e?.message || e);
+      boardSummaries = (boardIds || []).map((id) => ({ id, title: id }));
+    }
+
     // API base for runner → app tool calls (same host as callbacks, without path)
     const cb = buildCallbackUrl({
       siteUrl,
@@ -290,6 +309,7 @@ export async function launchSingleTask(db, tenantId, taskId, ctx = {}) {
           token: automationToken,
           scopeType,
           boardIds,
+          boards: boardSummaries,
           launchBoardId
         }
       : undefined

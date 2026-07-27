@@ -219,7 +219,7 @@ class PostgresNotificationService {
       // PostgreSQL pg_notify has a limit of 8000 bytes
       const MAX_PAYLOAD_SIZE = 8000;
       
-      if (payloadSize > MAX_PAYLOAD_SIZE) {
+        if (payloadSize > MAX_PAYLOAD_SIZE) {
         // Preserve _rtId (client dedupe) and _notifyTenantId (room routing) when shrinking — same
         // logical NOTIFY must dedupe and must not rely on broken channel-name tenant parsing.
         const shrinkMeta = {
@@ -233,6 +233,36 @@ class PostgresNotificationService {
             timestamp: data.timestamp,
             count: data.activities.length,
             message: 'Activity feed updated - fetch latest from API'
+          });
+        } else if (
+          (channel === 'task-updated' || channel === 'task-created') &&
+          data.task?.id &&
+          data.boardId
+        ) {
+          // Keep enough for the Kanban merge; drop bulky nested arrays / description
+          console.warn(
+            `⚠️ Payload too large (${payloadSize} bytes) for ${channel}, sending compact task notification`
+          );
+          payload = JSON.stringify({
+            ...shrinkMeta,
+            boardId: data.boardId,
+            task: {
+              id: data.task.id,
+              title: data.task.title,
+              boardId: data.task.boardId || data.boardId,
+              columnId: data.task.columnId || data.task.columnid,
+              memberId: data.task.memberId ?? data.task.memberid ?? null,
+              ticket: data.task.ticket ?? null,
+              position: data.task.position ?? 0,
+              ...(data.task.previousColumnId
+                ? { previousColumnId: data.task.previousColumnId }
+                : {}),
+              ...(data.task.previousBoardId
+                ? { previousBoardId: data.task.previousBoardId }
+                : {})
+            },
+            timestamp: data.timestamp || new Date().toISOString(),
+            truncated: true
           });
         } else {
           // For other channels, truncate or send minimal notification
