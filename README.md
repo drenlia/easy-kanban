@@ -1,6 +1,8 @@
 # Easy Kanban
 
-A modern team collaboration Kanban board application with user management, authentication, and role-based permissions. Built with React/TypeScript frontend and Node.js/Express backend.
+A collaborative **Kanban workspace** for teams: multi-board drag-and-drop, List and Gantt views, real-time collaboration, and optional sprint timeboxing with burndown. Built with React/TypeScript and Node.js/Express.
+
+Easy Kanban is **not** a full enterprise agile ALM (no required Epic/Story types, ceremony tooling, or hard methodology lock-in). Soft WIP limits, card aging, blocked flags, and column policy notes help teams keep flow healthy without ceremony overhead.
 
 <img src="/screenshots/overview.png" alt="Screenshot of easy-kanban" width="100%">
 
@@ -10,6 +12,9 @@ A modern team collaboration Kanban board application with user management, authe
 
 ### Core Functionality
 - **Multi-board Kanban system** with drag-and-drop functionality
+- **Soft WIP limits** on columns (warn when at/over limit; moves still allowed)
+- **Card aging** (days in column) and optional **blocked** flag
+- **Column policy notes** for short entry/exit guidance
 - **Multiple view modes**: Kanban (visual board), List (table format), and Gantt (timeline) views
 - **Real-time collaboration** - see changes instantly as team members work
 - **User authentication** with local accounts and Google OAuth support
@@ -50,7 +55,7 @@ A modern team collaboration Kanban board application with user management, authe
 
 ### Admin Features
 - **User management** - Create, edit, invite, activate/deactivate users, assign roles
-- **Board & column management** - Create, rename, reorder, and delete boards and columns
+- **Board & column management** - Create, rename, reorder, and delete boards and columns; set soft WIP and policy text per column
 - **Site settings** - Configure site name, URL, and global preferences
 - **SSO configuration** - Google OAuth Single Sign-On setup
 - **Mail server** - SMTP configuration for email notifications and invitations

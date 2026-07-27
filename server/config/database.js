@@ -222,6 +222,8 @@ const CREATE_SCHEMA_SQL = `
       position NUMERIC(10,2) DEFAULT 0,
       is_finished BOOLEAN DEFAULT false,
       is_archived BOOLEAN DEFAULT false,
+      wip_limit INTEGER,
+      policy_text TEXT,
       created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (boardid) REFERENCES boards(id) ON DELETE CASCADE
@@ -245,6 +247,9 @@ const CREATE_SCHEMA_SQL = `
       boardid TEXT,
       pre_boardid TEXT,
       pre_columnid TEXT,
+      column_entered_at TIMESTAMPTZ,
+      is_blocked BOOLEAN DEFAULT false,
+      blocked_reason TEXT,
       created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (memberid) REFERENCES members(id),

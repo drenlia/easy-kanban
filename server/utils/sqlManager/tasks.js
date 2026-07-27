@@ -188,6 +188,9 @@ export async function getTasksForColumn(db, columnId) {
            t.effort, t.priority, t.priority_id as "priority_id", 
            t.columnid as "columnId", t.boardid as "boardId", 
            t.sprint_id as "sprint_id", t.created_at, t.updated_at,
+           t.column_entered_at as "columnEnteredAt",
+           t.is_blocked as "isBlocked",
+           t.blocked_reason as "blockedReason",
            p.id as "priorityId", p.priority as "priorityName", 
            p.color as "priorityColor",
            CASE WHEN COUNT(DISTINCT CASE WHEN a.id IS NOT NULL THEN a.id END) > 0 
@@ -288,6 +291,9 @@ export async function getTasksForColumns(db, columnIds) {
            t.effort, t.priority, t.priority_id as "priority_id", 
            t.columnid as "columnId", t.boardid as "boardId", 
            t.sprint_id as "sprint_id", t.created_at, t.updated_at,
+           t.column_entered_at as "columnEnteredAt",
+           t.is_blocked as "isBlocked",
+           t.blocked_reason as "blockedReason",
            p.id as "priorityId", p.priority as "priorityName", 
            p.color as "priorityColor",
            CASE WHEN COUNT(DISTINCT CASE WHEN a.id IS NOT NULL THEN a.id END) > 0 
@@ -419,9 +425,11 @@ export async function createTask(db, taskData) {
     INSERT INTO tasks (
       id, title, description, ticket, memberid, requesterid,
       startdate, duedate, effort, priority, priority_id,
-      columnid, boardid, position, sprint_id, created_at, updated_at
+      columnid, boardid, position, sprint_id,
+      column_entered_at, is_blocked, blocked_reason,
+      created_at, updated_at
     ) VALUES (
-      $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17
+      $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20
     ) RETURNING *
   `;
   
@@ -446,6 +454,9 @@ export async function createTask(db, taskData) {
     taskData.boardId,
     taskData.position != null ? taskData.position : 0,
     taskData.sprintId || null,
+    now,
+    Boolean(taskData.isBlocked),
+    taskData.blockedReason || null,
     now,
     now
   );
@@ -491,14 +502,36 @@ export async function updateTask(db, taskId, updates) {
     pre_boardid: 'pre_boardid',
     pre_columnId: 'pre_columnid',
     pre_columnid: 'pre_columnid',
+    columnEnteredAt: 'column_entered_at',
+    column_entered_at: 'column_entered_at',
+    isBlocked: 'is_blocked',
+    is_blocked: 'is_blocked',
+    blockedReason: 'blocked_reason',
+    blocked_reason: 'blocked_reason',
   };
 
   Object.entries(updates).forEach(([key, value]) => {
     const columnName = fieldToColumn[key];
     if (!columnName) return;
     setClauses.push(`${columnName} = $${paramIndex++}`);
-    values.push(value);
+    if (columnName === 'is_blocked') {
+      values.push(Boolean(value));
+    } else {
+      values.push(value);
+    }
   });
+
+  // Reset dwell clock when moving columns unless caller set column_entered_at explicitly
+  const movingColumn =
+    Object.prototype.hasOwnProperty.call(updates, 'columnId') ||
+    Object.prototype.hasOwnProperty.call(updates, 'columnid');
+  const hasEnteredAt =
+    Object.prototype.hasOwnProperty.call(updates, 'columnEnteredAt') ||
+    Object.prototype.hasOwnProperty.call(updates, 'column_entered_at');
+  if (movingColumn && !hasEnteredAt) {
+    setClauses.push(`column_entered_at = $${paramIndex++}`);
+    values.push(new Date().toISOString());
+  }
 
   if (setClauses.length === 0) {
     throw new Error('No valid fields to update');
@@ -1024,8 +1057,9 @@ export async function updateTaskPositionAndColumn(
         boardid = $3,
         pre_boardid = $4, 
         pre_columnid = $5,
-        updated_at = $6
-      WHERE id = $7
+        column_entered_at = $6,
+        updated_at = $7
+      WHERE id = $8
     `;
     const stmt = wrapQuery(db.prepare(query), 'UPDATE');
     return await stmt.run(
@@ -1034,6 +1068,7 @@ export async function updateTaskPositionAndColumn(
       newBoardId,
       previousBoardId,
       previousColumnId,
+      now,
       now,
       taskId
     );
@@ -1044,12 +1079,13 @@ export async function updateTaskPositionAndColumn(
       columnid = $2,
       pre_boardid = $3, 
       pre_columnid = $4,
-      updated_at = $5
-    WHERE id = $6
+      column_entered_at = $5,
+      updated_at = $6
+    WHERE id = $7
   `;
 
   const stmt = wrapQuery(db.prepare(query), 'UPDATE');
-  return await stmt.run(position, columnId, previousBoardId, previousColumnId, now, taskId);
+  return await stmt.run(position, columnId, previousBoardId, previousColumnId, now, now, taskId);
 }
 
 /**

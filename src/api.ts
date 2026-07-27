@@ -317,8 +317,21 @@ export const createColumn = async (column: Column) => {
   return data;
 };
 
-export const updateColumn = async (id: string, title: string, is_finished?: boolean, is_archived?: boolean) => {
-  const { data } = await api.put<Column>(`/columns/${id}`, { title, is_finished, is_archived });
+export const updateColumn = async (
+  id: string,
+  title: string,
+  is_finished?: boolean,
+  is_archived?: boolean,
+  wip_limit?: number | null,
+  policy_text?: string | null
+) => {
+  const { data } = await api.put<Column>(`/columns/${id}`, {
+    title,
+    is_finished,
+    is_archived,
+    wip_limit,
+    policy_text,
+  });
   return data;
 };
 

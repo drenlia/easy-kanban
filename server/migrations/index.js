@@ -312,6 +312,60 @@ const migrations = [
         console.warn('⚠️ Migration 20: Agent bot avatar asset not found; skipped');
       }
     }
+  },
+  {
+    version: 21,
+    name: 'add_kanban_flow_basics',
+    description:
+      'Soft WIP limits and policy text on columns; column_entered_at, is_blocked, blocked_reason on tasks',
+    up: async (db) => {
+      const schema = db.schema && typeof db.schema === 'string' ? db.schema : 'public';
+      const existing = await dbAll(
+        db.prepare(`
+          SELECT column_name
+          FROM information_schema.columns
+          WHERE table_schema = $1 AND table_name = $2
+        `),
+        schema,
+        'columns'
+      );
+      const colNames = new Set(existing.map((r) => r.column_name));
+
+      if (!colNames.has('wip_limit')) {
+        await dbExec(db, 'ALTER TABLE columns ADD COLUMN wip_limit INTEGER');
+      }
+      if (!colNames.has('policy_text')) {
+        await dbExec(db, 'ALTER TABLE columns ADD COLUMN policy_text TEXT');
+      }
+
+      const taskCols = await dbAll(
+        db.prepare(`
+          SELECT column_name
+          FROM information_schema.columns
+          WHERE table_schema = $1 AND table_name = $2
+        `),
+        schema,
+        'tasks'
+      );
+      const taskNames = new Set(taskCols.map((r) => r.column_name));
+
+      if (!taskNames.has('column_entered_at')) {
+        await dbExec(db, 'ALTER TABLE tasks ADD COLUMN column_entered_at TIMESTAMPTZ');
+        await dbExec(
+          db,
+          `UPDATE tasks SET column_entered_at = COALESCE(updated_at, created_at, CURRENT_TIMESTAMP)
+           WHERE column_entered_at IS NULL`
+        );
+      }
+      if (!taskNames.has('is_blocked')) {
+        await dbExec(db, 'ALTER TABLE tasks ADD COLUMN is_blocked BOOLEAN DEFAULT false');
+      }
+      if (!taskNames.has('blocked_reason')) {
+        await dbExec(db, 'ALTER TABLE tasks ADD COLUMN blocked_reason TEXT');
+      }
+
+      console.log('✅ Migration 21: Kanban flow basics (WIP, policy, aging, blocked) ready');
+    }
   }
 ];
 

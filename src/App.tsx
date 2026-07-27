@@ -42,6 +42,7 @@ import VersionUpdateBanner from './components/VersionUpdateBanner';
 import { useTaskDeleteConfirmation } from './hooks/useTaskDeleteConfirmation';
 import api, { getMembers, getBoards, deleteTask, updateTask, reorderTasks, reorderColumns, reorderBoards, updateColumn, updateBoard, createTaskAtTop, createTask, copyTask, createColumn, createBoard, deleteColumn, deleteBoard, getUserSettings, createUser, getUserStatus, getActivityFeed, updateSavedFilterView, getCurrentUser, updateAppUrl } from './api';
 import { toast, ToastContainer } from './utils/toast';
+import { getWipStatus, hasWipLimit } from './utils/kanbanFlowUtils';
 import { useLoadingState } from './hooks/useLoadingState';
 import { useDebug } from './hooks/useDebug';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
@@ -2994,13 +2995,30 @@ function AppContent() {
 
     dndLog('🎯 Resolved drop index:', { resolvedPlacement, targetIndex });
 
+    // Soft WIP warning when crossing into a limited column at/over capacity
+    if (sourceColumnId !== targetColumnId && hasWipLimit(targetColumn.wip_limit)) {
+      const destCount = targetColumn.tasks.length;
+      const status = getWipStatus(destCount + 1, targetColumn.wip_limit);
+      if (status === 'at' || status === 'over') {
+        toast.warning(
+          t('column.wipSoftWarningTitle', { ns: 'tasks' }),
+          t('column.wipSoftWarningBody', {
+            ns: 'tasks',
+            count: destCount + 1,
+            limit: targetColumn.wip_limit,
+            column: targetColumn.title,
+          })
+        );
+      }
+    }
+
     // Check if this is a same-column reorder or cross-column move
     if (sourceColumnId === targetColumnId) {
       await moveTaskToPositionWrapper(sourceTask, sourceColumnId, targetIndex);
     } else {
       await handleCrossColumnMoveWrapper(sourceTask, sourceColumnId, targetColumnId, targetIndex);
     }
-  }, [columns]);
+  }, [columns, t]);
 
   // Wrapper for handleCrossColumnMove that provides current state
   const handleCrossColumnMoveWrapper = async (task: Task, sourceColumnId: string, targetColumnId: string, targetIndex: number) => {
@@ -3018,12 +3036,26 @@ function AppContent() {
   };
 
 
-  const handleEditColumn = async (columnId: string, title: string, is_finished?: boolean, is_archived?: boolean) => {
+  const handleEditColumn = async (
+    columnId: string,
+    title: string,
+    is_finished?: boolean,
+    is_archived?: boolean,
+    wip_limit?: number | null,
+    policy_text?: string | null
+  ) => {
     try {
-      await updateColumn(columnId, title, is_finished, is_archived);
+      await updateColumn(columnId, title, is_finished, is_archived, wip_limit, policy_text);
       setColumns(prev => ({
         ...prev,
-        [columnId]: { ...prev[columnId], title, is_finished, is_archived }
+        [columnId]: {
+          ...prev[columnId],
+          title,
+          is_finished,
+          is_archived,
+          wip_limit: wip_limit !== undefined ? wip_limit : prev[columnId]?.wip_limit,
+          policy_text: policy_text !== undefined ? policy_text : prev[columnId]?.policy_text,
+        }
       }));
       
       // If column becomes archived, remove it from visible columns

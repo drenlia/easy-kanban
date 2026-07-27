@@ -588,8 +588,8 @@ export default function TaskCardToolbar({
         </div>
       </div>
 
-      {/* Watchers & Collaborators Icons - Right side between buttons and avatar */}
-      <div className="absolute top-0 right-[40px] flex gap-1 z-30 px-2 py-1" style={{ top: '7px' }}>
+      {/* Watchers & Collaborators — left of avatar */}
+      <div className="absolute top-0 right-[40px] flex items-center gap-1 z-30 px-2 py-1" style={{ top: '7px' }}>
           {task.watchers && task.watchers.length > 0 && (
             <KanbanChromeTooltip label={formatMembersTooltip(task.watchers, 'watcher')} delayMs={0} wrapperClassName="flex items-center">
               <span className="flex items-center">

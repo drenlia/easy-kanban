@@ -76,6 +76,7 @@ function buildMinimalTaskUpdatePayload(currentTask, updatedTask, changedFields, 
     minimalTask.position = updatedTask.position ?? currentTask.position;
     // Include previous location for cross-column moves
     minimalTask.previousColumnId = currentTask.columnId;
+    minimalTask.columnEnteredAt = updatedTask.columnEnteredAt || new Date().toISOString();
   }
   if (changedFields.includes('position') || currentTask.position !== (updatedTask.position ?? 0)) {
     minimalTask.position = updatedTask.position ?? 0;
@@ -87,6 +88,10 @@ function buildMinimalTaskUpdatePayload(currentTask, updatedTask, changedFields, 
   }
   if (changedFields.includes('sprintId')) {
     minimalTask.sprintId = updatedTask.sprintId || null;
+  }
+  if (changedFields.includes('isBlocked') || Boolean(currentTask.isBlocked ?? currentTask.is_blocked) !== Boolean(updatedTask.isBlocked)) {
+    minimalTask.isBlocked = Boolean(updatedTask.isBlocked);
+    minimalTask.blockedReason = updatedTask.blockedReason || null;
   }
   
   // Handle priority changes
@@ -171,6 +176,9 @@ async function fetchTaskWithRelationships(db, taskId) {
     sprintId: task.sprint_id || null,
     createdAt: task.created_at,
     updatedAt: task.updated_at,
+    columnEnteredAt: task.column_entered_at || task.columnEnteredAt || null,
+    isBlocked: Boolean(task.is_blocked ?? task.isBlocked),
+    blockedReason: task.blocked_reason || task.blockedReason || null,
     // Ensure columnid and boardid are in camelCase (frontend expects these)
     columnId: task.columnid || task.columnId,
     boardId: task.boardid || task.boardId,
@@ -1069,7 +1077,8 @@ router.put('/:id', authenticateToken, async (req, res) => {
       dueDate: currentTask.duedate || currentTask.dueDate || null,
       effort: currentTask.effort !== null && currentTask.effort !== undefined ? currentTask.effort : null,
       columnId: currentTask.columnid || currentTask.columnId || null,
-      boardId: currentTask.boardid || currentTask.boardId || null
+      boardId: currentTask.boardid || currentTask.boardId || null,
+      isBlocked: Boolean(currentTask.is_blocked ?? currentTask.isBlocked),
     };
     
     // Helper function to normalize values for comparison (treat null, undefined, empty string as equivalent)
@@ -1114,7 +1123,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
     
     // Generate change details
     const changes = [];
-    const fieldsToTrack = ['title', 'description', 'memberId', 'requesterId', 'startDate', 'dueDate', 'effort', 'columnId'];
+    const fieldsToTrack = ['title', 'description', 'memberId', 'requesterId', 'startDate', 'dueDate', 'effort', 'columnId', 'isBlocked'];
     
     // Check if priority changed (by ID or name) - only if values are actually different
     const priorityIdChanged = priorityId && currentPriorityId && priorityId !== currentPriorityId;
@@ -1265,7 +1274,9 @@ router.put('/:id', authenticateToken, async (req, res) => {
           });
           changes.push(movedTaskText);
         } else {
-          changes.push(await generateTaskUpdateDetails(field, currentTask[field], task[field], '', db));
+          const oldVal = field === 'isBlocked' ? normalizedCurrentTask.isBlocked : currentTask[field];
+          const newVal = field === 'isBlocked' ? Boolean(task.isBlocked) : task[field];
+          changes.push(await generateTaskUpdateDetails(field, oldVal, newVal, '', db));
         }
       }
     }
@@ -1292,7 +1303,12 @@ router.put('/:id', authenticateToken, async (req, res) => {
       position: task.position || 0,
       sprint_id: task.sprintId || null,
       pre_boardId: previousBoardId,
-      pre_columnId: previousColumnId
+      pre_columnId: previousColumnId,
+      isBlocked: task.isBlocked !== undefined ? Boolean(task.isBlocked) : Boolean(currentTask.is_blocked ?? currentTask.isBlocked),
+      blockedReason:
+        task.blockedReason !== undefined
+          ? (task.blockedReason || null)
+          : (currentTask.blocked_reason || currentTask.blockedReason || null),
     });
     const dbUpdateTime = Date.now() - dbUpdateStartTime;
     taskHttpLog(dbgHttp, `⏱️  [PUT /tasks/:id] Database updates took ${dbUpdateTime}ms`);

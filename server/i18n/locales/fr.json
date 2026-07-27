@@ -393,8 +393,11 @@
       "priorityId": "priorité",
       "memberId": "assigné",
       "requesterId": "demandeur",
-      "columnId": "statut"
+      "columnId": "statut",
+      "isBlocked": "statut bloqué"
     },
+    "markedAsBlocked": "a marqué la tâche comme bloquée",
+    "clearedBlocked": "a retiré le statut bloqué",
     "addedComment": "a ajouté un commentaire sur la tâche \"{taskTitle}\"{taskRef} dans le tableau \"{boardTitle}\"",
     "updatedComment": "a mis à jour un commentaire sur la tâche \"{taskTitle}\"{taskRef} dans le tableau \"{boardTitle}\"",
     "deletedComment": "a supprimé un commentaire sur la tâche \"{taskTitle}\"{taskRef} dans le tableau \"{boardTitle}\"",

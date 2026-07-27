@@ -422,8 +422,8 @@
     },
     "overview": {
       "whatIsEasyKanban": "What is Easy Kanban?",
-      "whatIsEasyKanbanDesc1": "Easy Kanban is a comprehensive project management platform that combines Kanban boards, Gantt charts, and list views for complete project visibility. It features real-time collaboration, advanced task management, and team coordination tools.",
-      "whatIsEasyKanbanDesc2": "The application supports multiple project boards, task dependencies, file attachments, rich text editing, and sophisticated filtering. It's designed for teams of all sizes with role-based permissions and admin controls.",
+      "whatIsEasyKanbanDesc1": "Easy Kanban is a collaborative Kanban workspace with multi-board drag-and-drop, List and Gantt views, real-time collaboration, and optional sprint timeboxing with burndown reports. It is designed for small and mid-size teams — not a full enterprise agile ALM (no required Epic/Story hierarchy, ceremony suite, or hard methodology certification).",
+      "whatIsEasyKanbanDesc2": "Core flow aids include soft column WIP limits, card aging, a blocked flag, and short column policy notes. Advanced features include task relationships, filtering, file attachments, rich text, role-based permissions, and optional AI agent assignment.",
       "navigation": "Navigation & Interface",
       "boardSelector": "Board Selector: Switch between different project boards using the tab interface at the top. Each board can have its own columns and tasks. Use the scroll arrows to navigate through many boards.",
       "viewModes": "View Modes: Toggle between Kanban (visual board), List (table format), and Gantt (timeline) views using the Tools panel.",

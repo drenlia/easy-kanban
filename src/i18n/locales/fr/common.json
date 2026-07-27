@@ -422,8 +422,8 @@
     },
     "overview": {
       "whatIsEasyKanban": "Qu'est-ce qu'Easy Kanban ?",
-      "whatIsEasyKanbanDesc1": "Easy Kanban est une plateforme de gestion de projet complète qui combine des tableaux Kanban, des diagrammes de Gantt et des vues en liste pour une visibilité complète du projet. Il propose une collaboration en temps réel, une gestion avancée des tâches et des outils de coordination d'équipe.",
-      "whatIsEasyKanbanDesc2": "L'application prend en charge plusieurs tableaux de projet, les dépendances de tâches, les pièces jointes, l'édition de texte enrichi et un filtrage sophistiqué. Elle est conçue pour des équipes de toutes tailles avec des permissions basées sur les rôles et des contrôles d'administration.",
+      "whatIsEasyKanbanDesc1": "Easy Kanban est un espace de travail Kanban collaboratif avec tableaux multi-boards, vues Liste et Gantt, collaboration en temps réel, et sprints optionnels avec burndown. Conçu pour les petites et moyennes équipes — pas un ALM agile d'entreprise complet.",
+      "whatIsEasyKanbanDesc2": "Les aides au flux incluent des limites WIP souples par colonne, le vieillissement des cartes, un indicateur bloqué, et de courtes notes de politique de colonne. Fonctions avancées : relations entre tâches, filtres, pièces jointes, texte enrichi, rôles, et agent IA optionnel.",
       "navigation": "Navigation et interface",
       "boardSelector": "Sélecteur de tableau : Basculez entre différents tableaux de projet en utilisant l'interface à onglets en haut. Chaque tableau peut avoir ses propres colonnes et tâches. Utilisez les flèches de défilement pour naviguer entre plusieurs tableaux.",
       "viewModes": "Modes d'affichage : Basculez entre les vues Kanban (tableau visuel), Liste (format tableau) et Gantt (chronologie) en utilisant le panneau Outils.",

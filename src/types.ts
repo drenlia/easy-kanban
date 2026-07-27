@@ -66,6 +66,11 @@ export interface Task {
   updatedAt?: string;
   created_at?: string;
   updated_at?: string;
+  /** When the task entered its current column (for aging). */
+  columnEnteredAt?: string | null;
+  /** Soft blocked flag — does not prevent moves. */
+  isBlocked?: boolean;
+  blockedReason?: string | null;
 }
 
 export interface Tag {
@@ -84,6 +89,10 @@ export interface Column {
   position?: number;
   is_finished?: boolean;
   is_archived?: boolean;
+  /** Soft WIP limit (task count). null/undefined = unlimited. */
+  wip_limit?: number | null;
+  /** Short entry/exit policy note shown under the column header. */
+  policy_text?: string | null;
 }
 
 export interface Columns {

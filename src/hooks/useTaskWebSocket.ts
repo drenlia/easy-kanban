@@ -316,6 +316,15 @@ export const useTaskWebSocket = ({
             priorityName: data.task.hasOwnProperty('priorityName') ? (data.task.priorityName ?? null) : fullTaskData.priorityName,
             priorityColor: data.task.hasOwnProperty('priorityColor') ? (data.task.priorityColor ?? null) : fullTaskData.priorityColor,
             sprintId: data.task.hasOwnProperty('sprintId') ? data.task.sprintId : fullTaskData.sprintId,
+            columnEnteredAt: data.task.hasOwnProperty('columnEnteredAt')
+              ? data.task.columnEnteredAt
+              : fullTaskData.columnEnteredAt,
+            isBlocked: data.task.hasOwnProperty('isBlocked')
+              ? Boolean(data.task.isBlocked)
+              : fullTaskData.isBlocked,
+            blockedReason: data.task.hasOwnProperty('blockedReason')
+              ? data.task.blockedReason
+              : fullTaskData.blockedReason,
             // Handle previous location fields (for cross-column/board moves)
             previousColumnId: data.task.hasOwnProperty('previousColumnId') ? data.task.previousColumnId : fullTaskData.previousColumnId,
             previousBoardId: data.task.hasOwnProperty('previousBoardId') ? data.task.previousBoardId : fullTaskData.previousBoardId,

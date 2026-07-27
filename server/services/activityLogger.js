@@ -701,6 +701,19 @@ export const generateTaskUpdateDetails = async (field, oldValue, newValue, addit
     }
   }
 
+  // Special handling for blocked flag
+  if (field === 'isBlocked') {
+    const wasBlocked = oldValue === true || oldValue === 1 || oldValue === 'true';
+    const nowBlocked = newValue === true || newValue === 1 || newValue === 'true';
+    if (!wasBlocked && nowBlocked) {
+      return JSON.stringify(getBilingualTranslation('activity.markedAsBlocked'));
+    }
+    if (wasBlocked && !nowBlocked) {
+      return JSON.stringify(getBilingualTranslation('activity.clearedBlocked'));
+    }
+    return JSON.stringify({ en: '', fr: '' });
+  }
+
   // Handle other fields as before
   if (oldValue === null || oldValue === undefined || oldValue === '') {
     return JSON.stringify({

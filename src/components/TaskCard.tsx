@@ -1,13 +1,14 @@
 import React, { useState, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
-import { Clock, MessageCircle, Calendar, Paperclip, Pencil, Check } from 'lucide-react';
+import { Clock, MessageCircle, Calendar, Paperclip, Pencil, Check, Ban } from 'lucide-react';
 import { Task, TeamMember, Priority, PriorityOption, CurrentUser, Tag } from '../types';
 import { TaskViewMode } from '../utils/userPreferences';
 import TaskCardToolbar from './TaskCardToolbar';
 import AddCommentModal from './AddCommentModal';
 import DateRangePicker from './DateRangePicker';
 import { formatToYYYYMMDD, formatToYYYYMMDDHHmmss, parseLocalDate } from '../utils/dateUtils';
+import { getColumnAgeDays } from '../utils/kanbanFlowUtils';
 import {
   createComment,
   fetchTaskAttachments,
@@ -1850,6 +1851,8 @@ const TaskCard = React.memo(function TaskCard({
             </KanbanChromeTooltip>
           </div>
         )}
+
+        {/* Blocked + aging moved to TaskCardToolbar (after delete) */}
         {/* TaskCard Toolbar - Extracted to separate component */}
         <TaskCardToolbar
           task={task}
@@ -2242,8 +2245,48 @@ const TaskCard = React.memo(function TaskCard({
         
         {/* Bottom metadata row */}
         <div className="flex items-center justify-between text-sm text-gray-500">
-          {/* Left side - dates and effort and comments */}
-          <div className="flex items-center gap-2">
+          {/* Left side - flow status, dates, effort, comments */}
+          <div className="flex items-center gap-2 min-w-0">
+            {(task.isBlocked ||
+              (!columnIsFinished && !columnIsArchived && getColumnAgeDays(task.columnEnteredAt) >= 1)) && (
+              <div className="flex items-center gap-1 shrink-0">
+                {task.isBlocked && (
+                  <KanbanChromeTooltip
+                    label={task.blockedReason || t('taskCard.blocked')}
+                    delayMs={0}
+                    wrapperClassName="inline-flex"
+                  >
+                    <span className="inline-flex text-red-500 dark:text-red-400" aria-label={t('taskCard.blocked')}>
+                      <Ban size={12} />
+                    </span>
+                  </KanbanChromeTooltip>
+                )}
+                {!columnIsFinished &&
+                  !columnIsArchived &&
+                  getColumnAgeDays(task.columnEnteredAt) >= 1 && (
+                    <KanbanChromeTooltip
+                      label={t('taskCard.daysInColumn', {
+                        count: getColumnAgeDays(task.columnEnteredAt),
+                      })}
+                      delayMs={0}
+                      wrapperClassName="inline-flex"
+                    >
+                      <span
+                        className={`inline-flex items-center gap-0.5 text-[10px] font-semibold tabular-nums ${
+                          getColumnAgeDays(task.columnEnteredAt) >= 7
+                            ? 'text-amber-700 dark:text-amber-300'
+                            : 'text-gray-500 dark:text-gray-400'
+                        }`}
+                      >
+                        <Clock size={12} />
+                        {t('taskCard.daysInColumnShort', {
+                          count: getColumnAgeDays(task.columnEnteredAt),
+                        })}
+                      </span>
+                    </KanbanChromeTooltip>
+                  )}
+              </div>
+            )}
             {/* Dates - ultra compact with sprint selector */}
             <div className="flex items-center gap-0.5">
               <KanbanChromeTooltip label={t('taskCard.clickToSelectSprint')} delayMs={0} wrapperClassName="inline-flex">
@@ -3032,7 +3075,10 @@ const TaskCard = React.memo(function TaskCard({
       prevProps.task.effort !== nextProps.task.effort ||
       prevProps.task.startDate !== nextProps.task.startDate ||
       prevProps.task.dueDate !== nextProps.task.dueDate ||
-      prevProps.task.attachmentCount !== nextProps.task.attachmentCount) {
+      prevProps.task.attachmentCount !== nextProps.task.attachmentCount ||
+      Boolean(prevProps.task.isBlocked) !== Boolean(nextProps.task.isBlocked) ||
+      (prevProps.task.blockedReason || '') !== (nextProps.task.blockedReason || '') ||
+      (prevProps.task.columnEnteredAt || '') !== (nextProps.task.columnEnteredAt || '')) {
     return false; // Re-render
   }
 
