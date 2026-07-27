@@ -6,6 +6,7 @@ import { SavedFilterView, getSavedFilterView } from './api';
 import DebugPanel from './components/DebugPanel';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { TourProvider } from './contexts/TourContext';
+import TourNudge from './components/tour/TourNudge';
 import { SettingsProvider, useSettings } from './contexts/SettingsContext';
 import Login from './components/Login';
 import ForgotPassword from './components/ForgotPassword';
@@ -2474,6 +2475,7 @@ function AppContent() {
       } else if (await handleInstanceStatusError(error)) {
         // Instance status error handled by utility function
       } else {
+        toast.error(t('errors.createTaskTitle'), t('errors.createTaskMessage'));
         await refreshBoardData();
       }
     }
@@ -2589,8 +2591,9 @@ function AppContent() {
       if (previousSelectedTask) {
         setSelectedTask(previousSelectedTask);
       }
+      toast.error(t('errors.updateTaskTitle'), t('errors.updateTaskMessage'));
     }
-  }, [withLoading, fetchQueryLogs, columns, selectedTask, taskFilters]);
+  }, [withLoading, fetchQueryLogs, columns, selectedTask, taskFilters, t]);
 
   const handleCopyTask = async (task: Task) => {
     const originalPosition = task.position || 0;
@@ -2650,6 +2653,8 @@ function AppContent() {
       setTimeout(() => {
         setTaskCreationPause(false);
       }, TASK_CREATION_PAUSE_DURATION);
+
+      toast.success(t('errors.copyTaskSuccessTitle'), t('errors.copyTaskSuccessMessage'));
       
     } catch (error) {
       console.error('Failed to copy task:', error);
@@ -2658,6 +2663,8 @@ function AppContent() {
       // Check if it's an instance unavailable error
       if (await handleInstanceStatusError(error)) {
         // Instance status error handled by utility function
+      } else {
+        toast.error(t('errors.copyTaskTitle'), t('errors.copyTaskMessage'));
       }
     }
   };
@@ -2922,30 +2929,38 @@ function AppContent() {
 
   // Wrapper for handleSameColumnReorder that provides current state
   const handleSameColumnReorderWrapper = async (task: Task, columnId: string, newIndex: number) => {
-    return handleSameColumnReorder(
-      task,
-      columnId,
-      newIndex,
-      columns,
-      setColumns,
-      setDragCooldown,
-      refreshBoardData,
-      taskFilters.setFilteredColumns
-    );
+    try {
+      await handleSameColumnReorder(
+        task,
+        columnId,
+        newIndex,
+        columns,
+        setColumns,
+        setDragCooldown,
+        refreshBoardData,
+        taskFilters.setFilteredColumns
+      );
+    } catch {
+      toast.error(t('errors.moveTaskTitle'), t('errors.moveTaskMessage'));
+    }
   };
 
   // Wrapper for moveTaskToPosition that provides current state (for position-based moves)
   const moveTaskToPositionWrapper = async (task: Task, columnId: string, newPosition: number) => {
-    return moveTaskToPosition(
-      task,
-      columnId,
-      newPosition,
-      columns,
-      setColumns,
-      setDragCooldown,
-      refreshBoardData,
-      taskFilters.setFilteredColumns
-    );
+    try {
+      await moveTaskToPosition(
+        task,
+        columnId,
+        newPosition,
+        columns,
+        setColumns,
+        setDragCooldown,
+        refreshBoardData,
+        taskFilters.setFilteredColumns
+      );
+    } catch {
+      toast.error(t('errors.moveTaskTitle'), t('errors.moveTaskMessage'));
+    }
   };
 
   // Handle moving task to different column via ListView dropdown or drag & drop
@@ -3022,17 +3037,21 @@ function AppContent() {
 
   // Wrapper for handleCrossColumnMove that provides current state
   const handleCrossColumnMoveWrapper = async (task: Task, sourceColumnId: string, targetColumnId: string, targetIndex: number) => {
-    return handleCrossColumnMove(
-      task,
-      sourceColumnId,
-      targetColumnId,
-      targetIndex,
-      columns,
-      setColumns,
-      setDragCooldown,
-      refreshBoardData,
-      taskFilters.setFilteredColumns
-    );
+    try {
+      await handleCrossColumnMove(
+        task,
+        sourceColumnId,
+        targetColumnId,
+        targetIndex,
+        columns,
+        setColumns,
+        setDragCooldown,
+        refreshBoardData,
+        taskFilters.setFilteredColumns
+      );
+    } catch {
+      toast.error(t('errors.moveTaskTitle'), t('errors.moveTaskMessage'));
+    }
   };
 
 
@@ -3067,7 +3086,7 @@ function AppContent() {
       
       await fetchQueryLogs();
     } catch (error) {
-      // console.error('Failed to update column:', error);
+      toast.error(t('errors.updateColumnTitle'), t('errors.updateColumnMessage'));
     }
   };
 
@@ -3103,7 +3122,7 @@ function AppContent() {
       setShowColumnDeleteConfirm(null);
       await fetchQueryLogs();
     } catch (error) {
-      // console.error('Failed to delete column:', error);
+      toast.error(t('errors.deleteColumnTitle'), t('errors.deleteColumnMessage'));
     }
   };
 
@@ -3138,9 +3157,10 @@ function AppContent() {
         await performCrossBoardMove(taskId, targetBoardId);
       } catch (error) {
         console.error('Failed to move task to board:', error);
+        toast.error(t('errors.moveTaskToBoardTitle'), t('errors.moveTaskToBoardMessage'));
       }
     },
-    [performCrossBoardMove]
+    [performCrossBoardMove, t]
   );
 
   const handleConfirmCrossBoardMove = useCallback(async () => {
@@ -3152,10 +3172,11 @@ function AppContent() {
       setCrossBoardMovePending(null);
     } catch (error) {
       console.error('Failed to move task to board:', error);
+      toast.error(t('errors.moveTaskToBoardTitle'), t('errors.moveTaskToBoardMessage'));
     } finally {
       setCrossBoardMoveBusy(false);
     }
-  }, [crossBoardMovePending, performCrossBoardMove]);
+  }, [crossBoardMovePending, performCrossBoardMove, t]);
 
   const handleCancelCrossBoardMove = useCallback(() => {
     if (!crossBoardMoveBusy) setCrossBoardMovePending(null);
@@ -3369,7 +3390,7 @@ function AppContent() {
 
       await fetchQueryLogs();
     } catch (error) {
-      // console.error('Failed to create column:', error);
+      toast.error(t('errors.createColumnTitle'), t('errors.createColumnMessage'));
     }
   };
 
@@ -3793,9 +3814,9 @@ function AppContent() {
   }
 
   return (
+    <ThemeProvider>
     <TourProvider currentUser={currentUser} onViewModeChange={handleViewModeChange} onPageChange={handlePageChange}>
-      <ThemeProvider>
-        <div className="min-h-screen flex flex-col" style={{ backgroundColor: 'var(--main-bg)' }}>
+      <div className="min-h-screen flex flex-col" style={{ backgroundColor: 'var(--main-bg)' }}>
       {/* Demo Reset Counter is now rendered in Header component */}
       
       {/* New Enhanced Drag & Drop System */}
@@ -4093,6 +4114,7 @@ function AppContent() {
       
       {/* Toast Notifications */}
       <ToastContainer />
+      <TourNudge />
 
       {/* Debug: Log admin status */}
       {process.env.NODE_ENV === 'development' && (
@@ -4101,8 +4123,8 @@ function AppContent() {
           User: {currentUser?.email || 'Not logged in'}
         </div>
       )}
-      </ThemeProvider>
     </TourProvider>
+    </ThemeProvider>
   );
 }
 

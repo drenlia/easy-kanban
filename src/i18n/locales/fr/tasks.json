@@ -39,7 +39,25 @@
     "attachFile": "Joindre un fichier"
   },
   "errors": {
-    "uploadError": "Erreur de téléversement"
+    "uploadError": "Erreur de téléversement",
+    "updateTaskTitle": "Impossible de mettre à jour la tâche",
+    "updateTaskMessage": "Vos modifications n'ont pas été enregistrées. Veuillez réessayer.",
+    "createTaskTitle": "Impossible de créer la tâche",
+    "createTaskMessage": "La tâche n'a pas pu être créée. Veuillez réessayer.",
+    "copyTaskTitle": "Impossible de copier la tâche",
+    "copyTaskMessage": "La tâche n'a pas pu être copiée. Veuillez réessayer.",
+    "copyTaskSuccessTitle": "Tâche copiée",
+    "copyTaskSuccessMessage": "Une copie a été créée au-dessus de l'original.",
+    "moveTaskTitle": "Impossible de déplacer la tâche",
+    "moveTaskMessage": "La tâche a été rétablie à sa position précédente.",
+    "moveTaskToBoardTitle": "Impossible de déplacer vers le tableau",
+    "moveTaskToBoardMessage": "La tâche n'a pas pu être déplacée vers ce tableau. Veuillez réessayer.",
+    "updateColumnTitle": "Impossible de mettre à jour la colonne",
+    "updateColumnMessage": "Les modifications de la colonne n'ont pas été enregistrées. Veuillez réessayer.",
+    "createColumnTitle": "Impossible de créer la colonne",
+    "createColumnMessage": "La colonne n'a pas pu être créée. Veuillez réessayer.",
+    "deleteColumnTitle": "Impossible de supprimer la colonne",
+    "deleteColumnMessage": "La colonne n'a pas pu être supprimée. Veuillez réessayer."
   },
   "watcher": {
     "singular": "observateur",
@@ -69,6 +87,9 @@
   "relationships": {
     "parent": "Parent :",
     "children": "Enfant(s) :",
+    "badgeParent": "PARENT",
+    "badgeChild": "ENFANT",
+    "badgeRelated": "LIÉE",
     "addChildTask": "Ajouter une tâche enfant...",
     "searchTasks": "Rechercher des tâches par numéro ou titre...",
     "goToParent": "Aller à la tâche parente",
@@ -108,6 +129,9 @@
   },
   "column": {
     "addTask": "Ajouter une tâche",
+    "emptyColumnTitle": "Aucune tâche pour l'instant",
+    "emptyColumnHint": "Ajoutez une tâche ou déposez-en une ici.",
+    "emptyBoardHint": "Ce tableau n'a pas encore de tâches — utilisez Ajouter une tâche dans une colonne pour commencer.",
     "dropHere": "Déposer ici",
     "dropTaskHere": "Déposer la tâche ici !",
     "dropColumnHere": "Déposer ici",

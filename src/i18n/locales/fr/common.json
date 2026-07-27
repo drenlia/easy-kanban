@@ -64,7 +64,10 @@
     "refreshDataNow": "Actualiser les données maintenant",
     "help": "Aide (F1)",
     "showSystemPanel": "Afficher le panneau système",
-    "hideSystemPanel": "Masquer le panneau système"
+    "hideSystemPanel": "Masquer le panneau système",
+    "more": "Plus",
+    "github": "GitHub",
+    "profileMenu": "Menu du compte"
   },
   "theme": {
     "switchToDark": "Passer en mode sombre",
@@ -123,7 +126,9 @@
     "currentGanttView": "Vue Gantt",
     "currentExpandView": "Vue étendue (descriptions complètes + dates dans Gantt)",
     "currentShrinkView": "Vue réduite (descriptions tronquées)",
-    "currentCompactViewHiddenDescriptions": "Vue compacte (tickets uniquement) — les descriptions sont masquées"
+    "currentCompactViewHiddenDescriptions": "Vue compacte (tickets uniquement) — les descriptions sont masquées",
+    "showBoardToolbar": "Afficher outils, membres et progression",
+    "hideBoardToolbar": "Masquer outils, membres et progression"
   },
   "textEditor": {
     "placeholder": "Commencez à taper...",
@@ -662,6 +667,10 @@
     "addBoard": "Ajouter un tableau (Admin uniquement)",
     "scrollLeft": "Défiler vers la gauche",
     "scrollRight": "Défiler vers la droite",
+    "scrollColumnsLeft": "Cliquer ou maintenir pour défiler vers la gauche",
+    "scrollColumnsRight": "Cliquer ou maintenir pour défiler vers la droite",
+    "scrollListLeft": "Défiler vers la gauche",
+    "scrollListRight": "Défiler vers la droite",
     "addNewBoard": "Ajouter un nouveau tableau (Admin uniquement)",
     "dropTaskHere": "Déposer la tâche ici",
     "newBoard": "Nouveau tableau"
@@ -1090,6 +1099,11 @@
     "next": "Suivant",
     "nextWithProgress": "Suivant (Étape {step} de {steps})",
     "skip": "Sortir",
+    "nudgeTitle": "Faire une visite rapide ?",
+    "nudgeDescription": "Découvrez les bases des tableaux, des tâches et des vues en quelques étapes. Vous pouvez relancer le tutoriel à tout moment depuis Aide.",
+    "nudgeTakeTour": "Faire la visite",
+    "nudgeNotNow": "Pas maintenant",
+    "nudgeDismiss": "Ne plus afficher",
     "steps": {
       "switchedToKanban": "Passé à la vue Kanban",
       "switchedToList": "Passé à la vue Liste",

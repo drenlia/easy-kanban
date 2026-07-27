@@ -1906,9 +1906,9 @@ const TaskCard = React.memo(function TaskCard({
           const relationshipType = getTaskRelationshipType(task.id);
           if (relationshipType) {
             const badges = {
-              parent: { text: 'PARENT', color: 'bg-green-500' },
-              child: { text: 'CHILD', color: 'bg-purple-500' },
-              related: { text: 'RELATED', color: 'bg-yellow-500' }
+              parent: { text: t('relationships.badgeParent'), color: 'bg-green-500' },
+              child: { text: t('relationships.badgeChild'), color: 'bg-purple-500' },
+              related: { text: t('relationships.badgeRelated'), color: 'bg-yellow-500' }
             };
             const badge = badges[relationshipType];
             return (

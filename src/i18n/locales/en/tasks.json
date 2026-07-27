@@ -39,7 +39,25 @@
     "attachFile": "Attach File"
   },
   "errors": {
-    "uploadError": "Upload error"
+    "uploadError": "Upload error",
+    "updateTaskTitle": "Couldn't update task",
+    "updateTaskMessage": "Your changes were not saved. Please try again.",
+    "createTaskTitle": "Couldn't create task",
+    "createTaskMessage": "The task could not be created. Please try again.",
+    "copyTaskTitle": "Couldn't copy task",
+    "copyTaskMessage": "The task could not be copied. Please try again.",
+    "copyTaskSuccessTitle": "Task copied",
+    "copyTaskSuccessMessage": "A copy was created above the original.",
+    "moveTaskTitle": "Couldn't move task",
+    "moveTaskMessage": "The task was restored to its previous position.",
+    "moveTaskToBoardTitle": "Couldn't move to board",
+    "moveTaskToBoardMessage": "The task could not be moved to that board. Please try again.",
+    "updateColumnTitle": "Couldn't update column",
+    "updateColumnMessage": "Column changes were not saved. Please try again.",
+    "createColumnTitle": "Couldn't create column",
+    "createColumnMessage": "The column could not be created. Please try again.",
+    "deleteColumnTitle": "Couldn't delete column",
+    "deleteColumnMessage": "The column could not be deleted. Please try again."
   },
   "watcher": {
     "singular": "watcher",
@@ -69,6 +87,9 @@
   "relationships": {
     "parent": "Parent:",
     "children": "Child(ren):",
+    "badgeParent": "PARENT",
+    "badgeChild": "CHILD",
+    "badgeRelated": "RELATED",
     "addChildTask": "Add child task...",
     "searchTasks": "Search tasks by number or title...",
     "goToParent": "Go to parent task",
@@ -108,6 +129,9 @@
   },
   "column": {
     "addTask": "Add Task",
+    "emptyColumnTitle": "No tasks yet",
+    "emptyColumnHint": "Add a task or drop one here.",
+    "emptyBoardHint": "This board has no tasks yet — use Add task in a column to get started.",
     "dropHere": "Drop here",
     "dropTaskHere": "Drop task here!",
     "dropColumnHere": "Drop here",

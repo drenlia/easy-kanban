@@ -321,12 +321,12 @@ export default function SearchInterface({
   };
 
   return (
-    <div className="bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4 mb-4">
+    <div className="bg-white dark:bg-gray-800 shadow-sm border border-gray-100 dark:border-gray-700 rounded-lg p-3 mb-4">
       {/* Header with Collapse Toggle */}
       {/* Header */}
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-3">
-          <h3 className="text-xs font-bold text-gray-600 dark:text-gray-300 uppercase tracking-wider">{t('searchInterface.title')}</h3>
+          <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-200 uppercase tracking-wide">{t('searchInterface.title')}</h2>
           <div className="relative">
             <input
               type="text"
@@ -338,7 +338,7 @@ export default function SearchInterface({
             {filters.text && (
               <button
                 onClick={() => updateFilter('text', '')}
-                className="absolute right-1 top-1/2 -translate-y-1/2 p-0.5 hover:bg-gray-100 rounded-full transition-colors"
+                className="absolute right-1 top-1/2 -translate-y-1/2 p-0.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-colors"
                 title={t('searchInterface.clearSearch')}
               >
                 <X size={10} className="text-gray-400 hover:text-gray-600" />
@@ -358,7 +358,7 @@ export default function SearchInterface({
 
           {/* Project and Task Identifier Search Fields */}
           <div className="flex items-center gap-1">
-            <label className="text-xs font-medium text-gray-700">{t('searchInterface.projectId')}:</label>
+            <label className="text-xs font-medium text-gray-700 dark:text-gray-300">{t('searchInterface.projectId')}:</label>
             <div className="relative">
               <input
                 type="text"
@@ -370,7 +370,7 @@ export default function SearchInterface({
               {filters.projectId && (
                 <button
                   onClick={() => updateFilter('projectId', '')}
-                  className="absolute right-1 top-1/2 -translate-y-1/2 p-0.5 hover:bg-gray-100 rounded-full transition-colors"
+                  className="absolute right-1 top-1/2 -translate-y-1/2 p-0.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-colors"
                   title={t('searchInterface.clearProjectId')}
                 >
                   <X size={10} className="text-gray-400 hover:text-gray-600" />
@@ -380,7 +380,7 @@ export default function SearchInterface({
           </div>
 
           <div className="flex items-center gap-1">
-            <label className="text-xs font-medium text-gray-700">{t('searchInterface.taskId')}:</label>
+            <label className="text-xs font-medium text-gray-700 dark:text-gray-300">{t('searchInterface.taskId')}:</label>
             <div className="relative">
               <input
                 type="text"
@@ -392,7 +392,7 @@ export default function SearchInterface({
               {filters.taskId && (
                 <button
                   onClick={() => updateFilter('taskId', '')}
-                  className="absolute right-1 top-1/2 -translate-y-1/2 p-0.5 hover:bg-gray-100 rounded-full transition-colors"
+                  className="absolute right-1 top-1/2 -translate-y-1/2 p-0.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-colors"
                   title={t('searchInterface.clearTaskId')}
                 >
                   <X size={10} className="text-gray-400 hover:text-gray-600" />
@@ -435,7 +435,7 @@ export default function SearchInterface({
           })() && (
             <button
               onClick={handleToggleCollapse}
-              className="text-red-600 text-xs font-medium hover:text-red-700 hover:underline cursor-pointer transition-colors"
+              className="text-red-600 dark:text-red-400 text-xs font-medium hover:text-red-700 dark:hover:text-red-300 hover:underline cursor-pointer transition-colors"
               title={isCollapsed ? t('searchInterface.viewActiveFilters') : t('searchInterface.hideFilters')}
             >
               {t('searchInterface.filtersActive')}
@@ -444,7 +444,7 @@ export default function SearchInterface({
 
           {/* Saved Filters Section */}
           <div className="flex items-center gap-2">
-            <span className="text-xs font-medium text-gray-700">{t('searchInterface.saveApply')}:</span>
+            <span className="text-xs font-medium text-gray-700 dark:text-gray-300">{t('searchInterface.saveApply')}:</span>
             
             {/* Filter Dropdown */}
             <div className="relative" ref={filterDropdownRef}>
@@ -558,7 +558,7 @@ export default function SearchInterface({
             {/* Manage Filters Button */}
             <button
               onClick={() => setShowManageModal(true)}
-              className="p-1.5 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded transition-colors"
+              className="p-1.5 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
               title={t('searchInterface.manageSavedFilters')}
             >
               <Settings size={14} />
@@ -584,7 +584,7 @@ export default function SearchInterface({
           })() && (
             <button
               onClick={handleClearAllFilters}
-              className="p-2 text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-full border border-gray-300 transition-colors"
+              className="p-2 text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full border border-gray-300 dark:border-gray-600 transition-colors"
               title={t('searchInterface.clearAllFilters')}
             >
               <X size={16} />
@@ -594,7 +594,7 @@ export default function SearchInterface({
         
         <button
           onClick={handleToggleCollapse}
-          className="p-1 hover:bg-gray-100 rounded transition-colors"
+          className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
           title={isCollapsed ? t('searchInterface.expandAdvanced') : t('searchInterface.collapseBasic')}
         >
           {isCollapsed ? <ChevronDown size={14} className="text-gray-500" /> : <ChevronUp size={14} className="text-gray-500" />}
@@ -606,7 +606,7 @@ export default function SearchInterface({
           {/* Row 1: Start Dates, User, Clear Button */}
           <div className="flex items-center gap-2">
             <div className="relative">
-              <label className="text-xs font-medium text-gray-700 absolute left-[60px] top-1/2 -translate-y-1/2">{t('searchInterface.startFrom')}:</label>
+              <label className="text-xs font-medium text-gray-700 dark:text-gray-300 absolute left-[60px] top-1/2 -translate-y-1/2">{t('searchInterface.startFrom')}:</label>
               <input
                 type="date"
                 value={filters.dateFrom}
@@ -616,7 +616,7 @@ export default function SearchInterface({
               {filters.dateFrom && (
                 <button
                   onClick={() => updateFilter('dateFrom', '')}
-                  className="absolute right-[30px] top-1/2 -translate-y-1/2 p-0.5 hover:bg-gray-100 rounded-full transition-colors"
+                  className="absolute right-[30px] top-1/2 -translate-y-1/2 p-0.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-colors"
                   title={t('searchInterface.clearStartFrom')}
                 >
                   <X size={8} className="text-gray-400 hover:text-gray-600" />
@@ -625,7 +625,7 @@ export default function SearchInterface({
             </div>
 
             <div className="relative">
-              <label className="text-xs font-medium text-gray-700 absolute left-[5px] top-1/2 -translate-y-1/2">{t('searchInterface.startTo')}:</label>
+              <label className="text-xs font-medium text-gray-700 dark:text-gray-300 absolute left-[5px] top-1/2 -translate-y-1/2">{t('searchInterface.startTo')}:</label>
               <input
                 type="date"
                 value={filters.dateTo}
@@ -635,7 +635,7 @@ export default function SearchInterface({
               {filters.dateTo && (
                 <button
                   onClick={() => updateFilter('dateTo', '')}
-                  className="absolute right-[30px] top-1/2 -translate-y-1/2 p-0.5 hover:bg-gray-100 rounded-full transition-colors"
+                  className="absolute right-[30px] top-1/2 -translate-y-1/2 p-0.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-colors"
                   title={t('searchInterface.clearStartTo')}
                 >
                   <X size={8} className="text-gray-400 hover:text-gray-600" />
@@ -649,7 +649,7 @@ export default function SearchInterface({
                   onClick={() => setShowTagsDropdown(!showTagsDropdown)}
                   className={getDropdownButtonClassName(filters.selectedTags.length > 0)}
                 >
-                  <span className="text-gray-700 text-xs">{t('searchInterface.tag')}</span>
+                  <span className="text-gray-700 dark:text-gray-300 text-xs">{t('searchInterface.tag')}</span>
                   <ChevronDown size={12} className="text-gray-400" />
                 </button>
                 
@@ -718,7 +718,7 @@ export default function SearchInterface({
           {/* Row 2: Due Dates, Priority */}
           <div className="flex items-center gap-2">
             <div className="relative">
-              <label className="text-xs font-medium text-gray-700 absolute left-[64px] top-1/2 -translate-y-1/2">{t('searchInterface.dueFrom')}:</label>
+              <label className="text-xs font-medium text-gray-700 dark:text-gray-300 absolute left-[64px] top-1/2 -translate-y-1/2">{t('searchInterface.dueFrom')}:</label>
               <input
                 type="date"
                 value={filters.dueDateFrom}
@@ -728,7 +728,7 @@ export default function SearchInterface({
               {filters.dueDateFrom && (
                 <button
                   onClick={() => updateFilter('dueDateFrom', '')}
-                  className="absolute right-[30px] top-1/2 -translate-y-1/2 p-0.5 hover:bg-gray-100 rounded-full transition-colors"
+                  className="absolute right-[30px] top-1/2 -translate-y-1/2 p-0.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-colors"
                   title={t('searchInterface.clearDueFrom')}
                 >
                   <X size={8} className="text-gray-400 hover:text-gray-600" />
@@ -737,7 +737,7 @@ export default function SearchInterface({
             </div>
 
             <div className="relative">
-              <label className="text-xs font-medium text-gray-700 absolute left-[10px] top-1/2 -translate-y-1/2">{t('searchInterface.dueTo')}:</label>
+              <label className="text-xs font-medium text-gray-700 dark:text-gray-300 absolute left-[10px] top-1/2 -translate-y-1/2">{t('searchInterface.dueTo')}:</label>
               <input
                 type="date"
                 value={filters.dueDateTo}
@@ -747,7 +747,7 @@ export default function SearchInterface({
               {filters.dueDateTo && (
                 <button
                   onClick={() => updateFilter('dueDateTo', '')}
-                  className="absolute right-[30px] top-1/2 -translate-y-1/2 p-0.5 hover:bg-gray-100 rounded-full transition-colors"
+                  className="absolute right-[30px] top-1/2 -translate-y-1/2 p-0.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-colors"
                   title={t('searchInterface.clearDueTo')}
                 >
                   <X size={8} className="text-gray-400 hover:text-gray-600" />
@@ -761,7 +761,7 @@ export default function SearchInterface({
                 onClick={() => setShowPriorityDropdown(!showPriorityDropdown)}
                 className={getDropdownButtonClassName(filters.selectedPriorities.length > 0)}
               >
-                <span className="text-gray-700 text-xs">{t('searchInterface.priority')}</span>
+                <span className="text-gray-700 dark:text-gray-300 text-xs">{t('searchInterface.priority')}</span>
                 <ChevronDown size={12} className="text-gray-400" />
               </button>
               

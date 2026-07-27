@@ -77,6 +77,21 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
   const { t } = useTranslation(['tasks', 'common']);
   const userPrefs = loadUserPreferences();
   const [width, setWidth] = useState(userPrefs.taskDetailsWidth);
+  const [isCompactViewport, setIsCompactViewport] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia('(max-width: 1023px)').matches
+  );
+
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 1023px)');
+    const onChange = () => setIsCompactViewport(mq.matches);
+    onChange();
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
+
+  const panelWidth = isCompactViewport
+    ? Math.min(Math.max(width, Math.round(window.innerWidth * 0.88)), window.innerWidth)
+    : width;
   
   // Get project identifier from the board this task belongs to
   const getProjectIdentifier = () => {
@@ -1552,11 +1567,20 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
   const displayAttachments = React.useMemo(() => taskAttachments, [taskAttachments]);
 
   return (
+    <>
+    {isCompactViewport && (
+      <button
+        type="button"
+        className="fixed inset-0 z-40 bg-black/30 dark:bg-black/50 border-0 cursor-default"
+        aria-label={t('buttons.close', { ns: 'common' })}
+        onClick={onClose}
+      />
+    )}
     <div
       ref={detailsPanelRef}
-      className="fixed right-0 bg-white dark:bg-gray-800 border-l border-gray-200 dark:border-gray-700 flex z-50"
+      className="fixed right-0 bg-white dark:bg-gray-800 border-l border-gray-200 dark:border-gray-700 flex z-50 shadow-xl lg:shadow-none"
       style={{ 
-        width: `${width}px`,
+        width: `${panelWidth}px`,
         top: '65px', // Position below header (adjusted for proper clearance)
         height: 'calc(100vh - 65px)' // Full height minus header
       }}
@@ -2533,5 +2557,6 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
         />
       )}
     </div>
+    </>
   );
 }

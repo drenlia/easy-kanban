@@ -431,13 +431,13 @@ export default function TaskCardToolbar({
             {onAddComment && (
               <KanbanChromeTooltip label={t('toolbar.addComment')}>
                 <button
-                  className="p-1 hover:bg-gray-100 rounded-full transition-colors"
+                  className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-colors"
                   onClick={(e) => {
                     e.stopPropagation();
                     onAddComment();
                   }}
                 >
-                  <MessageSquarePlus size={14} className="text-gray-400 hover:text-gray-600 transition-colors" />
+                  <MessageSquarePlus size={14} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors" />
                 </button>
               </KanbanChromeTooltip>
             )}
@@ -451,12 +451,12 @@ export default function TaskCardToolbar({
                   className={`p-1 rounded-full transition-colors ${
                     agentBlocking
                       ? 'opacity-40 cursor-not-allowed'
-                      : 'hover:bg-gray-100'
+                      : 'hover:bg-gray-100 dark:hover:bg-gray-700'
                   }`}
                   onClick={agentBlocking ? undefined : handleQuickTagClick}
                 >
                   <div className="relative">
-                    <TagIcon size={14} className="text-gray-400 hover:text-gray-600 transition-colors" />
+                    <TagIcon size={14} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors" />
                     <Plus size={7} className="text-gray-400 absolute -top-1 -right-1" />
                   </div>
                 </button>
@@ -467,9 +467,9 @@ export default function TaskCardToolbar({
             <KanbanChromeTooltip label={t('toolbar.copyTask')}>
               <button
                 onClick={handleCopy}
-                className="p-1 hover:bg-gray-100 rounded-full transition-colors"
+                className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-colors"
               >
-                <Copy size={14} className="text-gray-400 hover:text-gray-600 transition-colors" />
+                <Copy size={14} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors" />
               </button>
             </KanbanChromeTooltip>
             
@@ -559,7 +559,7 @@ export default function TaskCardToolbar({
                     className={`p-1 rounded-full transition-colors ${
                       agentBlocking
                         ? 'opacity-40 cursor-not-allowed'
-                        : 'hover:bg-yellow-100'
+                        : 'hover:bg-yellow-100 dark:hover:bg-yellow-900/40'
                     }`}
                   >
                     <Archive size={14} className="text-yellow-600" />
@@ -579,7 +579,7 @@ export default function TaskCardToolbar({
                 className={`p-1 rounded-full transition-colors ${
                   agentBlocking
                     ? 'opacity-40 cursor-not-allowed'
-                    : 'hover:bg-red-100'
+                    : 'hover:bg-red-100 dark:hover:bg-red-900/40'
                 }`}
               >
                 <Trash2 size={14} className="text-red-500" />

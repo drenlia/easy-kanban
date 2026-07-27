@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { Github, HelpCircle, LogOut, User, RefreshCw, UserPlus, Mail, X, Send, Monitor, MonitorOff } from 'lucide-react';
+import { Github, HelpCircle, LogOut, User, RefreshCw, UserPlus, Mail, X, Send, Monitor, MonitorOff, MoreHorizontal } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { CurrentUser, SiteSettings, TeamMember } from '../../types';
 import ThemeToggle from '../ThemeToggle';
@@ -111,6 +111,10 @@ const Header: React.FC<HeaderProps> = ({
   const [inviteError, setInviteError] = useState('');
   const [inviteSuccess, setInviteSuccess] = useState('');
   const inviteDropdownRef = useRef<HTMLDivElement>(null);
+  const [showMoreMenu, setShowMoreMenu] = useState(false);
+  const moreMenuRef = useRef<HTMLDivElement>(null);
+  const [showProfileMenu, setShowProfileMenu] = useState(false);
+  const profileMenuRef = useRef<HTMLDivElement>(null);
   const { i18n, t } = useTranslation('common');
   
   // Get current language - use i18n.language for immediate updates, fallback to user preferences
@@ -298,22 +302,27 @@ const Header: React.FC<HeaderProps> = ({
     return `/api/files/avatars/${avatarUrl}?token=${encodeURIComponent(authToken)}`;
   };
 
-  // Close invite dropdown when clicking outside
+  // Close invite / more / profile menus when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (inviteDropdownRef.current && !inviteDropdownRef.current.contains(event.target as Node)) {
+      const target = event.target as Node;
+      if (inviteDropdownRef.current && !inviteDropdownRef.current.contains(target)) {
         setShowInviteDropdown(false);
         setInviteEmail('');
         setInviteError('');
         setInviteSuccess('');
       }
+      if (moreMenuRef.current && !moreMenuRef.current.contains(target)) {
+        setShowMoreMenu(false);
+      }
+      if (profileMenuRef.current && !profileMenuRef.current.contains(target)) {
+        setShowProfileMenu(false);
+      }
     };
 
-    if (showInviteDropdown) {
-      document.addEventListener('mousedown', handleClickOutside);
-      return () => document.removeEventListener('mousedown', handleClickOutside);
-    }
-  }, [showInviteDropdown]);
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   // Track auth token changes
   useEffect(() => {
@@ -641,9 +650,11 @@ const Header: React.FC<HeaderProps> = ({
             <ThemeToggle />
             {currentUser && (
               <button
+                type="button"
                 onClick={handleLanguageToggle}
                 className="px-2 py-1 text-sm font-medium text-gray-700 dark:text-gray-200 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-md transition-colors border border-gray-300 dark:border-gray-600 hover:border-blue-400 dark:hover:border-blue-500"
                 title={currentLanguage === 'en' ? 'Switch to French' : 'Passer en anglais'}
+                aria-label={currentLanguage === 'en' ? 'Switch to French' : 'Passer en anglais'}
               >
                 {currentLanguage === 'en' ? 'FR' : 'EN'}
               </button>
@@ -652,66 +663,141 @@ const Header: React.FC<HeaderProps> = ({
 
           <div className="w-px h-5 bg-gray-200 dark:bg-gray-600 mx-1" aria-hidden="true" />
 
-          {/* 4. Utilities */}
+          {/* 4–5. Utilities + GitHub — one flex group so spacing stays even */}
           <div className="flex items-center gap-0.5">
-            <button
-              onClick={handleRefresh}
-              className="p-1.5 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-full transition-colors text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
-              title={t('navigation.refreshDataNow')}
-            >
-              <RefreshCw size={16} />
-            </button>
-
-            {currentUser?.roles?.includes('admin') && (
+            {/* Desktop (lg+): refresh + system panel */}
+            <div className="hidden lg:contents">
               <button
-                onClick={handleSystemPanelToggle}
+                type="button"
+                onClick={handleRefresh}
                 className="p-1.5 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-full transition-colors text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
-                title={showSystemPanel ? t('navigation.hideSystemPanel') || 'Hide system panel' : t('navigation.showSystemPanel') || 'Show system panel'}
-                data-tour-id="system-panel-toggle"
+                title={t('navigation.refreshDataNow')}
+                aria-label={t('navigation.refreshDataNow')}
               >
-                {showSystemPanel ? (
-                  <Monitor size={16} />
-                ) : (
-                  <MonitorOff size={16} />
-                )}
+                <RefreshCw size={16} />
               </button>
-            )}
+
+              {currentUser?.roles?.includes('admin') && (
+                <button
+                  type="button"
+                  onClick={handleSystemPanelToggle}
+                  className="p-1.5 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-full transition-colors text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                  title={showSystemPanel ? t('navigation.hideSystemPanel') : t('navigation.showSystemPanel')}
+                  aria-label={showSystemPanel ? t('navigation.hideSystemPanel') : t('navigation.showSystemPanel')}
+                  data-tour-id="system-panel-toggle"
+                >
+                  {showSystemPanel ? (
+                    <Monitor size={16} />
+                  ) : (
+                    <MonitorOff size={16} />
+                  )}
+                </button>
+              )}
+            </div>
 
             <button
+              type="button"
               onClick={onHelpClick}
               className="p-1.5 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-full transition-colors text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
               title={t('navigation.help')}
+              aria-label={t('navigation.help')}
               data-tour-id="help-button"
             >
               <HelpCircle size={20} />
             </button>
+
+            {siteSettings.HIDE_GITHUB_LINK !== 'true' && (
+              <a
+                href="https://github.com/drenlia/easy-kanban"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="hidden lg:inline-flex p-1.5 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 transition-colors"
+                title={t('navigation.github')}
+                aria-label={t('navigation.github')}
+              >
+                <Github size={20} />
+              </a>
+            )}
+
+            {/* Mid-width overflow menu */}
+            <div className="relative lg:hidden" ref={moreMenuRef}>
+              <button
+                type="button"
+                onClick={() => setShowMoreMenu((open) => !open)}
+                className="p-1.5 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-full transition-colors text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                title={t('navigation.more')}
+                aria-label={t('navigation.more')}
+                aria-expanded={showMoreMenu}
+                aria-haspopup="menu"
+              >
+                <MoreHorizontal size={20} />
+              </button>
+              {showMoreMenu && (
+                <div
+                  role="menu"
+                  className="absolute right-0 top-full mt-2 min-w-[12rem] bg-white dark:bg-gray-800 rounded-lg shadow-lg z-50 border border-gray-200 dark:border-gray-700 py-1"
+                >
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      setShowMoreMenu(false);
+                      void handleRefresh();
+                    }}
+                    className="w-full text-left px-4 py-2.5 text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-2"
+                  >
+                    <RefreshCw size={16} />
+                    {t('navigation.refreshDataNow')}
+                  </button>
+                  {currentUser?.roles?.includes('admin') && (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setShowMoreMenu(false);
+                        void handleSystemPanelToggle();
+                      }}
+                      className="w-full text-left px-4 py-2.5 text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-2"
+                      data-tour-id="system-panel-toggle"
+                    >
+                      {showSystemPanel ? <Monitor size={16} /> : <MonitorOff size={16} />}
+                      {showSystemPanel ? t('navigation.hideSystemPanel') : t('navigation.showSystemPanel')}
+                    </button>
+                  )}
+                  {siteSettings.HIDE_GITHUB_LINK !== 'true' && (
+                    <a
+                      role="menuitem"
+                      href="https://github.com/drenlia/easy-kanban"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={() => setShowMoreMenu(false)}
+                      className="w-full text-left px-4 py-2.5 text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-2"
+                    >
+                      <Github size={16} />
+                      {t('navigation.github')}
+                    </a>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
 
-          {/* 5. External */}
-          {siteSettings.HIDE_GITHUB_LINK !== 'true' && (
-            <a
-              href="https://github.com/drenlia/easy-kanban"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="p-1.5 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 transition-colors"
-              title="GitHub"
-            >
-              <Github size={20} />
-            </a>
-          )}
-
-          {/* 6. Account — always last */}
+          {/* 6. Account — click to open (iPad / keyboard friendly) */}
           {currentUser && (
-            <div className="relative group ml-1">
+            <div className="relative ml-1" ref={profileMenuRef}>
               <button
+                type="button"
                 className="flex items-center gap-2 p-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-colors"
-                onClick={onProfileClick}
+                onClick={() => setShowProfileMenu((open) => !open)}
+                aria-label={t('navigation.profileMenu')}
+                aria-expanded={showProfileMenu}
+                aria-haspopup="menu"
                 data-tour-id="profile-menu"
               >
                 {currentUser?.googleAvatarUrl || currentUser?.avatarUrl ? (
                   <img
                     src={getAuthenticatedAvatarUrl(currentUser.googleAvatarUrl || currentUser.avatarUrl)}
-                    alt="Profile"
+                    alt=""
                     className="h-8 w-8 rounded-full object-cover"
                     onError={(e) => {
                       const target = e.target as HTMLImageElement;
@@ -743,24 +829,39 @@ const Header: React.FC<HeaderProps> = ({
                 )}
               </button>
 
-              <div className="absolute right-0 top-full mt-2 min-w-max bg-white dark:bg-gray-800 rounded-lg shadow-lg z-50 border border-gray-200 dark:border-gray-700 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all">
-                <div className="py-1">
-                  <button
-                    onClick={onProfileClick}
-                    className="w-full text-left px-4 py-2.5 text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-2 transition-colors whitespace-nowrap"
-                  >
-                    <User size={18} />
-                    {t('navigation.profile')}
-                  </button>
-                  <button
-                    onClick={onLogout}
-                    className="w-full text-left px-4 py-2.5 text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-2 transition-colors whitespace-nowrap"
-                  >
-                    <LogOut size={18} />
-                    {t('navigation.logout')}
-                  </button>
+              {showProfileMenu && (
+                <div
+                  role="menu"
+                  className="absolute right-0 top-full mt-2 min-w-max bg-white dark:bg-gray-800 rounded-lg shadow-lg z-50 border border-gray-200 dark:border-gray-700"
+                >
+                  <div className="py-1">
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setShowProfileMenu(false);
+                        onProfileClick();
+                      }}
+                      className="w-full text-left px-4 py-2.5 text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-2 transition-colors whitespace-nowrap"
+                    >
+                      <User size={18} />
+                      {t('navigation.profile')}
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setShowProfileMenu(false);
+                        onLogout();
+                      }}
+                      className="w-full text-left px-4 py-2.5 text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-2 transition-colors whitespace-nowrap"
+                    >
+                      <LogOut size={18} />
+                      {t('navigation.logout')}
+                    </button>
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
           )}
         </div>

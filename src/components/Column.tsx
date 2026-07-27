@@ -850,7 +850,7 @@ export default function KanbanColumn({
             <KanbanChromeTooltip label={t('column.clickToEditDragToReorder')}>
               <div
                 {...listeners}
-                className={`cursor-grab active:cursor-grabbing p-1 rounded hover:bg-gray-200 transition-colors opacity-50 hover:opacity-100 shrink-0 ${
+                className={`cursor-grab active:cursor-grabbing p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors opacity-50 hover:opacity-100 shrink-0 ${
                   isEditing ? 'mt-2' : ''
                 }`}
               >
@@ -881,23 +881,23 @@ export default function KanbanColumn({
               />
               
               {/* Finished Column Toggle */}
-              <div className="flex items-center justify-between bg-gray-50 p-3 rounded-lg border">
+              <div className="flex items-center justify-between bg-gray-50 dark:bg-gray-800 p-3 rounded-lg border dark:border-gray-600">
                 <div className="flex items-center space-x-3">
                   <div className="w-2 h-2 rounded-full bg-green-500"></div>
-                  <span className="text-sm font-medium text-gray-700">{t('column.markAsFinishedColumn')}</span>
+                  <span className="text-sm font-medium text-gray-700 dark:text-gray-200">{t('column.markAsFinishedColumn')}</span>
                   {isFinished && siteSettings?.DEFAULT_FINISHED_COLUMN_NAMES && (() => {
                     const finishedColumnNames = parseFinishedColumnNames(siteSettings.DEFAULT_FINISHED_COLUMN_NAMES);
                     const isAutoDetected = finishedColumnNames.some(finishedName => 
                       finishedName.toLowerCase() === title.toLowerCase()
                     );
                     return isAutoDetected ? (
-                      <span className="text-xs text-green-600 bg-green-100 px-2 py-1 rounded-full">
+                      <span className="text-xs text-green-600 dark:text-green-400 bg-green-100 dark:bg-green-900/40 px-2 py-1 rounded-full">
                         {t('column.autoDetected')}
                       </span>
                     ) : null;
                   })()}
                   {isSubmitting && (
-                    <span className="text-xs text-gray-500">{t('column.saving')}</span>
+                    <span className="text-xs text-gray-500 dark:text-gray-400">{t('column.saving')}</span>
                   )}
                 </div>
                 <label className="relative inline-flex items-center cursor-pointer">
@@ -1080,7 +1080,7 @@ export default function KanbanColumn({
                   disabled={isSubmitting || !isOnline}
                   className={`p-1 rounded-full transition-colors ${
                     !isSubmitting && isOnline
-                      ? 'text-gray-500 hover:bg-gray-200 hover:text-gray-700'
+                      ? 'text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 hover:text-gray-700 dark:hover:text-gray-200'
                       : 'text-gray-400 cursor-not-allowed'
                   }`}
                   data-tour-id="add-task-button"
@@ -1128,13 +1128,13 @@ export default function KanbanColumn({
               </KanbanChromeTooltip>
               
               {showMenu && (
-                <div className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg z-[200]">
+                <div className="absolute right-0 mt-2 w-48 bg-white dark:bg-gray-800 rounded-md shadow-lg z-[200] border border-gray-100 dark:border-gray-700">
                   <button
                     onClick={() => {
                       onAddColumn(column.id);
                       setShowMenu(false);
                     }}
-                    className="w-full text-left px-4 py-2 text-sm text-gray-600 hover:bg-gray-100"
+                    className="w-full text-left px-4 py-2 text-sm text-gray-600 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
                     disabled={isSubmitting}
                   >
                     {t('column.addColumn')}
@@ -1158,7 +1158,7 @@ export default function KanbanColumn({
                       onRemoveColumn(column.id);
                       setShowMenu(false);
                     }}
-                    className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-gray-100"
+                    className="w-full text-left px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-gray-100 dark:hover:bg-gray-700"
                     disabled={isSubmitting}
                   >
                     {t('column.deleteColumn')}
@@ -1188,7 +1188,7 @@ export default function KanbanColumn({
               className={`h-full w-full min-h-[200px] flex flex-col items-center justify-center transition-all duration-200 ${
               draggedTask && draggedTask.columnId !== column.id 
                 ? `border-4 border-dashed rounded-lg ${
-                    isOver ? 'bg-blue-100 border-blue-500 scale-105 shadow-lg' : 'bg-blue-50 border-blue-400'
+                    isOver ? 'bg-blue-100 dark:bg-blue-900/40 border-blue-500 scale-105 shadow-lg' : 'bg-blue-50 dark:bg-blue-900/20 border-blue-400 dark:border-blue-500'
                   }` 
                 : 'border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700 hover:border-gray-400 dark:hover:border-gray-500 hover:bg-gray-100 dark:hover:bg-gray-600'
             }`}>
@@ -1203,7 +1203,27 @@ export default function KanbanColumn({
                     {isOver && <div className="text-sm opacity-75 mt-1">{t('column.releaseToPlace')}</div>}
                   </div>
                 ) : (
-                  <div className="text-gray-500 dark:text-gray-400 text-center">
+                  <div className="text-gray-400 dark:text-gray-500 text-center px-3 py-4 space-y-2">
+                    <p className="text-xs text-gray-400 dark:text-gray-500">
+                      {t('column.emptyColumnTitle')}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void handleAddTask();
+                      }}
+                      disabled={isSubmitting || !isOnline}
+                      className={`inline-flex items-center gap-1 px-2 py-1 text-xs rounded-md transition-colors ${
+                        !isSubmitting && isOnline
+                          ? 'text-gray-500 dark:text-gray-400 border border-dashed border-gray-300 dark:border-gray-500 hover:text-white dark:hover:text-white hover:bg-blue-600 hover:border-solid hover:border-blue-600 dark:hover:bg-blue-600 dark:hover:border-blue-600'
+                          : 'text-gray-400 cursor-not-allowed border border-dashed border-gray-200 dark:border-gray-600'
+                      }`}
+                      data-tour-id="empty-column-add-task"
+                    >
+                      <Plus size={12} />
+                      {t('column.addTask')}
+                    </button>
                   </div>
                 )}
             </div>
@@ -1222,7 +1242,7 @@ export default function KanbanColumn({
             <div 
               ref={setDroppableRef}
               className={`min-h-[200px] pb-4 flex-1 transition-colors duration-200 ${
-                isOver ? 'bg-blue-50 rounded-lg' : ''
+                isOver ? 'bg-blue-50 dark:bg-blue-900/20 rounded-lg' : ''
               }`}
               style={{
                 // CRITICAL: Ensure column droppable can receive pointer events even when tasks cover it
@@ -1250,13 +1270,13 @@ export default function KanbanColumn({
       {/* Column Delete Confirmation Dialog - Small popup like BoardTabs */}
       {showColumnDeleteConfirm === column.id && deleteButtonPosition && onConfirmColumnDelete && onCancelColumnDelete && getColumnTaskCount && createPortal(
         <div 
-          className="delete-confirmation fixed bg-white border border-gray-200 rounded-lg shadow-lg p-3 z-[9999] min-w-[220px]"
+          className="delete-confirmation fixed bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg p-3 z-[9999] min-w-[220px]"
           style={{
             top: `${deleteButtonPosition.top}px`,
             left: `${deleteButtonPosition.left}px`,
           }}
         >
-            <div className="text-sm text-gray-700 mb-3">
+            <div className="text-sm text-gray-700 dark:text-gray-200 mb-3">
               {(() => {
                 const taskCount = getColumnTaskCount(column.id);
                 const taskWord = taskCount !== 1 ? t('column.tasks') : t('column.task');
@@ -1269,7 +1289,7 @@ export default function KanbanColumn({
                   onCancelColumnDelete();
                   setDeleteButtonPosition(null);
                 }}
-                className="px-3 py-1 text-sm bg-gray-200 text-gray-700 rounded hover:bg-gray-300 transition-colors"
+                className="px-3 py-1 text-sm bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
               >
                 {t('buttons.no', { ns: 'common' })}
               </button>

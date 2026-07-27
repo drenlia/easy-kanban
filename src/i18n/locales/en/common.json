@@ -64,7 +64,10 @@
     "refreshDataNow": "Refresh data now",
     "help": "Help (F1)",
     "showSystemPanel": "Show system panel",
-    "hideSystemPanel": "Hide system panel"
+    "hideSystemPanel": "Hide system panel",
+    "more": "More",
+    "github": "GitHub",
+    "profileMenu": "Account menu"
   },
   "theme": {
     "switchToDark": "Switch to dark mode",
@@ -123,7 +126,9 @@
     "currentGanttView": "Gantt view",
     "currentExpandView": "Expand view (full descriptions + dates in Gantt)",
     "currentShrinkView": "Shrink view (truncated descriptions)",
-    "currentCompactViewHiddenDescriptions": "Compact view (tickets only) — descriptions are hidden"
+    "currentCompactViewHiddenDescriptions": "Compact view (tickets only) — descriptions are hidden",
+    "showBoardToolbar": "Show tools, members & progress",
+    "hideBoardToolbar": "Hide tools, members & progress"
   },
   "textEditor": {
     "placeholder": "Start typing...",
@@ -662,6 +667,10 @@
     "addBoard": "Add Board (Admin only)",
     "scrollLeft": "Scroll left",
     "scrollRight": "Scroll right",
+    "scrollColumnsLeft": "Click or hold to scroll left",
+    "scrollColumnsRight": "Click or hold to scroll right",
+    "scrollListLeft": "Scroll left",
+    "scrollListRight": "Scroll right",
     "addNewBoard": "Add New Board (Admin only)",
     "dropTaskHere": "Drop task here",
     "newBoard": "New Board"
@@ -1090,6 +1099,11 @@
     "next": "Next",
     "nextWithProgress": "Next (Step {step} of {steps})",
     "skip": "Skip Tour",
+    "nudgeTitle": "Take a quick tour?",
+    "nudgeDescription": "Learn the basics of boards, tasks, and views in a few steps. You can start the tutorial anytime from Help.",
+    "nudgeTakeTour": "Take tour",
+    "nudgeNotNow": "Not now",
+    "nudgeDismiss": "Don't show again",
     "steps": {
       "switchedToKanban": "Switched to Kanban view",
       "switchedToList": "Switched to List View",
