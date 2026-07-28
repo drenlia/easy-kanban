@@ -1,12 +1,12 @@
 # Easy Kanban
 
-A collaborative **Kanban workspace** for teams: multi-board drag-and-drop, List and Gantt views, real-time collaboration, and optional sprint timeboxing with burndown. Built with React/TypeScript and Node.js/Express.
+A collaborative **Kanban workspace** for teams: multi-board drag-and-drop, List and Gantt views, real-time collaboration, optional sprint timeboxing with burndown, and an optional **AI Agent** that can assist on tasks, work linked Git repos, or (for admins) run board automations. Built with React/TypeScript and Node.js/Express.
 
 Easy Kanban is **not** a full enterprise agile ALM (no required Epic/Story types, ceremony tooling, or hard methodology lock-in). Soft WIP limits, card aging, blocked flags, and column policy notes help teams keep flow healthy without ceremony overhead.
 
 <img src="/screenshots/overview.png" alt="Screenshot of easy-kanban" width="100%">
 
-*[View all screenshots and features →](/screenshots/SCREENSHOTS.md)*
+*[View sample screenshots →](/screenshots/SCREENSHOTS.md)*
 
 ## Key Features
 
@@ -20,6 +20,14 @@ Easy Kanban is **not** a full enterprise agile ALM (no required Epic/Story types
 - **User authentication** with local accounts and Google OAuth support
 - **Role-based access control** (Admin/User permissions)
 - **Theme support** - Light and dark mode
+
+### AI Agent (optional)
+- **Assign tasks to an Agent** when an admin enables AI for the instance
+- **Assist** — Agent comments on the task using a configured LLM (OpenAI, Anthropic, OpenRouter, Ollama, or custom OpenAI-compatible)
+- **Code** — Agent works a linked Git repository via the push runner (users add Profile → Dev credentials: API token and/or SSH key)
+- **Automation** (admins) — board automation with dry-run review, Apply, and Undo
+- **Live activity** on the card (queued / running / waiting) with pause, stop, and resume
+- Configure in **Admin → AI Settings** (enable AI, provider, model, runner URL/token). Details: [Documentation.md — AI Agent](/Documentation.md#ai-agent) and [`docs/AI_INTEGRATION.md`](/docs/AI_INTEGRATION.md)
 
 ### Task Management
 - **Task management** with priorities, comments, and file attachments
@@ -59,6 +67,7 @@ Easy Kanban is **not** a full enterprise agile ALM (no required Epic/Story types
 - **Site settings** - Configure site name, URL, and global preferences
 - **SSO configuration** - Google OAuth Single Sign-On setup
 - **Mail server** - SMTP configuration for email notifications and invitations
+- **AI Settings** - Enable the AI Agent, choose LLM provider/model, and configure the agent runner
 - **Tags management** - Create and manage custom tags with colors
 - **Priorities management** - Customize priority levels with names and colors
 - **App settings** - Configure default language, view modes, and application behavior
@@ -84,7 +93,7 @@ Easy Kanban is **not** a full enterprise agile ALM (no required Epic/Story types
 
 **Default Admin Account:**
 - Email: `admin@kanban.local`
-- Password: `generated` at initialization - look for it in the backend console log
+- Password: `generated` at initialization - look for it in the backend console log (or on the login page when demo mode is enabled)
 
 1. Log in with the default admin account
 2. Go to the admin panel and setup:
@@ -93,10 +102,11 @@ Easy Kanban is **not** a full enterprise agile ALM (no required Epic/Story types
    3. Review the Project Settings
    4. Add sprints in the Sprint Settings
    5. Review Reports Settings
-4. Create team members in the Users Tab
-5. Go to Kanban View and set up your boards and columns
-6. Start creating and managing tasks
-7. Configure Google OAuth (optional) in Admin > SSO settings
+3. Create team members in the Users Tab
+4. Go to Kanban View and set up your boards and columns
+5. Start creating and managing tasks
+6. Configure Google OAuth (optional) in Admin > SSO settings
+7. Configure AI Agent (optional) in Admin > AI Settings — for coding jobs, users then add Profile → Dev credentials
 
 ## Permissions
 
@@ -108,6 +118,8 @@ Easy Kanban is **not** a full enterprise agile ALM (no required Epic/Story types
 | Add comments and attachments | ✓ | ✓ |
 | Move tasks between columns | ✓ | ✓ |
 | Associate tasks with sprints | ✓ | ✓ |
+| Assign tasks to AI Agent (when enabled) | ✓ | ✓ |
+| Configure AI Agent / runner | ✓ | ✗ |
 | Create/edit/delete boards | ✓ | ✗ |
 | Reorder boards and columns | ✓ | ✗ |
 | Manage columns (add/remove/reorder) | ✓ | ✗ |
@@ -122,12 +134,13 @@ Easy Kanban is **not** a full enterprise agile ALM (no required Epic/Story types
 | View Leaderboard (when enabled) | ✓ | ✓* |
 | Update own profile | ✓ | ✓ |
 | Configure own notifications | ✓ | ✓ |
+| Manage own Dev credentials (API token / SSH) | ✓ | ✓ |
 
 *Some reports may be restricted to admins only depending on settings
 
 ## Requirements
 
-- nodejs v 20.18
+- Node.js v20.18+
 
 ## Installation
 
@@ -146,6 +159,7 @@ cp docker-compose-example.yml docker-compose.yml
    - `JWT_SECRET`: Set a strong secret key for authentication
    - `ALLOWED_ORIGINS`: Set your domain(s), e.g., `yourdomain.com`
    - `DEMO_ENABLED`: Set to `true` to try the demo with generated data, `false` for production
+   - Optional AI runner (for Agent **Code** jobs): `AI_RUNNER_URL`, `AI_CALLBACK_BASE_URL`, `RUNNER_TOKEN` (see compose example / `docker-compose-pro.yml`)
 
 2. Start the application:
 ```bash
@@ -204,13 +218,13 @@ The application includes JWT-based authentication and role-based access control.
 - Consider additional network security measures
 
 ## Authors and acknowledgment
-Developped with AI assistance
+Developed with AI assistance
 
 ## License
 
 MIT License
 
-Copyright (c) 2024 Easy Kanban
+Copyright (c) 2024–2026 Easy Kanban
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -233,5 +247,3 @@ SOFTWARE.
 ## Project status
 
 Improvements are always welcome.
-
-

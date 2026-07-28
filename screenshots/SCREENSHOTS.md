@@ -1,74 +1,63 @@
 # Easy Kanban Screenshots
 
-This document showcases the key features and interfaces of the Easy Kanban application.
+This document showcases a sample set of screenshots from the Easy Kanban interface.
 
-## Overview - Main Kanban Board
+---
 
-The main interface showing the Kanban board with multiple columns, tasks, and team members.
+## Overview — Main Kanban Board
+
+The main board with columns, task cards, team filters, and board progress.
 
 ![Overview](overview.png)
 
-*Features shown: Multi-column layout, color-coded team members, task cards with assignments, drag-and-drop functionality*
+*Multi-column board, task cards (IDs, assignees, priorities, tags, effort and dates), team member and role filters, board progress, sprint selector, and navigation to Reports and Admin*
 
 ---
 
 ## Task Details & Comments
 
-Detailed task view with rich text comments, file attachments, and task management options.
+Selected task with the details side panel open, plus a comment preview on another card.
 
 ![Task Details](task_details_view_and_comment_tooltip.png)
 
-*Features shown: Task information panel, comment system with timestamps, file attachment support, task assignment options*
+*Task details panel (assignee, requester, watchers, collaborators, dates, effort, blocked state, priority, tags), comment tooltip on a card, and the board behind the panel*
 
 ---
 
 ## User Profile Management
 
-User profile interface for managing personal settings and avatar.
+User settings modal for profile and related preferences.
 
 ![User Profile](user-profile.png)
 
-*Features shown: Profile settings, avatar upload, display name customization, account information*
+*Profile Settings (avatar, display name), App Settings and Notifications tabs, and account deletion options*
 
 ---
 
-## Admin Panel - User Management
+## Admin Panel — User Management
 
-Administrative interface for managing team members and user accounts.
+Admin Users tab for accounts, roles, and status.
 
 ![Admin Users](admin-users.png)
 
-*Features shown: User list with roles, account status management, user creation/editing, permission controls*
+*User table with status, role, auth type, and color; add and edit actions; admin navigation across site, auth, mail, and project settings*
 
 ---
 
-## Admin Panel - SSO Configuration
+## Admin Panel — SSO Configuration
 
-Single Sign-On configuration panel for Google OAuth integration.
+Google OAuth / SSO settings.
 
 ![Admin SSO](admin-SSO.png)
 
-*Features shown: Google OAuth setup, client ID/secret configuration, callback URL settings*
+*Google Client ID, Client Secret, and callback URL; SSO debug logging; save and reload OAuth controls*
 
 ---
 
-## Admin Panel - Mail Server Settings
+## Admin Panel — Mail Server Settings
 
-Email server configuration for system notifications and communications.
+SMTP configuration for outbound mail (demo build shown with mail disabled).
 
 ![Admin Mail Server](admin-mail-server.png)
 
-*Features shown: SMTP configuration, email testing, mail server settings, notification setup*
-
----
-
-## Key Features Demonstrated
-
-- **Multi-board Kanban system** with intuitive drag-and-drop
-- **Rich task management** with comments and file attachments
-- **User authentication** with profile customization
-- **Comprehensive admin panel** for system management
-- **Google OAuth integration** for seamless login
-- **Email system integration** for notifications
-- **Role-based permissions** with admin/user distinctions
-- **Modern, responsive UI** that works across devices
+*SMTP host, port, credentials, from address and name, TLS security, demo-mode sending restriction, and save / test email actions*
