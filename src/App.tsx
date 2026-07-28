@@ -6,6 +6,7 @@ import { SavedFilterView, getSavedFilterView } from './api';
 import DebugPanel from './components/DebugPanel';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { TourProvider } from './contexts/TourContext';
+import TourNudge from './components/tour/TourNudge';
 import { SettingsProvider, useSettings } from './contexts/SettingsContext';
 import Login from './components/Login';
 import ForgotPassword from './components/ForgotPassword';
@@ -42,6 +43,7 @@ import VersionUpdateBanner from './components/VersionUpdateBanner';
 import { useTaskDeleteConfirmation } from './hooks/useTaskDeleteConfirmation';
 import api, { getMembers, getBoards, deleteTask, updateTask, reorderTasks, reorderColumns, reorderBoards, updateColumn, updateBoard, createTaskAtTop, createTask, copyTask, createColumn, createBoard, deleteColumn, deleteBoard, getUserSettings, createUser, getUserStatus, getActivityFeed, updateSavedFilterView, getCurrentUser, updateAppUrl } from './api';
 import { toast, ToastContainer } from './utils/toast';
+import { getWipStatus, hasWipLimit } from './utils/kanbanFlowUtils';
 import { useLoadingState } from './hooks/useLoadingState';
 import { useDebug } from './hooks/useDebug';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
@@ -789,6 +791,8 @@ function AppContent() {
           }
         } catch (error) {
           console.error('Failed to restore preferences:', error);
+        } finally {
+          setLanguageLoaded(true);
         }
       };
       
@@ -1074,6 +1078,10 @@ function AppContent() {
     setAvailablePriorities,
     setAvailableSprints,
     // setSiteSettings removed - use refreshContextSettings from SettingsContext instead
+    refreshMembers: async () => {
+      const loadedMembers = await getMembers(taskFilters.includeSystem);
+      setMembers(Array.isArray(loadedMembers) ? loadedMembers : []);
+    },
     versionStatus,
   });
 
@@ -1630,13 +1638,10 @@ function AppContent() {
           taskFilters.loadSavedFilterView(userSpecificPrefs.currentFilterViewId);
         }
         
-        // Set initial selected board with preference fallback - only if not already set
-        if (!selectedBoard) {
-          const initialBoard = getInitialSelectedBoardWithPreferences(currentUser.id);
-          if (initialBoard) {
-            setSelectedBoard(initialBoard);
-          }
-        }
+        // Do NOT setSelectedBoard here. Prefs can run before loadInitialData finishes, which
+        // triggers the board-selection effect → refreshBoardData (columns only) while members
+        // are still []. Column then skips every card until members arrive. Board selection is
+        // handled in loadInitialData once members + boards are available together.
         
         // Update APP_URL if user is the owner (part of initialization process)
         try {
@@ -1890,10 +1895,8 @@ function AppContent() {
           // CRITICAL FIX: If no board is selected yet, immediately select one and load its columns
           // This prevents the blank board race condition on initial load/refresh
           if (loadedBoards.length > 0 && !selectedBoard) {
-            // Determine which board to select (same logic as auto-selection effect)
-            const cookiePreference = getCookie('lastSelectedBoard');
-            const userPreference = currentUser?.user_preferences?.lastSelectedBoard;
-            const preferredBoardId = cookiePreference || userPreference;
+            // Prefer cookie / stored preference (same helper prefs used to call early — that raced members)
+            const preferredBoardId = getInitialSelectedBoardWithPreferences(currentUser.id);
             
             // Try to find the preferred board, fallback to first board
             const boardToSelect = preferredBoardId 
@@ -1903,7 +1906,7 @@ function AppContent() {
             if (boardToSelect) {
               if (feDebug('FE_DEBUG_APP_CORE')) console.log(`🎯 [INITIAL LOAD] Auto-selecting board: ${boardToSelect.title} (${boardToSelect.id})`);
 
-              // Set board and columns synchronously to prevent blank board
+              // Set board, columns, AND members already set above — avoid blank-card race
               setSelectedBoard(boardToSelect.id);
               setColumns(boardToSelect.columns || {});
               
@@ -2469,6 +2472,7 @@ function AppContent() {
       } else if (await handleInstanceStatusError(error)) {
         // Instance status error handled by utility function
       } else {
+        toast.error(t('errors.createTaskTitle'), t('errors.createTaskMessage'));
         await refreshBoardData();
       }
     }
@@ -2584,8 +2588,9 @@ function AppContent() {
       if (previousSelectedTask) {
         setSelectedTask(previousSelectedTask);
       }
+      toast.error(t('errors.updateTaskTitle'), t('errors.updateTaskMessage'));
     }
-  }, [withLoading, fetchQueryLogs, columns, selectedTask, taskFilters]);
+  }, [withLoading, fetchQueryLogs, columns, selectedTask, taskFilters, t]);
 
   const handleCopyTask = async (task: Task) => {
     const originalPosition = task.position || 0;
@@ -2645,6 +2650,8 @@ function AppContent() {
       setTimeout(() => {
         setTaskCreationPause(false);
       }, TASK_CREATION_PAUSE_DURATION);
+
+      toast.success(t('errors.copyTaskSuccessTitle'), t('errors.copyTaskSuccessMessage'));
       
     } catch (error) {
       console.error('Failed to copy task:', error);
@@ -2653,6 +2660,8 @@ function AppContent() {
       // Check if it's an instance unavailable error
       if (await handleInstanceStatusError(error)) {
         // Instance status error handled by utility function
+      } else {
+        toast.error(t('errors.copyTaskTitle'), t('errors.copyTaskMessage'));
       }
     }
   };
@@ -2917,30 +2926,38 @@ function AppContent() {
 
   // Wrapper for handleSameColumnReorder that provides current state
   const handleSameColumnReorderWrapper = async (task: Task, columnId: string, newIndex: number) => {
-    return handleSameColumnReorder(
-      task,
-      columnId,
-      newIndex,
-      columns,
-      setColumns,
-      setDragCooldown,
-      refreshBoardData,
-      taskFilters.setFilteredColumns
-    );
+    try {
+      await handleSameColumnReorder(
+        task,
+        columnId,
+        newIndex,
+        columns,
+        setColumns,
+        setDragCooldown,
+        refreshBoardData,
+        taskFilters.setFilteredColumns
+      );
+    } catch {
+      toast.error(t('errors.moveTaskTitle'), t('errors.moveTaskMessage'));
+    }
   };
 
   // Wrapper for moveTaskToPosition that provides current state (for position-based moves)
   const moveTaskToPositionWrapper = async (task: Task, columnId: string, newPosition: number) => {
-    return moveTaskToPosition(
-      task,
-      columnId,
-      newPosition,
-      columns,
-      setColumns,
-      setDragCooldown,
-      refreshBoardData,
-      taskFilters.setFilteredColumns
-    );
+    try {
+      await moveTaskToPosition(
+        task,
+        columnId,
+        newPosition,
+        columns,
+        setColumns,
+        setDragCooldown,
+        refreshBoardData,
+        taskFilters.setFilteredColumns
+      );
+    } catch {
+      toast.error(t('errors.moveTaskTitle'), t('errors.moveTaskMessage'));
+    }
   };
 
   // Handle moving task to different column via ListView dropdown or drag & drop
@@ -2990,36 +3007,71 @@ function AppContent() {
 
     dndLog('🎯 Resolved drop index:', { resolvedPlacement, targetIndex });
 
+    // Soft WIP warning when crossing into a limited column at/over capacity
+    if (sourceColumnId !== targetColumnId && hasWipLimit(targetColumn.wip_limit)) {
+      const destCount = targetColumn.tasks.length;
+      const status = getWipStatus(destCount + 1, targetColumn.wip_limit);
+      if (status === 'at' || status === 'over') {
+        toast.warning(
+          t('column.wipSoftWarningTitle', { ns: 'tasks' }),
+          t('column.wipSoftWarningBody', {
+            ns: 'tasks',
+            count: destCount + 1,
+            limit: targetColumn.wip_limit,
+            column: targetColumn.title,
+          })
+        );
+      }
+    }
+
     // Check if this is a same-column reorder or cross-column move
     if (sourceColumnId === targetColumnId) {
       await moveTaskToPositionWrapper(sourceTask, sourceColumnId, targetIndex);
     } else {
       await handleCrossColumnMoveWrapper(sourceTask, sourceColumnId, targetColumnId, targetIndex);
     }
-  }, [columns]);
+  }, [columns, t]);
 
   // Wrapper for handleCrossColumnMove that provides current state
   const handleCrossColumnMoveWrapper = async (task: Task, sourceColumnId: string, targetColumnId: string, targetIndex: number) => {
-    return handleCrossColumnMove(
-      task,
-      sourceColumnId,
-      targetColumnId,
-      targetIndex,
-      columns,
-      setColumns,
-      setDragCooldown,
-      refreshBoardData,
-      taskFilters.setFilteredColumns
-    );
+    try {
+      await handleCrossColumnMove(
+        task,
+        sourceColumnId,
+        targetColumnId,
+        targetIndex,
+        columns,
+        setColumns,
+        setDragCooldown,
+        refreshBoardData,
+        taskFilters.setFilteredColumns
+      );
+    } catch {
+      toast.error(t('errors.moveTaskTitle'), t('errors.moveTaskMessage'));
+    }
   };
 
 
-  const handleEditColumn = async (columnId: string, title: string, is_finished?: boolean, is_archived?: boolean) => {
+  const handleEditColumn = async (
+    columnId: string,
+    title: string,
+    is_finished?: boolean,
+    is_archived?: boolean,
+    wip_limit?: number | null,
+    policy_text?: string | null
+  ) => {
     try {
-      await updateColumn(columnId, title, is_finished, is_archived);
+      await updateColumn(columnId, title, is_finished, is_archived, wip_limit, policy_text);
       setColumns(prev => ({
         ...prev,
-        [columnId]: { ...prev[columnId], title, is_finished, is_archived }
+        [columnId]: {
+          ...prev[columnId],
+          title,
+          is_finished,
+          is_archived,
+          wip_limit: wip_limit !== undefined ? wip_limit : prev[columnId]?.wip_limit,
+          policy_text: policy_text !== undefined ? policy_text : prev[columnId]?.policy_text,
+        }
       }));
       
       // If column becomes archived, remove it from visible columns
@@ -3031,7 +3083,7 @@ function AppContent() {
       
       await fetchQueryLogs();
     } catch (error) {
-      // console.error('Failed to update column:', error);
+      toast.error(t('errors.updateColumnTitle'), t('errors.updateColumnMessage'));
     }
   };
 
@@ -3067,7 +3119,7 @@ function AppContent() {
       setShowColumnDeleteConfirm(null);
       await fetchQueryLogs();
     } catch (error) {
-      // console.error('Failed to delete column:', error);
+      toast.error(t('errors.deleteColumnTitle'), t('errors.deleteColumnMessage'));
     }
   };
 
@@ -3102,9 +3154,10 @@ function AppContent() {
         await performCrossBoardMove(taskId, targetBoardId);
       } catch (error) {
         console.error('Failed to move task to board:', error);
+        toast.error(t('errors.moveTaskToBoardTitle'), t('errors.moveTaskToBoardMessage'));
       }
     },
-    [performCrossBoardMove]
+    [performCrossBoardMove, t]
   );
 
   const handleConfirmCrossBoardMove = useCallback(async () => {
@@ -3116,10 +3169,11 @@ function AppContent() {
       setCrossBoardMovePending(null);
     } catch (error) {
       console.error('Failed to move task to board:', error);
+      toast.error(t('errors.moveTaskToBoardTitle'), t('errors.moveTaskToBoardMessage'));
     } finally {
       setCrossBoardMoveBusy(false);
     }
-  }, [crossBoardMovePending, performCrossBoardMove]);
+  }, [crossBoardMovePending, performCrossBoardMove, t]);
 
   const handleCancelCrossBoardMove = useCallback(() => {
     if (!crossBoardMoveBusy) setCrossBoardMovePending(null);
@@ -3333,7 +3387,7 @@ function AppContent() {
 
       await fetchQueryLogs();
     } catch (error) {
-      // console.error('Failed to create column:', error);
+      toast.error(t('errors.createColumnTitle'), t('errors.createColumnMessage'));
     }
   };
 
@@ -3757,9 +3811,9 @@ function AppContent() {
   }
 
   return (
+    <ThemeProvider>
     <TourProvider currentUser={currentUser} onViewModeChange={handleViewModeChange} onPageChange={handlePageChange}>
-      <ThemeProvider>
-        <div className="min-h-screen flex flex-col" style={{ backgroundColor: 'var(--main-bg)' }}>
+      <div className="min-h-screen flex flex-col" style={{ backgroundColor: 'var(--main-bg)' }}>
       {/* Demo Reset Counter is now rendered in Header component */}
       
       {/* New Enhanced Drag & Drop System */}
@@ -4057,6 +4111,7 @@ function AppContent() {
       
       {/* Toast Notifications */}
       <ToastContainer />
+      <TourNudge />
 
       {/* Debug: Log admin status */}
       {process.env.NODE_ENV === 'development' && (
@@ -4065,8 +4120,8 @@ function AppContent() {
           User: {currentUser?.email || 'Not logged in'}
         </div>
       )}
-      </ThemeProvider>
     </TourProvider>
+    </ThemeProvider>
   );
 }
 

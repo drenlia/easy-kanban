@@ -309,6 +309,15 @@ class WebSocketService {
       }
     });
 
+    // Agent task_work updates (status / log / control)
+    postgresNotificationService.subscribeToAllTenants('task-work-updated', (data, tenantId) => {
+      if (tenantId) {
+        this.io?.to(`tenant-${tenantId}`).emit('task-work-updated', data);
+      } else {
+        this.io?.emit('task-work-updated', data);
+      }
+    });
+
     // Task deleted - broadcast to tenant-specific clients
     postgresNotificationService.subscribeToAllTenants('task-deleted', (data, tenantId) => {
       const timestamp = new Date().toISOString();

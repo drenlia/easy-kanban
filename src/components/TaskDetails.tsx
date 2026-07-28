@@ -4,17 +4,59 @@ import { Task, TeamMember, Comment, Attachment, Tag, PriorityOption, CurrentUser
 import { X, Paperclip, ChevronDown, Check, Edit2, Plus } from 'lucide-react';
 import DOMPurify from 'dompurify';
 import TextEditor from './TextEditor';
-import { createComment, uploadFile, updateTask, deleteComment, updateComment, fetchCommentAttachments, getAllTags, getTaskTags, addTagToTask, removeTagFromTask, getAllPriorities, addWatcherToTask, removeWatcherFromTask, addCollaboratorToTask, removeCollaboratorFromTask, fetchTaskAttachments, deleteAttachment, getTaskRelationships, getAvailableTasksForRelationship, addTaskRelationship, removeTaskRelationship } from '../api';
+import {
+  createComment,
+  uploadFile,
+  updateTask,
+  deleteComment,
+  updateComment,
+  fetchCommentAttachments,
+  getAllTags,
+  getTaskTags,
+  addTagToTask,
+  removeTagFromTask,
+  getAllPriorities,
+  addWatcherToTask,
+  removeWatcherFromTask,
+  addCollaboratorToTask,
+  removeCollaboratorFromTask,
+  fetchTaskAttachments,
+  deleteAttachment,
+  getTaskRelationships,
+  getAvailableTasksForRelationship,
+  addTaskRelationship,
+  removeTaskRelationship,
+  putTaskWork,
+  getTaskWork,
+  getTaskById,
+  setTaskWorkControl,
+  undoAutomationJob,
+  type TaskWorkMap,
+} from '../api';
 import { useFileUpload } from '../hooks/useFileUpload';
 import { getLocalISOString, formatToYYYYMMDDHHmmss } from '../utils/dateUtils';
 import { generateUUID } from '../utils/uuid';
 import { loadUserPreferences, updateUserPreference } from '../utils/userPreferences';
 import { generateTaskUrl } from '../utils/routingUtils';
 import { mergeTaskTagsWithLiveData, getTagDisplayStyle } from '../utils/tagUtils';
-import { getAuthenticatedAttachmentUrl } from '../utils/authImageUrl';
+import { getAuthenticatedAttachmentUrl, getAuthenticatedAvatarUrl } from '../utils/authImageUrl';
 import { truncateMemberName } from '../utils/memberUtils';
+import {
+  isAgentMemberId,
+  sortMembersAgentLast,
+} from '../utils/agentMemberUi';
 import AddTagModal from './AddTagModal';
+import AgentPanel from './AgentPanel';
+import type { AgentPanelView } from './AgentPanel';
+import AgentStatusButton from './AgentStatusButton';
+import {
+  AGENT_MEMBER_ID,
+  SYSTEM_MEMBER_ID,
+  AGENT_DRAG_BLOCKING_STATUSES,
+} from '../constants/appConstants';
 import { feDebug } from '../utils/clientDebug';
+import { commentTextToHtml } from '../utils/commentContent';
+import websocketClient from '../services/websocketClient';
 
 function detailsLog(...args: unknown[]) {
   if (feDebug('FE_DEBUG_TASK_DETAILS')) console.log(...args);
@@ -35,6 +77,21 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
   const { t } = useTranslation(['tasks', 'common']);
   const userPrefs = loadUserPreferences();
   const [width, setWidth] = useState(userPrefs.taskDetailsWidth);
+  const [isCompactViewport, setIsCompactViewport] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia('(max-width: 1023px)').matches
+  );
+
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 1023px)');
+    const onChange = () => setIsCompactViewport(mq.matches);
+    onChange();
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
+
+  const panelWidth = isCompactViewport
+    ? Math.min(Math.max(width, Math.round(window.innerWidth * 0.88)), window.innerWidth)
+    : width;
   
   // Get project identifier from the board this task belongs to
   const getProjectIdentifier = () => {
@@ -43,6 +100,13 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
     return board?.project || null;
   };
   const [isResizing, setIsResizing] = useState(false);
+  const [showAgentPanel, setShowAgentPanel] = useState(false);
+  const [agentPanelView, setAgentPanelView] = useState<AgentPanelView>('activity');
+  const [agentPanelRestoreToken, setAgentPanelRestoreToken] = useState(0);
+  const [agentWork, setAgentWork] = useState<TaskWorkMap>({});
+  const [agentControlBusy, setAgentControlBusy] = useState(false);
+  const [agentModalComments, setAgentModalComments] = useState(task.comments || []);
+  const detailsPanelRef = useRef<HTMLDivElement>(null);
   const [editedTask, setEditedTask] = useState<Task>(() => ({
     ...task,
     memberId: task.memberId || members[0]?.id || '',
@@ -85,6 +149,66 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
   const [isLoadingTags, setIsLoadingTags] = useState(false);
   const tagsDropdownRef = useRef<HTMLDivElement>(null);
   const [availablePriorities, setAvailablePriorities] = useState<PriorityOption[]>([]);
+
+  const agentStatus = agentWork.status || null;
+  const isAgentAssigned =
+    editedTask.memberId === AGENT_MEMBER_ID || task.memberId === AGENT_MEMBER_ID;
+  const isAgentWorkActive =
+    isAgentAssigned &&
+    !!agentStatus &&
+    (AGENT_DRAG_BLOCKING_STATUSES as readonly string[]).includes(agentStatus);
+
+  useEffect(() => {
+    if (!isAgentAssigned) {
+      setAgentWork({});
+      return;
+    }
+    let cancelled = false;
+    getTaskWork(task.id)
+      .then(({ work }) => {
+        if (!cancelled) setAgentWork(work || {});
+      })
+      .catch(() => {
+        if (!cancelled) setAgentWork({});
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [task.id, isAgentAssigned]);
+
+  useEffect(() => {
+    const handler = (data: { taskId?: string; work?: TaskWorkMap }) => {
+      if (data?.taskId === task.id && data.work) {
+        setAgentWork(data.work);
+      }
+    };
+    websocketClient.onTaskWorkUpdated(handler);
+    return () => websocketClient.offTaskWorkUpdated(handler);
+  }, [task.id]);
+
+  useEffect(() => {
+    if (!showAgentPanel || !isAgentAssigned) return;
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const [{ work }, fresh] = await Promise.all([
+          getTaskWork(task.id),
+          getTaskById(task.id),
+        ]);
+        if (cancelled) return;
+        if (work) setAgentWork(work);
+        if (fresh?.comments) setAgentModalComments(fresh.comments);
+      } catch {
+        /* ignore */
+      }
+    };
+    void tick();
+    const id = window.setInterval(tick, 2500);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [showAgentPanel, task.id, isAgentAssigned]);
   
   // Task relationships state
   const [relationships, setRelationships] = useState<any[]>([]);
@@ -381,6 +505,15 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
 
   const handleUpdate = async (updatedFields: Partial<Task>) => {
     if (isSubmitting) return;
+    if (isAgentWorkActive) return;
+
+    if (updatedFields.memberId === AGENT_MEMBER_ID) {
+      if (siteSettings?.AI_ENABLED !== 'true') return;
+      setAgentPanelView('configure');
+      setShowAgentPanel(true);
+      setAgentPanelRestoreToken((n) => n + 1);
+      return;
+    }
 
     const updatedTask = { ...editedTask, ...updatedFields };
     setEditedTask(updatedTask);
@@ -401,8 +534,152 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
     }
   };
 
+  const handleAgentPanelSaveConfig = async (
+    repoUrl: string,
+    repoBranch: string,
+    options?: {
+      restart?: boolean;
+      llmModel?: string;
+      launch?: boolean;
+      agentMode?: 'assist' | 'code' | 'automation';
+      automationScope?: 'this_board' | 'selected' | 'all_boards';
+      automationBoardIds?: string[];
+      description?: string;
+    }
+  ) => {
+    const agentMode = options?.agentMode || (repoUrl.trim() ? 'code' : 'assist');
+    const isFirstAssign = editedTask.memberId !== AGENT_MEMBER_ID;
+    setIsSubmitting(true);
+    try {
+      if (isFirstAssign) {
+        const updatedTask = {
+          ...editedTask,
+          memberId: AGENT_MEMBER_ID,
+          ...(options?.description !== undefined
+            ? { description: options.description }
+            : {}),
+        };
+        setEditedTask(updatedTask);
+        await onUpdate(updatedTask);
+        const shouldLaunch = options?.launch !== false;
+        const { work } = await putTaskWork(task.id, {
+          repoUrl: agentMode === 'automation' ? '' : repoUrl,
+          repoBranch: agentMode === 'automation' ? '' : repoBranch,
+          agentMode,
+          ...(agentMode === 'automation'
+            ? {
+                automationScope: options?.automationScope || 'this_board',
+                automationBoardIds: options?.automationBoardIds || [],
+              }
+            : {}),
+          ...(shouldLaunch
+            ? { status: 'queued', entries: { control: 'none' } }
+            : {}),
+          ...(options?.llmModel !== undefined ? { llmModel: options.llmModel } : {}),
+        });
+        setAgentWork(work || {});
+        return;
+      }
+
+      if (options?.description !== undefined) {
+        const updatedTask = { ...editedTask, description: options.description };
+        setEditedTask(updatedTask);
+        await onUpdate(updatedTask);
+      }
+      const { work } = await putTaskWork(task.id, {
+        repoUrl: agentMode === 'automation' ? '' : repoUrl,
+        repoBranch: agentMode === 'automation' ? '' : repoBranch,
+        agentMode,
+        ...(agentMode === 'automation'
+          ? {
+              automationScope: options?.automationScope || 'this_board',
+              automationBoardIds: options?.automationBoardIds || [],
+            }
+          : {}),
+        ...(options?.llmModel !== undefined ? { llmModel: options.llmModel } : {}),
+      });
+      setAgentWork(work || {});
+      if (options?.restart) {
+        await handleAgentControl('resume');
+      }
+    } catch (error) {
+      console.error('Failed to save agent configuration:', error);
+      throw error;
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const openAgentWorkingModal = () => {
+    setAgentModalComments(editedTask.comments || task.comments || []);
+    setAgentPanelView('activity');
+    setShowAgentPanel(true);
+    setAgentPanelRestoreToken((n) => n + 1);
+  };
+
+  const handleAgentControl = async (
+    control: 'pause' | 'stop' | 'resume' | 'apply'
+  ) => {
+    setAgentControlBusy(true);
+    try {
+      const { work } = await setTaskWorkControl(task.id, control);
+      setAgentWork(work);
+    } catch (error) {
+      console.error('Agent control failed:', error);
+    } finally {
+      setAgentControlBusy(false);
+    }
+  };
+
+  const handleAutomationUndo = async () => {
+    setAgentControlBusy(true);
+    try {
+      const result = await undoAutomationJob(task.id);
+      if (result.work) {
+        setAgentWork(result.work);
+      } else {
+        const { work } = await getTaskWork(task.id);
+        setAgentWork(work || {});
+      }
+      try {
+        const fresh = await getTaskById(task.id);
+        if (fresh?.comments) setAgentModalComments(fresh.comments);
+      } catch {
+        /* ignore comment refresh errors */
+      }
+    } catch (error) {
+      console.error('Automation undo failed:', error);
+    } finally {
+      setAgentControlBusy(false);
+    }
+  };
+
+  const handleAgentRefine = async (text: string, options: { restart: boolean }) => {
+    // Reuse comment flow via createComment path used by handleCommentSubmit below —
+    // call the same API used for panel comments.
+    const currentUserMember = members.find((m) => m.user_id === currentUser?.id);
+    if (!currentUserMember) return;
+    const newComment = {
+      id: generateUUID(),
+      text,
+      authorId: currentUserMember.id,
+      createdAt: new Date().toISOString(),
+      taskId: task.id,
+      attachments: [] as Attachment[],
+    };
+    await createComment(newComment);
+    const updatedComments = [...(editedTask.comments || []), newComment];
+    setEditedTask((prev) => ({ ...prev, comments: updatedComments }));
+    setAgentModalComments(updatedComments);
+    await onUpdate({ ...editedTask, comments: updatedComments });
+    if (options.restart) {
+      await handleAgentControl('resume');
+    }
+  };
+
   // Separate function for text field updates with immediate save
   const handleTextUpdate = (field: 'title' | 'description', value: string) => {
+    if (isAgentWorkActive) return;
     const updatedTask = { ...editedTask, [field]: value };
     setEditedTask(updatedTask);
     
@@ -1290,10 +1567,20 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
   const displayAttachments = React.useMemo(() => taskAttachments, [taskAttachments]);
 
   return (
-    <div 
-      className="fixed right-0 bg-white dark:bg-gray-800 border-l border-gray-200 dark:border-gray-700 flex z-50" 
+    <>
+    {isCompactViewport && (
+      <button
+        type="button"
+        className="fixed inset-0 z-40 bg-black/30 dark:bg-black/50 border-0 cursor-default"
+        aria-label={t('buttons.close', { ns: 'common' })}
+        onClick={onClose}
+      />
+    )}
+    <div
+      ref={detailsPanelRef}
+      className="fixed right-0 bg-white dark:bg-gray-800 border-l border-gray-200 dark:border-gray-700 flex z-50 shadow-xl lg:shadow-none"
       style={{ 
-        width: `${width}px`,
+        width: `${panelWidth}px`,
         top: '65px', // Position below header (adjusted for proper clearance)
         height: 'calc(100vh - 65px)' // Full height minus header
       }}
@@ -1343,13 +1630,32 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
             <div className="p-3">
               <div className="flex justify-between items-center mb-2">
                 {/* Title - 60% width + 50px when project/task info is shown, 100% when not */}
-                <div className="w-3/5" style={{ width: 'calc(60% + 50px)' }}>
+                <div
+                  className="w-3/5 flex items-center gap-2 min-w-0"
+                  style={{ width: 'calc(60% + 50px)' }}
+                >
+                  {isAgentAssigned && (
+                    <AgentStatusButton
+                      status={agentStatus}
+                      iconSize={18}
+                      className="flex-shrink-0 p-1.5 rounded hover:bg-teal-100 dark:hover:bg-teal-900/40"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openAgentWorkingModal();
+                      }}
+                    />
+                  )}
                   <input
                     type="text"
                     value={editedTask.title}
                     onChange={e => handleTextUpdate('title', e.target.value)}
-                    className="text-xl font-semibold w-full border-none focus:outline-none focus:ring-0 bg-gray-50 dark:bg-gray-700 p-3 rounded text-gray-900 dark:text-white"
-                    disabled={isSubmitting}
+                    className="text-xl font-semibold w-full border-none focus:outline-none focus:ring-0 bg-gray-50 dark:bg-gray-700 p-3 rounded text-gray-900 dark:text-white disabled:opacity-70 disabled:cursor-not-allowed"
+                    disabled={isSubmitting || isAgentWorkActive}
+                    title={
+                      isAgentWorkActive
+                        ? t('toolbar.disabledWhileAgent')
+                        : undefined
+                    }
                   />
                 </div>
                 
@@ -1449,12 +1755,17 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                 <select
                   value={validMemberId}
                   onChange={e => handleUpdate({ memberId: e.target.value })}
-                  className="w-full px-3 py-2 border rounded-md bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-100"
-                  disabled={isSubmitting}
+                  className="w-full px-3 py-2 border rounded-md bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-100 disabled:opacity-70 disabled:cursor-not-allowed"
+                  disabled={isSubmitting || isAgentWorkActive}
+                  title={
+                    isAgentWorkActive
+                      ? t('toolbar.disabledWhileAgent')
+                      : undefined
+                  }
                 >
-                  {members.map(member => (
+                  {sortMembersAgentLast(members).map(member => (
                     <option key={member.id} value={member.id}>
-                      {truncateMemberName(member.name)}
+                      {isAgentMemberId(member.id) ? `🤖 ${truncateMemberName(member.name)}` : truncateMemberName(member.name)}
                     </option>
                   ))}
                 </select>
@@ -1470,7 +1781,9 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                   className="w-full px-3 py-2 border rounded-md bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-100"
                   disabled={isSubmitting}
                 >
-                  {members.map(member => (
+                  {sortMembersAgentLast(members)
+                    .filter((m) => !isAgentMemberId(m.id))
+                    .map(member => (
                     <option key={member.id} value={member.id}>
                       {truncateMemberName(member.name)}
                     </option>
@@ -1508,7 +1821,9 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                         ? 'bottom-full mb-1' 
                         : 'top-full mt-1'
                     }`}>
-                      {members.map(member => {
+                      {members
+                        .filter((m) => !isAgentMemberId(m.id))
+                        .map(member => {
                         const isWatching = taskWatchers.some(w => w.id === member.id);
                         return (
                           <div
@@ -1582,7 +1897,9 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                         ? 'bottom-full mb-1' 
                         : 'top-full mt-1'
                     }`}>
-                      {members.map(member => {
+                      {members
+                        .filter((m) => !isAgentMemberId(m.id))
+                        .map(member => {
                         const isCollaborating = taskCollaborators.some(c => c.id === member.id);
                         return (
                           <div
@@ -1693,6 +2010,52 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                   className="w-full px-3 py-2 border rounded-md bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-100"
                   disabled={isSubmitting}
                 />
+              </div>
+
+              <div className="col-span-2">
+                <div className="flex items-center justify-between gap-3 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2">
+                  <div>
+                    <div className="text-sm font-medium text-gray-700 dark:text-gray-200">
+                      {t('labels.blocked')}
+                    </div>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                      {t('labels.blockedHint')}
+                    </p>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                    <input
+                      type="checkbox"
+                      className="sr-only peer"
+                      checked={Boolean(editedTask.isBlocked)}
+                      disabled={isSubmitting}
+                      onChange={(e) =>
+                        handleUpdate({
+                          isBlocked: e.target.checked,
+                          blockedReason: e.target.checked ? editedTask.blockedReason || null : null,
+                        })
+                      }
+                    />
+                    <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-red-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-red-600" />
+                  </label>
+                </div>
+                {editedTask.isBlocked && (
+                  <input
+                    type="text"
+                    value={editedTask.blockedReason || ''}
+                    onChange={(e) =>
+                      setEditedTask((prev) => ({ ...prev, blockedReason: e.target.value }))
+                    }
+                    onBlur={(e) =>
+                      handleUpdate({
+                        isBlocked: true,
+                        blockedReason: e.target.value.trim() || null,
+                      })
+                    }
+                    placeholder={t('labels.blockedReasonPlaceholder')}
+                    className="mt-2 w-full px-3 py-2 border rounded-md bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-100 text-sm"
+                    disabled={isSubmitting}
+                  />
+                )}
               </div>
 
               <div>
@@ -2008,16 +2371,35 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                 return fixedContent;
               };
 
-              const displayContent = fixImageUrls(comment.text, attachments);
+              const displayContent = fixImageUrls(
+                commentTextToHtml(comment.text),
+                attachments
+              );
 
               return (
                 <div key={comment.id} className="border-b border-gray-200 pb-6">
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2">
-                      <div
-                        className="w-2 h-2 rounded-full"
-                        style={{ backgroundColor: author.color }}
-                      />
+                      {author.googleAvatarUrl || author.avatarUrl ? (
+                        <img
+                          src={getAuthenticatedAvatarUrl(
+                            author.googleAvatarUrl || author.avatarUrl
+                          )}
+                          alt={author.name}
+                          className="w-7 h-7 rounded-full object-cover shrink-0"
+                        />
+                      ) : (
+                        <div
+                          className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-medium text-white shrink-0"
+                          style={{ backgroundColor: author.color }}
+                        >
+                          {author.id === SYSTEM_MEMBER_ID
+                            ? '🤖'
+                            : author.id === AGENT_MEMBER_ID
+                              ? '✨'
+                              : author.name.charAt(0).toUpperCase()}
+                        </div>
+                      )}
                       <span className="font-medium">{author.name}</span>
                       <span className="text-sm text-gray-500">
                         {formatToYYYYMMDDHHmmss(comment.createdAt)}
@@ -2104,7 +2486,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                     />
                   ) : (
                     <div
-                      className="prose prose-sm max-w-none"
+                      className="prose prose-sm max-w-none comment-md"
                       dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(displayContent) }}
                     />
                   )}
@@ -2144,6 +2526,37 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
           onTagCreated={handleTagCreated}
         />
       )}
+      {showAgentPanel && (
+        <AgentPanel
+          panelId={task.id}
+          taskTitle={editedTask.title}
+          taskTicket={task.ticket}
+          taskDescription={editedTask.description}
+          work={agentWork}
+          comments={agentModalComments}
+          members={members}
+          busy={agentControlBusy}
+          isAdmin={Boolean(currentUser?.roles?.includes('admin'))}
+          boards={(boards || []).map((b: { id: string; title?: string; name?: string }) => ({
+            id: b.id,
+            title: b.title || b.name || b.id,
+          }))}
+          view={agentPanelView}
+          onViewChange={setAgentPanelView}
+          restoreToken={agentPanelRestoreToken}
+          onClose={() => {
+            setShowAgentPanel(false);
+            setAgentPanelView('activity');
+          }}
+          onControl={handleAgentControl}
+          onUndo={handleAutomationUndo}
+          onRefine={handleAgentRefine}
+          onSaveConfig={handleAgentPanelSaveConfig}
+          aiEnabled={siteSettings?.AI_ENABLED === 'true'}
+          isAssigned={isAgentAssigned}
+        />
+      )}
     </div>
+    </>
   );
 }

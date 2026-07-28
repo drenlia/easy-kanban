@@ -4,6 +4,7 @@ import { checkUserLimit } from '../middleware/licenseCheck.js';
 import notificationService from '../services/notificationService.js';
 import { getRequestDatabase } from '../middleware/tenantRouting.js';
 import { members as memberQueries } from '../utils/sqlManager/index.js';
+import { isAiEnabled } from '../utils/aiEnabled.js';
 
 const router = express.Router();
 
@@ -21,9 +22,10 @@ router.get('/', authenticateToken, async (req, res) => {
     
     // Check if includeSystem parameter is true
     const includeSystem = req.query.includeSystem === 'true';
+    const includeAgent = await isAiEnabled(db);
     
-    // MIGRATED: Use sqlManager to get all members
-    const members = await memberQueries.getAllMembers(db, includeSystem);
+    // MIGRATED: Use sqlManager to get all members (Agent only when AI_ENABLED)
+    const members = await memberQueries.getAllMembers(db, { includeSystem, includeAgent });
     
     res.json(members);
   } catch (error) {

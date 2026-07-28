@@ -118,11 +118,15 @@ export const useColumnWebSocket = ({
     const columnUpdate = {
       ...data.column,
       is_finished: data.column.isFinished !== undefined ? data.column.isFinished : data.column.is_finished,
-      is_archived: data.column.isArchived !== undefined ? data.column.isArchived : data.column.is_archived
+      is_archived: data.column.isArchived !== undefined ? data.column.isArchived : data.column.is_archived,
+      wip_limit: data.column.wip_limit !== undefined ? data.column.wip_limit : data.column.wipLimit,
+      policy_text: data.column.policy_text !== undefined ? data.column.policy_text : data.column.policyText,
     };
     // Remove camelCase properties to avoid confusion
     delete columnUpdate.isFinished;
     delete columnUpdate.isArchived;
+    delete columnUpdate.wipLimit;
+    delete columnUpdate.policyText;
     
     // Update boards state for all boards
     setBoards(prevBoards => {

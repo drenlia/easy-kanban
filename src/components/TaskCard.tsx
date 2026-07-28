@@ -1,14 +1,24 @@
 import React, { useState, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
-import { Clock, MessageCircle, Calendar, Paperclip, Pencil, Check } from 'lucide-react';
+import { Clock, MessageCircle, Calendar, Paperclip, Pencil, Check, Ban } from 'lucide-react';
 import { Task, TeamMember, Priority, PriorityOption, CurrentUser, Tag } from '../types';
 import { TaskViewMode } from '../utils/userPreferences';
 import TaskCardToolbar from './TaskCardToolbar';
 import AddCommentModal from './AddCommentModal';
 import DateRangePicker from './DateRangePicker';
 import { formatToYYYYMMDD, formatToYYYYMMDDHHmmss, parseLocalDate } from '../utils/dateUtils';
-import { createComment, fetchTaskAttachments } from '../api';
+import { getColumnAgeDays } from '../utils/kanbanFlowUtils';
+import {
+  createComment,
+  fetchTaskAttachments,
+  putTaskWork,
+  setTaskWorkControl,
+  undoAutomationJob,
+  getTaskWork,
+  getTaskById,
+  type TaskWorkMap
+} from '../api';
 import { generateTaskUrl } from '../utils/routingUtils';
 import { generateUUID } from '../utils/uuid';
 import { mergeTaskTagsWithLiveData, getTagDisplayStyle } from '../utils/tagUtils';
@@ -22,13 +32,19 @@ import TextEditor from './TextEditor';
 import { KanbanChromeTooltip } from './KanbanChromeTooltip';
 import { getLinkTarget, shouldOpenLinkInNewTab } from '../utils/linkUtils';
 import { feDebug } from '../utils/clientDebug';
+import { commentTextToHtml } from '../utils/commentContent';
+import {
+  AGENT_MEMBER_ID,
+  SYSTEM_MEMBER_ID,
+  AGENT_DRAG_BLOCKING_STATUSES,
+} from '../constants/appConstants';
+import AgentPanel from './AgentPanel';
+import type { AgentPanelView } from './AgentPanel';
+import websocketClient from '../services/websocketClient';
 
 function cardLog(...args: unknown[]) {
   if (feDebug('FE_DEBUG_TASK_CARD')) console.log(...args);
 }
-
-// System user member ID constant
-const SYSTEM_MEMBER_ID = '00000000-0000-0000-0000-000000000001';
 
 // Helper function to get priority colors from hex
 const getPriorityColors = (hexColor: string) => {
@@ -54,7 +70,7 @@ interface TaskCardProps {
   members: TeamMember[];
   currentUser?: CurrentUser | null;
   onRemove: (taskId: string, event?: React.MouseEvent) => void;
-  onEdit: (task: Task) => void;
+  onEdit: (task: Task) => void | Promise<void>;
   onCopy: (task: Task) => void;
   onDragStart: (task: Task) => void;
   onDragEnd: () => void;
@@ -278,6 +294,14 @@ const TaskCard = React.memo(function TaskCard({
   const [dropdownPosition, setDropdownPosition] = useState<'above' | 'below'>('below');
   const [showAddCommentModal, setShowAddCommentModal] = useState(false);
   const [showAttachmentsDropdown, setShowAttachmentsDropdown] = useState(false);
+  const [showAgentPanel, setShowAgentPanel] = useState(false);
+  const [agentPanelView, setAgentPanelView] = useState<AgentPanelView>('activity');
+  const [agentPanelRestoreToken, setAgentPanelRestoreToken] = useState(0);
+  /** Snapshot after flushing in-progress edits so Configuration sees latest text immediately */
+  const [agentFormTask, setAgentFormTask] = useState<{ title: string; description: string } | null>(null);
+  const [agentWork, setAgentWork] = useState<TaskWorkMap>({});
+  const [agentControlBusy, setAgentControlBusy] = useState(false);
+  const [agentModalComments, setAgentModalComments] = useState(task.comments || []);
   const [attachmentsDropdownPosition, setAttachmentsDropdownPosition] = useState<{top: number, left: number, direction: 'above' | 'below'}>({top: 0, left: 0, direction: 'below'});
   const [priorityDropdownPosition, setPriorityDropdownPosition] = useState<{top: number, left: number, direction: 'above' | 'below'}>({top: 0, left: 0, direction: 'below'});
   const priorityButtonRef = useRef<HTMLButtonElement>(null);
@@ -297,7 +321,13 @@ const TaskCard = React.memo(function TaskCard({
   const isSelectingRef = useRef<boolean>(false); // Track if we're in the process of selecting this task
 
   // Check if any editing is active to disable drag
-  const isAnyEditingActive = isEditingTitle || isEditingEffort || isEditingDescription || showMemberSelect || showPrioritySelect || showCommentTooltip || showTagRemovalMenu || showAttachmentsDropdown || showSprintSelector || showDateRangePicker;
+  const agentStatus = agentWork.status || null;
+  const isAgentWorkActive =
+    task.memberId === AGENT_MEMBER_ID &&
+    !!agentStatus &&
+    (AGENT_DRAG_BLOCKING_STATUSES as readonly string[]).includes(agentStatus);
+
+  const isAnyEditingActive = isEditingTitle || isEditingEffort || isEditingDescription || showMemberSelect || showPrioritySelect || showCommentTooltip || showTagRemovalMenu || showAttachmentsDropdown || showSprintSelector || showDateRangePicker || isAgentWorkActive;
 
   // Sync editedEffort with task.effort when task updates (but not while editing)
   useEffect(() => {
@@ -528,9 +558,230 @@ const TaskCard = React.memo(function TaskCard({
 
 
 
-  const handleMemberChange = (memberId: string) => {
-    onEdit({ ...task, memberId });
+  const flushPendingEdits = async (): Promise<Task> => {
+    let next: Task = { ...task };
+    let dirty = false;
+
+    if (isEditingTitle) {
+      const trimmed = editedTitle.trim();
+      if (trimmed && trimmed !== task.title) {
+        next = { ...next, title: trimmed };
+        dirty = true;
+      }
+      setIsEditingTitle(false);
+    }
+
+    if (isEditingDescription) {
+      if (editedDescription !== task.description) {
+        next = { ...next, description: editedDescription };
+        dirty = true;
+      }
+      setIsEditingDescription(false);
+    }
+
+    if (dirty) {
+      await Promise.resolve(onEdit(next));
+    }
+    return next;
+  };
+
+  const openAssignAgentPanel = async () => {
+    const latest = await flushPendingEdits();
+    setAgentFormTask({ title: latest.title, description: latest.description || '' });
+    setAgentPanelView('configure');
+    setShowAgentPanel(true);
+    setAgentPanelRestoreToken((n) => n + 1);
+  };
+
+  const openAgentWorkingModal = () => {
+    setAgentModalComments(task.comments || []);
+    setAgentFormTask(null);
+    setAgentPanelView('activity');
+    setShowAgentPanel(true);
+    setAgentPanelRestoreToken((n) => n + 1);
+  };
+
+  // While activity panel is open, poll work + comments so UI recovers if WebSocket drops
+  useEffect(() => {
+    if (!showAgentPanel || task.memberId !== AGENT_MEMBER_ID) return;
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const [{ work }, fresh] = await Promise.all([
+          getTaskWork(task.id),
+          getTaskById(task.id),
+        ]);
+        if (cancelled) return;
+        if (work) setAgentWork(work);
+        if (fresh?.comments) {
+          setAgentModalComments(fresh.comments);
+        }
+      } catch {
+        /* ignore */
+      }
+    };
+    void tick();
+    const id = window.setInterval(tick, 2500);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [showAgentPanel, task.id, task.memberId]);
+
+  const handleMemberChange = async (memberId: string) => {
     setShowMemberSelect(false);
+    if (memberId === AGENT_MEMBER_ID) {
+      if (siteSettings?.AI_ENABLED !== 'true') return;
+      await openAssignAgentPanel();
+      return;
+    }
+    const latest = await flushPendingEdits();
+    await Promise.resolve(onEdit({ ...latest, memberId }));
+  };
+
+  const handleAgentPanelSaveConfig = async (
+    repoUrl: string,
+    repoBranch: string,
+    options?: {
+      restart?: boolean;
+      llmModel?: string;
+      launch?: boolean;
+      agentMode?: 'assist' | 'code' | 'automation';
+      automationScope?: 'this_board' | 'selected' | 'all_boards';
+      automationBoardIds?: string[];
+      description?: string;
+    }
+  ) => {
+    const agentMode = options?.agentMode || (repoUrl.trim() ? 'code' : 'assist');
+    const isFirstAssign = task.memberId !== AGENT_MEMBER_ID;
+    const baseTask = isFirstAssign ? await flushPendingEdits() : task;
+
+    if (isFirstAssign) {
+      const withDescription =
+        options?.description !== undefined
+          ? { ...baseTask, description: options.description, memberId: AGENT_MEMBER_ID }
+          : { ...baseTask, memberId: AGENT_MEMBER_ID };
+      await Promise.resolve(onEdit(withDescription));
+      const shouldLaunch = options?.launch !== false;
+      const { work } = await putTaskWork(task.id, {
+        repoUrl: agentMode === 'automation' ? '' : repoUrl,
+        repoBranch: agentMode === 'automation' ? '' : repoBranch,
+        agentMode,
+        ...(agentMode === 'automation'
+          ? {
+              automationScope: options?.automationScope || 'this_board',
+              automationBoardIds: options?.automationBoardIds || [],
+            }
+          : {}),
+        ...(shouldLaunch
+          ? { status: 'queued', entries: { control: 'none' } }
+          : {}),
+        ...(options?.llmModel !== undefined ? { llmModel: options.llmModel } : {}),
+      });
+      setAgentWork(work);
+      setAgentFormTask(null);
+      return;
+    }
+
+    if (options?.description !== undefined) {
+      await Promise.resolve(
+        onEdit({ ...task, description: options.description })
+      );
+    }
+    const { work } = await putTaskWork(task.id, {
+      repoUrl: agentMode === 'automation' ? '' : repoUrl,
+      repoBranch: agentMode === 'automation' ? '' : repoBranch,
+      agentMode,
+      ...(agentMode === 'automation'
+        ? {
+            automationScope: options?.automationScope || 'this_board',
+            automationBoardIds: options?.automationBoardIds || [],
+          }
+        : {}),
+      ...(options?.llmModel !== undefined ? { llmModel: options.llmModel } : {}),
+    });
+    setAgentWork(work);
+    if (options?.restart) {
+      await handleAgentControl('resume');
+    }
+  };
+
+  const handleAgentControl = async (
+    control: 'pause' | 'stop' | 'resume' | 'apply'
+  ) => {
+    setAgentControlBusy(true);
+    try {
+      const { work } = await setTaskWorkControl(task.id, control);
+      setAgentWork(work);
+    } catch (error) {
+      console.error('Agent control failed:', error);
+    } finally {
+      setAgentControlBusy(false);
+    }
+  };
+
+  const handleAutomationUndo = async () => {
+    setAgentControlBusy(true);
+    try {
+      const result = await undoAutomationJob(task.id);
+      if (result.work) {
+        setAgentWork(result.work);
+      } else {
+        const { work } = await getTaskWork(task.id);
+        setAgentWork(work || {});
+      }
+      try {
+        const fresh = await getTaskById(task.id);
+        if (fresh?.comments) setAgentModalComments(fresh.comments);
+      } catch {
+        /* ignore comment refresh errors */
+      }
+    } catch (error) {
+      console.error('Automation undo failed:', error);
+    } finally {
+      setAgentControlBusy(false);
+    }
+  };
+
+  useEffect(() => {
+    if (task.memberId !== AGENT_MEMBER_ID) {
+      setAgentWork({});
+      return;
+    }
+    let cancelled = false;
+    getTaskWork(task.id)
+      .then(({ work }) => {
+        if (!cancelled) setAgentWork(work || {});
+      })
+      .catch(() => {
+        if (!cancelled) setAgentWork({});
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [task.id, task.memberId]);
+
+  useEffect(() => {
+    const handler = (data: { taskId?: string; work?: TaskWorkMap }) => {
+      if (data?.taskId === task.id && data.work) {
+        setAgentWork(data.work);
+      }
+    };
+    websocketClient.onTaskWorkUpdated(handler);
+    return () => websocketClient.offTaskWorkUpdated(handler);
+  }, [task.id]);
+
+  const handleAgentRefine = async (text: string, options: { restart: boolean }) => {
+    await handleCommentSubmit(text);
+    try {
+      const fresh = await getTaskById(task.id);
+      if (fresh?.comments) setAgentModalComments(fresh.comments);
+    } catch {
+      /* ignore */
+    }
+    if (options.restart) {
+      await handleAgentControl('resume');
+    }
   };
 
   const handleAddComment = () => {
@@ -1199,13 +1450,16 @@ const TaskCard = React.memo(function TaskCard({
             ? undefined 
             : member.id === SYSTEM_MEMBER_ID 
               ? undefined 
+              : isAgentWorkActive
+                ? undefined
               : 'var(--task-card-bg)',
           // Prevent clicks on tag areas from reaching card
           position: 'relative'
         }}
         className={`group task-card sortable-item cursor-pointer ${
           isSelected ? 'bg-gray-100 dark:bg-gray-700' : 
-          member.id === SYSTEM_MEMBER_ID ? 'bg-yellow-50 dark:bg-yellow-900' : 
+          member.id === SYSTEM_MEMBER_ID ? 'bg-yellow-50 dark:bg-yellow-900' :
+          isAgentWorkActive ? 'bg-teal-50/90 dark:bg-teal-950/40' :
           '' // Background now handled by CSS variable in style to prevent flash
         } p-4 rounded-lg shadow-sm relative ${
           isDragging ? 'opacity-90 scale-105 shadow-2xl rotate-2 ring-2 ring-blue-400' : 'hover:shadow-md'
@@ -1597,12 +1851,14 @@ const TaskCard = React.memo(function TaskCard({
             </KanbanChromeTooltip>
           </div>
         )}
+
+        {/* Blocked + aging moved to TaskCardToolbar (after delete) */}
         {/* TaskCard Toolbar - Extracted to separate component */}
         <TaskCardToolbar
           task={task}
           member={member}
           members={members}
-          isDragDisabled={isDragDisabled || isAnyEditingActive || isDndGloballyDisabled()}
+          isDragDisabled={isDragDisabled || isAnyEditingActive || isDndGloballyDisabled() || isAgentWorkActive}
           showMemberSelect={showMemberSelect}
           onCopy={onCopy}
           onEdit={onEdit}
@@ -1610,7 +1866,14 @@ const TaskCard = React.memo(function TaskCard({
           onRemove={onRemove}
           onAddComment={handleAddComment}
           onMemberChange={handleMemberChange}
-          onToggleMemberSelect={() => setShowMemberSelect(!showMemberSelect)}
+          onToggleMemberSelect={() => {
+            void (async () => {
+              if (!showMemberSelect) {
+                await flushPendingEdits();
+              }
+              setShowMemberSelect(!showMemberSelect);
+            })();
+          }}
           setDropdownPosition={setDropdownPosition}
           dropdownPosition={dropdownPosition}
           listeners={listeners}
@@ -1619,6 +1882,8 @@ const TaskCard = React.memo(function TaskCard({
           onTagAdd={onTagAdd}
           columnIsFinished={columnIsFinished}
           columns={columns}
+          agentWorkStatus={agentStatus}
+          onOpenAgentActivity={openAgentWorkingModal}
           
           // Task linking props
           isLinkingMode={isLinkingMode}
@@ -1641,9 +1906,9 @@ const TaskCard = React.memo(function TaskCard({
           const relationshipType = getTaskRelationshipType(task.id);
           if (relationshipType) {
             const badges = {
-              parent: { text: 'PARENT', color: 'bg-green-500' },
-              child: { text: 'CHILD', color: 'bg-purple-500' },
-              related: { text: 'RELATED', color: 'bg-yellow-500' }
+              parent: { text: t('relationships.badgeParent'), color: 'bg-green-500' },
+              child: { text: t('relationships.badgeChild'), color: 'bg-purple-500' },
+              related: { text: t('relationships.badgeRelated'), color: 'bg-yellow-500' }
             };
             const badge = badges[relationshipType];
             return (
@@ -1980,8 +2245,48 @@ const TaskCard = React.memo(function TaskCard({
         
         {/* Bottom metadata row */}
         <div className="flex items-center justify-between text-sm text-gray-500">
-          {/* Left side - dates and effort and comments */}
-          <div className="flex items-center gap-2">
+          {/* Left side - flow status, dates, effort, comments */}
+          <div className="flex items-center gap-2 min-w-0">
+            {(task.isBlocked ||
+              (!columnIsFinished && !columnIsArchived && getColumnAgeDays(task.columnEnteredAt) >= 1)) && (
+              <div className="flex items-center gap-1 shrink-0">
+                {task.isBlocked && (
+                  <KanbanChromeTooltip
+                    label={task.blockedReason || t('taskCard.blocked')}
+                    delayMs={0}
+                    wrapperClassName="inline-flex"
+                  >
+                    <span className="inline-flex text-red-500 dark:text-red-400" aria-label={t('taskCard.blocked')}>
+                      <Ban size={12} />
+                    </span>
+                  </KanbanChromeTooltip>
+                )}
+                {!columnIsFinished &&
+                  !columnIsArchived &&
+                  getColumnAgeDays(task.columnEnteredAt) >= 1 && (
+                    <KanbanChromeTooltip
+                      label={t('taskCard.daysInColumn', {
+                        count: getColumnAgeDays(task.columnEnteredAt),
+                      })}
+                      delayMs={0}
+                      wrapperClassName="inline-flex"
+                    >
+                      <span
+                        className={`inline-flex items-center gap-0.5 text-[10px] font-semibold tabular-nums ${
+                          getColumnAgeDays(task.columnEnteredAt) >= 7
+                            ? 'text-amber-700 dark:text-amber-300'
+                            : 'text-gray-500 dark:text-gray-400'
+                        }`}
+                      >
+                        <Clock size={12} />
+                        {t('taskCard.daysInColumnShort', {
+                          count: getColumnAgeDays(task.columnEnteredAt),
+                        })}
+                      </span>
+                    </KanbanChromeTooltip>
+                  )}
+              </div>
+            )}
             {/* Dates - ultra compact with sprint selector */}
             <div className="flex items-center gap-0.5">
               <KanbanChromeTooltip label={t('taskCard.clickToSelectSprint')} delayMs={0} wrapperClassName="inline-flex">
@@ -2363,7 +2668,37 @@ const TaskCard = React.memo(function TaskCard({
 
 
 
-      {/* Add Comment Modal */}
+      {showAgentPanel && (
+        <AgentPanel
+          panelId={task.id}
+          taskTitle={agentFormTask?.title ?? task.title}
+          taskTicket={task.ticket}
+          taskDescription={agentFormTask?.description ?? task.description}
+          work={agentWork}
+          comments={agentModalComments}
+          members={members}
+          busy={agentControlBusy}
+          isAdmin={Boolean(currentUser?.roles?.includes('admin'))}
+          boards={(boards || []).map((b: { id: string; title?: string; name?: string }) => ({
+            id: b.id,
+            title: b.title || b.name || b.id,
+          }))}
+          view={agentPanelView}
+          onViewChange={setAgentPanelView}
+          restoreToken={agentPanelRestoreToken}
+          onClose={() => {
+            setShowAgentPanel(false);
+            setAgentPanelView('activity');
+            setAgentFormTask(null);
+          }}
+          onControl={handleAgentControl}
+          onUndo={handleAutomationUndo}
+          onRefine={handleAgentRefine}
+          onSaveConfig={handleAgentPanelSaveConfig}
+          aiEnabled={siteSettings?.AI_ENABLED === 'true'}
+          isAssigned={task.memberId === AGENT_MEMBER_ID}
+        />
+      )}
       <AddCommentModal
         isOpen={showAddCommentModal}
         taskTitle={task.title}
@@ -2396,7 +2731,7 @@ const TaskCard = React.memo(function TaskCard({
                         // Function to render HTML content with safe link handling and blob URL fixing
                         const renderCommentHTML = (htmlText: string) => {
                           // First, fix blob URLs by replacing them with authenticated server URLs (matching TaskDetails/TaskPage)
-                          let fixedContent = htmlText;
+                          let fixedContent = commentTextToHtml(htmlText);
                           const blobPattern = /blob:[^"]*#(img-[^"]*)/g;
                           fixedContent = fixedContent.replace(blobPattern, (_match, filename) => {
                             // Convert blob URL to authenticated server URL
@@ -2475,7 +2810,7 @@ const TaskCard = React.memo(function TaskCard({
                                 </KanbanChromeTooltip>
                               )}
                             </div>
-                            <div className="text-gray-300 dark:text-gray-700 text-xs leading-relaxed select-text">
+                            <div className="text-gray-300 dark:text-gray-700 text-xs leading-relaxed select-text comment-md">
                               {renderCommentHTML(comment.text)}
                             </div>
                           </div>
@@ -2740,7 +3075,10 @@ const TaskCard = React.memo(function TaskCard({
       prevProps.task.effort !== nextProps.task.effort ||
       prevProps.task.startDate !== nextProps.task.startDate ||
       prevProps.task.dueDate !== nextProps.task.dueDate ||
-      prevProps.task.attachmentCount !== nextProps.task.attachmentCount) {
+      prevProps.task.attachmentCount !== nextProps.task.attachmentCount ||
+      Boolean(prevProps.task.isBlocked) !== Boolean(nextProps.task.isBlocked) ||
+      (prevProps.task.blockedReason || '') !== (nextProps.task.blockedReason || '') ||
+      (prevProps.task.columnEnteredAt || '') !== (nextProps.task.columnEnteredAt || '')) {
     return false; // Re-render
   }
 

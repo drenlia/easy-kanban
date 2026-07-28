@@ -1,19 +1,21 @@
 # Socket.IO Sticky Sessions Configuration
 
+> **Current multi-tenant stack:** namespace **`easy-kanban-pg`**, WebSocket ingress **`easy-kanban-websocket-ingress-pg`**, managed by **`k8s/deploy-pg.sh`** / **`deploy-instance-pg.sh`**. Legacy `easy-kanban` + `deploy.sh` are retired for PG SaaS.  
+> When `MULTI_TENANT=true` (multi-pod), the **Redis Socket.IO adapter is required** — sticky sessions alone are not enough for correct cross-pod room broadcasts. App events still use PostgreSQL NOTIFY (see [`REALTIME_UPDATE_FLOW-MULTI-TENANCY.md`](./REALTIME_UPDATE_FLOW-MULTI-TENANCY.md)).
+
 ## Overview
 
-Sticky sessions for Socket.IO are configured in the **easy-kanban namespace** using **NGINX Ingress Controller annotations** on the `easy-kanban-websocket-ingress` Ingress resource. This ensures all Socket.IO requests from the same client are routed to the same pod, which is critical for Socket.IO's session management.
+Sticky sessions for Socket.IO are configured using **NGINX Ingress Controller annotations** on the WebSocket Ingress resource. This keeps Socket.IO polling/upgrade traffic from one client on the same pod when affinity is used.
 
 ## Configuration Location
 
-### Primary Configuration File
-- **File**: `k8s/ingress-websocket.yaml`
-- **Resource**: `Ingress` named `easy-kanban-websocket-ingress`
-- **Namespace**: `easy-kanban`
+### Primary configuration (PG)
+- **Created/updated by**: `k8s/deploy-pg.sh` (WebSocket ingress block)
+- **Resource**: `Ingress` named `easy-kanban-websocket-ingress-pg`
+- **Namespace**: `easy-kanban-pg`
 
-### Dynamic Configuration
-- **Script**: `k8s/deploy.sh` (lines 714-820)
-- Creates/updates the WebSocket ingress when deploying new tenant instances
+### Legacy reference
+- Older docs/files may mention `k8s/ingress-websocket.yaml`, namespace `easy-kanban`, and `deploy.sh` — those apply to the retired SQLite layout, not the live PG SaaS stack.
 
 ## Sticky Session Annotations
 
@@ -97,7 +99,7 @@ annotations:
 
 ### Check Current Configuration
 ```bash
-kubectl get ingress easy-kanban-websocket-ingress -n easy-kanban -o yaml
+kubectl get ingress easy-kanban-websocket-ingress-pg -n easy-kanban-pg -o yaml
 ```
 
 ### Verify Cookie in Browser
@@ -109,7 +111,7 @@ kubectl get ingress easy-kanban-websocket-ingress -n easy-kanban -o yaml
 1. Connect to Socket.IO from a tenant (e.g., `test1.ezkan.cloud`)
 2. Check which pod is handling the connection:
    ```bash
-   kubectl logs -n easy-kanban -l app=easy-kanban --tail=100 | grep "Client connected"
+   kubectl logs -n easy-kanban-pg -l app=easy-kanban --tail=100 | grep "Client connected"
    ```
 3. Make multiple Socket.IO requests
 4. Verify all requests are logged by the same pod
@@ -137,15 +139,17 @@ spec:
 
 **Note**: The Service itself does NOT configure sticky sessions. Sticky sessions are configured at the **Ingress level**, not the Service level.
 
-## Redis Adapter (Additional Session Sharing)
+## Redis Adapter (Required for Multi-Pod)
 
-While sticky sessions ensure requests go to the same pod, the **Redis adapter** provides additional session sharing:
+While sticky sessions keep a client on one pod when possible, the **Redis Socket.IO adapter** is **required** when running multiple app replicas with `MULTI_TENANT=true`:
 
-- **Purpose**: Share Socket.IO sessions across pods (for multi-pod deployments)
-- **Configuration**: `server/services/websocketService.js` (lines 59-93)
-- **Why both?**: 
-  - Sticky sessions: Ensure client requests go to the same pod (better performance)
-  - Redis adapter: Fallback if pod fails or for cross-pod broadcasts
+- **Purpose**: Share Socket.IO rooms/emits across pods
+- **Configuration**: `server/services/websocketService.js` + `REDIS_URL`
+- **Why both?**
+  - Sticky sessions: Prefer same pod for a given client (less cross-pod chatter)
+  - Redis adapter: Correct fan-out when clients land on different pods; survives pod churn better than affinity alone
+
+App-level events are **not** published through Redis pub/sub; they use PostgreSQL NOTIFY, then each pod emits into Socket.IO (adapter spreads rooms).
 
 ## Configuration Summary
 
@@ -155,8 +159,8 @@ While sticky sessions ensure requests go to the same pod, the **Redis adapter** 
 | **Ingress** | `nginx.ingress.kubernetes.io/affinity-mode: "persistent"` | Cookie persists across sessions |
 | **Ingress** | `nginx.ingress.kubernetes.io/session-cookie-name: "socket-io-route"` | Custom cookie name |
 | **Ingress** | Cookie expires/max-age: 2 days | Cookie lifetime |
-| **Service** | `easy-kanban-service` (ClusterIP) | Routes to pods |
-| **Application** | Redis adapter (optional) | Cross-pod session sharing |
+| **Service** | `easy-kanban-service` (ClusterIP) in `easy-kanban-pg` | Routes to pods |
+| **Application** | Redis adapter (**required** multi-pod / `MULTI_TENANT=true`) | Cross-pod Socket.IO rooms |
 
 ## Troubleshooting
 
@@ -183,7 +187,7 @@ While sticky sessions ensure requests go to the same pod, the **Redis adapter** 
 
 - **NGINX Ingress Controller**: [Session Affinity Documentation](https://kubernetes.github.io/ingress-nginx/examples/affinity/cookie/)
 - **Socket.IO**: [Scaling to Multiple Nodes](https://socket.io/docs/v4/using-multiple-nodes/)
-- **Configuration File**: `k8s/ingress-websocket.yaml`
-- **Deployment Script**: `k8s/deploy.sh` (lines 714-820)
+- **Deployment**: `k8s/deploy-pg.sh` / `k8s/deploy-instance-pg.sh` (WebSocket ingress in `easy-kanban-pg`)
+- **Realtime**: [`REALTIME_UPDATE_FLOW-MULTI-TENANCY.md`](./REALTIME_UPDATE_FLOW-MULTI-TENANCY.md)
 
 

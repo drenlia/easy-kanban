@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback, Suspense } from 'react';
 import { DndContext, DragOverlay, useDroppable } from '@dnd-kit/core';
 import { SortableContext, rectSortingStrategy } from '@dnd-kit/sortable';
-import { ChevronLeft, ChevronRight, Calendar } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Calendar, ChevronDown } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { 
   CurrentUser, 
   TeamMember, 
@@ -12,7 +13,7 @@ import {
   Tag,
   ColumnVisibilityWarning
 } from '../../types';
-import { TaskViewMode, ViewMode } from '../../utils/userPreferences';
+import { TaskViewMode, ViewMode, loadUserPreferences, loadUserPreferencesAsync, updateAppSettingsPreference } from '../../utils/userPreferences';
 import TeamMembers from '../TeamMembers';
 import Tools from '../Tools';
 import BoardMetrics from '../BoardMetrics';
@@ -109,7 +110,14 @@ interface KanbanPageProps {
   onTagRemove: (taskId: string) => (tagId: string) => Promise<void>;
   onMoveTaskToColumn: (taskId: string, targetColumnId: string) => Promise<void>;
   animateCopiedTaskId?: string | null;
-  onEditColumn: (columnId: string, title: string, is_finished?: boolean, is_archived?: boolean) => Promise<void>;
+  onEditColumn: (
+    columnId: string,
+    title: string,
+    is_finished?: boolean,
+    is_archived?: boolean,
+    wip_limit?: number | null,
+    policy_text?: string | null
+  ) => Promise<void>;
   onRemoveColumn: (columnId: string) => Promise<void>;
   onAddColumn: (afterColumnId: string) => Promise<void>;
   showColumnDeleteConfirm?: string | null;
@@ -267,6 +275,41 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
   selectedSprintId = null,
   availableSprints = []
 }: KanbanPageProps) => {
+  const { t } = useTranslation(['tasks', 'common']);
+  const [showBoardToolbar, setShowBoardToolbar] = useState(() => {
+    const prefs = loadUserPreferences(currentUser?.id ?? null);
+    return prefs.appSettings.showBoardToolbar !== false;
+  });
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      if (!currentUser?.id) return;
+      try {
+        const prefs = await loadUserPreferencesAsync(currentUser.id);
+        if (!cancelled) {
+          setShowBoardToolbar(prefs.appSettings.showBoardToolbar !== false);
+        }
+      } catch {
+        // Keep cookie / default
+      }
+    };
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [currentUser?.id]);
+
+  const handleToggleBoardToolbar = async () => {
+    const next = !showBoardToolbar;
+    setShowBoardToolbar(next);
+    try {
+      await updateAppSettingsPreference('showBoardToolbar', next, currentUser?.id ?? null);
+    } catch (error) {
+      console.error('Failed to save board toolbar preference:', error);
+    }
+  };
+
   // Column filtering logic - memoized to prevent unnecessary re-renders
   const visibleColumnsForCurrentBoard = useMemo(() => {
     if (!selectedBoard) return [];
@@ -541,44 +584,60 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
 
   return (
     <>
-      {/* Tools, Team Members, and Board Metrics in a flex container */}
-      <div className="flex gap-4 mb-4">
-        <Tools 
-          taskViewMode={taskViewMode}
-          onTaskViewModeChange={onTaskViewModeChange}
-          viewMode={viewMode}
-          onViewModeChange={onViewModeChange}
-          isSearchActive={isSearchActive}
-          onToggleSearch={onToggleSearch}
-        />
-        <div className="flex-1">
-          <TeamMembers
-            members={members}
-            selectedMembers={selectedMembers}
-            onSelectMember={onSelectMember}
-            onClearSelections={onClearMemberSelections}
-            onSelectAll={onSelectAllMembers}
-            isAllModeActive={isAllModeActive}
-            includeAssignees={includeAssignees}
-            includeWatchers={includeWatchers}
-            includeCollaborators={includeCollaborators}
-            includeRequesters={includeRequesters}
-            includeSystem={includeSystem}
-            onToggleAssignees={onToggleAssignees}
-            onToggleWatchers={onToggleWatchers}
-            onToggleCollaborators={onToggleCollaborators}
-            onToggleRequesters={onToggleRequesters}
-            onToggleSystem={onToggleSystem}
-            currentUserId={currentUser?.id}
-            currentUser={currentUser}
-            systemTaskCount={getSystemTaskCount}
+      {showBoardToolbar ? (
+        <div className="flex gap-4 mb-4 items-start">
+          <Tools 
+            taskViewMode={taskViewMode}
+            onTaskViewModeChange={onTaskViewModeChange}
+            viewMode={viewMode}
+            onViewModeChange={onViewModeChange}
+            isSearchActive={isSearchActive}
+            onToggleSearch={onToggleSearch}
+            onHideToolbar={() => void handleToggleBoardToolbar()}
+          />
+          <div className="flex-1 min-w-0">
+            <TeamMembers
+              members={members}
+              selectedMembers={selectedMembers}
+              onSelectMember={onSelectMember}
+              onClearSelections={onClearMemberSelections}
+              onSelectAll={onSelectAllMembers}
+              isAllModeActive={isAllModeActive}
+              includeAssignees={includeAssignees}
+              includeWatchers={includeWatchers}
+              includeCollaborators={includeCollaborators}
+              includeRequesters={includeRequesters}
+              includeSystem={includeSystem}
+              onToggleAssignees={onToggleAssignees}
+              onToggleWatchers={onToggleWatchers}
+              onToggleCollaborators={onToggleCollaborators}
+              onToggleRequesters={onToggleRequesters}
+              onToggleSystem={onToggleSystem}
+              currentUserId={currentUser?.id}
+              currentUser={currentUser}
+              systemTaskCount={getSystemTaskCount}
+            />
+          </div>
+          <BoardMetrics 
+            columns={columns}
+            filteredColumns={getFullyFilteredColumns}
           />
         </div>
-        <BoardMetrics 
-          columns={columns}
-          filteredColumns={getFilteredColumnsForDisplay}
-        />
-      </div>
+      ) : (
+        <div className="flex items-center mb-4">
+          <button
+            type="button"
+            onClick={() => void handleToggleBoardToolbar()}
+            className="inline-flex items-center gap-1.5 px-2 py-1 text-xs font-medium rounded-md text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 border border-dashed border-gray-300 dark:border-gray-600 transition-colors"
+            title={t('tools.showBoardToolbar', { ns: 'common' })}
+            aria-label={t('tools.showBoardToolbar', { ns: 'common' })}
+            aria-expanded={false}
+          >
+            <ChevronDown size={14} />
+            {t('tools.showBoardToolbar', { ns: 'common' })}
+          </button>
+        </div>
+      )}
 
       {/* Search Interface */}
       {isSearchActive && (
@@ -617,7 +676,7 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
       {selectedBoard && (
         <div className="relative">
           {(loading.tasks || loading.boards || loading.columns) && (
-            <div className="absolute inset-0 bg-white bg-opacity-50 z-10 flex items-center justify-center">
+            <div className="absolute inset-0 bg-white/50 dark:bg-gray-900/50 z-10 flex items-center justify-center">
               <LoadingSpinner size="medium" />
             </div>
           )}
@@ -629,20 +688,20 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
               {listViewScrollControls?.canScrollLeft && (
                 <button
                   onClick={listViewScrollControls.scrollLeft}
-                  className="absolute -left-12 top-4 z-20 p-2 bg-white bg-opacity-60 hover:bg-opacity-95 rounded-full shadow-sm hover:shadow-lg transition-all duration-200 opacity-70 hover:opacity-100 hover:scale-110"
-                  title="Click to scroll left (←)"
+                  className="absolute -left-12 top-4 z-20 p-2 bg-white/60 dark:bg-gray-800/70 hover:bg-white/95 dark:hover:bg-gray-800/95 rounded-full shadow-sm hover:shadow-lg transition-all duration-200 opacity-70 hover:opacity-100 hover:scale-110"
+                  title={t('boardTabs.scrollListLeft', { ns: 'common' })}
                 >
-                  <ChevronLeft size={18} className="text-gray-500 hover:text-gray-700" />
+                  <ChevronLeft size={18} className="text-gray-500 hover:text-gray-700 dark:text-gray-300 dark:hover:text-gray-100" />
                 </button>
               )}
               
               {listViewScrollControls?.canScrollRight && (
                 <button
                   onClick={listViewScrollControls.scrollRight}
-                  className="absolute -right-12 top-4 z-20 p-2 bg-white bg-opacity-60 hover:bg-opacity-95 rounded-full shadow-sm hover:shadow-lg transition-all duration-200 opacity-70 hover:opacity-100 hover:scale-110"
-                  title="Click to scroll right (→)"
+                  className="absolute -right-12 top-4 z-20 p-2 bg-white/60 dark:bg-gray-800/70 hover:bg-white/95 dark:hover:bg-gray-800/95 rounded-full shadow-sm hover:shadow-lg transition-all duration-200 opacity-70 hover:opacity-100 hover:scale-110"
+                  title={t('boardTabs.scrollListRight', { ns: 'common' })}
                 >
-                  <ChevronRight size={18} className="text-gray-500 hover:text-gray-700" />
+                  <ChevronRight size={18} className="text-gray-500 hover:text-gray-700 dark:text-gray-300 dark:hover:text-gray-100" />
                 </button>
               )}
               
@@ -693,6 +752,14 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
             </Suspense>
           ) : (
             <>
+              {Object.values(getFilteredColumnsForDisplay).length > 0 &&
+                Object.values(getFilteredColumnsForDisplay).every(
+                  (col) => !(col.tasks && col.tasks.length > 0)
+                ) && (
+                <p className="text-sm text-gray-500 dark:text-gray-400 mb-2 px-1">
+                  {t('column.emptyBoardHint')}
+                </p>
+              )}
               {/* Columns Navigation Container */}
           <div className="relative kanban-columns-container">
             {/* Left scroll button - positioned outside board */}
@@ -702,10 +769,10 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
                 onMouseDown={() => startContinuousScroll('left')}
                 onMouseUp={stopContinuousScroll}
                 onMouseLeave={stopContinuousScroll}
-                className="absolute -left-12 top-4 z-20 p-2 bg-white bg-opacity-60 hover:bg-opacity-95 rounded-full shadow-sm hover:shadow-lg transition-all duration-200 opacity-70 hover:opacity-100 hover:scale-110"
-                title="Click or hold to scroll left (←)"
+                className="absolute -left-12 top-4 z-20 p-2 bg-white/60 dark:bg-gray-800/70 hover:bg-white/95 dark:hover:bg-gray-800/95 rounded-full shadow-sm hover:shadow-lg transition-all duration-200 opacity-70 hover:opacity-100 hover:scale-110"
+                title={t('boardTabs.scrollColumnsLeft', { ns: 'common' })}
               >
-                <ChevronLeft size={18} className="text-gray-500 hover:text-gray-700" />
+                <ChevronLeft size={18} className="text-gray-500 hover:text-gray-700 dark:text-gray-300 dark:hover:text-gray-100" />
               </button>
             )}
             
@@ -716,10 +783,10 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
                 onMouseDown={() => startContinuousScroll('right')}
                 onMouseUp={stopContinuousScroll}
                 onMouseLeave={stopContinuousScroll}
-                className="absolute -right-12 top-4 z-20 p-2 bg-white bg-opacity-60 hover:bg-opacity-95 rounded-full shadow-sm hover:shadow-lg transition-all duration-200 opacity-70 hover:opacity-100 hover:scale-110"
-                title="Click or hold to scroll right (→)"
+                className="absolute -right-12 top-4 z-20 p-2 bg-white/60 dark:bg-gray-800/70 hover:bg-white/95 dark:hover:bg-gray-800/95 rounded-full shadow-sm hover:shadow-lg transition-all duration-200 opacity-70 hover:opacity-100 hover:scale-110"
+                title={t('boardTabs.scrollColumnsRight', { ns: 'common' })}
               >
-                <ChevronRight size={18} className="text-gray-500 hover:text-gray-700" />
+                <ChevronRight size={18} className="text-gray-500 hover:text-gray-700 dark:text-gray-300 dark:hover:text-gray-100" />
               </button>
             )}
             

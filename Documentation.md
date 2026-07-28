@@ -15,8 +15,9 @@
 8. [User Profile & Settings](#user-profile--settings)
 9. [Admin Section](#admin-section-admin-only)
 10. [Advanced Features](#advanced-features)
-11. [Keyboard Shortcuts](#keyboard-shortcuts)
-12. [Troubleshooting](#troubleshooting)
+11. [AI Agent](#ai-agent)
+12. [Keyboard Shortcuts](#keyboard-shortcuts)
+13. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -33,6 +34,7 @@ Easy-Kanban is a comprehensive project management platform that combines Kanban 
 - **Role-based access control** (Admin/User permissions)
 - **Team management** with color-coded member assignments
 - **Task management** with priorities, comments, and file attachments
+- **AI Agent** (optional) — assign tasks to an Agent that can comment (**Assist**), work a linked Git repo (**Code**), or (admins) run board **Automation** with dry-run Apply/Undo (see [AI Agent](#ai-agent))
 - **Admin panel** for user management and system configuration
 - **File uploads** for task attachments and user avatars
 - **Site branding** - custom logo (light/dark), optional hide logo / GitHub link
@@ -71,6 +73,7 @@ In production mode, you'll need to create your own user accounts through the adm
 5. Start creating and managing tasks
 6. Configure Google OAuth (optional) in Admin > SSO settings
 7. Configure branding (optional) in Admin > Site Settings (logo, site name)
+8. Configure AI Agent (optional) in Admin > AI Settings — then users add Profile → Dev credentials for coding jobs
 
 ---
 
@@ -155,7 +158,8 @@ The Kanban view displays tasks as cards in columns, representing different stage
 - **Task Title**: Click to open task details
 - **Task Description**: Shown in expand/shrink modes (hidden in compact)
 - **Priority Indicator**: Color-coded priority level
-- **Assignee**: User avatar and name
+- **Assignee**: User avatar and name (including the **Agent** when AI is enabled)
+- **Agent activity** (when AI is on): spinner while the Agent is queued/running/waiting; open the activity modal from the card toolbar for live logs, pause/stop/resume
 - **Tags**: Color-coded tags
 - **Dates**: Start and due date
 - **Watchers / collaborators / attachments**: Reflected on the card; side-panel edits update the board in real time
@@ -269,6 +273,7 @@ When you click on a task, the Task Details page opens with comprehensive task ma
 - **Delete Task**: Remove task permanently
 - **Copy Task**: Duplicate task
 - **Link Tasks**: Create relationships with other tasks
+- **Assign to Agent** (when AI is enabled): Open the assign modal from the card toolbar or assignee control — see [AI Agent](#ai-agent)
 
 #### Task Linking
 - **Parent Tasks**: Tasks that depend on this one
@@ -296,6 +301,19 @@ Side-panel edits (description, watchers, collaborators, attachments, effort, etc
 ### Account Settings
 - **Change Password**: Use the forgot password link at login
 - **Account Deletion**: Delete your account
+
+### Dev credentials (when AI is enabled)
+
+[Screenshot: Profile → Dev tab]
+
+When an administrator has enabled AI for the instance, Profile includes a **Dev** tab:
+
+- **API tokens**: Personal access tokens (`ek_…`) for agent/API automation (shown once at creation)
+- **SSH key**: Generate a dedicated keypair for agent git access (public key to add on GitHub/GitLab)
+- **GitHub PAT**: Store your own GitHub personal access token for clone, push, and pull requests (not shared with other users)
+- **Repo check**: Probe whether your PAT can access a given repository URL
+
+These credentials are used when **you** assign a coding job to the Agent. Assist-only jobs (no repo) do not require Git credentials.
 
 ---
 
@@ -413,6 +431,31 @@ The Admin section provides comprehensive system management capabilities.
 - **Category**: Tag grouping
 - **Usage Count**: How many tasks use this tag
 
+### AI Settings (Admin Only)
+
+[Screenshot: Admin AI Settings tab]
+
+Configure the optional AI Agent platform (also toggled from App Settings where available).
+
+#### Enablement
+- **Enable AI**: Master switch — turns on the Agent assignee, Profile → Dev, and agent APIs
+- **Agent display name**: Name shown for the Agent member on the board
+
+#### LLM provider
+- **Provider**: OpenAI, Anthropic (Claude), OpenRouter, Ollama (local), or Custom (OpenAI-compatible)
+- **Base URL / API key / Model**: Provider endpoint, credentials, and default model
+- **Validate connection**: Test that the app can reach the LLM with the saved (or draft) settings
+- **List models**: Fetch available models from the provider when supported
+
+#### Agent runner (coding jobs)
+- **Runner URL** and **Runner token**: Push jobs to the agent runner service (required for repo/coding work; assist/comment jobs use the LLM path configured above)
+- **Max concurrent agent jobs**: Cap how many Agent jobs run at once for this instance (1–10)
+- **Probe runner**: Verify the runner is reachable and authenticated
+
+GitHub PATs are **not** stored in admin settings — each user manages credentials under Profile → Dev.
+
+Developer details (APIs, `task_work`, runner): [`docs/AI_INTEGRATION.md`](docs/AI_INTEGRATION.md).
+
 ---
 
 ## Advanced Features
@@ -471,8 +514,52 @@ The Admin section provides comprehensive system management capabilities.
 #### Live Updates
 - **WebSocket Connection**: Real-time data synchronization across clients
 - **PostgreSQL NOTIFY**: Server events fan out to connected pods/clients
-- **Instant Updates**: Board cards and panels update as others edit (including side-panel changes)
+- **Instant Updates**: Board cards and panels update as others edit (including side-panel changes), including Agent **task work** status and logs when AI is enabled
 - **Conflict Resolution**: Handle simultaneous edits
+
+---
+
+## AI Agent
+
+Optional feature. Requires an administrator to enable AI and configure an LLM (and usually an agent runner for coding jobs).
+
+### What it does
+- Adds an **Agent** assignee (system member — not a licensed login seat)
+- Lets you **queue work** on a task: coding against a Git repo, **assist** (comment-oriented, no repo), or **Automation** (admins — board-wide tool ops with preview)
+- Shows **live progress** on the card and in an activity screen (logs, pause / stop / resume)
+- For coding jobs, can commit, push a branch, and open a **pull request** when GitHub credentials allow
+- For Automation: dry-run plan → admin **Apply** → optional **Undo**; copy the task to reuse the recipe, or edit and Re-run
+
+### Assigning work
+1. Ensure the task has a **description** (required before the Agent can be queued)
+2. Open **Assign to Agent** from the task card toolbar (or assignee flow when AI is on)
+3. Choose:
+   - **Assist** — no repository
+   - **Code** — repository URL + optional branch
+   - **Automation** (admins) — scope: this board / selected boards / all boards
+   - Optional model override (admins) when allowed
+4. Confirm — the task is assigned to the Agent and status becomes **queued**, then **running** when a runner slot is available
+5. For Automation, review the dry-run on the activity screen and click **Apply** before changes run
+
+### Controlling a running job
+- Open the **Agent activity** screen from the card
+- **Pause** / **Stop** — requests the runner to cancel; status updates on the card
+- **Resume** / **Re-run** — re-queues work after pause, wait, stop, or failure (as allowed by status)
+- **Apply** / **Undo** (Automation, admins) — execute or reverse the dry-run plan
+- While the Agent is actively working, dragging the card may be blocked
+
+### Waiting for your reply
+- The Agent may post a comment and enter a **waiting** state
+- Reply in comments, then **resume** when you want work to continue
+- Automation waiting for Apply is a separate admin confirmation step (not a comment reply)
+
+### Prerequisites checklist
+| Who | Need |
+|-----|------|
+| Admin | AI enabled; LLM provider/key/model; runner URL/token for coding/automation jobs |
+| Admin (automation) | Use Automation mode; review dry-run; Apply/Undo |
+| User (coding) | Profile → Dev: GitHub PAT and/or SSH key with access to the repo |
+| User (assist) | AI enabled; no Git credentials required |
 
 ---
 
@@ -530,6 +617,15 @@ The Admin section provides comprehensive system management capabilities.
 - **Solution**: Clear browser cache, check internet connection
 - **Prevention**: Regular browser maintenance, stable internet
 
+#### AI Agent / runner problems
+- **Symptoms**: Assign to Agent fails, job stays queued, or coding jobs fail immediately
+- **Checks**:
+  - Admin → AI Settings: AI enabled; **Validate** LLM; **Probe** runner (for coding jobs)
+  - Task has a non-empty description
+  - Coding jobs: Profile → Dev has a GitHub PAT and/or SSH key; use **Repo check** for the URL
+  - Assist jobs do not need a runner for LLM chat alone in the same way as coding — if coding is intended, confirm runner URL/token and that `AI_CALLBACK_BASE_URL` / networking allows the runner to reach the app (Docker/K8s)
+- **Developer reference**: [`docs/AI_INTEGRATION.md`](docs/AI_INTEGRATION.md)
+
 ### Getting Help
 - **Help Modal**: Press F1 or click help button
 - **Documentation**: This comprehensive guide
@@ -538,4 +634,4 @@ The Admin section provides comprehensive system management capabilities.
 
 ---
 
-*This documentation covers the current Easy-Kanban application (PostgreSQL edition). For deployment and operations details, see README.md and DOCKER.md.*
+*This documentation covers the current Easy-Kanban application (PostgreSQL edition). For deployment and operations details, see README.md and DOCKER.md. For AI Agent internals, see docs/AI_INTEGRATION.md.*

@@ -75,6 +75,8 @@ export interface UserPreferences {
     showActivityFeed?: boolean; // User override for system SHOW_ACTIVITY_FEED setting
     autoRefreshEnabled?: boolean; // User preference for auto-refresh toggle
     showSystemPanel?: boolean; // User preference for system metrics panel visibility (default: true for admins)
+    /** Tools + members + board progress row above the board (default: true / shown) */
+    showBoardToolbar?: boolean;
   };
   notifications: {
     newTaskAssigned: boolean; // Notify when a new task is assigned to me
@@ -193,6 +195,7 @@ const BASE_DEFAULT_PREFERENCES: UserPreferences = {
     // taskDeleteConfirm: undefined - let it inherit from system setting by default
     // showActivityFeed: undefined - let it inherit from system setting by default
     autoRefreshEnabled: true, // Default to auto-refresh enabled
+    showBoardToolbar: true, // Tools / members / progress visible by default
   },
   notifications: {
     newTaskAssigned: true,
@@ -427,6 +430,7 @@ export const saveUserPreferences = async (preferences: UserPreferences, userId: 
           saveIfDefined('showActivityFeed', preferences.appSettings.showActivityFeed),
           saveIfDefined('autoRefreshEnabled', preferences.appSettings.autoRefreshEnabled),
           saveIfDefined('showSystemPanel', preferences.appSettings.showSystemPanel),
+          saveIfDefined('showBoardToolbar', preferences.appSettings.showBoardToolbar),
           
           // Activity Feed Settings
           saveIfDefined('activityFeedMinimized', preferences.activityFeed.isMinimized),
@@ -662,7 +666,8 @@ export const loadUserPreferencesAsync = async (userId: string | null = null): Pr
           taskDeleteConfirm: smartMerge(preferences.appSettings.taskDeleteConfirm, dbSettings.taskDeleteConfirm, defaults.appSettings.taskDeleteConfirm),
           showActivityFeed: smartMerge(preferences.appSettings.showActivityFeed, dbSettings.showActivityFeed, defaults.appSettings.showActivityFeed),
           autoRefreshEnabled: smartMerge(preferences.appSettings.autoRefreshEnabled, dbSettings.autoRefreshEnabled, defaults.appSettings.autoRefreshEnabled),
-          showSystemPanel: smartMerge(preferences.appSettings.showSystemPanel, dbSettings.showSystemPanel, defaults.appSettings.showSystemPanel)
+          showSystemPanel: smartMerge(preferences.appSettings.showSystemPanel, dbSettings.showSystemPanel, defaults.appSettings.showSystemPanel),
+          showBoardToolbar: smartMerge(preferences.appSettings.showBoardToolbar, dbSettings.showBoardToolbar, defaults.appSettings.showBoardToolbar)
         },
         
         // Activity Feed Settings
@@ -873,6 +878,7 @@ export const updateAppSettingsPreference = async <K extends keyof UserPreference
     'showActivityFeed': 'showActivityFeed',
     'autoRefreshEnabled': 'autoRefreshEnabled',
     'showSystemPanel': 'showSystemPanel',
+    'showBoardToolbar': 'showBoardToolbar',
   };
   
   const dbKey = dbKeyMap[key];

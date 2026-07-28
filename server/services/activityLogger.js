@@ -17,6 +17,23 @@ export const initActivityLogger = (database) => {
   db = database;
 };
 
+/** Whether this activity came from a personal API token (ek_…). */
+function resolveViaApi(additionalData = {}) {
+  return Boolean(
+    additionalData.viaApi === true ||
+      additionalData.authType === 'pat'
+  );
+}
+
+/** Persist bilingual details + optional viaApi flag in activity.details JSON. */
+function stringifyActivityDetails(bilingual, additionalData = {}) {
+  const payload = { ...bilingual };
+  if (resolveViaApi(additionalData)) {
+    payload.viaApi = true;
+  }
+  return JSON.stringify(payload);
+}
+
 /**
  * Log a task-related activity with automatic role detection
  * @param {string} userId - User ID
@@ -282,6 +299,51 @@ export const logTaskActivity = async (userId, action, taskId, details, additiona
           }, 'fr');
         }
       }
+    } else if (action === 'agent_job_done') {
+      const prUrl = additionalData.prUrl ? String(additionalData.prUrl) : '';
+      enhancedDetailsBilingual = {
+        en: t(
+          prUrl ? 'activity.agentJobDoneWithPr' : 'activity.agentJobDone',
+          {
+            taskTitle: translatedTaskTitle.en,
+            taskRef,
+            boardTitle: translatedBoardTitle.en,
+            prUrl
+          },
+          'en'
+        ),
+        fr: t(
+          prUrl ? 'activity.agentJobDoneWithPr' : 'activity.agentJobDone',
+          {
+            taskTitle: translatedTaskTitle.fr,
+            taskRef,
+            boardTitle: translatedBoardTitle.fr,
+            prUrl
+          },
+          'fr'
+        )
+      };
+    } else if (action === 'agent_job_failed') {
+      enhancedDetailsBilingual = {
+        en: t(
+          'activity.agentJobFailed',
+          {
+            taskTitle: translatedTaskTitle.en,
+            taskRef,
+            boardTitle: translatedBoardTitle.en
+          },
+          'en'
+        ),
+        fr: t(
+          'activity.agentJobFailed',
+          {
+            taskTitle: translatedTaskTitle.fr,
+            taskRef,
+            boardTitle: translatedBoardTitle.fr
+          },
+          'fr'
+        )
+      };
     }
 
     // Append project and task identifiers (always enabled) - same for both languages
@@ -304,7 +366,10 @@ export const logTaskActivity = async (userId, action, taskId, details, additiona
     }
     
     // Convert to JSON string for storage
-    const enhancedDetails = JSON.stringify(enhancedDetailsBilingual);
+    const enhancedDetails = stringifyActivityDetails(
+      enhancedDetailsBilingual,
+      additionalData
+    );
 
     // MIGRATED: Use SQL Manager to insert activity
     await activityQueries.insertActivity(database, {
@@ -636,6 +701,19 @@ export const generateTaskUpdateDetails = async (field, oldValue, newValue, addit
     }
   }
 
+  // Special handling for blocked flag
+  if (field === 'isBlocked') {
+    const wasBlocked = oldValue === true || oldValue === 1 || oldValue === 'true';
+    const nowBlocked = newValue === true || newValue === 1 || newValue === 'true';
+    if (!wasBlocked && nowBlocked) {
+      return JSON.stringify(getBilingualTranslation('activity.markedAsBlocked'));
+    }
+    if (wasBlocked && !nowBlocked) {
+      return JSON.stringify(getBilingualTranslation('activity.clearedBlocked'));
+    }
+    return JSON.stringify({ en: '', fr: '' });
+  }
+
   // Handle other fields as before
   if (oldValue === null || oldValue === undefined || oldValue === '') {
     return JSON.stringify({
@@ -812,7 +890,10 @@ export const logCommentActivity = async (userId, action, commentId, taskId, deta
     }
 
     // Convert to JSON string for storage
-    const enhancedDetails = JSON.stringify(enhancedDetailsBilingual);
+    const enhancedDetails = stringifyActivityDetails(
+      enhancedDetailsBilingual,
+      additionalData
+    );
 
     // MIGRATED: Use SQL Manager to insert activity
     await activityQueries.insertActivity(database, {

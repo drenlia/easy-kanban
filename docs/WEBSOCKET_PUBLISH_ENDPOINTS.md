@@ -1,6 +1,8 @@
 # WebSocket Publish Endpoints - Complete List
 
-This document lists all endpoints that publish to Redis for real-time WebSocket updates, organized by file and endpoint.
+> **Transport note:** Endpoints call `notificationService.publish()`, which uses **PostgreSQL `LISTEN`/`NOTIFY`**. Redis is **not** the app event bus (it is only the Socket.IO adapter). See [`REALTIME_UPDATE_FLOW-MULTI-TENANCY.md`](./REALTIME_UPDATE_FLOW-MULTI-TENANCY.md).
+
+This document lists endpoints that publish for real-time WebSocket updates, organized by file and endpoint. Line numbers may drift; treat channel names and payload shapes as the source of truth.
 
 ## 📋 Summary
 

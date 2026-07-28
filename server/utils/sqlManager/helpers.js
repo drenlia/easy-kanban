@@ -95,7 +95,7 @@ export async function getSetting(db, key) {
  * Get column by ID
  */
 export async function getColumnById(db, columnId) {
-  const query = `SELECT id, title, boardid as "boardId", position, is_finished, is_archived FROM columns WHERE id = $1`;
+  const query = `SELECT id, title, boardid as "boardId", position, is_finished, is_archived, wip_limit, policy_text FROM columns WHERE id = $1`;
   const stmt = wrapQuery(db.prepare(query), 'SELECT');
   return await stmt.get(columnId);
 }
@@ -104,7 +104,7 @@ export async function getColumnById(db, columnId) {
  * Get full column info by ID (including boardid and position)
  */
 export async function getColumnFullInfo(db, columnId) {
-  const query = `SELECT id, title, boardid as "boardId", position, is_finished, is_archived FROM columns WHERE id = $1`;
+  const query = `SELECT id, title, boardid as "boardId", position, is_finished, is_archived, wip_limit, policy_text FROM columns WHERE id = $1`;
   const stmt = wrapQuery(db.prepare(query), 'SELECT');
   return await stmt.get(columnId);
 }
@@ -122,7 +122,7 @@ export async function checkColumnNameDuplicate(db, boardId, title, excludeColumn
  * Get column with is_finished flag
  */
 export async function getColumnWithStatus(db, columnId) {
-  const query = `SELECT id, title, is_finished, is_archived FROM columns WHERE id = $1`;
+  const query = `SELECT id, title, is_finished, is_archived, wip_limit, policy_text FROM columns WHERE id = $1`;
   const stmt = wrapQuery(db.prepare(query), 'SELECT');
   return await stmt.get(columnId);
 }
@@ -156,7 +156,9 @@ export async function getColumnsForBoard(db, boardId) {
       boardid as "boardId", 
       position, 
       is_finished,
-      is_archived
+      is_archived,
+      wip_limit,
+      policy_text
     FROM columns 
     WHERE boardid = $1 
     ORDER BY position ASC
@@ -181,7 +183,9 @@ export async function getColumnsForAllBoards(db, boardIds) {
       boardid as "boardId", 
       position, 
       is_finished,
-      is_archived
+      is_archived,
+      wip_limit,
+      policy_text
     FROM columns 
     WHERE boardid IN (${placeholders})
     ORDER BY boardid, position ASC
@@ -256,7 +260,9 @@ export async function getAllColumnsForBoard(db, boardId) {
       boardid as "boardId", 
       position, 
       is_finished,
-      is_archived
+      is_archived,
+      wip_limit,
+      policy_text
     FROM columns 
     WHERE boardid = $1 
     ORDER BY position ASC
@@ -288,16 +294,33 @@ export async function renumberBoardColumnPositions(db, boardId) {
 }
 
 /**
- * Update column (title, is_finished, is_archived)
+ * Update column (title, is_finished, is_archived, optional wip_limit / policy_text)
+ * @param {number|null|undefined} wipLimit - null clears limit; undefined leaves unchanged
+ * @param {string|null|undefined} policyText - null/'' clears; undefined leaves unchanged
  */
-export async function updateColumn(db, columnId, title, isFinished, isArchived) {
+export async function updateColumn(db, columnId, title, isFinished, isArchived, wipLimit, policyText) {
+  const setParts = ['title = $1', 'is_finished = $2', 'is_archived = $3'];
+  const params = [title, Boolean(isFinished), Boolean(isArchived)];
+  let i = 4;
+
+  if (wipLimit !== undefined) {
+    setParts.push(`wip_limit = $${i++}`);
+    params.push(wipLimit === null || wipLimit === '' ? null : Number(wipLimit));
+  }
+  if (policyText !== undefined) {
+    setParts.push(`policy_text = $${i++}`);
+    const cleaned = policyText == null ? null : String(policyText).trim();
+    params.push(cleaned === '' ? null : cleaned);
+  }
+
+  params.push(columnId);
   const query = `
     UPDATE columns 
-    SET title = $1, is_finished = $2, is_archived = $3 
-    WHERE id = $4
+    SET ${setParts.join(', ')} 
+    WHERE id = $${i}
   `;
   const stmt = wrapQuery(db.prepare(query), 'UPDATE');
-  return await stmt.run(title, Boolean(isFinished), Boolean(isArchived), columnId);
+  return await stmt.run(...params);
 }
 
 /**
@@ -312,14 +335,24 @@ export async function deleteColumn(db, columnId) {
 /**
  * Create a column
  */
-export async function createColumn(db, id, title, boardId, position, isFinished, isArchived) {
+export async function createColumn(db, id, title, boardId, position, isFinished, isArchived, wipLimit = null, policyText = null) {
   const query = `
-    INSERT INTO columns (id, title, boardid, position, is_finished, is_archived) 
-    VALUES ($1, $2, $3, $4, $5, $6)
+    INSERT INTO columns (id, title, boardid, position, is_finished, is_archived, wip_limit, policy_text) 
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
     RETURNING *
   `;
   const stmt = wrapQuery(db.prepare(query), 'INSERT');
-  return await stmt.run(id, title, boardId, position, Boolean(isFinished), Boolean(isArchived));
+  const cleanedPolicy = policyText == null ? null : String(policyText).trim();
+  return await stmt.run(
+    id,
+    title,
+    boardId,
+    position,
+    Boolean(isFinished),
+    Boolean(isArchived),
+    wipLimit === null || wipLimit === undefined || wipLimit === '' ? null : Number(wipLimit),
+    cleanedPolicy === '' ? null : cleanedPolicy
+  );
 }
 
 /**
@@ -383,9 +416,15 @@ export async function getAttachmentsForComments(db, commentIds) {
  */
 export async function getCommentsForTask(db, taskId) {
   const query = `
-    SELECT c.*, 
-           m.name as authorName,
-           m.color as authorColor
+    SELECT 
+      c.id,
+      c.taskid as "taskId",
+      c.text,
+      c.authorid as "authorId",
+      c.createdat as "createdAt",
+      c.updated_at as "updatedAt",
+      m.name as "authorName",
+      m.color as "authorColor"
     FROM comments c
     LEFT JOIN members m ON c.authorid = m.id
     WHERE c.taskid = $1

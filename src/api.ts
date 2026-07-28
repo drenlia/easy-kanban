@@ -317,8 +317,21 @@ export const createColumn = async (column: Column) => {
   return data;
 };
 
-export const updateColumn = async (id: string, title: string, is_finished?: boolean, is_archived?: boolean) => {
-  const { data } = await api.put<Column>(`/columns/${id}`, { title, is_finished, is_archived });
+export const updateColumn = async (
+  id: string,
+  title: string,
+  is_finished?: boolean,
+  is_archived?: boolean,
+  wip_limit?: number | null,
+  policy_text?: string | null
+) => {
+  const { data } = await api.put<Column>(`/columns/${id}`, {
+    title,
+    is_finished,
+    is_archived,
+    wip_limit,
+    policy_text,
+  });
   return data;
 };
 
@@ -1115,6 +1128,178 @@ export const deleteNotifications = async (notificationIds: string[]) => {
     data: { notificationIds }
   });
   return response.data;
+};
+
+// ─── AI Agent / Dev credentials ─────────────────────────────────────────────
+
+export type TaskWorkMap = Record<string, string | null | undefined>;
+
+export const getTaskWork = async (taskId: string): Promise<{ work: TaskWorkMap }> => {
+  const { data } = await api.get(`/tasks/${taskId}/work`);
+  return data;
+};
+
+export const putTaskWork = async (
+  taskId: string,
+  body: {
+    repoUrl?: string;
+    repoBranch?: string;
+    status?: string;
+    llmModel?: string;
+    agentMode?: 'assist' | 'code' | 'automation';
+    automationScope?: 'this_board' | 'selected' | 'all_boards';
+    automationBoardIds?: string[];
+    entries?: TaskWorkMap;
+  }
+): Promise<{ work: TaskWorkMap }> => {
+  const { data } = await api.put(`/tasks/${taskId}/work`, body);
+  return data;
+};
+
+export const setTaskWorkControl = async (
+  taskId: string,
+  control: 'pause' | 'stop' | 'resume' | 'none' | 'apply'
+): Promise<{ work: TaskWorkMap }> => {
+  const { data } = await api.put(`/tasks/${taskId}/work/control`, { control });
+  return data;
+};
+
+export const undoAutomationJob = async (
+  taskId: string
+): Promise<{
+  ok?: boolean;
+  undone?: number;
+  summary?: string;
+  work?: TaskWorkMap;
+  error?: string;
+  alreadyUndone?: boolean;
+}> => {
+  const { data } = await api.post(`/agent/automation/undo/${taskId}`);
+  return data;
+};
+
+export const getTaskWorkMaps = async (
+  taskIds: string[]
+): Promise<{ workByTaskId: Record<string, TaskWorkMap> }> => {
+  const { data } = await api.post('/tasks/work-maps', { taskIds });
+  return data;
+};
+
+export interface UserApiTokenMeta {
+  id: string;
+  name: string;
+  tokenPrefix: string;
+  createdAt: string;
+  lastUsedAt?: string | null;
+  revokedAt?: string | null;
+}
+
+export const listUserApiTokens = async (): Promise<UserApiTokenMeta[]> => {
+  const { data } = await api.get('/user/dev/tokens');
+  return data;
+};
+
+export const createUserApiToken = async (
+  name?: string
+): Promise<{ token: UserApiTokenMeta; rawToken: string }> => {
+  const { data } = await api.post('/user/dev/tokens', { name });
+  return data;
+};
+
+export const revokeUserApiToken = async (id: string): Promise<void> => {
+  await api.delete(`/user/dev/tokens/${id}`);
+};
+
+export interface UserSshKeyMeta {
+  publicKey: string;
+  fingerprint: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export const getUserSshKey = async (): Promise<{ key: UserSshKeyMeta | null }> => {
+  const { data } = await api.get('/user/dev/ssh-key');
+  return data;
+};
+
+export const generateUserSshKey = async (): Promise<{
+  key: UserSshKeyMeta;
+  privateKey: string;
+}> => {
+  const { data } = await api.post('/user/dev/ssh-key');
+  return data;
+};
+
+export const downloadUserSshPrivateKey = async (): Promise<{
+  privateKey: string;
+  fingerprint: string;
+}> => {
+  const { data } = await api.get('/user/dev/ssh-key/private');
+  return data;
+};
+
+export interface UserGithubTokenMeta {
+  hint: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export const getUserGithubToken = async (): Promise<{
+  configured: boolean;
+  token: UserGithubTokenMeta | null;
+}> => {
+  const { data } = await api.get('/user/dev/github-token');
+  return data;
+};
+
+export const saveUserGithubToken = async (
+  token: string
+): Promise<{ configured: boolean; token: UserGithubTokenMeta }> => {
+  const { data } = await api.put('/user/dev/github-token', { token });
+  return data;
+};
+
+export const deleteUserGithubToken = async (): Promise<void> => {
+  await api.delete('/user/dev/github-token');
+};
+
+export interface GithubRepoProbeResult {
+  ok: boolean;
+  reason?: string;
+  authMethod?: 'pat';
+  defaultBranch?: string;
+  branches?: string[];
+  error?: string;
+  httpStatus?: number;
+}
+
+export const probeGithubRepo = async (
+  repoUrl: string
+): Promise<GithubRepoProbeResult> => {
+  const { data } = await api.post('/user/dev/github-repo-probe', { repoUrl });
+  return data;
+};
+
+export interface AiModelOption {
+  id: string;
+  name?: string;
+}
+
+/** List models from the tenant's configured AI provider (admin only). */
+export const listAdminAiModels = async (): Promise<{
+  ok: boolean;
+  models?: AiModelOption[];
+  error?: string;
+  provider?: string;
+}> => {
+  const { data } = await api.post('/admin/settings/ai/models', {});
+  return data;
+};
+
+/** Tenant default model name (authenticated; no API key). */
+export const getAgentLlmInfo = async (): Promise<{ tenantModel: string }> => {
+  const { data } = await api.get('/user/dev/agent-llm');
+  return data;
 };
 
 export default api;

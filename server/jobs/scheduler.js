@@ -3,6 +3,7 @@ import { createDailyTaskSnapshots, cleanupOldSnapshots } from './taskSnapshots.j
 import { checkAllUserAchievements } from './achievements.js';
 import { getNotificationThrottler } from '../services/notificationThrottler.js';
 import { isMultiTenant, getAllTenantDatabases } from '../middleware/tenantRouting.js';
+import { tryLaunchQueuedTasks } from '../services/agentJobDispatcher.js';
 
 /**
  * Initialize all scheduled background jobs
@@ -121,6 +122,33 @@ export const initializeScheduler = (db) => {
       timezone: 'UTC'
     });
     console.log('  ✓ Notification queue cleanup scheduled (daily at 3am UTC)');
+
+    // Job 5: Agent push dispatcher (every 15s) — launches queued tasks when slots free
+    cron.schedule('*/15 * * * * *', async () => {
+      try {
+        if (isMultiTenant()) {
+          const tenantDbs = await getAllTenantDatabases();
+          for (const { tenantId, db: tenantDb } of tenantDbs) {
+            try {
+              await tryLaunchQueuedTasks(tenantDb, tenantId);
+            } catch (error) {
+              console.error(
+                `❌ [CRON] Agent dispatch failed for tenant ${tenantId || 'default'}:`,
+                error.message
+              );
+            }
+          }
+        } else if (db) {
+          await tryLaunchQueuedTasks(db, null);
+        }
+      } catch (error) {
+        console.error('❌ [CRON] Agent dispatch job failed:', error);
+      }
+    }, {
+      scheduled: true,
+      timezone: 'UTC'
+    });
+    console.log('  ✓ Agent job dispatcher scheduled (every 15s)');
     
     console.log('✅ Background job scheduler initialized successfully');
     console.log('📋 Scheduled jobs:');
@@ -128,6 +156,7 @@ export const initializeScheduler = (db) => {
     console.log('   • Achievement checks: Every hour');
     console.log('   • Snapshot cleanup: 1st of month at 02:00 UTC');
     console.log('   • Notification cleanup: Daily at 03:00 UTC');
+    console.log('   • Agent dispatch: every 15s');
     
     // Optional: Run initial snapshot if needed (for testing/initialization)
     if (process.env.RUN_INITIAL_SNAPSHOT === 'true') {

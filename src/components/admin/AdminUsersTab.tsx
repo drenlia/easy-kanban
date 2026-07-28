@@ -105,9 +105,16 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
     if (isOwner(userEmail)) {
       return currentUser?.email === userEmail;
     }
+    // Pseudo-accounts: manage Agent identity under Admin → AI Settings
+    if (userEmail === 'agent@local' || userEmail === 'system@local') {
+      return false;
+    }
     // Other users can be modified by any admin
     return true;
   };
+
+  const isProtectedPseudoUser = (userEmail: string) =>
+    userEmail === 'agent@local' || userEmail === 'system@local';
   
   // Focus the "No" button when any delete dialog opens and handle Enter key
   useEffect(() => {

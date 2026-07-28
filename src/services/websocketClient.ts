@@ -15,6 +15,8 @@ class WebSocketClient {
   private reconnectDelay = 1000; // Start with 1 second
   private readyCallbacks: (() => void)[] = [];
   private eventCallbacks: Map<string, Function[]> = new Map();
+  /** Events that already have a single Socket.IO dispatcher (fans out to all callbacks). */
+  private socketDispatchBound: Set<string> = new Set();
   private pendingBoardJoin: string | null = null; // Store board to join when ready
 
   /**
@@ -303,6 +305,32 @@ class WebSocketClient {
     }
   }
 
+  /**
+   * One Socket.IO listener per event name. Dedupe once, then fan out to every
+   * registered callback — otherwise the first listener consumes `_rtId` and
+   * later subscribers (e.g. TaskDetails vs TaskCard) never see the update.
+   */
+  private ensureSocketDispatcher(eventName: string) {
+    if (!this.socket || this.socketDispatchBound.has(eventName)) return;
+    this.socketDispatchBound.add(eventName);
+    wsDebug(`🔧 [WebSocket] Binding Socket.IO dispatcher for event: ${eventName}`, {
+      socketConnected: this.socket.connected,
+    });
+    this.socket.on(eventName, (...args) => {
+      wsDebug(`📨 [WebSocket] Socket.IO event received: ${eventName}`, args);
+      const { deliver, args: out } = prepareRealtimeSocketArgs(eventName, args);
+      if (!deliver) return;
+      const callbacks = [...(this.eventCallbacks.get(eventName) || [])];
+      for (const cb of callbacks) {
+        try {
+          cb(...out);
+        } catch (err) {
+          console.error(`WebSocket callback error for ${eventName}:`, err);
+        }
+      }
+    });
+  }
+
   // Helper method to register callback with duplicate prevention
   private registerCallback(eventName: string, callback: Function) {
     if (!this.eventCallbacks.has(eventName)) {
@@ -313,15 +341,8 @@ class WebSocketClient {
     // Prevent duplicate registration of the same callback
     if (!callbacks.includes(callback)) {
       callbacks.push(callback);
-      
       if (this.socket) {
-        wsDebug(`🔧 [WebSocket] Registering Socket.IO listener for event: ${eventName}`, { socketConnected: this.socket.connected });
-        this.socket.on(eventName, (...args) => {
-          wsDebug(`📨 [WebSocket] Socket.IO event received: ${eventName}`, args);
-          const { deliver, args: out } = prepareRealtimeSocketArgs(eventName, args);
-          if (!deliver) return;
-          callback(...out);
-        });
+        this.ensureSocketDispatcher(eventName);
       } else {
         wsDebug(`⚠️ [WebSocket] Socket not available, callback stored for event: ${eventName}`);
       }
@@ -340,27 +361,14 @@ class WebSocketClient {
     wsDebug(`🔄 [WebSocket] Re-registering ${this.eventCallbacks.size} event types`);
     
     // CRITICAL: Remove all existing listeners first to prevent duplicates during reconnection storms
-    // This is especially important during sleep/wake cycles where multiple rapid reconnections occur
-    this.eventCallbacks.forEach((callbacks, eventName) => {
-      // Remove ALL listeners for this event before re-registering
+    this.socketDispatchBound.clear();
+    this.eventCallbacks.forEach((_callbacks, eventName) => {
       this.socket?.removeAllListeners(eventName);
     });
     
-    // Now register all callbacks from our stored map
-    this.eventCallbacks.forEach((callbacks, eventName) => {
-      callbacks.forEach(callback => {
-        if (eventName.includes('tag')) {
-          wsDebug(`🔧 [WebSocket] Re-registering listener for: ${eventName}`);
-        }
-        this.socket?.on(eventName, (...args) => {
-          if (eventName.includes('tag')) {
-            wsDebug(`📨 [WebSocket] Re-registered listener received: ${eventName}`, args);
-          }
-          const { deliver, args: out } = prepareRealtimeSocketArgs(eventName, args);
-          if (!deliver) return;
-          callback(...out);
-        });
-      });
+    // One dispatcher per event; callbacks are read from the map on each emit
+    this.eventCallbacks.forEach((_callbacks, eventName) => {
+      this.ensureSocketDispatcher(eventName);
     });
     
     wsDebug(`✅ [WebSocket] Re-registration complete`);
@@ -379,6 +387,10 @@ class WebSocketClient {
 
   onTaskUpdated(callback: (data: any) => void) {
     this.addEventListener('task-updated', callback);
+  }
+
+  onTaskWorkUpdated(callback: (data: any) => void) {
+    this.addEventListener('task-work-updated', callback);
   }
 
   onTaskDeleted(callback: (data: any) => void) {
@@ -487,17 +499,23 @@ class WebSocketClient {
   // Helper method to remove event listener from both socket and eventCallbacks map
   private removeEventListener(eventName: string, callback?: Function) {
     if (callback) {
-      this.socket?.off(eventName, callback as any);
       const callbacks = this.eventCallbacks.get(eventName);
       if (callbacks) {
         const index = callbacks.indexOf(callback);
         if (index > -1) {
           callbacks.splice(index, 1);
         }
+        // Keep the single Socket.IO dispatcher; it no-ops when the list is empty
+        if (callbacks.length === 0) {
+          this.eventCallbacks.delete(eventName);
+          this.socket?.off(eventName);
+          this.socketDispatchBound.delete(eventName);
+        }
       }
     } else {
       this.socket?.off(eventName);
       this.eventCallbacks.delete(eventName);
+      this.socketDispatchBound.delete(eventName);
     }
   }
 
@@ -508,6 +526,10 @@ class WebSocketClient {
 
   offTaskUpdated(callback?: (data: any) => void) {
     this.removeEventListener('task-updated', callback);
+  }
+
+  offTaskWorkUpdated(callback?: (data: any) => void) {
+    this.removeEventListener('task-work-updated', callback);
   }
 
   offTaskDeleted(callback?: (data: any) => void) {

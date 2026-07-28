@@ -28,11 +28,18 @@ export const COMMENT_ACTIONS = {
   DELETE: 'delete_comment'
 };
 
+/** Agent automation outcomes (attributed to AGENT_USER_ID) */
+export const AGENT_ACTIONS = {
+  JOB_DONE: 'agent_job_done',
+  JOB_FAILED: 'agent_job_failed'
+};
+
 // All actions combined for easy reference
 export const ALL_ACTIONS = [
   ...Object.values(TASK_ACTIONS),
   ...Object.values(TAG_ACTIONS),
-  ...Object.values(COMMENT_ACTIONS)
+  ...Object.values(COMMENT_ACTIONS),
+  ...Object.values(AGENT_ACTIONS)
 ];
 
 // Helper function to check if action is valid

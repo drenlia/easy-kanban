@@ -12,7 +12,8 @@ import { getRequestDatabase } from '../middleware/tenantRouting.js';
 import { serverDebug } from '../utils/serverDebug.js';
 import { dbTransaction } from '../utils/dbAsync.js';
 // MIGRATED: Import sqlManager
-import { tasks as taskQueries, boards as boardQueries, helpers, sprints as sprintQueries } from '../utils/sqlManager/index.js';
+import { tasks as taskQueries, boards as boardQueries, helpers, sprints as sprintQueries, taskWork as taskWorkQueries } from '../utils/sqlManager/index.js';
+import { AUTOMATION_CONFIG_KEYS } from '../constants/automation.js';
 
 const router = express.Router();
 
@@ -75,6 +76,7 @@ function buildMinimalTaskUpdatePayload(currentTask, updatedTask, changedFields, 
     minimalTask.position = updatedTask.position ?? currentTask.position;
     // Include previous location for cross-column moves
     minimalTask.previousColumnId = currentTask.columnId;
+    minimalTask.columnEnteredAt = updatedTask.columnEnteredAt || new Date().toISOString();
   }
   if (changedFields.includes('position') || currentTask.position !== (updatedTask.position ?? 0)) {
     minimalTask.position = updatedTask.position ?? 0;
@@ -86,6 +88,10 @@ function buildMinimalTaskUpdatePayload(currentTask, updatedTask, changedFields, 
   }
   if (changedFields.includes('sprintId')) {
     minimalTask.sprintId = updatedTask.sprintId || null;
+  }
+  if (changedFields.includes('isBlocked') || Boolean(currentTask.isBlocked ?? currentTask.is_blocked) !== Boolean(updatedTask.isBlocked)) {
+    minimalTask.isBlocked = Boolean(updatedTask.isBlocked);
+    minimalTask.blockedReason = updatedTask.blockedReason || null;
   }
   
   // Handle priority changes
@@ -127,6 +133,10 @@ async function fetchTaskWithRelationships(db, taskId) {
       });
     }
   }
+
+  if (Array.isArray(task.comments)) {
+    task.comments = mapCommentsForClient(task.comments);
+  }
   
   // Get priority information - prefer JOIN values over tasks.priority field (which can be stale)
   // CRITICAL: Use priorityId/priorityName/priorityColor from JOIN, not task.priority (text field can be outdated)
@@ -166,12 +176,31 @@ async function fetchTaskWithRelationships(db, taskId) {
     sprintId: task.sprint_id || null,
     createdAt: task.created_at,
     updatedAt: task.updated_at,
+    columnEnteredAt: task.column_entered_at || task.columnEnteredAt || null,
+    isBlocked: Boolean(task.is_blocked ?? task.isBlocked),
+    blockedReason: task.blocked_reason || task.blockedReason || null,
     // Ensure columnid and boardid are in camelCase (frontend expects these)
     columnId: task.columnid || task.columnId,
     boardId: task.boardid || task.boardId,
     memberId: task.memberid || task.memberId,
     requesterId: task.requesterid || task.requesterId
   };
+}
+
+/** Normalize comment rows for frontend (defensive camelCase). */
+function mapCommentsForClient(comments = []) {
+  return (comments || []).map((c) => ({
+    ...c,
+    id: c.id,
+    taskId: c.taskId || c.taskid || c.task_id,
+    text: c.text,
+    authorId: c.authorId || c.authorid || c.author_id,
+    createdAt: c.createdAt || c.createdat || c.created_at,
+    updatedAt: c.updatedAt || c.updated_at,
+    authorName: c.authorName || c.authorname || c.author_name,
+    authorColor: c.authorColor || c.authorcolor || c.author_color,
+    attachments: Array.isArray(c.attachments) ? c.attachments : []
+  }));
 }
 
 /** Normalize member rows for WS / frontend TeamMember shape */
@@ -432,10 +461,12 @@ router.get('/:id', authenticateToken, async (req, res) => {
       taskHttpLog(dbgHttp, '🏷️ [TASK API] Found tags:', tags.length);
       
       // Add all related data to task
-      task.comments = comments || [];
+      task.comments = mapCommentsForClient(comments || []);
       task.watchers = watchers || [];
       task.collaborators = collaborators || [];
       task.tags = tags || [];
+    } else if (Array.isArray(task.comments)) {
+      task.comments = mapCommentsForClient(task.comments);
     }
     
     // Convert snake_case to camelCase for frontend
@@ -556,6 +587,7 @@ router.post('/', authenticateToken, checkTaskLimit, async (req, res) => {
         columnId: task.columnId,
         boardId: task.boardId,
         tenantId: getTenantId(req),
+        authType: req.user?.authType,
         db: db
       }
     ).catch(error => {
@@ -696,6 +728,7 @@ router.post('/add-at-top', authenticateToken, checkTaskLimit, async (req, res) =
         columnId: task.columnId,
         boardId: task.boardId,
         tenantId: getTenantId(req),
+        authType: req.user?.authType,
         db: db
       }
     ).catch(error => {
@@ -884,6 +917,20 @@ router.post('/copy', authenticateToken, checkTaskLimit, async (req, res) => {
           await helpers.addCollaborator(db, newTaskId, memberId);
         }
       }
+
+      // Copy Agent Automation config keys only (reset runtime on new card)
+      const originalWork = await taskWorkQueries.getWorkMapByTaskId(db, taskId);
+      if (originalWork?.agent_mode === 'automation') {
+        const configEntries = {};
+        for (const key of AUTOMATION_CONFIG_KEYS) {
+          if (originalWork[key] != null && originalWork[key] !== '') {
+            configEntries[key] = originalWork[key];
+          }
+        }
+        if (Object.keys(configEntries).length) {
+          await taskWorkQueries.upsertWorkEntries(db, newTaskId, configEntries);
+        }
+      }
     });
     
     // NOTE: Frontend handles renumbering after receiving the copy via WebSocket
@@ -911,6 +958,7 @@ router.post('/copy', authenticateToken, checkTaskLimit, async (req, res) => {
         columnId: columnId,
         boardId: boardId,
         tenantId: getTenantId(req),
+        authType: req.user?.authType,
         db: db
       }
     ).catch(error => {
@@ -1029,7 +1077,8 @@ router.put('/:id', authenticateToken, async (req, res) => {
       dueDate: currentTask.duedate || currentTask.dueDate || null,
       effort: currentTask.effort !== null && currentTask.effort !== undefined ? currentTask.effort : null,
       columnId: currentTask.columnid || currentTask.columnId || null,
-      boardId: currentTask.boardid || currentTask.boardId || null
+      boardId: currentTask.boardid || currentTask.boardId || null,
+      isBlocked: Boolean(currentTask.is_blocked ?? currentTask.isBlocked),
     };
     
     // Helper function to normalize values for comparison (treat null, undefined, empty string as equivalent)
@@ -1074,7 +1123,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
     
     // Generate change details
     const changes = [];
-    const fieldsToTrack = ['title', 'description', 'memberId', 'requesterId', 'startDate', 'dueDate', 'effort', 'columnId'];
+    const fieldsToTrack = ['title', 'description', 'memberId', 'requesterId', 'startDate', 'dueDate', 'effort', 'columnId', 'isBlocked'];
     
     // Check if priority changed (by ID or name) - only if values are actually different
     const priorityIdChanged = priorityId && currentPriorityId && priorityId !== currentPriorityId;
@@ -1225,7 +1274,9 @@ router.put('/:id', authenticateToken, async (req, res) => {
           });
           changes.push(movedTaskText);
         } else {
-          changes.push(await generateTaskUpdateDetails(field, currentTask[field], task[field], '', db));
+          const oldVal = field === 'isBlocked' ? normalizedCurrentTask.isBlocked : currentTask[field];
+          const newVal = field === 'isBlocked' ? Boolean(task.isBlocked) : task[field];
+          changes.push(await generateTaskUpdateDetails(field, oldVal, newVal, '', db));
         }
       }
     }
@@ -1252,7 +1303,12 @@ router.put('/:id', authenticateToken, async (req, res) => {
       position: task.position || 0,
       sprint_id: task.sprintId || null,
       pre_boardId: previousBoardId,
-      pre_columnId: previousColumnId
+      pre_columnId: previousColumnId,
+      isBlocked: task.isBlocked !== undefined ? Boolean(task.isBlocked) : Boolean(currentTask.is_blocked ?? currentTask.isBlocked),
+      blockedReason:
+        task.blockedReason !== undefined
+          ? (task.blockedReason || null)
+          : (currentTask.blocked_reason || currentTask.blockedReason || null),
     });
     const dbUpdateTime = Date.now() - dbUpdateStartTime;
     taskHttpLog(dbgHttp, `⏱️  [PUT /tasks/:id] Database updates took ${dbUpdateTime}ms`);
@@ -1322,6 +1378,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
           oldValue,
           newValue,
           tenantId: getTenantId(req),
+          authType: req.user?.authType,
           db: db
         }
       ).catch(error => {
@@ -1677,6 +1734,7 @@ router.delete('/:id', authenticateToken, async (req, res) => {
         columnId: columnId,  // Use normalized columnId
         boardId: boardId,  // Use normalized boardId
         tenantId: getTenantId(req),
+        authType: req.user?.authType,
         db: db,
         taskTicket: taskTicket,  // Pass ticket so it can be appended to the message
         projectIdentifier: projectIdentifier  // Pass project identifier so it can be appended
@@ -1865,6 +1923,7 @@ router.post('/batch-update-positions', authenticateToken, async (req, res) => {
             columnId: move.columnId,
             boardId: move.previousBoardId,
             tenantId: getTenantId(req),
+            authType: req.user?.authType,
             db: db
           }
         ).catch(error => {
@@ -2053,6 +2112,7 @@ router.post('/reorder', authenticateToken, async (req, res) => {
         columnId: columnId,
         boardId: currentTask.boardId,
         tenantId: getTenantId(req),
+        authType: req.user?.authType,
         db: db
       }
     ).catch(error => {
@@ -2231,6 +2291,7 @@ router.post('/move-to-board', authenticateToken, async (req, res) => {
         columnId: targetColumn.id,
         boardId: targetBoardId,
         tenantId: getTenantId(req),
+        authType: req.user?.authType,
         db: db
       }
     ).catch(error => {

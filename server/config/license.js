@@ -69,15 +69,16 @@ class LicenseManager {
     return this.enabled;
   }
 
-  // Get user count (excluding system user)
+  // Get user count (excluding system user and AI agent pseudo-user)
   async getUserCount() {
     try {
       const systemUserId = '00000000-0000-0000-0000-000000000000';
+      const agentUserId = '00000000-0000-0000-0000-000000000010';
       // Use true instead of 1 for PostgreSQL compatibility (SQLite also accepts true)
       const result = await wrapQuery(
-        this.db.prepare('SELECT COUNT(*) as count FROM users WHERE is_active = true AND id != $1'),
+        this.db.prepare('SELECT COUNT(*) as count FROM users WHERE is_active = true AND id != $1 AND id != $2'),
         'SELECT'
-      ).get(systemUserId);
+      ).get(systemUserId, agentUserId);
       return result.count;
     } catch (error) {
       console.error('Error getting user count:', error);
@@ -222,7 +223,7 @@ class LicenseManager {
           FROM boards b
           LEFT JOIN tasks t ON b.id = t.boardid
           GROUP BY b.id, b.title
-          ORDER BY taskCount DESC, b.title ASC
+          ORDER BY "taskCount" DESC, b.title ASC
         `),
         'SELECT'
       ).all();

@@ -13,11 +13,22 @@ import { mergeTaskTagsWithLiveData, getTagDisplayStyle } from '../utils/tagUtils
 import { getAuthenticatedAvatarUrl, getAuthenticatedAttachmentUrl } from '../utils/authImageUrl';
 import { getLinkTarget, shouldOpenLinkInNewTab } from '../utils/linkUtils';
 import { truncateMemberName } from '../utils/memberUtils';
+import { commentTextToHtml } from '../utils/commentContent';
 import ExportMenu from './ExportMenu';
 import TextEditor from './TextEditor';
 import AddTagModal from './AddTagModal';
 import DateRangePicker from './DateRangePicker';
 import { CHROME_TOOLTIP_POPOVER_CLASS, KanbanChromeTooltip } from './KanbanChromeTooltip';
+import AgentPanel from './AgentPanel';
+import type { AgentPanelView } from './AgentPanel';
+import { putTaskWork, getTaskWork, setTaskWorkControl, type TaskWorkMap } from '../api';
+import { AGENT_MEMBER_ID, SYSTEM_MEMBER_ID } from '../constants/appConstants';
+import {
+  getAgentAvatarSrc,
+  isAgentMemberId,
+  resolveTaskMember,
+  sortMembersAgentLast,
+} from '../utils/agentMemberUi';
 
 interface ListViewScrollControls {
   canScrollLeft: boolean;
@@ -198,8 +209,7 @@ interface ColumnConfig {
   width: number;
 }
 
-// System user member ID constant
-const SYSTEM_MEMBER_ID = '00000000-0000-0000-0000-000000000001';
+// System / Agent member IDs: see appConstants
 
 const LIST_VIEW_INSTANT_TOOLTIP_CLASS = `${CHROME_TOOLTIP_POPOVER_CLASS} top-full mt-1 z-[60]`;
 
@@ -276,6 +286,11 @@ export default function ListView({
   
   const [sortField, setSortField] = useState<SortField>('column');
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
+  const [agentAssignTask, setAgentAssignTask] = useState<Task | null>(null);
+  const [agentAssignWork, setAgentAssignWork] = useState<TaskWorkMap>({});
+  const [agentAssignBusy, setAgentAssignBusy] = useState(false);
+  const [agentPanelView, setAgentPanelView] = useState<AgentPanelView>('configure');
+  const [agentPanelRestoreToken, setAgentPanelRestoreToken] = useState(0);
   
   // Get project identifier from the board
   const getProjectIdentifier = (boardId: string) => {
@@ -841,39 +856,40 @@ export default function ListView({
   };
 
   const getMemberDisplay = (memberId: string, task?: Task) => {
-    const member = members?.find(m => m.id === memberId);
+    const member = resolveTaskMember(members, memberId);
     if (!member) return null;
-
-    const watchersCount = task?.watchers?.length || 0;
-    const collaboratorsCount = task?.collaborators?.length || 0;
 
     return (
       <div className="flex items-center gap-2">
         <div className="flex items-center gap-1">
           {member.id === SYSTEM_MEMBER_ID ? (
-            // System user - show robot emoji instead of avatar
             <div 
               className="w-5 h-5 rounded-full flex items-center justify-center text-xs border border-gray-200"
               style={{ backgroundColor: member.color }}
             >
               🤖
             </div>
+          ) : isAgentMemberId(member.id) ? (
+            <img
+              src={getAgentAvatarSrc(member)}
+              alt={member.name}
+              className="w-5 h-5 rounded-full object-cover border border-gray-200 bg-white"
+            />
           ) : member.googleAvatarUrl || member.avatarUrl ? (
             <img
               src={getAuthenticatedAvatarUrl(member.googleAvatarUrl || member.avatarUrl)}
-              alt={`${member.firstName} ${member.lastName}`}
+              alt={member.name}
               className="w-5 h-5 rounded-full object-cover border border-gray-200"
             />
           ) : (
-            // Fallback to initial if no avatar
             <div 
               className="w-5 h-5 rounded-full flex items-center justify-center text-xs font-medium text-white border border-gray-200"
               style={{ backgroundColor: member.color }}
             >
-              {member.firstName?.charAt(0).toUpperCase()}
+              {member.name.charAt(0).toUpperCase()}
             </div>
           )}
-          <span className="text-xs text-gray-900 truncate">{member.firstName} {member.lastName}</span>
+          <span className="text-xs text-gray-900 truncate">{truncateMemberName(member.name)}</span>
         </div>
         
         {/* Watchers & Collaborators Icons */}
@@ -1362,6 +1378,28 @@ export default function ListView({
     const task = allTasks.find(t => t.id === taskId);
     if (!task) return;
 
+    if (field === 'memberId' && isAgentMemberId(String(value))) {
+      if (siteSettings?.AI_ENABLED !== 'true') {
+        setShowDropdown(null);
+        setAssigneeDropdownCoords(null);
+        return;
+      }
+      setShowDropdown(null);
+      setAssigneeDropdownCoords(null);
+      const alreadyAssigned = isAgentMemberId(task.memberId);
+      setAgentAssignTask(task);
+      setAgentPanelView(alreadyAssigned ? 'activity' : 'configure');
+      setAgentPanelRestoreToken((n) => n + 1);
+      if (alreadyAssigned) {
+        getTaskWork(task.id)
+          .then(({ work }) => setAgentAssignWork(work || {}))
+          .catch(() => setAgentAssignWork({}));
+      } else {
+        setAgentAssignWork({});
+      }
+      return;
+    }
+
     const updatedTask: any = {
       ...task
     };
@@ -1388,6 +1426,83 @@ export default function ListView({
       setTagsDropdownCoords(null);
     } catch (error) {
       console.error('Failed to update task:', error);
+    }
+  };
+
+  const handleListAssignAgentConfirm = async (
+    repoUrl: string,
+    repoBranch: string,
+    options?: {
+      restart?: boolean;
+      llmModel?: string;
+      launch?: boolean;
+      agentMode?: 'assist' | 'code' | 'automation';
+      automationScope?: 'this_board' | 'selected' | 'all_boards';
+      automationBoardIds?: string[];
+      description?: string;
+    }
+  ) => {
+    if (!agentAssignTask) return;
+    setAgentAssignBusy(true);
+    try {
+      const agentMode = options?.agentMode || (repoUrl.trim() ? 'code' : 'assist');
+      const isFirstAssign = !isAgentMemberId(agentAssignTask.memberId);
+      const withDescription =
+        options?.description !== undefined
+          ? {
+              ...agentAssignTask,
+              description: options.description,
+              ...(isFirstAssign ? { memberId: AGENT_MEMBER_ID } : {}),
+            }
+          : isFirstAssign
+            ? { ...agentAssignTask, memberId: AGENT_MEMBER_ID }
+            : agentAssignTask;
+
+      if (isFirstAssign || options?.description !== undefined) {
+        await onEditTask(withDescription);
+      }
+
+      const shouldLaunch = isFirstAssign && options?.launch !== false;
+      const { work } = await putTaskWork(agentAssignTask.id, {
+        repoUrl: agentMode === 'automation' ? '' : repoUrl,
+        repoBranch: agentMode === 'automation' ? '' : repoBranch,
+        agentMode,
+        ...(agentMode === 'automation'
+          ? {
+              automationScope: options?.automationScope || 'this_board',
+              automationBoardIds: options?.automationBoardIds || [],
+            }
+          : {}),
+        ...(shouldLaunch ? { status: 'queued', entries: { control: 'none' } } : {}),
+        ...(options?.llmModel !== undefined ? { llmModel: options.llmModel } : {}),
+      });
+      setAgentAssignWork(work || {});
+      setAgentAssignTask(withDescription);
+      if (options?.restart) {
+        const { work: resumed } = await setTaskWorkControl(agentAssignTask.id, 'resume');
+        setAgentAssignWork(resumed || work || {});
+      }
+      setAgentPanelView('activity');
+    } catch (error) {
+      console.error('List view assign to agent failed:', error);
+      throw error;
+    } finally {
+      setAgentAssignBusy(false);
+    }
+  };
+
+  const handleListAgentControl = async (
+    control: 'pause' | 'stop' | 'resume' | 'apply'
+  ) => {
+    if (!agentAssignTask) return;
+    setAgentAssignBusy(true);
+    try {
+      const { work } = await setTaskWorkControl(agentAssignTask.id, control);
+      setAgentAssignWork(work || {});
+    } catch (error) {
+      console.error('List view agent control failed:', error);
+    } finally {
+      setAgentAssignBusy(false);
     }
   };
 
@@ -2211,7 +2326,7 @@ export default function ListView({
                       // Function to render HTML content with safe link handling and blob URL fixing
                       const renderCommentHTML = (htmlText: string) => {
                         // First, fix blob URLs by replacing them with authenticated server URLs
-                        let fixedContent = htmlText;
+                        let fixedContent = commentTextToHtml(htmlText);
                         const blobPattern = /blob:[^"]*#(img-[^"]*)/g;
                         fixedContent = fixedContent.replace(blobPattern, (_match, filename) => {
                           // Convert blob URL to authenticated server URL
@@ -2273,7 +2388,7 @@ export default function ListView({
                               <Paperclip size={12} className="text-gray-400" title={`${comment.attachments.length} attachment(s)`} />
                             )}
                           </div>
-                          <div className="text-gray-300 text-xs leading-relaxed select-text">
+                          <div className="text-gray-300 text-xs leading-relaxed select-text comment-md">
                             <div dangerouslySetInnerHTML={renderCommentHTML(comment.text)} />
                           </div>
                         </div>
@@ -2316,38 +2431,34 @@ export default function ListView({
           }}
         >
           <div className="overflow-y-auto py-1" style={{ maxHeight: `${assigneeDropdownCoords.height || 150}px` }}>
-            {members?.map(member => (
+            {(() => {
+              const ordered = sortMembersAgentLast(members || []);
+              const people = ordered.filter((m) => !isAgentMemberId(m.id));
+              const agent = ordered.find((m) => isAgentMemberId(m.id));
+              const renderMember = (member: TeamMember) => (
               <button
                 key={member.id}
                 onClick={() => handleDropdownSelect(showDropdown.taskId, 'memberId', member.id)}
                 className="w-full px-3 py-2 text-left text-xs hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-2"
               >
                 {member.id === SYSTEM_MEMBER_ID ? (
-                  // System user - show robot emoji
                   <div 
                     className="w-4 h-4 rounded-full flex items-center justify-center text-xs border border-gray-200"
                     style={{ backgroundColor: member.color }}
                   >
                     🤖
                   </div>
+                ) : isAgentMemberId(member.id) ? (
+                  <img
+                    src={getAgentAvatarSrc(member)}
+                    alt={member.name}
+                    className="w-4 h-4 rounded-full object-cover border border-gray-200 bg-white"
+                  />
                 ) : member.googleAvatarUrl || member.avatarUrl ? (
                   <img
                     src={getAuthenticatedAvatarUrl(member.googleAvatarUrl || member.avatarUrl)}
                     alt={member.name}
                     className="w-4 h-4 rounded-full object-cover border border-gray-200"
-                    onError={(e) => {
-                      // Fallback to initials if image fails to load
-                      const target = e.target as HTMLImageElement;
-                      target.style.display = 'none';
-                      const parent = target.parentElement;
-                      if (parent) {
-                        const fallback = document.createElement('div');
-                        fallback.className = 'w-4 h-4 rounded-full flex items-center justify-center text-xs font-medium text-white border border-gray-200';
-                        fallback.style.backgroundColor = member.color;
-                        fallback.textContent = member.name.charAt(0).toUpperCase();
-                        parent.appendChild(fallback);
-                      }
-                    }}
                   />
                 ) : (
                   <div 
@@ -2361,10 +2472,52 @@ export default function ListView({
                   {truncateMemberName(member.name)}
                 </span>
               </button>
-            ))}
+              );
+              return (
+                <>
+                  {people.map(renderMember)}
+                  {agent && (
+                    <>
+                      <div className="my-1 border-t border-gray-200 dark:border-gray-600" />
+                      {renderMember(agent)}
+                    </>
+                  )}
+                </>
+              );
+            })()}
           </div>
         </div>,
         document.body
+      )}
+
+      {agentAssignTask && (
+        <AgentPanel
+          panelId={agentAssignTask.id}
+          taskTitle={agentAssignTask.title}
+          taskTicket={agentAssignTask.ticket}
+          taskDescription={agentAssignTask.description}
+          work={agentAssignWork}
+          comments={agentAssignTask.comments || []}
+          members={members}
+          busy={agentAssignBusy}
+          isAdmin={!!currentUser?.roles?.includes('admin')}
+          boards={(boards || []).map((b) => ({
+            id: b.id,
+            title: b.title || (b as { name?: string }).name || b.id,
+          }))}
+          view={agentPanelView}
+          onViewChange={setAgentPanelView}
+          restoreToken={agentPanelRestoreToken}
+          onClose={() => {
+            setAgentAssignTask(null);
+            setAgentAssignWork({});
+            setAgentPanelView('configure');
+          }}
+          onControl={handleListAgentControl}
+          onSaveConfig={handleListAssignAgentConfirm}
+          aiEnabled={siteSettings?.AI_ENABLED === 'true'}
+          isAssigned={isAgentMemberId(agentAssignTask.memberId)}
+        />
       )}
 
       {/* Portal-rendered Priority Dropdown */}

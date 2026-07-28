@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Joyride, { CallBackProps, STATUS } from 'react-joyride';
 import { useTranslation } from 'react-i18next';
 import { getTourSteps } from './TourSteps';
+import { useTheme } from '../../contexts/ThemeContext';
 
 interface TourProviderProps {
   children: React.ReactNode;
@@ -10,8 +11,63 @@ interface TourProviderProps {
 
 const TourProvider: React.FC<TourProviderProps> = ({ children, currentUser }) => {
   const { t } = useTranslation('common');
+  const { theme } = useTheme();
   const [isRunning, setIsRunning] = useState(false);
   const { userSteps, adminSteps } = getTourSteps();
+
+  const joyrideStyles = useMemo(() => {
+    const isDark = theme === 'dark';
+    return {
+      options: {
+        primaryColor: '#3b82f6',
+        textColor: isDark ? '#f3f4f6' : '#1f2937',
+        backgroundColor: isDark ? '#1f2937' : '#ffffff',
+        overlayColor: isDark ? 'rgba(0, 0, 0, 0.6)' : 'rgba(0, 0, 0, 0.4)',
+        arrowColor: isDark ? '#1f2937' : '#ffffff',
+        zIndex: 10000,
+      },
+      tooltip: {
+        borderRadius: 8,
+        fontSize: 14,
+        padding: 20,
+      },
+      tooltipContainer: {
+        textAlign: 'left' as const,
+      },
+      tooltipTitle: {
+        fontSize: 16,
+        fontWeight: 600,
+        marginBottom: 8,
+      },
+      tooltipContent: {
+        padding: 0,
+      },
+      buttonNext: {
+        backgroundColor: '#3b82f6',
+        borderRadius: 6,
+        color: '#ffffff',
+        fontSize: 14,
+        fontWeight: 500,
+        padding: '8px 16px',
+      },
+      buttonBack: {
+        color: isDark ? '#9ca3af' : '#6b7280',
+        fontSize: 14,
+        marginRight: 8,
+      },
+      buttonSkip: {
+        color: isDark ? '#9ca3af' : '#6b7280',
+        fontSize: 14,
+      },
+      buttonClose: {
+        color: isDark ? '#9ca3af' : '#6b7280',
+      },
+      beacon: {
+        inner: '#3b82f6',
+        outer: '#3b82f6',
+      },
+    };
+  }, [theme]);
 
   // Expose startTour function globally for the help modal
   useEffect(() => {
@@ -46,59 +102,14 @@ const TourProvider: React.FC<TourProviderProps> = ({ children, currentUser }) =>
         showProgress={true}
         showSkipButton={true}
         callback={handleJoyrideCallback}
-        styles={{
-          options: {
-            primaryColor: '#3b82f6', // Blue-500
-            textColor: '#1f2937', // Gray-800
-            backgroundColor: '#ffffff',
-            overlayColor: 'rgba(0, 0, 0, 0.4)',
-            arrowColor: '#ffffff',
-            zIndex: 10000,
-          },
-          tooltip: {
-            borderRadius: 8,
-            fontSize: 14,
-            padding: 20,
-          },
-          tooltipContainer: {
-            textAlign: 'left',
-          },
-          tooltipTitle: {
-            fontSize: 16,
-            fontWeight: 600,
-            marginBottom: 8,
-          },
-          tooltipContent: {
-            padding: 0,
-          },
-          buttonNext: {
-            backgroundColor: '#3b82f6',
-            borderRadius: 6,
-            color: '#ffffff',
-            fontSize: 14,
-            fontWeight: 500,
-            padding: '8px 16px',
-          },
-          buttonBack: {
-            color: '#6b7280',
-            fontSize: 14,
-            marginRight: 8,
-          },
-          buttonSkip: {
-            color: '#6b7280',
-            fontSize: 14,
-          },
-          beacon: {
-            inner: '#3b82f6',
-            outer: '#3b82f6',
-          },
-        }}
+        styles={joyrideStyles}
         locale={{
           back: t('tour.back'),
           close: t('tour.close'),
           last: t('tour.last'),
           next: t('tour.next'),
           skip: t('tour.skip'),
+          nextLabelWithProgress: t('tour.nextWithProgress'),
         }}
       />
     </>

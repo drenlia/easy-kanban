@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Minimize2, Maximize2, Search, Minus, LayoutGrid, List, Calendar, type LucideIcon } from 'lucide-react';
+import { Minimize2, Maximize2, Search, Minus, LayoutGrid, List, Calendar, ChevronUp, type LucideIcon } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { TaskViewMode, ViewMode } from '../utils/userPreferences';
 
@@ -10,6 +10,8 @@ interface ToolsProps {
   onViewModeChange: (mode: ViewMode) => void;
   isSearchActive: boolean;
   onToggleSearch: () => void;
+  /** When set, shows a chevron in the title row to collapse Tools / members / progress */
+  onHideToolbar?: () => void;
 }
 
 type OpenMenu = 'view' | 'density' | null;
@@ -34,7 +36,8 @@ export default function Tools({
   viewMode,
   onViewModeChange,
   isSearchActive,
-  onToggleSearch
+  onToggleSearch,
+  onHideToolbar,
 }: ToolsProps) {
   const { t } = useTranslation('common');
   const [openMenu, setOpenMenu] = useState<OpenMenu>(null);
@@ -128,11 +131,23 @@ export default function Tools({
   return (
     <div
       ref={containerRef}
-      className="p-3 bg-white dark:bg-gray-800 shadow-sm rounded-lg mb-4 border border-gray-100 dark:border-gray-700 w-[160px]"
+      className="p-3 bg-white dark:bg-gray-800 shadow-sm rounded-lg border border-gray-100 dark:border-gray-700 w-[160px]"
       data-tour-id="view-modes"
     >
-      <div className="flex items-center justify-between mb-3">
+      <div className="flex items-center justify-between mb-3 gap-1">
         <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-200 uppercase tracking-wide">{t('tools.title')}</h2>
+        {onHideToolbar && (
+          <button
+            type="button"
+            onClick={onHideToolbar}
+            className="-mr-1 p-0.5 rounded text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+            title={t('tools.hideBoardToolbar')}
+            aria-label={t('tools.hideBoardToolbar')}
+            aria-expanded={true}
+          >
+            <ChevronUp size={16} />
+          </button>
+        )}
       </div>
 
       <div className="flex gap-2 justify-center">

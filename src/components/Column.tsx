@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { createPortal } from 'react-dom';
-import { Plus, MoreVertical, X, GripVertical, Archive } from 'lucide-react';
+import { Plus, MoreVertical, X, GripVertical, Archive, AlertTriangle, ScrollText } from 'lucide-react';
 import { Column, Task, TeamMember, PriorityOption, CurrentUser, Tag, ColumnVisibilityWarning } from '../types';
 import { TaskViewMode } from '../utils/userPreferences';
 import TaskCard from './TaskCard';
@@ -9,7 +9,9 @@ import { useSortable, SortableContext, verticalListSortingStrategy } from '@dnd-
 import { CSS } from '@dnd-kit/utilities';
 import { useDroppable } from '@dnd-kit/core';
 import { parseFinishedColumnNames } from '../utils/columnUtils';
+import { getWipStatus, hasWipLimit } from '../utils/kanbanFlowUtils';
 import { KanbanChromeTooltip } from './KanbanChromeTooltip';
+import { resolveTaskMember } from '../utils/agentMemberUi';
 
 interface KanbanColumnProps {
   column: Column;
@@ -33,7 +35,14 @@ interface KanbanColumnProps {
   onRemoveTask: (taskId: string) => void;
   onEditTask: (task: Task) => void;
   onCopyTask: (task: Task) => void;
-  onEditColumn: (columnId: string, title: string, is_finished?: boolean, is_archived?: boolean) => void;
+  onEditColumn: (
+    columnId: string,
+    title: string,
+    is_finished?: boolean,
+    is_archived?: boolean,
+    wip_limit?: number | null,
+    policy_text?: string | null
+  ) => void;
   siteSettings?: { [key: string]: string };
   onRemoveColumn: (columnId: string) => Promise<void>;
   onAddColumn: (afterColumnId: string) => void;
@@ -148,6 +157,10 @@ export default function KanbanColumn({
   const [title, setTitle] = useState(column.title);
   const [isFinished, setIsFinished] = useState(column.is_finished || false);
   const [isArchived, setIsArchived] = useState(column.is_archived || false);
+  const [wipLimitInput, setWipLimitInput] = useState(
+    column.wip_limit != null ? String(column.wip_limit) : ''
+  );
+  const [policyText, setPolicyText] = useState(column.policy_text || '');
   const [showMenu, setShowMenu] = useState(false);
 
   const visibilityWarning = columnWarnings?.[column.id];
@@ -182,6 +195,8 @@ export default function KanbanColumn({
       setTitle(column.title);
       setIsFinished(column.is_finished || false);
       setIsArchived(column.is_archived || false);
+      setWipLimitInput(column.wip_limit != null ? String(column.wip_limit) : '');
+      setPolicyText(column.policy_text || '');
       
       // Run auto-detection immediately when editing starts
       if (siteSettings?.DEFAULT_FINISHED_COLUMN_NAMES) {
@@ -198,7 +213,7 @@ export default function KanbanColumn({
       // Reset the flag when we exit editing mode
       editingStartedRef.current = false;
     }
-  }, [isEditing, column.title, column.is_finished, column.is_archived, siteSettings]);
+  }, [isEditing, column.title, column.is_finished, column.is_archived, column.wip_limit, column.policy_text, siteSettings]);
   
   // Sync state with props when NOT editing
   useEffect(() => {
@@ -206,8 +221,10 @@ export default function KanbanColumn({
       setTitle(column.title);
       setIsFinished(column.is_finished || false);
       setIsArchived(column.is_archived || false);
+      setWipLimitInput(column.wip_limit != null ? String(column.wip_limit) : '');
+      setPolicyText(column.policy_text || '');
     }
-  }, [column.title, column.is_finished, column.is_archived, isEditing]);
+  }, [column.title, column.is_finished, column.is_archived, column.wip_limit, column.policy_text, isEditing]);
 
   // Auto-detect finished column names when title changes during editing
   useEffect(() => {
@@ -257,13 +274,43 @@ export default function KanbanColumn({
   const titleRef = useRef(title);
   const isFinishedRef = useRef(isFinished);
   const isArchivedRef = useRef(isArchived);
+  const wipLimitInputRef = useRef(wipLimitInput);
+  const policyTextRef = useRef(policyText);
   
   // Keep refs in sync with state
   useEffect(() => {
     titleRef.current = title;
     isFinishedRef.current = isFinished;
     isArchivedRef.current = isArchived;
-  }, [title, isFinished, isArchived]);
+    wipLimitInputRef.current = wipLimitInput;
+    policyTextRef.current = policyText;
+  }, [title, isFinished, isArchived, wipLimitInput, policyText]);
+
+  const parseWipLimitValue = (raw: string): number | null => {
+    const trimmed = raw.trim();
+    if (!trimmed) return null;
+    const n = Number(trimmed);
+    return Number.isFinite(n) && n > 0 ? Math.floor(n) : null;
+  };
+
+  const saveColumnEdits = async (
+    nextTitle: string,
+    nextFinished: boolean,
+    nextArchived: boolean,
+    nextWipRaw?: string,
+    nextPolicy?: string
+  ) => {
+    const wip = parseWipLimitValue(nextWipRaw ?? wipLimitInputRef.current);
+    const policy = (nextPolicy ?? policyTextRef.current).trim() || null;
+    await onEditColumn(
+      column.id,
+      nextTitle.trim(),
+      nextFinished,
+      nextArchived,
+      nextFinished || nextArchived ? null : wip,
+      policy
+    );
+  };
 
   // Auto-close menu when clicking outside
   React.useEffect(() => {
@@ -309,7 +356,13 @@ export default function KanbanColumn({
           
           if (currentTitle.trim() && !isSubmitting) {
             setIsSubmitting(true);
-            await onEditColumn(column.id, currentTitle.trim(), currentIsFinished, currentIsArchived);
+            await saveColumnEdits(
+              currentTitle.trim(),
+              currentIsFinished,
+              currentIsArchived,
+              wipLimitInputRef.current,
+              policyTextRef.current
+            );
             setIsEditing(false);
             setIsSubmitting(false);
           }
@@ -446,7 +499,13 @@ export default function KanbanColumn({
     if (!currentTitle.trim() || isSubmitting) return;
 
     setIsSubmitting(true);
-    await onEditColumn(column.id, currentTitle.trim(), currentIsFinished, currentIsArchived);
+    await saveColumnEdits(
+      currentTitle.trim(),
+      currentIsFinished,
+      currentIsArchived,
+      wipLimitInputRef.current,
+      policyTextRef.current
+    );
     setIsEditing(false);
     setIsSubmitting(false);
   };
@@ -462,7 +521,7 @@ export default function KanbanColumn({
     
     setIsSubmitting(true);
     lastSaveTimestampRef.current = Date.now(); // Mark that we just saved
-    await onEditColumn(column.id, title.trim(), checked, checked ? false : isArchived);
+    await saveColumnEdits(title.trim(), checked, checked ? false : isArchived);
     setIsSubmitting(false);
   };
 
@@ -476,7 +535,7 @@ export default function KanbanColumn({
     
     setIsSubmitting(true);
     lastSaveTimestampRef.current = Date.now(); // Mark that we just saved
-    await onEditColumn(column.id, title.trim(), checked ? false : isFinished, checked);
+    await saveColumnEdits(title.trim(), checked ? false : isFinished, checked);
     setIsSubmitting(false);
   };
 
@@ -486,6 +545,22 @@ export default function KanbanColumn({
 
   const handleAddTask = async () => {
     if (isSubmitting) return;
+    const count = column.tasks?.length || 0;
+    if (hasWipLimit(column.wip_limit)) {
+      const status = getWipStatus(count + 1, column.wip_limit);
+      if (status === 'at' || status === 'over') {
+        // Soft warn only — still create the task
+        const { toast } = await import('../utils/toast');
+        toast.warning(
+          t('column.wipSoftWarningTitle'),
+          t('column.wipSoftWarningBody', {
+            count: count + 1,
+            limit: column.wip_limit,
+            column: column.title,
+          })
+        );
+      }
+    }
     setIsSubmitting(true);
     await onAddTask(column.id);
     setIsSubmitting(false);
@@ -533,7 +608,7 @@ export default function KanbanColumn({
     
     tasksToRender.forEach((task, index) => {
       const memberList = Array.isArray(members) ? members : [];
-      const member = memberList.find(m => m.id === task.memberId);
+      const member = resolveTaskMember(memberList, task.memberId);
       if (!member) return;
 
       const isBeingDragged = draggedTask?.id === task.id;
@@ -764,14 +839,20 @@ export default function KanbanColumn({
         </div>
       )}
       
-      <div ref={columnHeaderRef} className="flex items-center justify-between mb-4" data-column-header>
-        <div className="flex items-center gap-2 flex-1">
-          {/* Tiny drag handle for admins only */}
+      <div
+        ref={columnHeaderRef}
+        className={`flex justify-between mb-4 ${isEditing ? 'items-start' : 'items-center'}`}
+        data-column-header
+      >
+        <div className={`flex gap-2 flex-1 min-w-0 ${isEditing ? 'items-start' : 'items-center'}`}>
+          {/* Tiny drag handle for admins only — top-aligned when editing */}
           {isAdmin && (
             <KanbanChromeTooltip label={t('column.clickToEditDragToReorder')}>
               <div
                 {...listeners}
-                className="cursor-grab active:cursor-grabbing p-1 rounded hover:bg-gray-200 transition-colors opacity-50 hover:opacity-100"
+                className={`cursor-grab active:cursor-grabbing p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors opacity-50 hover:opacity-100 shrink-0 ${
+                  isEditing ? 'mt-2' : ''
+                }`}
               >
                 <GripVertical size={12} className="text-gray-400" />
               </div>
@@ -792,29 +873,31 @@ export default function KanbanColumn({
                     setTitle(column.title);
                     setIsFinished(column.is_finished || false);
                     setIsArchived(column.is_archived || false);
+                    setWipLimitInput(column.wip_limit != null ? String(column.wip_limit) : '');
+                    setPolicyText(column.policy_text || '');
                     setIsEditing(false);
                   }
                 }}
               />
               
               {/* Finished Column Toggle */}
-              <div className="flex items-center justify-between bg-gray-50 p-3 rounded-lg border">
+              <div className="flex items-center justify-between bg-gray-50 dark:bg-gray-800 p-3 rounded-lg border dark:border-gray-600">
                 <div className="flex items-center space-x-3">
                   <div className="w-2 h-2 rounded-full bg-green-500"></div>
-                  <span className="text-sm font-medium text-gray-700">{t('column.markAsFinishedColumn')}</span>
+                  <span className="text-sm font-medium text-gray-700 dark:text-gray-200">{t('column.markAsFinishedColumn')}</span>
                   {isFinished && siteSettings?.DEFAULT_FINISHED_COLUMN_NAMES && (() => {
                     const finishedColumnNames = parseFinishedColumnNames(siteSettings.DEFAULT_FINISHED_COLUMN_NAMES);
                     const isAutoDetected = finishedColumnNames.some(finishedName => 
                       finishedName.toLowerCase() === title.toLowerCase()
                     );
                     return isAutoDetected ? (
-                      <span className="text-xs text-green-600 bg-green-100 px-2 py-1 rounded-full">
+                      <span className="text-xs text-green-600 dark:text-green-400 bg-green-100 dark:bg-green-900/40 px-2 py-1 rounded-full">
                         {t('column.autoDetected')}
                       </span>
                     ) : null;
                   })()}
                   {isSubmitting && (
-                    <span className="text-xs text-gray-500">{t('column.saving')}</span>
+                    <span className="text-xs text-gray-500 dark:text-gray-400">{t('column.saving')}</span>
                   )}
                 </div>
                 <label className="relative inline-flex items-center cursor-pointer">
@@ -830,10 +913,10 @@ export default function KanbanColumn({
               </div>
               
               {/* Archived Column Toggle */}
-              <div className="flex items-center justify-between bg-gray-50 p-3 rounded-lg border">
+              <div className="flex items-center justify-between bg-gray-50 dark:bg-gray-800 p-3 rounded-lg border dark:border-gray-600">
                 <div className="flex items-center space-x-3">
                   <div className="w-2 h-2 rounded-full bg-orange-500"></div>
-                  <span className="text-sm font-medium text-gray-700">{t('column.markAsArchivedColumn')}</span>
+                  <span className="text-sm font-medium text-gray-700 dark:text-gray-200">{t('column.markAsArchivedColumn')}</span>
                   {isArchived && title.toLowerCase() === 'archive' && (
                     <span className="text-xs text-orange-600 bg-orange-100 px-2 py-1 rounded-full">
                       {t('column.autoDetected')}
@@ -854,6 +937,42 @@ export default function KanbanColumn({
                   <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-orange-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-orange-600"></div>
                 </label>
               </div>
+
+              {/* Soft WIP limit */}
+              {!isFinished && !isArchived && (
+                <div className="bg-gray-50 dark:bg-gray-800 p-3 rounded-lg border dark:border-gray-600 space-y-1">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-200">
+                    {t('column.wipLimit')}
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    step={1}
+                    value={wipLimitInput}
+                    onChange={(e) => setWipLimitInput(e.target.value)}
+                    placeholder={t('column.wipLimitPlaceholder')}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-sm"
+                    disabled={isSubmitting}
+                  />
+                  <p className="text-xs text-gray-500 dark:text-gray-400">{t('column.wipLimitHint')}</p>
+                </div>
+              )}
+
+              {/* Column policy */}
+              <div className="bg-gray-50 dark:bg-gray-800 p-3 rounded-lg border dark:border-gray-600 space-y-1">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-200">
+                  {t('column.policyText')}
+                </label>
+                <textarea
+                  value={policyText}
+                  onChange={(e) => setPolicyText(e.target.value)}
+                  rows={2}
+                  maxLength={500}
+                  placeholder={t('column.policyTextPlaceholder')}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-sm resize-y"
+                  disabled={isSubmitting}
+                />
+              </div>
               
               {/* Action Buttons */}
               <div className="flex items-center justify-end space-x-2">
@@ -863,6 +982,8 @@ export default function KanbanColumn({
                     setTitle(column.title);
                     setIsFinished(column.is_finished || false);
                     setIsArchived(column.is_archived || false);
+                    setWipLimitInput(column.wip_limit != null ? String(column.wip_limit) : '');
+                    setPolicyText(column.policy_text || '');
                     setIsEditing(false);
                   }}
                   disabled={isSubmitting}
@@ -910,16 +1031,48 @@ export default function KanbanColumn({
                   {column.title}
                 </h3>
               </KanbanChromeTooltip>
-              {filteredTasks.length > 0 && (
-                <span
-                  className={`
-                    shrink-0 px-1.5 py-0.5 text-[0.65rem] leading-none rounded-full font-semibold min-w-[1.25rem] text-center pointer-events-none tabular-nums
-                    ${hasActiveFilters ? 'bg-blue-600 text-white dark:bg-blue-500' : 'bg-gray-200 text-gray-700 dark:bg-gray-600 dark:text-gray-100'}
-                  `}
-                >
-                  {filteredTasks.length}
-                </span>
+              {(['at', 'over'] as const).includes(
+                getWipStatus(column.tasks?.length || 0, column.wip_limit) as 'at' | 'over'
+              ) && (
+                <KanbanChromeTooltip label={t('column.wipOverLimit')} wrapperClassName="shrink-0">
+                  <span className="inline-flex text-amber-500 dark:text-amber-400" aria-label={t('column.wipOverLimit')}>
+                    <AlertTriangle size={16} />
+                  </span>
+                </KanbanChromeTooltip>
               )}
+              {(() => {
+                const unfilteredCount = column.tasks?.length || 0;
+                const displayCount = hasActiveFilters ? filteredTasks.length : unfilteredCount;
+                const wipStatus = getWipStatus(unfilteredCount, column.wip_limit);
+                const showMeter = hasWipLimit(column.wip_limit);
+                if (displayCount === 0 && !showMeter) return null;
+                const pillClass =
+                  wipStatus === 'over'
+                    ? 'bg-amber-500 text-white dark:bg-amber-600'
+                    : wipStatus === 'at'
+                      ? 'bg-amber-200 text-amber-900 dark:bg-amber-700 dark:text-amber-50'
+                      : hasActiveFilters
+                        ? 'bg-blue-600 text-white dark:bg-blue-500'
+                        : 'bg-gray-200 text-gray-700 dark:bg-gray-600 dark:text-gray-100';
+                const label = showMeter
+                  ? t('column.wipMeterTooltip', {
+                      count: unfilteredCount,
+                      limit: column.wip_limit,
+                    })
+                  : undefined;
+                return (
+                  <KanbanChromeTooltip label={label || t('column.taskCount')} wrapperClassName="shrink-0">
+                    <span
+                      className={`
+                        shrink-0 px-1.5 py-0.5 text-[0.65rem] leading-none rounded-full font-semibold min-w-[1.25rem] text-center pointer-events-none tabular-nums
+                        ${pillClass}
+                      `}
+                    >
+                      {showMeter ? `${unfilteredCount} / ${column.wip_limit}` : displayCount}
+                    </span>
+                  </KanbanChromeTooltip>
+                );
+              })()}
               <KanbanChromeTooltip label={!isOnline ? t('column.networkOffline') : t('column.addTask')}>
                 <button
                   data-column-header
@@ -927,7 +1080,7 @@ export default function KanbanColumn({
                   disabled={isSubmitting || !isOnline}
                   className={`p-1 rounded-full transition-colors ${
                     !isSubmitting && isOnline
-                      ? 'text-gray-500 hover:bg-gray-200 hover:text-gray-700'
+                      ? 'text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 hover:text-gray-700 dark:hover:text-gray-200'
                       : 'text-gray-400 cursor-not-allowed'
                   }`}
                   data-tour-id="add-task-button"
@@ -939,69 +1092,82 @@ export default function KanbanColumn({
           )}
         </div>
         
-        {/* Archive Icon - visible to all users */}
-        {!!column.is_archived && (
-          <KanbanChromeTooltip label={t('column.archivedColumn')} wrapperClassName="mr-1">
-            <span className="inline-flex">
-              <Archive size={16} className="text-orange-500 dark:text-orange-400" />
-            </span>
-          </KanbanChromeTooltip>
-        )}
-        
-        {/* Column Management Menu - Admin Only */}
-        {isAdmin && (
-          <div className="relative column-menu-container flex items-center gap-1">
-            <KanbanChromeTooltip label={t('column.columnManagementOptions')}>
-              <button
-                onClick={() => setShowMenu(!showMenu)}
-                className="p-1 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full transition-colors"
-                disabled={isSubmitting}
-                data-tour-id="column-management-menu"
-              >
-                <MoreVertical size={18} className="text-gray-500 dark:text-gray-400" />
-              </button>
+        {/* Right chrome: archive · policy · admin menu — top-aligned when editing */}
+        <div className={`flex shrink-0 gap-0.5 ${isEditing ? 'items-start mt-1.5' : 'items-center'}`}>
+          {!!column.is_archived && (
+            <KanbanChromeTooltip label={t('column.archivedColumn')}>
+              <span className="inline-flex p-1">
+                <Archive size={16} className="text-orange-500 dark:text-orange-400" />
+              </span>
             </KanbanChromeTooltip>
-            
-            {showMenu && (
-              <div className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg z-[200]">
+          )}
+
+          {!isEditing && !!column.policy_text?.trim() && (
+            <KanbanChromeTooltip label={column.policy_text.trim()}>
+              <span
+                className="inline-flex p-1 text-gray-500 dark:text-gray-400"
+                aria-label={t('column.policyText')}
+              >
+                <ScrollText size={16} />
+              </span>
+            </KanbanChromeTooltip>
+          )}
+        
+          {/* Column Management Menu - Admin Only */}
+          {isAdmin && (
+            <div className="relative column-menu-container flex items-center">
+              <KanbanChromeTooltip label={t('column.columnManagementOptions')}>
                 <button
-                  onClick={() => {
-                    onAddColumn(column.id);
-                    setShowMenu(false);
-                  }}
-                  className="w-full text-left px-4 py-2 text-sm text-gray-600 hover:bg-gray-100"
+                  onClick={() => setShowMenu(!showMenu)}
+                  className="p-1 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full transition-colors"
                   disabled={isSubmitting}
+                  data-tour-id="column-management-menu"
                 >
-                  {t('column.addColumn')}
+                  <MoreVertical size={18} className="text-gray-500 dark:text-gray-400" />
                 </button>
-                <button
-                  ref={setDeleteButtonRef}
-                  onClick={(e) => {
-                    // Capture column header position for dialog alignment
-                    // Defer DOM read to avoid forced reflow during event handler
-                    if (columnHeaderRef.current) {
-                      requestAnimationFrame(() => {
-                        if (columnHeaderRef.current) {
-                          const headerRect = columnHeaderRef.current.getBoundingClientRect();
-                          setDeleteButtonPosition({
-                            top: headerRect.bottom + 8,
-                            left: headerRect.left
-                          });
-                        }
-                      });
-                    }
-                    onRemoveColumn(column.id);
-                    setShowMenu(false);
-                  }}
-                  className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-gray-100"
-                  disabled={isSubmitting}
-                >
-                  {t('column.deleteColumn')}
-                </button>
-              </div>
-            )}
-          </div>
-        )}
+              </KanbanChromeTooltip>
+              
+              {showMenu && (
+                <div className="absolute right-0 mt-2 w-48 bg-white dark:bg-gray-800 rounded-md shadow-lg z-[200] border border-gray-100 dark:border-gray-700">
+                  <button
+                    onClick={() => {
+                      onAddColumn(column.id);
+                      setShowMenu(false);
+                    }}
+                    className="w-full text-left px-4 py-2 text-sm text-gray-600 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
+                    disabled={isSubmitting}
+                  >
+                    {t('column.addColumn')}
+                  </button>
+                  <button
+                    ref={setDeleteButtonRef}
+                    onClick={(e) => {
+                      // Capture column header position for dialog alignment
+                      // Defer DOM read to avoid forced reflow during event handler
+                      if (columnHeaderRef.current) {
+                        requestAnimationFrame(() => {
+                          if (columnHeaderRef.current) {
+                            const headerRect = columnHeaderRef.current.getBoundingClientRect();
+                            setDeleteButtonPosition({
+                              top: headerRect.bottom + 8,
+                              left: headerRect.left
+                            });
+                          }
+                        });
+                      }
+                      onRemoveColumn(column.id);
+                      setShowMenu(false);
+                    }}
+                    className="w-full text-left px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-gray-100 dark:hover:bg-gray-700"
+                    disabled={isSubmitting}
+                  >
+                    {t('column.deleteColumn')}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="flex-1 min-h-[150px]">
@@ -1022,7 +1188,7 @@ export default function KanbanColumn({
               className={`h-full w-full min-h-[200px] flex flex-col items-center justify-center transition-all duration-200 ${
               draggedTask && draggedTask.columnId !== column.id 
                 ? `border-4 border-dashed rounded-lg ${
-                    isOver ? 'bg-blue-100 border-blue-500 scale-105 shadow-lg' : 'bg-blue-50 border-blue-400'
+                    isOver ? 'bg-blue-100 dark:bg-blue-900/40 border-blue-500 scale-105 shadow-lg' : 'bg-blue-50 dark:bg-blue-900/20 border-blue-400 dark:border-blue-500'
                   }` 
                 : 'border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700 hover:border-gray-400 dark:hover:border-gray-500 hover:bg-gray-100 dark:hover:bg-gray-600'
             }`}>
@@ -1037,7 +1203,27 @@ export default function KanbanColumn({
                     {isOver && <div className="text-sm opacity-75 mt-1">{t('column.releaseToPlace')}</div>}
                   </div>
                 ) : (
-                  <div className="text-gray-500 dark:text-gray-400 text-center">
+                  <div className="text-gray-400 dark:text-gray-500 text-center px-3 py-4 space-y-2">
+                    <p className="text-xs text-gray-400 dark:text-gray-500">
+                      {t('column.emptyColumnTitle')}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void handleAddTask();
+                      }}
+                      disabled={isSubmitting || !isOnline}
+                      className={`inline-flex items-center gap-1 px-2 py-1 text-xs rounded-md transition-colors ${
+                        !isSubmitting && isOnline
+                          ? 'text-gray-500 dark:text-gray-400 border border-dashed border-gray-300 dark:border-gray-500 hover:text-white dark:hover:text-white hover:bg-blue-600 hover:border-solid hover:border-blue-600 dark:hover:bg-blue-600 dark:hover:border-blue-600'
+                          : 'text-gray-400 cursor-not-allowed border border-dashed border-gray-200 dark:border-gray-600'
+                      }`}
+                      data-tour-id="empty-column-add-task"
+                    >
+                      <Plus size={12} />
+                      {t('column.addTask')}
+                    </button>
                   </div>
                 )}
             </div>
@@ -1056,7 +1242,7 @@ export default function KanbanColumn({
             <div 
               ref={setDroppableRef}
               className={`min-h-[200px] pb-4 flex-1 transition-colors duration-200 ${
-                isOver ? 'bg-blue-50 rounded-lg' : ''
+                isOver ? 'bg-blue-50 dark:bg-blue-900/20 rounded-lg' : ''
               }`}
               style={{
                 // CRITICAL: Ensure column droppable can receive pointer events even when tasks cover it
@@ -1084,13 +1270,13 @@ export default function KanbanColumn({
       {/* Column Delete Confirmation Dialog - Small popup like BoardTabs */}
       {showColumnDeleteConfirm === column.id && deleteButtonPosition && onConfirmColumnDelete && onCancelColumnDelete && getColumnTaskCount && createPortal(
         <div 
-          className="delete-confirmation fixed bg-white border border-gray-200 rounded-lg shadow-lg p-3 z-[9999] min-w-[220px]"
+          className="delete-confirmation fixed bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg p-3 z-[9999] min-w-[220px]"
           style={{
             top: `${deleteButtonPosition.top}px`,
             left: `${deleteButtonPosition.left}px`,
           }}
         >
-            <div className="text-sm text-gray-700 mb-3">
+            <div className="text-sm text-gray-700 dark:text-gray-200 mb-3">
               {(() => {
                 const taskCount = getColumnTaskCount(column.id);
                 const taskWord = taskCount !== 1 ? t('column.tasks') : t('column.task');
@@ -1103,7 +1289,7 @@ export default function KanbanColumn({
                   onCancelColumnDelete();
                   setDeleteButtonPosition(null);
                 }}
-                className="px-3 py-1 text-sm bg-gray-200 text-gray-700 rounded hover:bg-gray-300 transition-colors"
+                className="px-3 py-1 text-sm bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
               >
                 {t('buttons.no', { ns: 'common' })}
               </button>

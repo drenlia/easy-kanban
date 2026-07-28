@@ -135,6 +135,9 @@ router.get('/', authenticateToken, async (req, res) => {
           sprintId: task.sprint_id || null,
           createdAt: task.created_at,
           updatedAt: task.updated_at,
+          columnEnteredAt: task.columnEnteredAt || task.column_entered_at || null,
+          isBlocked: Boolean(task.isBlocked ?? task.is_blocked),
+          blockedReason: task.blockedReason || task.blocked_reason || null,
           comments: deduplicateById(parseJsonField(task.comments)).map(comment => ({
             ...comment,
             attachments: attachmentsByCommentId[comment.id] || []

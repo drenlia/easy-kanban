@@ -112,7 +112,7 @@ router.post('/', authenticateToken, async (req, res) => {
 // Update column
 router.put("/:id", authenticateToken, async (req, res) => {
   const { id } = req.params;
-  const { title, is_finished, is_archived } = req.body;
+  const { title, is_finished, is_archived, wip_limit, policy_text } = req.body;
   try {
     const db = getRequestDatabase(req);
     const t = await getTranslator(db);
@@ -166,10 +166,32 @@ router.put("/:id", authenticateToken, async (req, res) => {
     
     // Ensure a column cannot be both finished and archived
     const finalIsFinishedValue = finalIsArchived ? false : finalIsFinished;
+
+    // Soft WIP: null/empty = unlimited; ignore for finished/archived columns
+    let finalWipLimit = wip_limit !== undefined ? wip_limit : fullColumn.wip_limit;
+    if (finalWipLimit === '' || finalWipLimit === undefined) {
+      finalWipLimit = null;
+    } else if (finalWipLimit !== null) {
+      const n = Number(finalWipLimit);
+      finalWipLimit = Number.isFinite(n) && n > 0 ? Math.floor(n) : null;
+    }
+    if (finalIsFinishedValue || finalIsArchived) {
+      finalWipLimit = null;
+    }
+
+    const finalPolicyText = policy_text !== undefined ? policy_text : fullColumn.policy_text;
     
     // MIGRATED: Use sqlManager to update column
-    // CRITICAL: Only update title, is_finished, and is_archived - DO NOT touch position
-    await helpers.updateColumn(db, id, title, finalIsFinishedValue, finalIsArchived);
+    // CRITICAL: Only update title, flags, WIP, policy - DO NOT touch position
+    await helpers.updateColumn(
+      db,
+      id,
+      title,
+      finalIsFinishedValue,
+      finalIsArchived,
+      finalWipLimit,
+      finalPolicyText
+    );
     
     // CRITICAL: Re-fetch column AFTER update to ensure we have the latest position
     // (in case position was changed by another operation, though it shouldn't be)
@@ -188,13 +210,22 @@ router.put("/:id", authenticateToken, async (req, res) => {
         boardId: updatedColumn.boardId,  // Include boardId for frontend
         position: updatedColumn.position,  // CRITICAL: Include current position to prevent reordering
         is_finished: finalIsFinishedValue,  // snake_case to match frontend
-        is_archived: finalIsArchived  // snake_case to match frontend
+        is_archived: finalIsArchived,  // snake_case to match frontend
+        wip_limit: updatedColumn.wip_limit ?? null,
+        policy_text: updatedColumn.policy_text ?? null,
       },
       updatedBy: req.user?.id || 'system',
       timestamp: new Date().toISOString()
     }, tenantId);
     
-    res.json({ id, title, is_finished: finalIsFinishedValue, is_archived: finalIsArchived });  // snake_case to match frontend
+    res.json({
+      id,
+      title,
+      is_finished: finalIsFinishedValue,
+      is_archived: finalIsArchived,
+      wip_limit: updatedColumn.wip_limit ?? null,
+      policy_text: updatedColumn.policy_text ?? null,
+    });  // snake_case to match frontend
   } catch (error) {
     console.error('Error updating column:', error);
     const db = getRequestDatabase(req);

@@ -393,11 +393,17 @@
       "priorityId": "priority",
       "memberId": "assignee",
       "requesterId": "requester",
-      "columnId": "status"
+      "columnId": "status",
+      "isBlocked": "blocked status"
     },
+    "markedAsBlocked": "marked the task as blocked",
+    "clearedBlocked": "cleared the blocked status",
     "addedComment": "added comment on task \"{taskTitle}\"{taskRef} in board \"{boardTitle}\"",
     "updatedComment": "updated comment on task \"{taskTitle}\"{taskRef} in board \"{boardTitle}\"",
     "deletedComment": "deleted comment on task \"{taskTitle}\"{taskRef} in board \"{boardTitle}\"",
+    "agentJobDone": "finished agent work on task \"{taskTitle}\"{taskRef} in board \"{boardTitle}\"",
+    "agentJobDoneWithPr": "finished agent work on task \"{taskTitle}\"{taskRef} in board \"{boardTitle}\" (PR: {prUrl})",
+    "agentJobFailed": "agent job failed on task \"{taskTitle}\"{taskRef} in board \"{boardTitle}\"",
     "copiedTask": "copied task \"{taskTitle}\" in board \"{boardTitle}\"",
     "associatedTag": "associated tag \"{tagName}\" with task \"{taskTitle}\"{taskRef} in board \"{boardTitle}\"",
     "removedTag": "removed tag \"{tagName}\" from task \"{taskTitle}\"{taskRef} in board \"{boardTitle}\"",

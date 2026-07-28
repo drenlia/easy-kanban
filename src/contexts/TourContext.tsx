@@ -1,8 +1,9 @@
-import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect, useMemo } from 'react';
 import Joyride, { CallBackProps, STATUS } from 'react-joyride';
 import { useTranslation } from 'react-i18next';
 import { getTourSteps } from '../components/tour/TourSteps';
 import { parseTaskRoute } from '../utils/routingUtils';
+import { useTheme } from './ThemeContext';
 
 interface TourContextType {
   isRunning: boolean;
@@ -31,63 +32,122 @@ interface TourProviderProps {
 
 export const TourProvider: React.FC<TourProviderProps> = ({ children, currentUser, onViewModeChange, onPageChange }) => {
   const { t } = useTranslation('common');
+  const { theme } = useTheme();
   const [isRunning, setIsRunning] = useState(false);
   const [isHelpModalOpen, setIsHelpModalOpen] = useState(false);
   const { userSteps, adminSteps } = getTourSteps();
 
+  const joyrideStyles = useMemo(() => {
+    const isDark = theme === 'dark';
+    return {
+      options: {
+        primaryColor: '#3b82f6',
+        textColor: isDark ? '#f3f4f6' : '#1f2937',
+        backgroundColor: isDark ? '#1f2937' : '#ffffff',
+        overlayColor: isDark ? 'rgba(0, 0, 0, 0.6)' : 'rgba(0, 0, 0, 0.4)',
+        arrowColor: isDark ? '#1f2937' : '#ffffff',
+        zIndex: 10000,
+      },
+      tooltip: {
+        borderRadius: 8,
+        fontSize: 14,
+        padding: 20,
+      },
+      tooltipContainer: {
+        textAlign: 'left' as const,
+      },
+      tooltipTitle: {
+        fontSize: 16,
+        fontWeight: 600,
+        marginBottom: 8,
+      },
+      tooltipContent: {
+        padding: 0,
+      },
+      buttonNext: {
+        backgroundColor: '#3b82f6',
+        borderRadius: 6,
+        color: '#ffffff',
+        fontSize: 14,
+        fontWeight: 500,
+        padding: '8px 16px',
+      },
+      buttonBack: {
+        color: isDark ? '#9ca3af' : '#6b7280',
+        fontSize: 14,
+        marginRight: 8,
+      },
+      buttonSkip: {
+        color: isDark ? '#9ca3af' : '#6b7280',
+        fontSize: 14,
+      },
+      buttonClose: {
+        color: isDark ? '#9ca3af' : '#6b7280',
+      },
+      beacon: {
+        inner: '#3b82f6',
+        outer: '#3b82f6',
+      },
+    };
+  }, [theme]);
+
   // Track previous step index to detect navigation direction
   const previousStepIndexRef = React.useRef<number>(-1);
 
-  // Check for pending tour start after navigation (e.g., from TaskPage)
+  // Resume a tour after navigating to Kanban (from TaskPage / Admin / Reports)
   useEffect(() => {
-    const pendingTour = sessionStorage.getItem('pendingTourStart');
-    if (pendingTour === 'true') {
+    const startIfPending = () => {
+      if (sessionStorage.getItem('pendingTourStart') !== 'true') return;
+
+      const hash = window.location.hash.toLowerCase();
+      const taskRoute = parseTaskRoute();
+      // Wait until we are actually on the kanban route
+      if (taskRoute.isTaskRoute || hash.includes('admin') || hash.includes('reports')) {
+        return;
+      }
+
       sessionStorage.removeItem('pendingTourStart');
-      previousStepIndexRef.current = -1; // Reset step index tracking
-      // Switch to Kanban view before starting tour
+      previousStepIndexRef.current = -1;
       if (onViewModeChange) {
         onViewModeChange('kanban');
       }
-      // Wait for view to update, then start tour
       setTimeout(() => {
         setIsRunning(true);
-      }, 300);
-    }
+      }, 350);
+    };
+
+    startIfPending();
+    window.addEventListener('hashchange', startIfPending);
+    // Hash may already be #kanban after a sync navigate; retry shortly after paint
+    const retry = window.setTimeout(startIfPending, 150);
+    return () => {
+      window.removeEventListener('hashchange', startIfPending);
+      window.clearTimeout(retry);
+    };
   }, [onViewModeChange]);
 
   const startTour = useCallback(() => {
     setIsHelpModalOpen(false); // Close help modal first
     previousStepIndexRef.current = -1; // Reset step index tracking
-    
-    // Check if we're on TaskPage and redirect to Kanban
+
+    const hash = window.location.hash.toLowerCase();
     const taskRoute = parseTaskRoute();
-    if (taskRoute.isTaskRoute && onPageChange) {
-      // Store intent to start tour after navigation
+    const needsKanbanPage =
+      taskRoute.isTaskRoute ||
+      hash.includes('admin') ||
+      hash.includes('reports');
+
+    // Leave Task / Admin / Reports so step 1 targets exist on the Kanban page
+    if (needsKanbanPage && onPageChange) {
       sessionStorage.setItem('pendingTourStart', 'true');
-      onPageChange('kanban');
-      // Update URL hash to kanban
-      window.location.hash = '#kanban';
-      // Don't set isRunning here - it will be set after navigation completes
+      onPageChange('kanban'); // also updates hash (incl. selected board)
       return;
     }
-    
-    // Check if we're on Admin page and redirect to Kanban
-    const currentHash = window.location.hash;
-    if (currentHash.includes('admin') && onPageChange) {
-      // Store intent to start tour after navigation
-      sessionStorage.setItem('pendingTourStart', 'true');
-      onPageChange('kanban');
-      // Update URL hash to kanban
-      window.location.hash = '#kanban';
-      // Don't set isRunning here - it will be set after navigation completes
-      return;
-    }
-    
-    // Switch to Kanban view before starting tour (for first step)
+
+    // Already on Kanban page — still force Kanban view mode before step 1
     if (onViewModeChange) {
       onViewModeChange('kanban');
     }
-    // Small delay to ensure view updates before tour starts
     setTimeout(() => {
       setIsRunning(true);
     }, 200);
@@ -216,53 +276,7 @@ export const TourProvider: React.FC<TourProviderProps> = ({ children, currentUse
         disableScrollParentFix={false}
         disableOverlay={false}
         spotlightClicks={true}
-        styles={{
-          options: {
-            primaryColor: '#3b82f6',
-            textColor: '#1f2937',
-            backgroundColor: '#ffffff',
-            overlayColor: 'rgba(0, 0, 0, 0.4)',
-            arrowColor: '#ffffff',
-            zIndex: 10000,
-          },
-          tooltip: {
-            borderRadius: 8,
-            fontSize: 14,
-            padding: 20,
-          },
-          tooltipContainer: {
-            textAlign: 'left',
-          },
-          tooltipTitle: {
-            fontSize: 16,
-            fontWeight: 600,
-            marginBottom: 8,
-          },
-          tooltipContent: {
-            padding: 0,
-          },
-          buttonNext: {
-            backgroundColor: '#3b82f6',
-            borderRadius: 6,
-            color: '#ffffff',
-            fontSize: 14,
-            fontWeight: 500,
-            padding: '8px 16px',
-          },
-          buttonBack: {
-            color: '#6b7280',
-            fontSize: 14,
-            marginRight: 8,
-          },
-          buttonSkip: {
-            color: '#6b7280',
-            fontSize: 14,
-          },
-          beacon: {
-            inner: '#3b82f6',
-            outer: '#3b82f6',
-          },
-        }}
+        styles={joyrideStyles}
         locale={{
           back: t('tour.back'),
           close: t('tour.close'),

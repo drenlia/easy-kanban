@@ -22,13 +22,13 @@ const BoardMetrics: React.FC<BoardMetricsProps> = ({ columns, filteredColumns = 
   const completionPercentage = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
 
   return (
-        <div className="p-3 bg-white dark:bg-gray-800 shadow-sm rounded-lg mb-4 border border-gray-100 dark:border-gray-700 w-full max-w-[120px]">
+        <div className="p-3 bg-white dark:bg-gray-800 shadow-sm rounded-lg border border-gray-100 dark:border-gray-700 w-full max-w-[120px]">
       <div className="space-y-3">
         {/* Header */}
         <div className="text-center">
-          <h3 className="text-xs font-semibold text-gray-700 dark:text-gray-200 uppercase tracking-wide">
+          <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-200 uppercase tracking-wide">
             {t('boardMetrics.progress')}
-          </h3>
+          </h2>
         </div>
         
         {/* Progress */}

@@ -1,7 +1,11 @@
 import { TeamMember } from '../types';
 import { useTranslation } from 'react-i18next';
 import { getAuthenticatedAvatarUrl } from '../utils/authImageUrl';
-import { KanbanChromeTooltip } from './KanbanChromeTooltip';
+import {
+  getAgentAvatarSrc,
+  isAgentMemberId,
+  sortMembersAgentLast,
+} from '../utils/agentMemberUi';
 
 export const PRESET_COLORS = [
   '#FF3B30', // Bright Red
@@ -45,8 +49,6 @@ interface TeamMembersProps {
   onToggleSystem?: (include: boolean) => void;
   currentUserId?: string;
   currentUser?: any; // To check if user is admin
-  onlineUsers?: Set<string>;
-  boardOnlineUsers?: Set<string>;
   systemTaskCount?: number;
 }
 
@@ -69,8 +71,6 @@ export default function TeamMembers({
   onToggleSystem,
   currentUserId,
   currentUser,
-  onlineUsers = new Set(),
-  boardOnlineUsers = new Set(),
   systemTaskCount = 0
 }: TeamMembersProps) {
   const { t } = useTranslation('common');
@@ -83,7 +83,8 @@ export default function TeamMembers({
 
   // Create system user member object when needed
   // Use members directly - API will include/exclude SYSTEM based on includeSystem parameter
-  const displayMembers = members;
+  // Pin Agent at the end so it reads as a system capability, not a teammate
+  const displayMembers = sortMembersAgentLast(members);
   
   // Function to truncate display name to 12 characters
   const truncateDisplayName = (name: string, maxLength: number = 12): string => {
@@ -95,6 +96,15 @@ export default function TeamMembers({
   
   // Function to get avatar display for a member
   const getMemberAvatar = (member: TeamMember) => {
+    if (isAgentMemberId(member.id)) {
+      return (
+        <img
+          src={getAgentAvatarSrc(member)}
+          alt={member.name}
+          className="w-7 h-7 rounded-full object-cover border-2 border-white shadow-sm bg-white"
+        />
+      );
+    }
     // Priority: Google avatar > Local avatar > Default initials
     if (member.googleAvatarUrl) {
       return (
@@ -128,10 +138,9 @@ export default function TeamMembers({
     );
   };
   // Members are now managed from the admin page
-  const isAdmin = true; // This will be passed as a prop later if needed
 
   return (
-    <div className="p-3 bg-white dark:bg-gray-800 shadow-sm rounded-lg mb-4 border border-gray-100 dark:border-gray-700" data-tour-id="team-members">
+    <div className="p-3 bg-white dark:bg-gray-800 shadow-sm rounded-lg border border-gray-100 dark:border-gray-700" data-tour-id="team-members">
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-3">
           <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-200 uppercase tracking-wide">
@@ -187,11 +196,10 @@ export default function TeamMembers({
             )}
             
             {onToggleWatchers && (
-              <KanbanChromeTooltip label={t('teamMembers.watchersTooltip')} delayMs={0} wrapperClassName="inline-flex">
-                <button
-                  type="button"
-                  onClick={() => onToggleWatchers(!includeWatchers)}
-                  className={`
+              <button
+                type="button"
+                onClick={() => onToggleWatchers(!includeWatchers)}
+                className={`
                   flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium
                   transition-all duration-200
                   ${includeWatchers
@@ -200,18 +208,17 @@ export default function TeamMembers({
                   }
                   focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2
                 `}
-                >
-                  <span>{t('teamMembers.watchers')}</span>
-                </button>
-              </KanbanChromeTooltip>
+                title={t('teamMembers.watchersTooltip')}
+              >
+                <span>{t('teamMembers.watchers')}</span>
+              </button>
             )}
             
             {onToggleCollaborators && (
-              <KanbanChromeTooltip label={t('teamMembers.collaboratorsTooltip')} delayMs={0} wrapperClassName="inline-flex">
-                <button
-                  type="button"
-                  onClick={() => onToggleCollaborators(!includeCollaborators)}
-                  className={`
+              <button
+                type="button"
+                onClick={() => onToggleCollaborators(!includeCollaborators)}
+                className={`
                   flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium
                   transition-all duration-200
                   ${includeCollaborators
@@ -220,10 +227,10 @@ export default function TeamMembers({
                   }
                   focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2
                 `}
-                >
-                  <span>{t('teamMembers.collaborators')}</span>
-                </button>
-              </KanbanChromeTooltip>
+                title={t('teamMembers.collaboratorsTooltip')}
+              >
+                <span>{t('teamMembers.collaborators')}</span>
+              </button>
             )}
             
             {onToggleRequesters && (
@@ -273,7 +280,7 @@ export default function TeamMembers({
 
       {/* Warning when no checkboxes are selected */}
       {!includeAssignees && !includeWatchers && !includeCollaborators && !includeRequesters && (
-        <div className="mb-2 text-xs text-red-400 bg-red-50 px-2 py-1 rounded border border-red-200">
+        <div className="mb-2 text-xs text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/40 px-2 py-1 rounded border border-red-200 dark:border-red-800">
           {t('teamMembers.noFiltersSelected')}
         </div>
       )}

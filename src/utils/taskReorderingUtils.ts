@@ -384,6 +384,7 @@ export const moveTaskToIndex = async (
     window.justUpdatedFromWebSocket = false;
     (window as any).reorderingInProgress = false;
     refreshBoardData().catch(() => {});
+    throw error;
   }
 };
 
@@ -473,6 +474,7 @@ export const handleCrossColumnMove = async (
     window.justUpdatedFromWebSocket = false;
     (window as any).reorderingInProgress = false;
     refreshBoardData().catch(() => {});
+    throw error;
   }
 };
 

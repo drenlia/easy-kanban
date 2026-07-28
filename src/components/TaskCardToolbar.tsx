@@ -1,16 +1,24 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { createPortal } from 'react-dom';
-import { Copy, FileText, Eye, UserPlus, GripVertical, MessageSquarePlus, TagIcon, Plus, Trash2, Link, Archive } from 'lucide-react';
+import { Copy, Eye, UserPlus, GripVertical, MessageSquarePlus, TagIcon, Plus, Trash2, Link, Archive } from 'lucide-react';
 import { Task, TeamMember, Tag } from '../types';
 import { formatMembersTooltip } from '../utils/taskUtils';
 import { getAuthenticatedAvatarUrl } from '../utils/authImageUrl';
 import { truncateMemberName } from '../utils/memberUtils';
 import AddTagModal from './AddTagModal';
 import { KanbanChromeTooltip } from './KanbanChromeTooltip';
-
-// System user member ID constant
-const SYSTEM_MEMBER_ID = '00000000-0000-0000-0000-000000000001';
+import AgentStatusButton from './AgentStatusButton';
+import {
+  AGENT_MEMBER_ID,
+  SYSTEM_MEMBER_ID,
+  AGENT_DRAG_BLOCKING_STATUSES,
+} from '../constants/appConstants';
+import {
+  getAgentAvatarSrc,
+  isAgentMemberId,
+  sortMembersAgentLast,
+} from '../utils/agentMemberUi';
 
 interface TaskCardToolbarProps {
   task: Task;
@@ -33,6 +41,9 @@ interface TaskCardToolbarProps {
   onTagAdd?: (tagId: string) => void;
   columnIsFinished?: boolean;
   columns?: { [key: string]: { id: string; title: string; is_archived?: boolean; is_finished?: boolean } };
+  /** Agent task_work.status when assigned to Agent */
+  agentWorkStatus?: string | null;
+  onOpenAgentActivity?: () => void;
   
   // Task linking props
   isLinkingMode?: boolean;
@@ -71,6 +82,8 @@ export default function TaskCardToolbar({
   onTagAdd,
   columnIsFinished = false,
   columns,
+  agentWorkStatus = null,
+  onOpenAgentActivity,
   
   // Task linking props
   isLinkingMode,
@@ -86,7 +99,7 @@ export default function TaskCardToolbar({
   isEditingDescription = false,
   isSelected = false
 }: TaskCardToolbarProps) {
-  const { t } = useTranslation(['tasks', 'common']);
+  const { t } = useTranslation('tasks');
   const _priorityButtonRef = useRef<HTMLButtonElement>(null);
   const [showQuickTagDropdown, setShowQuickTagDropdown] = useState(false);
   const [showAddTagModal, setShowAddTagModal] = useState(false);
@@ -350,26 +363,63 @@ export default function TaskCardToolbar({
     onToggleMemberSelect();
   };
 
+  const isAgentAssigned = member.id === AGENT_MEMBER_ID;
+  const agentBlocking =
+    isAgentAssigned &&
+    !!agentWorkStatus &&
+    (AGENT_DRAG_BLOCKING_STATUSES as readonly string[]).includes(agentWorkStatus);
+
+  const agentLockedLabel = t('toolbar.disabledWhileAgent');
+
   return (
     <>
-      {/* Drag Handle - Top Left - Always visible */}
-      <KanbanChromeTooltip label={t('toolbar.dragToMove')} wrapperClassName="absolute top-1 left-1 z-[6]">
-        <div
-          {...listeners}
-          {...attributes}
-          className={`p-1 rounded ${
-            !isDragDisabled
-              ? 'cursor-grab active:cursor-grabbing hover:bg-gray-200 opacity-60 hover:opacity-100'
-              : 'cursor-not-allowed opacity-0'
-          } transition-all duration-200`}
-        >
-          <GripVertical size={12} className="text-gray-400" />
+      {/* Agent status icon opens Agent activity (config/controls live there). */}
+      {isAgentAssigned ? (
+        <div className="absolute top-1 left-1 z-[6] flex items-center gap-0.5">
+          <AgentStatusButton
+            status={agentWorkStatus}
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpenAgentActivity?.();
+            }}
+          />
+          {!agentBlocking && !isDragDisabled && (
+            <KanbanChromeTooltip label={t('toolbar.dragToMove')} wrapperClassName="">
+              <div
+                {...listeners}
+                {...attributes}
+                className="p-1 rounded cursor-grab active:cursor-grabbing hover:bg-gray-200 opacity-50 hover:opacity-100 transition-opacity"
+              >
+                <GripVertical size={12} className="text-gray-400" />
+              </div>
+            </KanbanChromeTooltip>
+          )}
         </div>
-      </KanbanChromeTooltip>
+      ) : (
+        <KanbanChromeTooltip label={t('toolbar.dragToMove')} wrapperClassName="absolute top-1 left-1 z-[6]">
+          <div
+            {...listeners}
+            {...attributes}
+            className={`p-1 rounded ${
+              !isDragDisabled
+                ? 'cursor-grab active:cursor-grabbing hover:bg-gray-200 opacity-60 hover:opacity-100'
+                : 'cursor-not-allowed opacity-0'
+            } transition-all duration-200`}
+          >
+            <GripVertical size={12} className="text-gray-400" />
+          </div>
+        </KanbanChromeTooltip>
+      )}
 
       {/* Unified Toolbar - visibility via parent `group` hover so reorder under cursor still shows toolbar */}
       <div
-        className={`absolute top-0 left-4 z-[5] px-2 py-1 transition-opacity duration-200 ${
+        className={`absolute top-0 z-[5] px-2 py-1 transition-opacity duration-200 ${
+          isAgentAssigned
+            ? !agentBlocking && !isDragDisabled
+              ? 'left-11'
+              : 'left-8'
+            : 'left-4'
+        } ${
           toolbarPinnedOpen
             ? 'pointer-events-auto opacity-100'
             : 'pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100'
@@ -381,40 +431,45 @@ export default function TaskCardToolbar({
             {onAddComment && (
               <KanbanChromeTooltip label={t('toolbar.addComment')}>
                 <button
-                  className="p-1 hover:bg-gray-100 rounded-full transition-colors"
+                  className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-colors"
                   onClick={(e) => {
                     e.stopPropagation();
                     onAddComment();
                   }}
                 >
-                  <MessageSquarePlus size={14} className="text-gray-400 hover:text-gray-600 transition-colors" />
+                  <MessageSquarePlus size={14} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors" />
                 </button>
               </KanbanChromeTooltip>
             )}
             
             {/* Add Tag Button - Always show when onTagAdd is provided, regardless of available tags */}
             {onTagAdd && (
-              <KanbanChromeTooltip label={t('toolbar.addTag')}>
+              <KanbanChromeTooltip label={agentBlocking ? agentLockedLabel : t('toolbar.addTag')}>
                 <button
                   ref={quickTagButtonRef}
-                  className="p-1 hover:bg-gray-100 rounded-full transition-colors"
-                  onClick={handleQuickTagClick}
+                  disabled={agentBlocking}
+                  className={`p-1 rounded-full transition-colors ${
+                    agentBlocking
+                      ? 'opacity-40 cursor-not-allowed'
+                      : 'hover:bg-gray-100 dark:hover:bg-gray-700'
+                  }`}
+                  onClick={agentBlocking ? undefined : handleQuickTagClick}
                 >
                   <div className="relative">
-                    <TagIcon size={14} className="text-gray-400 hover:text-gray-600 transition-colors" />
+                    <TagIcon size={14} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors" />
                     <Plus size={7} className="text-gray-400 absolute -top-1 -right-1" />
                   </div>
                 </button>
               </KanbanChromeTooltip>
             )}
             
-            {/* Copy Task Button */}
+            {/* Copy Task Button — safe while agent runs (clone only) */}
             <KanbanChromeTooltip label={t('toolbar.copyTask')}>
               <button
                 onClick={handleCopy}
-                className="p-1 hover:bg-gray-100 rounded-full transition-colors"
+                className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-colors"
               >
-                <Copy size={14} className="text-gray-400 hover:text-gray-600 transition-colors" />
+                <Copy size={14} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors" />
               </button>
             </KanbanChromeTooltip>
             
@@ -424,52 +479,52 @@ export default function TaskCardToolbar({
             {onStartLinking && (
               <KanbanChromeTooltip
                 label={
-                  isLinkingMode && linkingSourceTask?.id === task.id
-                    ? t('toolbar.sourceTaskForLinking')
-                    : t('toolbar.holdAndDragToLink')
+                  agentBlocking
+                    ? agentLockedLabel
+                    : isLinkingMode && linkingSourceTask?.id === task.id
+                      ? t('toolbar.sourceTaskForLinking')
+                      : t('toolbar.holdAndDragToLink')
                 }
               >
                 <button
                   data-no-dnd="true"
+                  disabled={agentBlocking}
                   onPointerDown={(e) => {
-                    // Only prevent default if we're actually starting a drag
-                    // Allow hover events to fire first
+                    if (agentBlocking) return;
                     handleLinkPointerDown(e);
                   }}
                   onMouseDown={(e) => {
-                    // Only prevent default if we're actually starting a drag
-                    // Allow hover events to fire first
+                    if (agentBlocking) return;
                     handleLinkMouseDown(e);
                   }}
                   onClick={(e) => {
-                    // Prevent click from doing anything - we only want mousedown + drag
                     e.preventDefault();
                     e.stopPropagation();
                   }}
                   onMouseEnter={(e) => {
-                    // Ensure hover works even if pointer/mouse down handlers are active
-                    e.stopPropagation(); // Prevent event from bubbling to parent
+                    if (agentBlocking) return;
+                    e.stopPropagation();
                     onLinkToolHover?.(task);
                   }}
                   onMouseLeave={(e) => {
-                    // Ensure hover end works
-                    e.stopPropagation(); // Prevent event from bubbling to parent
+                    e.stopPropagation();
                     onLinkToolHoverEnd?.();
                   }}
                   onPointerEnter={(e) => {
-                    // Also handle pointer enter for touch devices
+                    if (agentBlocking) return;
                     e.stopPropagation();
                     onLinkToolHover?.(task);
                   }}
                   onPointerLeave={(e) => {
-                    // Also handle pointer leave for touch devices
                     e.stopPropagation();
                     onLinkToolHoverEnd?.();
                   }}
                   className={`p-1 rounded-full transition-colors ${
-                    isLinkingMode && linkingSourceTask?.id === task.id
-                      ? 'bg-blue-100 dark:bg-blue-900 text-blue-600 dark:text-blue-400'
-                      : 'hover:bg-blue-100 dark:hover:bg-blue-900 text-gray-400 dark:text-gray-500 hover:text-blue-600 dark:hover:text-blue-400'
+                    agentBlocking
+                      ? 'opacity-40 cursor-not-allowed text-gray-400'
+                      : isLinkingMode && linkingSourceTask?.id === task.id
+                        ? 'bg-blue-100 dark:bg-blue-900 text-blue-600 dark:text-blue-400'
+                        : 'hover:bg-blue-100 dark:hover:bg-blue-900 text-gray-400 dark:text-gray-500 hover:text-blue-600 dark:hover:text-blue-400'
                   }`}
                   style={{ pointerEvents: 'auto', zIndex: 100, touchAction: 'none', userSelect: 'none' }}
                 >
@@ -493,14 +548,19 @@ export default function TaskCardToolbar({
               
               // Show button if archive column exists AND task is not already in an archived column
               return archiveColumn && !isCurrentColumnArchived ? (
-                <KanbanChromeTooltip label={t('toolbar.archiveTask')}>
+                <KanbanChromeTooltip label={agentBlocking ? agentLockedLabel : t('toolbar.archiveTask')}>
                   <button
+                    disabled={agentBlocking}
                     onClick={(e) => {
+                      if (agentBlocking) return;
                       e.stopPropagation();
-                      // Move task to archive column
                       onEdit({ ...task, columnId: archiveColumn.id });
                     }}
-                    className="p-1 hover:bg-yellow-100 rounded-full transition-colors"
+                    className={`p-1 rounded-full transition-colors ${
+                      agentBlocking
+                        ? 'opacity-40 cursor-not-allowed'
+                        : 'hover:bg-yellow-100 dark:hover:bg-yellow-900/40'
+                    }`}
                   >
                     <Archive size={14} className="text-yellow-600" />
                   </button>
@@ -509,10 +569,18 @@ export default function TaskCardToolbar({
             })()}
             
             {/* Delete Task Button */}
-            <KanbanChromeTooltip label={t('toolbar.deleteTask')}>
+            <KanbanChromeTooltip label={agentBlocking ? agentLockedLabel : t('toolbar.deleteTask')}>
               <button
-                onClick={(e) => onRemove(task.id, e)}
-                className="p-1 hover:bg-red-100 rounded-full transition-colors"
+                disabled={agentBlocking}
+                onClick={(e) => {
+                  if (agentBlocking) return;
+                  onRemove(task.id, e);
+                }}
+                className={`p-1 rounded-full transition-colors ${
+                  agentBlocking
+                    ? 'opacity-40 cursor-not-allowed'
+                    : 'hover:bg-red-100 dark:hover:bg-red-900/40'
+                }`}
               >
                 <Trash2 size={14} className="text-red-500" />
               </button>
@@ -520,8 +588,8 @@ export default function TaskCardToolbar({
         </div>
       </div>
 
-      {/* Watchers & Collaborators Icons - Right side between buttons and avatar */}
-      <div className="absolute top-0 right-[40px] flex gap-1 z-30 px-2 py-1" style={{ top: '7px' }}>
+      {/* Watchers & Collaborators — left of avatar */}
+      <div className="absolute top-0 right-[40px] flex items-center gap-1 z-30 px-2 py-1" style={{ top: '7px' }}>
           {task.watchers && task.watchers.length > 0 && (
             <KanbanChromeTooltip label={formatMembersTooltip(task.watchers, 'watcher')} delayMs={0} wrapperClassName="flex items-center">
               <span className="flex items-center">
@@ -543,21 +611,33 @@ export default function TaskCardToolbar({
       {/* Avatar Overlay - Top Right */}
       <div className={`absolute top-1 right-2 ${showMemberSelect ? 'z-[110]' : 'z-20'}`}>
         <div className="relative">
-          <KanbanChromeTooltip label={t('toolbar.changeAssignee')}>
+          <KanbanChromeTooltip
+            label={agentBlocking ? agentLockedLabel : t('toolbar.changeAssignee')}
+          >
             <button
               ref={memberButtonRef}
+              disabled={agentBlocking}
               onClick={(e) => {
+                if (agentBlocking) return;
                 handleMemberToggle(e);
-                // Prevent card selection by setting a flag (if available via props or context)
-                // The card's onClick will check for clicks on this button
               }}
               onMouseDown={(e) => {
                 e.stopPropagation();
               }}
-              className="p-1 hover:bg-gray-100 rounded-full transition-colors shadow-sm cursor-pointer"
+              className={`p-1 rounded-full shadow-sm transition-colors ${
+                agentBlocking
+                  ? 'opacity-60 cursor-not-allowed'
+                  : 'hover:bg-gray-100 cursor-pointer'
+              }`}
               data-member-button="true"
             >
-            {member.googleAvatarUrl || member.avatarUrl ? (
+            {isAgentMemberId(member.id) ? (
+              <img
+                src={getAgentAvatarSrc(member)}
+                alt={member.name}
+                className="w-8 h-8 rounded-full object-cover border-2 border-white bg-white"
+              />
+            ) : member.googleAvatarUrl || member.avatarUrl ? (
               <img
                 src={getAuthenticatedAvatarUrl(member.googleAvatarUrl || member.avatarUrl)}
                 alt={member.name}
@@ -665,38 +745,68 @@ export default function TaskCardToolbar({
           >
           <div className="p-2">
             <div className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">{t('toolbar.assignTo')}</div>
-            {members.map(m => (
-              <button
-                key={m.id}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onMemberChange(m.id);
-                }}
-                className={`w-full flex items-center gap-2 p-2 rounded hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors ${
-                  member.id === SYSTEM_MEMBER_ID ? 'bg-yellow-50 dark:bg-yellow-900/20' : 
-                  m.id === member.id ? 'bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700' : ''
-                }`}
-              >
-                {m.googleAvatarUrl || m.avatarUrl ? (
-                  <img
-                    src={getAuthenticatedAvatarUrl(m.googleAvatarUrl || m.avatarUrl)}
-                    alt={m.name}
-                    className="w-6 h-6 rounded-full object-cover"
-                  />
-                ) : (
-                  <div 
-                    className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium text-white"
-                    style={{ backgroundColor: m.color }}
-                  >
-                    {m.id === SYSTEM_MEMBER_ID ? '🤖' : m.name.charAt(0).toUpperCase()}
-                  </div>
-                )}
-                <span className="text-sm text-gray-900 dark:text-gray-100">{truncateMemberName(m.name)}</span>
-                {m.id === member.id && (
-                  <span className="ml-auto text-blue-600 dark:text-blue-400 text-xs">✓</span>
-                )}
-              </button>
-            ))}
+            {(() => {
+              const ordered = sortMembersAgentLast(members);
+              const people = ordered.filter((m) => !isAgentMemberId(m.id));
+              const agent = ordered.find((m) => isAgentMemberId(m.id));
+              const renderRow = (m: TeamMember) => (
+                <button
+                  key={m.id}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onMemberChange(m.id);
+                  }}
+                  className={`w-full flex items-center gap-2 p-2 rounded hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors ${
+                    m.id === SYSTEM_MEMBER_ID ? 'bg-yellow-50 dark:bg-yellow-900/20' : ''
+                  } ${
+                    m.id === member.id
+                      ? 'bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700'
+                      : ''
+                  }`}
+                >
+                  {isAgentMemberId(m.id) ? (
+                    <img
+                      src={getAgentAvatarSrc(m)}
+                      alt={m.name}
+                      className="w-6 h-6 rounded-full object-cover bg-white"
+                    />
+                  ) : m.googleAvatarUrl || m.avatarUrl ? (
+                    <img
+                      src={getAuthenticatedAvatarUrl(m.googleAvatarUrl || m.avatarUrl)}
+                      alt={m.name}
+                      className="w-6 h-6 rounded-full object-cover"
+                    />
+                  ) : (
+                    <div
+                      className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium text-white"
+                      style={{ backgroundColor: m.color }}
+                    >
+                      {m.id === SYSTEM_MEMBER_ID ? '🤖' : m.name.charAt(0).toUpperCase()}
+                    </div>
+                  )}
+                  <span className="text-sm text-gray-900 dark:text-gray-100">
+                    {truncateMemberName(m.name)}
+                  </span>
+                  {m.id === member.id && (
+                    <span className="ml-auto text-blue-600 dark:text-blue-400 text-xs">✓</span>
+                  )}
+                </button>
+              );
+              return (
+                <>
+                  {people.map(renderRow)}
+                  {agent && (
+                    <>
+                      <div className="my-1.5 border-t border-gray-200 dark:border-gray-600" />
+                      <div className="text-[10px] uppercase tracking-wide text-gray-400 dark:text-gray-500 px-2 mb-1">
+                        {t('toolbar.assignToAgentSection')}
+                      </div>
+                      {renderRow(agent)}
+                    </>
+                  )}
+                </>
+              );
+            })()}
           </div>
           </div>,
           document.body

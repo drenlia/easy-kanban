@@ -217,7 +217,8 @@ const SortableBoardTab: React.FC<{
   onCancelDelete: () => void;
   taskCount?: number;
   showTaskCount?: boolean;
-}> = ({ board, isSelected, onSelect, onEdit, onRemove, canDelete, showDeleteConfirm, onConfirmDelete, onCancelDelete, taskCount, showTaskCount }) => {
+  hasActiveFilters?: boolean;
+}> = ({ board, isSelected, onSelect, onEdit, onRemove, canDelete, showDeleteConfirm, onConfirmDelete, onCancelDelete, taskCount, showTaskCount, hasActiveFilters = false }) => {
   const [deleteButtonRef, setDeleteButtonRef] = useState<HTMLButtonElement | null>(null);
   const {
     attributes,
@@ -266,7 +267,13 @@ const SortableBoardTab: React.FC<{
             <div className="flex items-center gap-2">
               <span className="truncate max-w-[10rem]">{board.title}</span>
               {showTaskCount && taskCount !== undefined && taskCount > 0 && (
-                <span className="shrink-0 px-1.5 py-0.5 text-[0.65rem] font-semibold leading-none rounded-full tabular-nums bg-blue-100 text-blue-800 dark:bg-blue-900/80 dark:text-blue-200">
+                <span
+                  className={`shrink-0 px-1.5 py-0.5 text-[0.65rem] font-semibold leading-none rounded-full tabular-nums ${
+                    hasActiveFilters
+                      ? 'bg-blue-600 text-white dark:bg-blue-500'
+                      : 'bg-gray-200 text-gray-700 dark:bg-gray-600 dark:text-gray-100'
+                  }`}
+                >
                   {taskCount}
                 </span>
               )}
@@ -343,7 +350,8 @@ const RegularBoardTab: React.FC<{
   canDelete: boolean;
   taskCount?: number;
   showTaskCount?: boolean;
-}> = ({ board, isSelected, onSelect, onEdit, onRemove, canDelete, taskCount, showTaskCount }) => {
+  hasActiveFilters?: boolean;
+}> = ({ board, isSelected, onSelect, onEdit, onRemove, canDelete, taskCount, showTaskCount, hasActiveFilters = false }) => {
   const { t } = useTranslation('common');
   return (
     <div className="relative group">
@@ -356,7 +364,13 @@ const RegularBoardTab: React.FC<{
         <div className="flex items-center gap-2">
           <span className="truncate max-w-[11rem]">{board.title}</span>
           {showTaskCount && taskCount !== undefined && taskCount > 0 && (
-            <span className="shrink-0 px-1.5 py-0.5 text-[0.65rem] font-semibold leading-none rounded-full tabular-nums bg-blue-100 text-blue-800 dark:bg-blue-900/80 dark:text-blue-200">
+            <span
+              className={`shrink-0 px-1.5 py-0.5 text-[0.65rem] font-semibold leading-none rounded-full tabular-nums ${
+                hasActiveFilters
+                  ? 'bg-blue-600 text-white dark:bg-blue-500'
+                  : 'bg-gray-200 text-gray-700 dark:bg-gray-600 dark:text-gray-100'
+              }`}
+            >
               {taskCount}
             </span>
           )}
@@ -712,6 +726,7 @@ export default function BoardTabs({
                         onCancelDelete={cancelDeleteBoard}
                         taskCount={getFilteredTaskCount ? getFilteredTaskCount(board) : undefined}
                         showTaskCount={true}
+                        hasActiveFilters={hasActiveFilters}
                       />
                     )}
                   </div>
@@ -800,6 +815,7 @@ export default function BoardTabs({
                         canDelete={boards.length > 1}
                         taskCount={getFilteredTaskCount ? getFilteredTaskCount(board) : undefined}
                         showTaskCount={true}
+                        hasActiveFilters={hasActiveFilters}
                       />
                     )}
                   </div>

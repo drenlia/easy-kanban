@@ -42,6 +42,10 @@ services:
       - TENANT_DOMAIN=ezkan.cloud
       # Application version (optional, will override database value if set)
       - APP_VERSION=0.9-beta
+      # Push agent runner (platform)
+      - AI_RUNNER_URL=http://kanban-runner:8080
+      - AI_CALLBACK_BASE_URL=http://kanban-app:3222
+      - RUNNER_TOKEN=kanban-runner-dev-token-change-me
     volumes:
       - .:/app
       - /app/node_modules
@@ -53,6 +57,18 @@ services:
         condition: service_healthy
       redis:
         condition: service_started
+      kanban-runner:
+        condition: service_started
+    restart: unless-stopped
+
+  kanban-runner:
+    build: ./runner
+    container_name: easy-kanban-runner
+    environment:
+      - PORT=8080
+      - MAX_CONCURRENT=1
+      - RUNNER_TOKEN=kanban-runner-dev-token-change-me
+    # Internal only — no host ports
     restart: unless-stopped
 
   postgres:

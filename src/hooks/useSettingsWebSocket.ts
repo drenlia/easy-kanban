@@ -8,6 +8,8 @@ interface UseSettingsWebSocketProps {
   setAvailablePriorities: React.Dispatch<React.SetStateAction<any[]>>;
   setAvailableSprints?: React.Dispatch<React.SetStateAction<any[]>>; // Optional: sprints state setter
   setSiteSettings?: React.Dispatch<React.SetStateAction<any>>; // Optional: SettingsContext now handles settings updates
+  /** Refresh members when AI_ENABLED / AI_AGENT_NAME changes (Agent assignee visibility) */
+  refreshMembers?: () => Promise<void> | void;
   
   // Version status hook
   versionStatus: {
@@ -37,6 +39,7 @@ export const useSettingsWebSocket = ({
   setAvailablePriorities,
   setAvailableSprints,
   setSiteSettings, // Optional - SettingsContext handles settings updates
+  refreshMembers,
   versionStatus,
 }: UseSettingsWebSocketProps) => {
   
@@ -134,10 +137,20 @@ export const useSettingsWebSocket = ({
   }, []);
 
   const handleSettingsUpdated = useCallback(async (data: any) => {
-    // Settings are now updated via SettingsContext which listens to WebSocket events
-    // This handler is kept for backwards compatibility but SettingsContext handles the actual updates
+    // Settings values are applied in SettingsContext; here we react to AI toggles
+    // so the Agent assignee appears/disappears without a full page reload.
     console.log('📨 [useSettingsWebSocket] Settings update received (handled by SettingsContext):', data);
-  }, []);
+    if (
+      refreshMembers &&
+      (data?.key === 'AI_ENABLED' || data?.key === 'AI_AGENT_NAME')
+    ) {
+      try {
+        await refreshMembers();
+      } catch (error) {
+        console.error('Failed to refresh members after AI settings change:', error);
+      }
+    }
+  }, [refreshMembers]);
 
   const handleInstanceStatusUpdated = useCallback((data: any) => {
     console.log('📨 Instance status updated via WebSocket:', data);

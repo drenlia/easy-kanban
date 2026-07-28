@@ -110,7 +110,14 @@ interface MainLayoutProps {
   onTagAdd: (taskId: string) => (tagId: string) => Promise<void>;
   onTagRemove: (taskId: string) => (tagId: string) => Promise<void>;
   onMoveTaskToColumn: (taskId: string, targetColumnId: string) => Promise<void>;
-  onEditColumn: (columnId: string, title: string, is_finished?: boolean, is_archived?: boolean) => Promise<void>;
+  onEditColumn: (
+    columnId: string,
+    title: string,
+    is_finished?: boolean,
+    is_archived?: boolean,
+    wip_limit?: number | null,
+    policy_text?: string | null
+  ) => Promise<void>;
   onRemoveColumn: (columnId: string) => Promise<void>;
   onAddColumn: (afterColumnId: string) => Promise<void>;
   onTaskDragStart: (task: Task) => void;
