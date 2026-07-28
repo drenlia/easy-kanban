@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { createPortal } from 'react-dom';
-import { Plus, MoreVertical, X, GripVertical, Archive, AlertTriangle, ScrollText, Trash2 } from 'lucide-react';
+import { Plus, MoreVertical, X, GripVertical, Archive, AlertTriangle, ScrollText, Trash2, HelpCircle } from 'lucide-react';
 import { Column, Task, TeamMember, PriorityOption, CurrentUser, Tag, ColumnVisibilityWarning } from '../types';
 import { TaskViewMode } from '../utils/userPreferences';
 import TaskCard from './TaskCard';
@@ -950,9 +950,17 @@ export default function KanbanColumn({
                   <div className="flex items-center gap-2">
                     <label
                       htmlFor={`column-wip-${column.id}`}
-                      className="text-sm font-medium text-gray-700 dark:text-gray-200 shrink-0"
+                      className="text-sm font-medium text-gray-700 dark:text-gray-200 shrink-0 inline-flex items-center gap-1"
                     >
                       {t('column.wipLimit')}
+                      <KanbanChromeTooltip label={t('column.wipLimitHint')}>
+                        <span
+                          className="inline-flex text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 cursor-help"
+                          aria-label={t('column.wipLimitHint')}
+                        >
+                          <HelpCircle size={14} />
+                        </span>
+                      </KanbanChromeTooltip>
                     </label>
                     <input
                       id={`column-wip-${column.id}`}
@@ -962,8 +970,7 @@ export default function KanbanColumn({
                       step={1}
                       value={wipLimitInput}
                       onChange={(e) => setWipLimitInput(e.target.value)}
-                      placeholder={t('column.wipLimitPlaceholder')}
-                      className="w-[5.5rem] shrink-0 px-2 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-sm [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                      className="w-[2.75rem] shrink-0 px-1.5 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-sm text-center [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                       disabled={isSubmitting}
                     />
                     {!!String(wipLimitInput).trim() && (

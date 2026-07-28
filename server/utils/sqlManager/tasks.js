@@ -228,7 +228,7 @@ export async function getTasksForColumn(db, columnId) {
     LEFT JOIN members collaborator ON collaborator.id = col.memberid
     LEFT JOIN attachments a ON a.taskid = t.id
     LEFT JOIN priorities p ON (p.id = t.priority_id OR (t.priority_id IS NULL AND p.priority = t.priority))
-    WHERE t.columnid = $1
+    WHERE t.columnid = $1 AND t.deleted_at IS NULL
     GROUP BY t.id, p.id
     ORDER BY t.position ASC
   `;
@@ -331,7 +331,7 @@ export async function getTasksForColumns(db, columnIds) {
     LEFT JOIN members collaborator ON collaborator.id = col.memberid
     LEFT JOIN attachments a ON a.taskid = t.id
     LEFT JOIN priorities p ON (p.id = t.priority_id OR (t.priority_id IS NULL AND p.priority = t.priority))
-    WHERE t.columnid IN (${placeholders})
+    WHERE t.columnid IN (${placeholders}) AND t.deleted_at IS NULL
     GROUP BY t.id, p.id
     ORDER BY t.columnid, t.position ASC
   `;
@@ -388,6 +388,7 @@ export async function getAllTasks(db) {
                 ELSE NULL END as "attachmentCount"
     FROM tasks t
     LEFT JOIN attachments a ON a.taskid = t.id
+    WHERE t.deleted_at IS NULL
     GROUP BY t.id
     ORDER BY t.position ASC
   `;
@@ -701,7 +702,7 @@ export async function getTasksByIds(db, taskIds) {
  */
 export async function getTasksByBoard(db, boardId) {
   const query = `
-    SELECT * FROM tasks WHERE boardid = $1 ORDER BY position ASC
+    SELECT * FROM tasks WHERE boardid = $1 AND deleted_at IS NULL ORDER BY position ASC
   `;
   
   const stmt = wrapQuery(db.prepare(query), 'SELECT');
@@ -717,7 +718,7 @@ export async function getTasksByBoard(db, boardId) {
  */
 export async function getTasksBySprint(db, sprintId) {
   const query = `
-    SELECT * FROM tasks WHERE sprint_id = $1 ORDER BY position ASC
+    SELECT * FROM tasks WHERE sprint_id = $1 AND deleted_at IS NULL ORDER BY position ASC
   `;
   
   const stmt = wrapQuery(db.prepare(query), 'SELECT');
@@ -733,7 +734,7 @@ export async function getTasksBySprint(db, sprintId) {
  */
 export async function getTasksByMember(db, memberId) {
   const query = `
-    SELECT * FROM tasks WHERE memberid = $1 ORDER BY position ASC
+    SELECT * FROM tasks WHERE memberid = $1 AND deleted_at IS NULL ORDER BY position ASC
   `;
   
   const stmt = wrapQuery(db.prepare(query), 'SELECT');
@@ -789,7 +790,7 @@ export async function getTaskTags(db, taskId) {
 export async function getRemainingTasksInColumn(db, columnId, boardId) {
   const query = `
     SELECT id, position FROM tasks 
-    WHERE columnid = $1 AND boardid = $2 
+    WHERE columnid = $1 AND boardid = $2 AND deleted_at IS NULL
     ORDER BY position ASC
   `;
   
@@ -844,7 +845,7 @@ export async function getTasksForColumnBasic(db, columnId) {
   const query = `
     SELECT id, position, columnid as "columnId", boardid as "boardId"
     FROM tasks
-    WHERE columnid = $1
+    WHERE columnid = $1 AND deleted_at IS NULL
     ORDER BY position ASC
   `;
   const stmt = wrapQuery(db.prepare(query), 'SELECT');
@@ -1346,5 +1347,249 @@ export async function getRelationshipsForFlowChart(db, taskIds) {
   // Same $1..$n placeholders are reused in both IN lists — bind each id only once (PG errors if you pass 2n params).
   const stmt = wrapQuery(db.prepare(query), 'SELECT');
   return await stmt.all(...taskIds);
+}
+
+/**
+ * Soft-delete a task (move to trash)
+ */
+export async function softDeleteTask(db, taskId, deletedBy) {
+  const query = `
+    UPDATE tasks
+    SET deleted_at = CURRENT_TIMESTAMP,
+        deleted_by = $2,
+        updated_at = CURRENT_TIMESTAMP
+    WHERE id = $1 AND deleted_at IS NULL
+    RETURNING *
+  `;
+  const stmt = wrapQuery(db.prepare(query), 'UPDATE');
+  return await stmt.get(taskId, deletedBy || null);
+}
+
+/**
+ * Soft-delete all live tasks on a board
+ */
+export async function softDeleteTasksForBoard(db, boardId, deletedBy) {
+  const query = `
+    UPDATE tasks
+    SET deleted_at = CURRENT_TIMESTAMP,
+        deleted_by = $2,
+        updated_at = CURRENT_TIMESTAMP
+    WHERE boardid = $1 AND deleted_at IS NULL
+    RETURNING id
+  `;
+  const stmt = wrapQuery(db.prepare(query), 'UPDATE');
+  return await stmt.all(boardId, deletedBy || null);
+}
+
+/**
+ * Restore a soft-deleted task into a column
+ */
+export async function restoreTask(db, taskId, columnId, boardId, position) {
+  const query = `
+    UPDATE tasks
+    SET deleted_at = NULL,
+        deleted_by = NULL,
+        columnid = $2,
+        boardid = $3,
+        position = $4,
+        column_entered_at = CURRENT_TIMESTAMP,
+        updated_at = CURRENT_TIMESTAMP
+    WHERE id = $1 AND deleted_at IS NOT NULL
+    RETURNING *
+  `;
+  const stmt = wrapQuery(db.prepare(query), 'UPDATE');
+  return await stmt.get(taskId, columnId, boardId, position);
+}
+
+/**
+ * Shift live tasks down so a restored task can reclaim its original position.
+ * All live tasks with position >= insertPosition get position + 1.
+ */
+export async function shiftLiveTasksFromPosition(db, columnId, insertPosition) {
+  const query = `
+    UPDATE tasks
+    SET position = position + 1,
+        updated_at = CURRENT_TIMESTAMP
+    WHERE columnid = $1
+      AND deleted_at IS NULL
+      AND position >= $2
+    RETURNING id, position, columnid as "columnId"
+  `;
+  const stmt = wrapQuery(db.prepare(query), 'UPDATE');
+  return await stmt.all(columnId, insertPosition);
+}
+
+/**
+ * Count soft-deleted tasks for a board
+ */
+export async function countTrashTasksForBoard(db, boardId) {
+  const query = `
+    SELECT COUNT(*)::int AS count
+    FROM tasks
+    WHERE boardid = $1 AND deleted_at IS NOT NULL
+  `;
+  const stmt = wrapQuery(db.prepare(query), 'SELECT');
+  const row = await stmt.get(boardId);
+  return row?.count || 0;
+}
+
+/**
+ * List soft-deleted tasks for a board (column order, then original position)
+ */
+export async function getTrashTasksForBoard(db, boardId) {
+  const query = `
+    SELECT t.id, t.position, t.title, t.description, t.ticket,
+           t.memberid as "memberId", t.requesterid as "requesterId",
+           t.startdate as "startDate", t.duedate as "dueDate",
+           t.effort, t.priority, t.priority_id as "priority_id",
+           t.columnid as "columnId", t.boardid as "boardId",
+           t.sprint_id as "sprint_id",
+           t.created_at, t.updated_at,
+           t.deleted_at as "deletedAt",
+           t.deleted_by as "deletedBy",
+           t.column_entered_at as "columnEnteredAt",
+           t.is_blocked as "isBlocked",
+           t.blocked_reason as "blockedReason",
+           p.id as "priorityId", p.priority as "priorityName",
+           p.color as "priorityColor",
+           c.title as "columnTitle",
+           c.position as "columnPosition",
+           COALESCE(deleter_member.name, deleter_user.email, t.deleted_by) as "deletedByName"
+    FROM tasks t
+    LEFT JOIN priorities p ON (p.id = t.priority_id OR (t.priority_id IS NULL AND p.priority = t.priority))
+    LEFT JOIN columns c ON c.id = t.columnid
+    LEFT JOIN users deleter_user ON deleter_user.id = t.deleted_by
+    LEFT JOIN members deleter_member ON deleter_member.user_id = t.deleted_by
+    WHERE t.boardid = $1 AND t.deleted_at IS NOT NULL
+    ORDER BY COALESCE(c.position, 999999) ASC, t.position ASC, t.deleted_at DESC
+  `;
+  const stmt = wrapQuery(db.prepare(query), 'SELECT');
+  return await stmt.all(boardId);
+}
+
+/**
+ * Soft-deleted tasks across boards for Admin Lifecycle
+ */
+export async function getLifecycleDeletedTasks(db, boardId = null, search = null) {
+  const params = [];
+  let where = 't.deleted_at IS NOT NULL';
+  if (boardId) {
+    params.push(boardId);
+    where += ` AND t.boardid = $${params.length}`;
+  }
+  if (search && String(search).trim()) {
+    params.push(`%${String(search).trim().toLowerCase()}%`);
+    where += ` AND (LOWER(t.title) LIKE $${params.length} OR LOWER(COALESCE(t.ticket, '')) LIKE $${params.length})`;
+  }
+  const query = `
+    SELECT t.id, t.title, t.ticket, t.description,
+           t.memberid as "memberId", t.requesterid as "requesterId",
+           t.startdate as "startDate", t.duedate as "dueDate",
+           t.effort, t.priority,
+           t.columnid as "columnId", t.boardid as "boardId",
+           t.deleted_at as "deletedAt", t.deleted_by as "deletedBy",
+           b.title as "boardTitle",
+           c.title as "columnTitle"
+    FROM tasks t
+    LEFT JOIN boards b ON b.id = t.boardid
+    LEFT JOIN columns c ON c.id = t.columnid
+    WHERE ${where}
+    ORDER BY t.deleted_at DESC
+    LIMIT 500
+  `;
+  const stmt = wrapQuery(db.prepare(query), 'SELECT');
+  return await stmt.all(...params);
+}
+
+/**
+ * Reassign soft-deleted tasks off a column before hard-deleting the column
+ */
+export async function reassignTrashTasksFromColumn(db, columnId, fallbackColumnId) {
+  const query = `
+    UPDATE tasks
+    SET columnid = $2, updated_at = CURRENT_TIMESTAMP
+    WHERE columnid = $1 AND deleted_at IS NOT NULL
+    RETURNING id
+  `;
+  const stmt = wrapQuery(db.prepare(query), 'UPDATE');
+  return await stmt.all(columnId, fallbackColumnId);
+}
+
+/**
+ * Soft-deleted task IDs past retention (for cron)
+ */
+export async function getExpiredSoftDeletedTasks(db, retentionDays) {
+  const query = `
+    SELECT id, boardid as "boardId"
+    FROM tasks
+    WHERE deleted_at IS NOT NULL
+      AND deleted_at < (CURRENT_TIMESTAMP - ($1::text || ' days')::interval)
+  `;
+  const stmt = wrapQuery(db.prepare(query), 'SELECT');
+  return await stmt.all(String(retentionDays));
+}
+
+/**
+ * Tasks in archived columns past retention (for cron)
+ */
+export async function getExpiredArchivedColumnTasks(db, retentionDays) {
+  const query = `
+    SELECT t.id, t.boardid as "boardId"
+    FROM tasks t
+    JOIN columns c ON c.id = t.columnid
+    WHERE t.deleted_at IS NULL
+      AND (c.is_archived = true OR c.is_archived = 1)
+      AND t.column_entered_at IS NOT NULL
+      AND t.column_entered_at < (CURRENT_TIMESTAMP - ($1::text || ' days')::interval)
+  `;
+  const stmt = wrapQuery(db.prepare(query), 'SELECT');
+  return await stmt.all(String(retentionDays));
+}
+
+/**
+ * Attachment URLs for a task (direct + via comments) for purge
+ */
+export async function getAllAttachmentUrlsForTask(db, taskId) {
+  const query = `
+    SELECT url FROM attachments
+    WHERE taskid = $1
+    UNION
+    SELECT a.url FROM attachments a
+    JOIN comments c ON c.id = a.commentid
+    WHERE c.taskid = $1
+  `;
+  const stmt = wrapQuery(db.prepare(query), 'SELECT');
+  return await stmt.all(taskId);
+}
+
+/**
+ * Mark task_snapshots as deleted for a task
+ */
+export async function markTaskSnapshotsDeleted(db, taskId) {
+  const query = `
+    UPDATE task_snapshots
+    SET is_deleted = true, updated_at = CURRENT_TIMESTAMP
+    WHERE task_id = $1
+  `;
+  const stmt = wrapQuery(db.prepare(query), 'UPDATE');
+  try {
+    return await stmt.run(taskId);
+  } catch {
+    return { changes: 0 };
+  }
+}
+
+/**
+ * Max position among live tasks in a column
+ */
+export async function getMaxLivePositionInColumn(db, columnId) {
+  const query = `
+    SELECT COALESCE(MAX(position), -1) as "maxPos"
+    FROM tasks
+    WHERE columnid = $1 AND deleted_at IS NULL
+  `;
+  const stmt = wrapQuery(db.prepare(query), 'SELECT');
+  const row = await stmt.get(columnId);
+  return row?.maxPos ?? -1;
 }
 

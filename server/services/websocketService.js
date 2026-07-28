@@ -330,6 +330,42 @@ class WebSocketService {
       }
     });
 
+    // Soft-deleted task restored to live board
+    postgresNotificationService.subscribeToAllTenants('task-restored', (data, tenantId) => {
+      const timestamp = new Date().toISOString();
+      wsVerboseLog(`📡 [${timestamp}] WebSocket broadcasting task-restored (tenant: ${tenantId || 'single'})`);
+
+      if (tenantId) {
+        this.io?.to(`tenant-${tenantId}`).emit('task-restored', data);
+      } else {
+        this.io?.emit('task-restored', data);
+      }
+    });
+
+    // Soft-deleted task permanently purged from trash
+    postgresNotificationService.subscribeToAllTenants('task-purged', (data, tenantId) => {
+      const timestamp = new Date().toISOString();
+      wsVerboseLog(`📡 [${timestamp}] WebSocket broadcasting task-purged (tenant: ${tenantId || 'single'})`);
+
+      if (tenantId) {
+        this.io?.to(`tenant-${tenantId}`).emit('task-purged', data);
+      } else {
+        this.io?.emit('task-purged', data);
+      }
+    });
+
+    // Soft-deleted board restored
+    postgresNotificationService.subscribeToAllTenants('board-restored', (data, tenantId) => {
+      const timestamp = new Date().toISOString();
+      wsVerboseLog(`📡 [${timestamp}] WebSocket broadcasting board-restored (tenant: ${tenantId || 'single'})`);
+
+      if (tenantId) {
+        this.io?.to(`tenant-${tenantId}`).emit('board-restored', data);
+      } else {
+        this.io?.emit('board-restored', data);
+      }
+    });
+
     // Full-column position sync (add-at-top, delete renumber, etc.)
     postgresNotificationService.subscribeToAllTenants('tasks-positions-updated', (data, tenantId) => {
       const timestamp = new Date().toISOString();

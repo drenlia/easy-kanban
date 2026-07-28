@@ -412,6 +412,72 @@ export const deleteTask = async (id: string) => {
   return data;
 };
 
+/** Restore a soft-deleted task to its board (or fallback column). */
+export const restoreTask = async (id: string) => {
+  const { data } = await api.post<Task>(`/tasks/${id}/restore`);
+  return data;
+};
+
+/** Permanently delete a task (admin only) — removes DB row and attachment files. */
+export const purgeTask = async (id: string) => {
+  const { data } = await api.delete(`/tasks/${id}/permanent`);
+  return data;
+};
+
+/** Batch permanent delete (admin only). */
+export const purgeTasksBatch = async (taskIds: string[]) => {
+  const { data } = await api.post<{ purged: string[] }>('/tasks/permanent-batch', { taskIds });
+  return data;
+};
+
+/** Soft-deleted tasks for a board (Trash view). */
+export const getBoardTrash = async (boardId: string) => {
+  const { data } = await api.get<{ tasks?: Task[] } | Task[]>(`/boards/${boardId}/trash`);
+  if (Array.isArray(data)) return data;
+  return Array.isArray(data?.tasks) ? data.tasks : [];
+};
+
+export const getBoardTrashCount = async (boardId: string) => {
+  const { data } = await api.get<{ count: number }>(`/boards/${boardId}/trash/count`);
+  return typeof data?.count === 'number' ? data.count : 0;
+};
+
+export const restoreBoard = async (id: string) => {
+  const { data } = await api.post<Board>(`/boards/${id}/restore`);
+  return data;
+};
+
+export const purgeBoard = async (id: string) => {
+  const { data } = await api.delete(`/boards/${id}/permanent`);
+  return data;
+};
+
+export const getLifecycleDeletedTasks = async (params?: { boardId?: string; q?: string }) => {
+  const { data } = await api.get<{ tasks: Task[] }>('/admin/lifecycle/tasks', { params });
+  return Array.isArray(data?.tasks) ? data.tasks : [];
+};
+
+export const getLifecycleDeletedBoards = async () => {
+  const { data } = await api.get<{ boards: Board[] }>('/admin/lifecycle/boards');
+  return Array.isArray(data?.boards) ? data.boards : [];
+};
+
+export const restoreTasksBatch = async (taskIds: string[]) => {
+  const { data } = await api.post<{ restored: string[]; errors: unknown[] }>(
+    '/admin/lifecycle/tasks/restore-batch',
+    { taskIds }
+  );
+  return data;
+};
+
+export const purgeLifecycleTasksBatch = async (taskIds: string[]) => {
+  const { data } = await api.post<{ purged: string[] }>(
+    '/admin/lifecycle/tasks/purge-batch',
+    { taskIds }
+  );
+  return data;
+};
+
 // Batch update task positions (optimized for drag-and-drop)
 export const batchUpdateTaskPositions = async (updates: Array<{ taskId: string; position: number; columnId?: string }>) => {
   const { data } = await api.post('/tasks/batch-update-positions', { updates });

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Task, TeamMember, Comment, Attachment, Tag, PriorityOption, CurrentUser } from '../types';
-import { X, Paperclip, ChevronDown, Check, Edit2, Plus } from 'lucide-react';
+import { X, Paperclip, ChevronDown, Check, Edit2, Plus, RotateCcw, Trash2 } from 'lucide-react';
 import DOMPurify from 'dompurify';
 import TextEditor from './TextEditor';
 import {
@@ -72,15 +72,34 @@ interface TaskDetailsProps {
   siteSettings?: { [key: string]: string };
   boards?: any[]; // To get project identifier from board
   scrollToComments?: boolean;
+  /** When true (or task is soft-deleted), disable all writers and show restore/purge. */
+  readOnly?: boolean;
+  onRestore?: () => Promise<void>;
+  onPurge?: () => Promise<void>;
+  isAdmin?: boolean;
 }
 
-export default function TaskDetails({ task, members, currentUser, onClose, onUpdate, siteSettings, boards, scrollToComments }: TaskDetailsProps) {
+export default function TaskDetails({
+  task,
+  members,
+  currentUser,
+  onClose,
+  onUpdate,
+  siteSettings,
+  boards,
+  scrollToComments,
+  readOnly = false,
+  onRestore,
+  onPurge,
+  isAdmin = false,
+}: TaskDetailsProps) {
   const { t } = useTranslation(['tasks', 'common']);
   const userPrefs = loadUserPreferences();
   const [width, setWidth] = useState(userPrefs.taskDetailsWidth);
   const [isCompactViewport, setIsCompactViewport] = useState(
     () => typeof window !== 'undefined' && window.matchMedia('(max-width: 1023px)').matches
   );
+  const [lifecycleBusy, setLifecycleBusy] = useState(false);
 
   useEffect(() => {
     const mq = window.matchMedia('(max-width: 1023px)');
@@ -90,9 +109,12 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
     return () => mq.removeEventListener('change', onChange);
   }, []);
 
-  const panelWidth = isCompactViewport
-    ? Math.min(Math.max(width, Math.round(window.innerWidth * 0.88)), window.innerWidth)
-    : width;
+  const panelWidth = Math.min(
+    isCompactViewport
+      ? Math.max(width, Math.round(window.innerWidth * 0.88))
+      : width,
+    typeof window !== 'undefined' ? window.innerWidth : width
+  );
   
   // Get project identifier from the board this task belongs to
   const getProjectIdentifier = () => {
@@ -158,6 +180,9 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
     isAgentAssigned &&
     !!agentStatus &&
     (AGENT_DRAG_BLOCKING_STATUSES as readonly string[]).includes(agentStatus);
+  const isReadOnlyMode =
+    readOnly || !!(task.deletedAt || (task as any).deleted_at);
+  const isWritersLocked = isAgentWorkActive || isReadOnlyMode;
 
   useEffect(() => {
     if (!isAgentAssigned) {
@@ -506,7 +531,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
 
   const handleUpdate = async (updatedFields: Partial<Task>) => {
     if (isSubmitting) return;
-    if (isAgentWorkActive) return;
+    if (isWritersLocked) return;
 
     if (updatedFields.memberId === AGENT_MEMBER_ID) {
       if (siteSettings?.AI_ENABLED !== 'true') return;
@@ -680,7 +705,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
 
   // Separate function for text field updates with immediate save
   const handleTextUpdate = (field: 'title' | 'description', value: string) => {
-    if (isAgentWorkActive) return;
+    if (isWritersLocked) return;
     const updatedTask = { ...editedTask, [field]: value };
     setEditedTask(updatedTask);
     
@@ -1147,6 +1172,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
   );
 
   const handleAddComment = async (content: string, attachments: File[] = []) => {
+    if (isReadOnlyMode) return;
     if (isSubmitting) return;
 
     try {
@@ -1579,9 +1605,10 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
     )}
     <div
       ref={detailsPanelRef}
-      className="fixed right-0 bg-white dark:bg-gray-800 border-l border-gray-200 dark:border-gray-700 flex z-50 shadow-xl lg:shadow-none"
+      className="fixed right-0 bg-white dark:bg-gray-800 border-l border-gray-200 dark:border-gray-700 flex z-50 shadow-xl lg:shadow-none overflow-x-hidden"
       style={{ 
         width: `${panelWidth}px`,
+        maxWidth: '100vw',
         top: '65px', // Position below header (adjusted for proper clearance)
         height: 'calc(100vh - 65px)' // Full height minus header
       }}
@@ -1623,19 +1650,16 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
         </div>
       </div>
 
-      <div className="flex-1 flex flex-col pl-2">
+      <div className="flex min-w-0 flex-1 flex-col overflow-x-hidden pl-2">
         {/* Scrollable Container */}
-        <div className="flex-1 overflow-y-auto">
+        <div className="min-w-0 flex-1 overflow-x-hidden overflow-y-auto">
           {/* Sticky Title Section */}
           <div className="bg-white dark:bg-gray-800 sticky top-0 z-10 shadow-sm">
             <div className="p-3">
-              <div className="flex justify-between items-center mb-2">
-                {/* Title - 60% width + 50px when project/task info is shown, 100% when not */}
-                <div
-                  className="w-3/5 flex items-center gap-2 min-w-0"
-                  style={{ width: 'calc(60% + 50px)' }}
-                >
-                  {isAgentAssigned && (
+              <div className="mb-2 flex min-w-0 items-start justify-between gap-3">
+                {/* Title — takes remaining width */}
+                <div className="flex min-w-0 flex-1 items-center gap-2">
+                  {isAgentAssigned && !isReadOnlyMode && (
                     <AgentStatusButton
                       status={agentStatus}
                       iconSize={18}
@@ -1650,45 +1674,91 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                     type="text"
                     value={editedTask.title}
                     onChange={e => handleTextUpdate('title', e.target.value)}
-                    className="text-xl font-semibold w-full border-none focus:outline-none focus:ring-0 bg-gray-50 dark:bg-gray-700 p-3 rounded text-gray-900 dark:text-white disabled:opacity-70 disabled:cursor-not-allowed"
-                    disabled={isSubmitting || isAgentWorkActive}
+                    className="text-xl font-semibold w-full min-w-0 border-none focus:outline-none focus:ring-0 bg-gray-50 dark:bg-gray-700 p-3 rounded text-gray-900 dark:text-white disabled:opacity-70 disabled:cursor-not-allowed"
+                    disabled={isSubmitting || isWritersLocked}
                     title={
-                      isAgentWorkActive
-                        ? t('toolbar.disabledWhileAgent')
+                      isWritersLocked
+                        ? isReadOnlyMode
+                          ? t('trash.readOnlyHint')
+                          : t('toolbar.disabledWhileAgent')
                         : undefined
                     }
                   />
                 </div>
                 
-                {/* Task Link - Right side */}
-                <div className="flex items-center gap-4">
-                  {/* Task Identifier */}
-                  {task.ticket && (
-                    <div className="flex items-center gap-2 font-mono text-sm">
+                {/* Ticket + close on top; Restore / Delete forever under the ticket */}
+                <div className="flex flex-shrink-0 flex-col items-end gap-1.5">
+                  <div className="flex items-center gap-2">
+                    {task.ticket && (
                       <a 
                         href={generateTaskUrl(task.ticket, getProjectIdentifier())}
-                        className="text-blue-600 hover:text-blue-800 hover:underline transition-colors"
+                        className="font-mono text-sm text-blue-600 hover:text-blue-800 hover:underline transition-colors"
                         title={`Direct link to ${task.ticket}`}
                       >
                         {task.ticket}
                       </a>
+                    )}
+                    {isSavingText && !isReadOnlyMode && (
+                      <div className="text-xs text-gray-500 flex items-center gap-1">
+                        <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
+                        Auto-saving...
+                      </div>
+                    )}
+                    <button
+                      onClick={async () => {
+                        if (!isReadOnlyMode) await saveChanges();
+                        onClose();
+                      }}
+                      className="flex-shrink-0 text-gray-500 hover:text-gray-700"
+                    >
+                      <X size={20} />
+                    </button>
+                  </div>
+                  {isReadOnlyMode && (onRestore || (isAdmin && onPurge)) && (
+                    <div className="flex justify-end gap-1">
+                      {onRestore && (
+                        <button
+                          type="button"
+                          disabled={lifecycleBusy}
+                          onClick={async () => {
+                            setLifecycleBusy(true);
+                            try {
+                              await onRestore();
+                            } finally {
+                              setLifecycleBusy(false);
+                            }
+                          }}
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+                          title={t('trash.restore')}
+                          aria-label={t('trash.restore')}
+                        >
+                          <RotateCcw size={16} className={lifecycleBusy ? 'animate-spin' : ''} />
+                        </button>
+                      )}
+                      {isAdmin && onPurge && (
+                        <button
+                          type="button"
+                          disabled={lifecycleBusy}
+                          onClick={async () => {
+                            if (!window.confirm(t('trash.purgeConfirm'))) return;
+                            setLifecycleBusy(true);
+                            try {
+                              await onPurge();
+                            } finally {
+                              setLifecycleBusy(false);
+                            }
+                          }}
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-md bg-red-600 text-white hover:bg-red-700 disabled:opacity-50"
+                          title={t('trash.purge')}
+                          aria-label={t('trash.purge')}
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      )}
                     </div>
                   )}
-                    
-                    {/* Save indicator and close button */}
-                    <div className="flex items-center gap-2">
-                      {isSavingText && (
-                        <div className="text-xs text-gray-500 flex items-center gap-1">
-                          <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
-                          Auto-saving...
-                        </div>
-                      )}
-                      <button onClick={async () => { await saveChanges(); onClose(); }} className="text-gray-500 hover:text-gray-700">
-                        <X size={20} />
-                      </button>
-                    </div>
-                  </div>
                 </div>
+              </div>
             </div>
             
             {/* Separator line - part of sticky section */}
@@ -1705,15 +1775,17 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
               </label>
               <TextEditor
                 onSubmit={async () => {
+                  if (isReadOnlyMode) return;
                   // Save pending attachments when submit is triggered
                   await savePendingAttachments();
                 }}
                 onChange={(content) => {
+                  if (isReadOnlyMode) return;
                   handleTextUpdate('description', content);
                 }}
-                onAttachmentsChange={handleAttachmentsChange}
-                onAttachmentDelete={handleAttachmentDelete}
-                onImageRemovalNeeded={handleImageRemoval}
+                onAttachmentsChange={isReadOnlyMode ? undefined : handleAttachmentsChange}
+                onAttachmentDelete={isReadOnlyMode ? undefined : handleAttachmentDelete}
+                onImageRemovalNeeded={isReadOnlyMode ? undefined : handleImageRemoval}
                 initialContent={editedTask.description}
                 placeholder={t('placeholders.enterDescription')}
                 minHeight="120px"
@@ -1729,11 +1801,12 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                   link: true,
                   lists: true,
                   alignment: false,
-                  attachments: true
+                  attachments: !isReadOnlyMode
                 }}
-                allowImagePaste={true}
-                allowImageDelete={true}
-                allowImageResize={true}
+                allowImagePaste={!isReadOnlyMode}
+                allowImageDelete={!isReadOnlyMode}
+                allowImageResize={!isReadOnlyMode}
+                showToolbar={!isReadOnlyMode}
                 className="w-full"
               />
               
@@ -1757,10 +1830,12 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                   value={validMemberId}
                   onChange={e => handleUpdate({ memberId: e.target.value })}
                   className="w-full px-3 py-2 border rounded-md bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-100 disabled:opacity-70 disabled:cursor-not-allowed"
-                  disabled={isSubmitting || isAgentWorkActive}
+                  disabled={isSubmitting || isWritersLocked}
                   title={
-                    isAgentWorkActive
-                      ? t('toolbar.disabledWhileAgent')
+                    isWritersLocked
+                      ? isReadOnlyMode
+                        ? t('trash.readOnlyHint')
+                        : t('toolbar.disabledWhileAgent')
                       : undefined
                   }
                 >
@@ -1780,7 +1855,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                   value={validRequesterId}
                   onChange={e => handleUpdate({ requesterId: e.target.value })}
                   className="w-full px-3 py-2 border rounded-md bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-100"
-                  disabled={isSubmitting}
+                  disabled={isSubmitting || isWritersLocked}
                 >
                   {sortMembersAgentLast(members)
                     .filter((m) => !isAgentMemberId(m.id))
@@ -1806,7 +1881,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                     type="button"
                     onClick={handleWatchersDropdownToggle}
                     className="w-full px-3 py-2 border rounded-md bg-white dark:bg-gray-700 text-left flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-600"
-                    disabled={isSubmitting}
+                    disabled={isSubmitting || isWritersLocked}
                   >
                     <span className="text-gray-700 dark:text-gray-200 truncate">
                       {taskWatchers.length === 0 
@@ -1882,7 +1957,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                     type="button"
                     onClick={handleCollaboratorsDropdownToggle}
                     className="w-full px-3 py-2 border rounded-md bg-white dark:bg-gray-700 text-left flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-600"
-                    disabled={isSubmitting}
+                    disabled={isSubmitting || isWritersLocked}
                   >
                     <span className="text-gray-700 dark:text-gray-200 truncate">
                       {taskCollaborators.length === 0 
@@ -1959,7 +2034,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                   onChange={e => setLocalStartDate(e.target.value)}
                   onBlur={e => handleUpdate({ startDate: e.target.value })}
                   className="w-full px-3 py-2 border rounded-md bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-100"
-                  disabled={isSubmitting}
+                  disabled={isSubmitting || isWritersLocked}
                 />
               </div>
 
@@ -1973,7 +2048,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                   onChange={e => setLocalDueDate(e.target.value)}
                   onBlur={e => handleUpdate({ dueDate: e.target.value })}
                   className="w-full px-3 py-2 border rounded-md bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-100"
-                  disabled={isSubmitting}
+                  disabled={isSubmitting || isWritersLocked}
                 />
               </div>
 
@@ -2009,7 +2084,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                     }
                   }}
                   className="w-full px-3 py-2 border rounded-md bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-100"
-                  disabled={isSubmitting}
+                  disabled={isSubmitting || isWritersLocked}
                 />
               </div>
 
@@ -2028,7 +2103,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                       type="checkbox"
                       className="sr-only peer"
                       checked={Boolean(editedTask.isBlocked)}
-                      disabled={isSubmitting}
+                      disabled={isSubmitting || isWritersLocked}
                       onChange={(e) =>
                         handleUpdate({
                           isBlocked: e.target.checked,
@@ -2054,7 +2129,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                     }
                     placeholder={t('labels.blockedReasonPlaceholder')}
                     className="mt-2 w-full px-3 py-2 border rounded-md bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-100 text-sm"
-                    disabled={isSubmitting}
+                    disabled={isSubmitting || isWritersLocked}
                   />
                 )}
               </div>
@@ -2074,7 +2149,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                     });
                   }}
                   className="w-full px-3 py-2 border rounded-md bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-100"
-                  disabled={isSubmitting}
+                  disabled={isSubmitting || isWritersLocked}
                 >
                   <option value="">{t('taskPage.noPriority')}</option>
                   {availablePriorities.map(priority => (
@@ -2326,6 +2401,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
             )}
           </div>
           <div className="mb-4">
+            {!isReadOnlyMode && (
             <TextEditor 
               onSubmit={handleAddComment}
               onCancel={() => {
@@ -2349,6 +2425,10 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
               allowImageDelete={true}
               allowImageResize={true}
             />
+            )}
+            {isReadOnlyMode && (
+              <p className="text-sm text-gray-500 dark:text-gray-400">{t('trash.readOnlyHint')}</p>
+            )}
           </div>
 
           <div className="space-y-6">
@@ -2410,7 +2490,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                       <div className="flex items-center gap-1">
                         <button
                           onClick={() => handleEditComment(comment)}
-                          disabled={isSubmitting}
+                          disabled={isSubmitting || isWritersLocked}
                           className="p-1 text-gray-400 hover:text-blue-500 hover:bg-gray-100 rounded-full transition-colors"
                           title={t('comments.editCommentTitle')}
                         >
@@ -2418,7 +2498,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                         </button>
                         <button
                           onClick={() => handleDeleteComment(comment.id)}
-                          disabled={isSubmitting}
+                          disabled={isSubmitting || isWritersLocked}
                           className="p-1 text-gray-400 hover:text-red-500 hover:bg-gray-100 rounded-full transition-colors"
                           title={t('comments.deleteCommentTitle')}
                         >

@@ -897,6 +897,33 @@ export const useTaskWebSocket = ({
       }
     }
   }, [setBoards, setColumns, selectedBoardRef, setSelectedTask]);
+
+  const handleTaskRestored = useCallback((data: any) => {
+    if (!data.task || !data.boardId) return;
+    // Allow the task to reappear after soft-delete ignore window
+    recentlyDeletedTasksRef.current?.delete(data.task.id);
+    // Normalize fields from SQL / restore payload
+    if (!data.task.columnId && (data.task.columnid || data.task.column_id)) {
+      data.task.columnId = data.task.columnid || data.task.column_id;
+    }
+    if (!data.task.boardId && (data.task.boardid || data.task.board_id)) {
+      data.task.boardId = data.task.boardid || data.task.board_id;
+    }
+    if (!data.task.memberId && data.task.memberid) {
+      data.task.memberId = data.task.memberid;
+    }
+    data.task.deletedAt = null;
+    data.task.deletedBy = null;
+    handleTaskCreated(data);
+  }, [handleTaskCreated, recentlyDeletedTasksRef]);
+
+  const handleTaskPurged = useCallback((data: any) => {
+    if (!data.taskId) return;
+    recentlyDeletedTasksRef.current?.delete(data.taskId);
+    if (selectedTaskRef.current?.id === data.taskId) {
+      setSelectedTask(null);
+    }
+  }, [recentlyDeletedTasksRef, selectedTaskRef, setSelectedTask]);
   
   const handleTaskRelationshipCreated = useCallback((data: any) => {
     wsHookLog('🔗 [WebSocket] task-relationship-created received:', data);
@@ -1373,6 +1400,8 @@ export const useTaskWebSocket = ({
     handleTaskCreated,
     handleTaskUpdated,
     handleTaskDeleted,
+    handleTaskRestored,
+    handleTaskPurged,
     handleTasksPositionsUpdated,
     handleTaskRelationshipCreated,
     handleTaskRelationshipDeleted,

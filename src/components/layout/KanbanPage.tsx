@@ -22,11 +22,55 @@ import SearchInterface from '../SearchInterface';
 import KanbanColumn from '../Column';
 import TaskCard from '../TaskCard';
 import BoardTabs from '../BoardTabs';
+import BoardTrashView from '../BoardTrashView';
 import LoadingSpinner from '../LoadingSpinner';
 import ListView from '../ListView';
 import ColumnResizeHandle from '../ColumnResizeHandle';
+import {
+  getBoardTrash,
+  getBoardTrashCount,
+  getTaskById,
+  restoreTask,
+  purgeTask,
+} from '../../api';
+import { toast } from '../../utils/toast';
+import websocketClient from '../../services/websocketClient';
 
 import { lazyWithRetry } from '../../utils/lazyWithRetry';
+
+const TRASH_OPEN_STORAGE_KEY = 'easyKanban.trashOpenByBoard';
+
+function readTrashOpenPreference(boardId: string | null): boolean {
+  if (!boardId || typeof sessionStorage === 'undefined') return false;
+  try {
+    const raw = sessionStorage.getItem(TRASH_OPEN_STORAGE_KEY);
+    if (!raw) return false;
+    const parsed = JSON.parse(raw) as Record<string, boolean>;
+    return !!parsed?.[boardId];
+  } catch {
+    return false;
+  }
+}
+
+function writeTrashOpenPreference(boardId: string | null, open: boolean) {
+  if (!boardId || typeof sessionStorage === 'undefined') return;
+  try {
+    const raw = sessionStorage.getItem(TRASH_OPEN_STORAGE_KEY);
+    const parsed = (raw ? JSON.parse(raw) : {}) as Record<string, boolean>;
+    if (open) {
+      parsed[boardId] = true;
+    } else {
+      delete parsed[boardId];
+    }
+    if (Object.keys(parsed).length === 0) {
+      sessionStorage.removeItem(TRASH_OPEN_STORAGE_KEY);
+    } else {
+      sessionStorage.setItem(TRASH_OPEN_STORAGE_KEY, JSON.stringify(parsed));
+    }
+  } catch {
+    // ignore quota / private mode
+  }
+}
 
 // Lazy load GanttViewV2 to reduce initial bundle size (only loads when Gantt view is selected) with retry logic
 const GanttViewV2 = lazyWithRetry(() => import('../GanttViewV2'));
@@ -164,6 +208,9 @@ interface KanbanPageProps {
   // Column resizing
   kanbanColumnWidth?: number;
   onColumnWidthResize?: (deltaX: number) => void;
+
+  /** Called after a successful restore with the restored task payload for optimistic insert. */
+  onTaskRestoredLocally?: (task: Task) => void;
 }
 
 const KanbanPage: React.FC<KanbanPageProps> = ({
@@ -278,14 +325,221 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
   
   // Sprint filtering
   selectedSprintId = null,
-  availableSprints = []
+  availableSprints = [],
+  onTaskRestoredLocally,
 }: KanbanPageProps) => {
   const { t } = useTranslation(['tasks', 'common']);
   const [showBoardToolbar, setShowBoardToolbar] = useState(() => {
     const prefs = loadUserPreferences(currentUser?.id ?? null);
     return prefs.appSettings.showBoardToolbar !== false;
   });
+  const [trashOpen, setTrashOpen] = useState(() =>
+    readTrashOpenPreference(selectedBoard)
+  );
+  const [trashCount, setTrashCount] = useState(0);
+  const [trashTasks, setTrashTasks] = useState<Task[]>([]);
+  const [trashLoading, setTrashLoading] = useState(false);
+  const isAdmin = !!currentUser?.roles?.includes('admin');
 
+  const setTrashOpenPersisted = useCallback(
+    (open: boolean | ((prev: boolean) => boolean)) => {
+      setTrashOpen((prev) => {
+        const next = typeof open === 'function' ? open(prev) : open;
+        writeTrashOpenPreference(selectedBoard, next);
+        return next;
+      });
+    },
+    [selectedBoard]
+  );
+
+  const refreshTrashCount = useCallback(async (boardId: string | null) => {
+    if (!boardId) {
+      setTrashCount(0);
+      return;
+    }
+    try {
+      const count = await getBoardTrashCount(boardId);
+      setTrashCount(count);
+      if (count === 0) {
+        setTrashOpen(false);
+        writeTrashOpenPreference(boardId, false);
+        setTrashTasks([]);
+      }
+    } catch {
+      // ignore — trash badge is best-effort
+    }
+  }, []);
+
+  const loadTrashTasks = useCallback(async (boardId: string | null) => {
+    if (!boardId) {
+      setTrashTasks([]);
+      return;
+    }
+    setTrashLoading(true);
+    try {
+      const tasks = await getBoardTrash(boardId);
+      setTrashTasks(tasks);
+      setTrashCount(tasks.length);
+      if (tasks.length === 0) {
+        setTrashOpen(false);
+        writeTrashOpenPreference(boardId, false);
+      }
+    } catch (error) {
+      console.error('Failed to load trash:', error);
+      toast.error(t('trash.loadFailed'));
+    } finally {
+      setTrashLoading(false);
+    }
+  }, [t]);
+
+  useEffect(() => {
+    setTrashTasks([]);
+    const shouldOpen = readTrashOpenPreference(selectedBoard);
+    setTrashOpen(shouldOpen);
+    void refreshTrashCount(selectedBoard);
+  }, [selectedBoard, refreshTrashCount]);
+
+  useEffect(() => {
+    if (trashOpen && selectedBoard) {
+      void loadTrashTasks(selectedBoard);
+    }
+  }, [trashOpen, selectedBoard, loadTrashTasks]);
+
+  // Keep trash count/list in sync with soft-delete / restore / purge events
+  useEffect(() => {
+    const onDeleted = (data: any) => {
+      if (!data?.boardId || data.boardId !== selectedBoard) return;
+      if (trashOpen) {
+        void loadTrashTasks(selectedBoard);
+      } else {
+        void refreshTrashCount(selectedBoard);
+      }
+    };
+    const onRestoredOrPurged = (data: any) => {
+      if (!data?.boardId || data.boardId !== selectedBoard) return;
+      if (trashOpen) {
+        void loadTrashTasks(selectedBoard);
+      } else {
+        void refreshTrashCount(selectedBoard);
+      }
+    };
+    websocketClient.onTaskDeleted(onDeleted);
+    websocketClient.onTaskRestored(onRestoredOrPurged);
+    websocketClient.onTaskPurged(onRestoredOrPurged);
+    return () => {
+      websocketClient.offTaskDeleted(onDeleted);
+      websocketClient.offTaskRestored(onRestoredOrPurged);
+      websocketClient.offTaskPurged(onRestoredOrPurged);
+    };
+  }, [selectedBoard, trashOpen, loadTrashTasks, refreshTrashCount]);
+
+  const handleToggleTrash = useCallback(() => {
+    setTrashOpenPersisted((prev) => {
+      const next = !prev;
+      if (next && viewMode !== 'kanban') {
+        onViewModeChange('kanban');
+      }
+      return next;
+    });
+  }, [viewMode, onViewModeChange, setTrashOpenPersisted]);
+
+  const handleSelectBoardWithTrashExit = useCallback(
+    (boardId: string) => {
+      // Each board restores its own trash-open preference in the selectedBoard effect
+      onSelectBoard(boardId);
+    },
+    [onSelectBoard]
+  );
+
+  const handleRestoreTrashTask = useCallback(
+    async (taskId: string) => {
+      try {
+        const restored = await restoreTask(taskId);
+        const normalized: Task = {
+          ...restored,
+          columnId: restored.columnId || (restored as any).columnid,
+          boardId: restored.boardId || (restored as any).boardid,
+          memberId: restored.memberId || (restored as any).memberid,
+          requesterId: restored.requesterId || (restored as any).requesterid,
+          deletedAt: null,
+          deletedBy: null,
+        };
+        onTaskRestoredLocally?.(normalized);
+        toast.success(t('trash.restored'));
+        setTrashTasks((prev) => {
+          const next = prev.filter((task) => task.id !== taskId);
+          if (next.length === 0) {
+            setTrashOpen(false);
+            writeTrashOpenPreference(selectedBoard, false);
+            setTrashCount(0);
+          } else {
+            setTrashCount(next.length);
+          }
+          return next;
+        });
+      } catch (error: any) {
+        const code = error?.response?.data?.code;
+        if (code === 'board_soft_deleted') {
+          toast.error(t('trash.restoreBoardFirst'));
+        } else {
+          toast.error(error?.response?.data?.error || t('trash.restoreFailed'));
+        }
+        throw error;
+      }
+    },
+    [onTaskRestoredLocally, t, selectedBoard]
+  );
+
+  const handlePurgeTrashTask = useCallback(
+    async (taskId: string) => {
+      try {
+        await purgeTask(taskId);
+        toast.success(t('trash.purged'));
+        setTrashTasks((prev) => {
+          const next = prev.filter((task) => task.id !== taskId);
+          if (next.length === 0) {
+            setTrashOpen(false);
+            writeTrashOpenPreference(selectedBoard, false);
+            setTrashCount(0);
+          } else {
+            setTrashCount(next.length);
+          }
+          return next;
+        });
+        if (selectedTask?.id === taskId) {
+          onSelectTask(null);
+        }
+      } catch (error: any) {
+        toast.error(error?.response?.data?.error || t('trash.purgeFailed'));
+        throw error;
+      }
+    },
+    [selectedTask?.id, onSelectTask, t, selectedBoard]
+  );
+
+  const handleSelectTrashedTask = useCallback(
+    async (task: Task) => {
+      try {
+        const full = await getTaskById(task.id);
+        const normalized: Task = {
+          ...full,
+          deletedAt: full.deletedAt || (full as any).deleted_at || task.deletedAt || null,
+          deletedBy: full.deletedBy || (full as any).deleted_by || task.deletedBy || null,
+          columnId: full.columnId || (full as any).columnid,
+          boardId: full.boardId || (full as any).boardid,
+          memberId: full.memberId || (full as any).memberid,
+          requesterId: full.requesterId || (full as any).requesterid,
+        };
+        onSelectTask(normalized);
+      } catch {
+        onSelectTask({
+          ...task,
+          deletedAt: task.deletedAt || null,
+        });
+      }
+    },
+    [onSelectTask]
+  );
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
@@ -744,18 +998,38 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
       <BoardTabs
         boards={boards}
         selectedBoard={selectedBoard}
-        onSelectBoard={onSelectBoard}
+        onSelectBoard={handleSelectBoardWithTrashExit}
         onAddBoard={onAddBoard}
         onEditBoard={onEditBoard}
         onRemoveBoard={onRemoveBoard}
         onReorderBoards={onReorderBoards}
-        isAdmin={currentUser?.roles?.includes('admin')}
+        isAdmin={isAdmin}
         getFilteredTaskCount={getTaskCountForBoard}
         hasActiveFilters={activeFilters}
         draggedTask={draggedTask}
         onTaskDropOnBoard={onTaskDropOnBoard}
         siteSettings={siteSettings}
+        trashCount={trashCount}
+        trashOpen={trashOpen}
+        onToggleTrash={handleToggleTrash}
       />
+
+      {selectedBoard && trashOpen && (
+        <BoardTrashView
+          tasks={trashTasks}
+          displayColumns={Object.values(getFilteredColumnsForDisplay)
+            .filter((column) => column && column.id)
+            .sort((a, b) => (a.position || 0) - (b.position || 0))}
+          columns={columns}
+          members={members}
+          isAdmin={isAdmin}
+          gridStyle={gridStyle}
+          loading={trashLoading}
+          onSelectTask={(task) => void handleSelectTrashedTask(task)}
+          onRestore={handleRestoreTrashTask}
+          onPurge={handlePurgeTrashTask}
+        />
+      )}
 
       {selectedBoard && (
         <div className="relative">

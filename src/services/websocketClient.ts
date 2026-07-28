@@ -397,6 +397,14 @@ class WebSocketClient {
     this.addEventListener('task-deleted', callback);
   }
 
+  onTaskRestored(callback: (data: any) => void) {
+    this.addEventListener('task-restored', callback);
+  }
+
+  onTaskPurged(callback: (data: any) => void) {
+    this.addEventListener('task-purged', callback);
+  }
+
   onTasksPositionsUpdated(callback: (data: any) => void) {
     this.addEventListener('tasks-positions-updated', callback);
   }
@@ -435,6 +443,10 @@ class WebSocketClient {
 
   onBoardDeleted(callback: (data: any) => void) {
     this.addEventListener('board-deleted', callback);
+  }
+
+  onBoardRestored(callback: (data: any) => void) {
+    this.addEventListener('board-restored', callback);
   }
 
   onBoardReordered(callback: (data: any) => void) {
@@ -536,6 +548,14 @@ class WebSocketClient {
     this.removeEventListener('task-deleted', callback);
   }
 
+  offTaskRestored(callback?: (data: any) => void) {
+    this.removeEventListener('task-restored', callback);
+  }
+
+  offTaskPurged(callback?: (data: any) => void) {
+    this.removeEventListener('task-purged', callback);
+  }
+
   offTasksPositionsUpdated(callback?: (data: any) => void) {
     this.removeEventListener('tasks-positions-updated', callback);
   }
@@ -574,6 +594,10 @@ class WebSocketClient {
 
   offBoardDeleted(callback?: (data: any) => void) {
     this.removeEventListener('board-deleted', callback);
+  }
+
+  offBoardRestored(callback?: (data: any) => void) {
+    this.removeEventListener('board-restored', callback);
   }
 
   offBoardReordered(callback?: (data: any) => void) {

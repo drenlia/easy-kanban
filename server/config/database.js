@@ -212,7 +212,9 @@ const CREATE_SCHEMA_SQL = `
       project TEXT,
       position NUMERIC(10,2) DEFAULT 0,
       created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+      updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+      deleted_at TIMESTAMPTZ,
+      deleted_by TEXT
     );
 
     CREATE TABLE IF NOT EXISTS columns (
@@ -250,6 +252,8 @@ const CREATE_SCHEMA_SQL = `
       column_entered_at TIMESTAMPTZ,
       is_blocked BOOLEAN DEFAULT false,
       blocked_reason TEXT,
+      deleted_at TIMESTAMPTZ,
+      deleted_by TEXT,
       created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (memberid) REFERENCES members(id),
@@ -888,6 +892,8 @@ const initializeDefaultData = async (db, tenantId = null) => {
       ['SITE_OPENS_NEW_TAB', 'true'], // Default to opening links in new tab (matches current behavior)
       ['HIGHLIGHT_OVERDUE_TASKS', 'true'], // Highlight overdue tasks in light red
       ['EFFORT_UNIT', 'hours'], // Task effort display unit: hours | points
+      ['LIFECYCLE_DELETED_RETENTION_DAYS', '0'], // Soft-deleted tasks/boards; 0 = keep until manual purge
+      ['LIFECYCLE_ARCHIVED_RETENTION_DAYS', '0'], // Tasks in archived columns; 0 = keep forever
       ['STORAGE_LIMIT', '5368709120'], // 5GB storage limit in bytes (5 * 1024^3)
       ['STORAGE_USED', '0'], // Current storage usage in bytes
       ['UPLOAD_MAX_FILESIZE', '10485760'], // 10MB max file size in bytes (10 * 1024^2)

@@ -13,6 +13,7 @@ import AdminAppSettingsTab from './admin/AdminAppSettingsTab';
 import AdminProjectSettingsTab from './admin/AdminProjectSettingsTab';
 import AdminSprintSettingsTab from './admin/AdminSprintSettingsTab';
 import AdminReportingTab from './admin/AdminReportingTab';
+import AdminLifecycleTab from './admin/AdminLifecycleTab';
 import AdminLicensingTab from './admin/AdminLicensingTab';
 import AdminNotificationQueueTab from './admin/AdminNotificationQueueTab';
 import websocketClient from '../services/websocketClient';
@@ -1075,7 +1076,7 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
         {/* Tabs */}
         <div className="sticky top-16 z-40 bg-gray-50 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 mb-6 -mx-4 px-4 py-2 sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8" data-tour-id="admin-tabs">
           <nav className="-mb-px flex space-x-8">
-            {['users', 'site-settings', 'sso', 'mail-server', 'tags', 'priorities', 'app-settings', 'project-settings', 'sprint-settings', 'reporting', 'licensing'].map((tab) => (
+            {['users', 'site-settings', 'sso', 'mail-server', 'tags', 'priorities', 'app-settings', 'project-settings', 'sprint-settings', 'reporting', 'lifecycle', 'licensing'].map((tab) => (
               <button
                 key={tab}
                 onClick={() => handleTabChange(tab)}
@@ -1096,6 +1097,7 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
                 {tab === 'project-settings' && t('tabs.projectSettings')}
                 {tab === 'sprint-settings' && t('tabs.sprintSettings')}
                 {tab === 'reporting' && t('tabs.reporting')}
+                {tab === 'lifecycle' && t('tabs.lifecycle')}
                 {tab === 'licensing' && t('tabs.licensing')}
                 {tab === 'notification-queue' && t('tabs.notificationQueue')}
               </button>
@@ -1233,6 +1235,11 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
           {/* Reporting Tab */}
           {activeTab === 'reporting' && (
             <AdminReportingTab />
+          )}
+
+          {/* Lifecycle Tab */}
+          {activeTab === 'lifecycle' && (
+            <AdminLifecycleTab />
           )}
 
           {/* Licensing Tab */}

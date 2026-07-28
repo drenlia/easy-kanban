@@ -158,6 +158,7 @@ interface MainLayoutProps {
   // Column resizing
   kanbanColumnWidth?: number;
   onColumnWidthResize?: (deltaX: number) => void;
+  onTaskRestoredLocally?: (task: Task) => void;
 }
 
 const MainLayout: React.FC<MainLayoutProps> = ({

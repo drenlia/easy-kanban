@@ -4,6 +4,7 @@ import { checkAllUserAchievements } from './achievements.js';
 import { getNotificationThrottler } from '../services/notificationThrottler.js';
 import { isMultiTenant, getAllTenantDatabases } from '../middleware/tenantRouting.js';
 import { tryLaunchQueuedTasks } from '../services/agentJobDispatcher.js';
+import { runLifecycleRetentionForDb } from './lifecycleRetention.js';
 
 /**
  * Initialize all scheduled background jobs
@@ -149,6 +150,39 @@ export const initializeScheduler = (db) => {
       timezone: 'UTC'
     });
     console.log('  ✓ Agent job dispatcher scheduled (every 15s)');
+
+    // Job 6: Lifecycle retention purge (daily 4 AM UTC)
+    cron.schedule('0 4 * * *', async () => {
+      console.log('🗑️ [CRON] Running lifecycle retention purge...');
+      try {
+        if (isMultiTenant()) {
+          const tenantDbs = await getAllTenantDatabases();
+          for (const { tenantId, db: tenantDb } of tenantDbs) {
+            try {
+              const result = await runLifecycleRetentionForDb(tenantDb, null);
+              console.log(
+                `✅ [CRON] Lifecycle purge tenant ${tenantId || 'default'}:`,
+                result
+              );
+            } catch (error) {
+              console.error(
+                `❌ [CRON] Lifecycle purge failed for tenant ${tenantId || 'default'}:`,
+                error.message
+              );
+            }
+          }
+        } else if (db) {
+          const result = await runLifecycleRetentionForDb(db, null);
+          console.log('✅ [CRON] Lifecycle purge:', result);
+        }
+      } catch (error) {
+        console.error('❌ [CRON] Lifecycle retention job failed:', error);
+      }
+    }, {
+      scheduled: true,
+      timezone: 'UTC'
+    });
+    console.log('  ✓ Lifecycle retention purge scheduled (daily at 4am UTC)');
     
     console.log('✅ Background job scheduler initialized successfully');
     console.log('📋 Scheduled jobs:');
@@ -157,6 +191,7 @@ export const initializeScheduler = (db) => {
     console.log('   • Snapshot cleanup: 1st of month at 02:00 UTC');
     console.log('   • Notification cleanup: Daily at 03:00 UTC');
     console.log('   • Agent dispatch: every 15s');
+    console.log('   • Lifecycle retention: Daily at 04:00 UTC');
     
     // Optional: Run initial snapshot if needed (for testing/initialization)
     if (process.env.RUN_INITIAL_SNAPSHOT === 'true') {

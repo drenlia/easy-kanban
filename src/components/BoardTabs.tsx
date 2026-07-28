@@ -36,6 +36,10 @@ interface BoardTabsProps {
   onTaskDropOnBoard?: (taskId: string, targetBoardId: string) => Promise<void>;
   // Site settings for prefix display
   siteSettings?: { [key: string]: string };
+  /** Soft-deleted task count for the selected board (Trash badge). */
+  trashCount?: number;
+  trashOpen?: boolean;
+  onToggleTrash?: () => void;
 }
 
 // Droppable Board Tab Component for cross-board task drops
@@ -315,8 +319,8 @@ const SortableBoardTab: React.FC<{
         >
           <div className="mb-2 text-sm text-gray-700 dark:text-gray-200">
             {(taskCount || 0) > 0 
-              ? t('boardTabs.deleteBoardAndTasks', { count: taskCount })
-              : t('boardTabs.deleteEmptyBoard')
+              ? t('boardTabs.moveBoardToTrashAndTasks', { count: taskCount })
+              : t('boardTabs.moveBoardToTrash')
             }
           </div>
           <div className="flex gap-2">
@@ -398,7 +402,10 @@ export default function BoardTabs({
   hasActiveFilters = false,
   draggedTask,
   onTaskDropOnBoard,
-  siteSettings
+  siteSettings,
+  trashCount = 0,
+  trashOpen = false,
+  onToggleTrash,
 }: BoardTabsProps) {
   const { t } = useTranslation('common');
   const [editingBoardId, setEditingBoardId] = useState<string | null>(null);
@@ -853,6 +860,30 @@ export default function BoardTabs({
             </button>
           )}
         </div>
+
+        {trashCount > 0 && onToggleTrash && (
+          <button
+            type="button"
+            onClick={onToggleTrash}
+            className={`relative flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg border transition-colors ${
+              trashOpen
+                ? 'border-blue-500 bg-blue-50 text-blue-700 dark:border-blue-400 dark:bg-blue-950/50 dark:text-blue-300'
+                : 'border-transparent text-gray-500 hover:border-gray-200 hover:bg-white hover:text-gray-800 dark:text-gray-400 dark:hover:border-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-100'
+            }`}
+            title={trashOpen ? t('boardTabs.hideTrash') : t('boardTabs.showTrash')}
+            aria-label={trashOpen ? t('boardTabs.hideTrash') : t('boardTabs.showTrash')}
+            aria-pressed={trashOpen}
+            data-tour-id="board-trash-toggle"
+          >
+            <Trash2 size={18} strokeWidth={2} />
+            <span
+              className="absolute -right-1 -top-1 flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-semibold text-white ring-1 ring-white dark:ring-gray-900"
+              aria-hidden="true"
+            >
+              {trashCount > 99 ? '99+' : trashCount}
+            </span>
+          </button>
+        )}
 
         {isAdmin && (
           <button

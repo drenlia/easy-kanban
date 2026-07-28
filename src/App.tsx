@@ -41,7 +41,7 @@ import TaskLinkingOverlay from './components/TaskLinkingOverlay';
 import NetworkStatusIndicator from './components/NetworkStatusIndicator';
 import VersionUpdateBanner from './components/VersionUpdateBanner';
 import { useTaskDeleteConfirmation } from './hooks/useTaskDeleteConfirmation';
-import api, { getMembers, getBoards, deleteTask, updateTask, reorderTasks, reorderColumns, reorderBoards, updateColumn, updateBoard, createTaskAtTop, createTask, copyTask, createColumn, createBoard, deleteColumn, deleteBoard, getUserSettings, createUser, getUserStatus, getActivityFeed, updateSavedFilterView, getCurrentUser, updateAppUrl } from './api';
+import api, { getMembers, getBoards, deleteTask, updateTask, reorderTasks, reorderColumns, reorderBoards, updateColumn, updateBoard, createTaskAtTop, createTask, copyTask, createColumn, createBoard, deleteColumn, deleteBoard, getUserSettings, createUser, getUserStatus, getActivityFeed, updateSavedFilterView, getCurrentUser, updateAppUrl, restoreTask, purgeTask } from './api';
 import { toast, ToastContainer } from './utils/toast';
 import { getWipStatus, hasWipLimit } from './utils/kanbanFlowUtils';
 import { isAgentMemberId } from './utils/agentMemberUi';
@@ -311,6 +311,62 @@ function AppContent() {
       throw error; // Re-throw so the hook can handle the error state
     }
   };
+
+  const handleTaskRestoredLocally = useCallback((task: Task) => {
+    recentlyDeletedTasksRef.current.delete(task.id);
+    const boardId = task.boardId || (task as any).boardid;
+    if (boardId) {
+      taskWebSocketRef.current?.handleTaskRestored?.({
+        boardId,
+        task: {
+          ...task,
+          deletedAt: null,
+          deletedBy: null,
+        },
+      });
+    }
+  }, []);
+
+  const handleRestoreSelectedTask = useCallback(async () => {
+    if (!selectedTask?.id) return;
+    try {
+      const restored = await restoreTask(selectedTask.id);
+      const normalized: Task = {
+        ...restored,
+        columnId: restored.columnId || (restored as any).columnid,
+        boardId: restored.boardId || (restored as any).boardid,
+        memberId: restored.memberId || (restored as any).memberid,
+        requesterId: restored.requesterId || (restored as any).requesterid,
+        deletedAt: null,
+        deletedBy: null,
+      };
+      recentlyDeletedTasksRef.current.delete(selectedTask.id);
+      taskWebSocketRef.current?.handleTaskRestored?.({
+        boardId: normalized.boardId,
+        task: normalized,
+      });
+      toast.success(t('trash.restored'));
+      handleSelectTask(null);
+    } catch (error: any) {
+      const code = error?.response?.data?.code;
+      if (code === 'board_soft_deleted') {
+        toast.error(t('trash.restoreBoardFirst'));
+      } else {
+        toast.error(error?.response?.data?.error || t('trash.restoreFailed'));
+      }
+    }
+  }, [selectedTask?.id, t, handleSelectTask]);
+
+  const handlePurgeSelectedTask = useCallback(async () => {
+    if (!selectedTask?.id) return;
+    try {
+      await purgeTask(selectedTask.id);
+      toast.success(t('trash.purged'));
+      handleSelectTask(null);
+    } catch (error: any) {
+      toast.error(error?.response?.data?.error || t('trash.purgeFailed'));
+    }
+  }, [selectedTask?.id, t]);
 
   // This will be defined later after the hooks are initialized
   let handleRemoveTask: (taskId: string, clickEvent?: React.MouseEvent) => Promise<void>;
@@ -1019,6 +1075,9 @@ function AppContent() {
   
   // Track recently deleted tasks to prevent them from reappearing via WebSocket updates or refreshBoardData
   const recentlyDeletedTasksRef = useRef<Set<string>>(new Set());
+  const taskWebSocketRef = useRef<{
+    handleTaskRestored?: (data: any) => void;
+  } | null>(null);
 
   // Initialize WebSocket hooks after all dependencies are available
   const taskWebSocket = useTaskWebSocket({
@@ -1038,6 +1097,7 @@ function AppContent() {
     currentUser,
     selectedTask,
   });
+  taskWebSocketRef.current = taskWebSocket;
 
   const commentWebSocket = useCommentWebSocket({
     setBoards,
@@ -1125,6 +1185,8 @@ function AppContent() {
     websocketClient.onTaskCreated(taskWebSocket.handleTaskCreated);
     websocketClient.onTaskUpdated(taskWebSocket.handleTaskUpdated);
     websocketClient.onTaskDeleted(taskWebSocket.handleTaskDeleted);
+    websocketClient.onTaskRestored(taskWebSocket.handleTaskRestored);
+    websocketClient.onTaskPurged(taskWebSocket.handleTaskPurged);
     websocketClient.onTasksPositionsUpdated(taskWebSocket.handleTasksPositionsUpdated);
     websocketClient.onTaskRelationshipCreated(taskWebSocket.handleTaskRelationshipCreated);
     websocketClient.onTaskRelationshipDeleted(taskWebSocket.handleTaskRelationshipDeleted);
@@ -1134,6 +1196,7 @@ function AppContent() {
     websocketClient.onBoardCreated(boardWebSocket.handleBoardCreated);
     websocketClient.onBoardUpdated(boardWebSocket.handleBoardUpdated);
     websocketClient.onBoardDeleted(boardWebSocket.handleBoardDeleted);
+    websocketClient.onBoardRestored(boardWebSocket.handleBoardRestored);
     websocketClient.onBoardReordered(boardWebSocket.handleBoardReordered);
     websocketClient.onColumnCreated(columnWebSocket.handleColumnCreated);
     websocketClient.onTaskWatcherAdded(taskWebSocket.handleTaskWatcherAdded);
@@ -1172,6 +1235,8 @@ function AppContent() {
       websocketClient.offTaskCreated(taskWebSocket.handleTaskCreated);
       websocketClient.offTaskUpdated(taskWebSocket.handleTaskUpdated);
       websocketClient.offTaskDeleted(taskWebSocket.handleTaskDeleted);
+      websocketClient.offTaskRestored(taskWebSocket.handleTaskRestored);
+      websocketClient.offTaskPurged(taskWebSocket.handleTaskPurged);
       websocketClient.offTasksPositionsUpdated(taskWebSocket.handleTasksPositionsUpdated);
       websocketClient.offTaskRelationshipCreated(taskWebSocket.handleTaskRelationshipCreated);
       websocketClient.offTaskRelationshipDeleted(taskWebSocket.handleTaskRelationshipDeleted);
@@ -1181,6 +1246,7 @@ function AppContent() {
       websocketClient.offBoardCreated(boardWebSocket.handleBoardCreated);
       websocketClient.offBoardUpdated(boardWebSocket.handleBoardUpdated);
       websocketClient.offBoardDeleted(boardWebSocket.handleBoardDeleted);
+      websocketClient.offBoardRestored(boardWebSocket.handleBoardRestored);
       websocketClient.offBoardReordered(boardWebSocket.handleBoardReordered);
       websocketClient.offColumnCreated(columnWebSocket.handleColumnCreated);
       websocketClient.offTaskWatcherAdded(taskWebSocket.handleTaskWatcherAdded);
@@ -4021,6 +4087,7 @@ function AppContent() {
                                     
                                     // Auto-synced relationships
                                     boardRelationships={taskLinking.boardRelationships}
+                                    onTaskRestoredLocally={handleTaskRestoredLocally}
         />
       </div>
 
@@ -4043,6 +4110,8 @@ function AppContent() {
                                   members={members}
           onTaskClose={() => handleSelectTask(null)}
           onTaskUpdate={handleEditTask}
+          onRestoreTask={handleRestoreSelectedTask}
+          onPurgeTask={handlePurgeSelectedTask}
           showHelpModal={modalState.showHelpModal}
           onHelpClose={() => modalState.setShowHelpModal(false)}
           showProfileModal={modalState.showProfileModal}

@@ -6,7 +6,7 @@ import { getTranslator } from '../utils/i18n.js';
 import { getTenantId, getRequestDatabase } from '../middleware/tenantRouting.js';
 import { dbTransaction } from '../utils/dbAsync.js';
 // MIGRATED: Import sqlManager
-import { helpers } from '../utils/sqlManager/index.js';
+import { helpers, tasks as taskQueries } from '../utils/sqlManager/index.js';
 
 const router = express.Router();
 
@@ -245,6 +245,13 @@ router.delete('/:id', authenticateToken, async (req, res) => {
     const column = await helpers.getColumnFullInfo(db, id);
     if (!column) {
       return res.status(404).json({ error: t('errors.columnNotFound') });
+    }
+
+    // Reassign soft-deleted tasks off this column so CASCADE does not wipe Trash
+    const boardColumnIds = await helpers.getColumnIdsForBoard(db, column.boardId);
+    const fallbackId = (boardColumnIds || []).find((cid) => cid !== id);
+    if (fallbackId) {
+      await taskQueries.reassignTrashTasksFromColumn(db, id, fallbackId);
     }
     
     // MIGRATED: Use sqlManager to delete column

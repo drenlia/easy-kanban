@@ -168,8 +168,7 @@
     "sprintAssignFailedTitle": "Impossible d'assigner le sprint",
     "sprintAssignFailedBody": "La tâche n'a pas été mise à jour. Réessayez ou assignez le sprint depuis la fiche tâche.",
     "wipLimit": "Limite WIP (souple)",
-    "wipLimitPlaceholder": "Vide = illimité",
-    "wipLimitHint": "Avertit lorsque la colonne atteint ce nombre de tâches. Les déplacements restent possibles.",
+    "wipLimitHint": "Avertissement souple à ce seuil ; vide = illimité.",
     "policyText": "Politique de colonne",
     "policyTextPlaceholder": "Optionnel : règles d'entrée/sortie pour cette colonne…",
     "clearPolicy": "Effacer la politique",
@@ -188,8 +187,32 @@
     "and": "et"
   },
   "deleteConfirmation": {
-    "areYouSure": "Êtes-vous sûr ?",
-    "deleting": "Suppression..."
+    "areYouSure": "Déplacer cette tâche vers la corbeille ?",
+    "deleting": "Déplacement vers la corbeille..."
+  },
+  "trash": {
+    "title": "Corbeille",
+    "subtitle": "Tableau actif ci-dessous",
+    "instruction": "Restaurez ou supprimez définitivement les tâches ci-dessous.",
+    "untitled": "Tâche sans titre",
+    "restore": "Restaurer",
+    "purge": "Supprimer définitivement",
+    "purgeConfirm": "Supprimer définitivement cette tâche ? Cette action est irréversible.",
+    "deletedAt": "Supprimée le {{date}}",
+    "deletedBy": "Supprimée par",
+    "deletedOn": "Supprimée le",
+    "unknownUser": "Inconnu",
+    "unknownColumn": "Colonne inconnue",
+    "loading": "Chargement de la corbeille…",
+    "emptyTitle": "La corbeille est vide",
+    "emptyHint": "Les tâches en suppression réversible de ce tableau apparaissent ici.",
+    "loadFailed": "Échec du chargement de la corbeille",
+    "restored": "Tâche restaurée",
+    "purged": "Tâche définitivement supprimée",
+    "restoreFailed": "Échec de la restauration",
+    "purgeFailed": "Échec de la suppression définitive",
+    "restoreBoardFirst": "Un administrateur doit d'abord restaurer le tableau",
+    "readOnlyHint": "Cette tâche est dans la corbeille (lecture seule)."
   },
   "addCommentModal": {
     "editComment": "Modifier le commentaire",

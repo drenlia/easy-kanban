@@ -1,12 +1,13 @@
 import express from 'express';
 import { wrapQuery } from '../utils/queryLogger.js';
 import notificationService from '../services/notificationService.js';
-import { authenticateToken } from '../middleware/auth.js';
+import { authenticateToken, requireRole } from '../middleware/auth.js';
 import { checkBoardLimit } from '../middleware/licenseCheck.js';
 import { getDefaultBoardColumns, getTranslator } from '../utils/i18n.js';
 import { getTenantId, getRequestDatabase } from '../middleware/tenantRouting.js';
 // MIGRATED: Import sqlManager
 import { boards as boardQueries, tasks as taskQueries, helpers } from '../utils/sqlManager/index.js';
+import { purgeBoardCompletely, purgeTaskCompletelyAndUpdateStorage } from '../services/taskPurgeService.js';
 
 const router = express.Router();
 
@@ -340,27 +341,113 @@ router.put('/:id', authenticateToken, async (req, res) => {
   }
 });
 
-// Delete board
-router.delete('/:id', authenticateToken, async (req, res) => {
+// Soft-delete board (admin) — also soft-deletes live tasks on the board
+router.delete('/:id', authenticateToken, requireRole(['admin']), async (req, res) => {
   const { id } = req.params;
+  const userId = req.user?.id || 'system';
   try {
     const db = getRequestDatabase(req);
-    // MIGRATED: Delete board using sqlManager
-    await boardQueries.deleteBoard(db, id);
-    
-    // Publish to Redis for real-time updates
+    const t = await getTranslator(db);
+    const liveCount = await boardQueries.countLiveBoards(db);
+    if (liveCount <= 1) {
+      return res.status(400).json({ error: t('errors.cannotDeleteLastBoard') || 'Cannot delete the last board' });
+    }
+    const board = await boardQueries.getBoardById(db, id);
+    if (!board || board.deletedAt) {
+      return res.status(404).json({ error: t('errors.boardNotFound') });
+    }
+
+    await boardQueries.softDeleteBoard(db, id, userId);
+    await taskQueries.softDeleteTasksForBoard(db, id, userId);
+
     const tenantId = getTenantId(req);
     await notificationService.publish('board-deleted', {
       boardId: id,
-      timestamp: new Date().toISOString()
+      softDeleted: true,
+      timestamp: new Date().toISOString(),
     }, tenantId);
-    
-    res.json({ message: 'Board deleted successfully' });
+
+    res.json({ message: 'Board moved to trash', softDeleted: true });
   } catch (error) {
-    console.error('Error deleting board:', error);
+    console.error('Error soft-deleting board:', error);
     const db = getRequestDatabase(req);
     const t = await getTranslator(db);
     res.status(500).json({ error: t('errors.failedToDeleteBoard') });
+  }
+});
+
+// Board trash: list soft-deleted tasks
+router.get('/:id/trash', authenticateToken, async (req, res) => {
+  try {
+    const db = getRequestDatabase(req);
+    const tasks = await taskQueries.getTrashTasksForBoard(db, req.params.id);
+    const count = tasks.length;
+    res.json({ tasks, count });
+  } catch (error) {
+    console.error('Error fetching board trash:', error);
+    res.status(500).json({ error: 'Failed to fetch trash' });
+  }
+});
+
+router.get('/:id/trash/count', authenticateToken, async (req, res) => {
+  try {
+    const db = getRequestDatabase(req);
+    const count = await taskQueries.countTrashTasksForBoard(db, req.params.id);
+    res.json({ count });
+  } catch (error) {
+    console.error('Error fetching trash count:', error);
+    res.status(500).json({ error: 'Failed to fetch trash count' });
+  }
+});
+
+// Restore soft-deleted board (admin) — tasks remain in trash
+router.post('/:id/restore', authenticateToken, requireRole(['admin']), async (req, res) => {
+  try {
+    const db = getRequestDatabase(req);
+    const t = await getTranslator(db);
+    const restored = await boardQueries.restoreBoard(db, req.params.id);
+    if (!restored) {
+      return res.status(404).json({ error: t('errors.boardNotFound') });
+    }
+    await notificationService.publish('board-restored', {
+      boardId: req.params.id,
+      board: restored,
+      timestamp: new Date().toISOString(),
+    }, getTenantId(req));
+    res.json(restored);
+  } catch (error) {
+    console.error('Error restoring board:', error);
+    res.status(500).json({ error: 'Failed to restore board' });
+  }
+});
+
+// Permanently delete board (admin)
+router.delete('/:id/permanent', authenticateToken, requireRole(['admin']), async (req, res) => {
+  try {
+    const db = getRequestDatabase(req);
+    const t = await getTranslator(db);
+    const board = await boardQueries.getBoardById(db, req.params.id);
+    if (!board) {
+      return res.status(404).json({ error: t('errors.boardNotFound') });
+    }
+    if (!board.deletedAt) {
+      const liveCount = await boardQueries.countLiveBoards(db);
+      if (liveCount <= 1) {
+        return res.status(400).json({ error: 'Cannot permanently delete the last live board' });
+      }
+    }
+    const storagePaths =
+      req.locals?.tenantStoragePaths || req.app.locals?.tenantStoragePaths || null;
+    await purgeBoardCompletely(db, req.params.id, storagePaths);
+    await notificationService.publish('board-deleted', {
+      boardId: req.params.id,
+      permanent: true,
+      timestamp: new Date().toISOString(),
+    }, getTenantId(req));
+    res.json({ message: 'Board permanently deleted' });
+  } catch (error) {
+    console.error('Error permanently deleting board:', error);
+    res.status(500).json({ error: 'Failed to permanently delete board' });
   }
 });
 

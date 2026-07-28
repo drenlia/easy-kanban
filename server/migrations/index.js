@@ -379,6 +379,72 @@ const migrations = [
       }
       console.log('✅ Migration 22: EFFORT_UNIT setting ready');
     }
+  },
+  {
+    version: 23,
+    name: 'add_lifecycle_soft_delete',
+    description: 'Soft-delete columns on tasks/boards plus Lifecycle retention settings',
+    up: async (db) => {
+      const { settings: settingsQueries } = await import('../utils/sqlManager/index.js');
+      const schema = db.schema && typeof db.schema === 'string' ? db.schema : 'public';
+
+      const boardCols = await dbAll(
+        db.prepare(`
+          SELECT column_name
+          FROM information_schema.columns
+          WHERE table_schema = $1 AND table_name = $2
+        `),
+        schema,
+        'boards'
+      );
+      const boardNames = new Set(boardCols.map((r) => r.column_name));
+      if (!boardNames.has('deleted_at')) {
+        await dbExec(db, 'ALTER TABLE boards ADD COLUMN deleted_at TIMESTAMPTZ');
+      }
+      if (!boardNames.has('deleted_by')) {
+        await dbExec(db, 'ALTER TABLE boards ADD COLUMN deleted_by TEXT');
+      }
+
+      const taskCols = await dbAll(
+        db.prepare(`
+          SELECT column_name
+          FROM information_schema.columns
+          WHERE table_schema = $1 AND table_name = $2
+        `),
+        schema,
+        'tasks'
+      );
+      const taskNames = new Set(taskCols.map((r) => r.column_name));
+      if (!taskNames.has('deleted_at')) {
+        await dbExec(db, 'ALTER TABLE tasks ADD COLUMN deleted_at TIMESTAMPTZ');
+      }
+      if (!taskNames.has('deleted_by')) {
+        await dbExec(db, 'ALTER TABLE tasks ADD COLUMN deleted_by TEXT');
+      }
+
+      await dbExec(
+        db,
+        `CREATE INDEX IF NOT EXISTS idx_tasks_board_deleted
+         ON tasks (boardid) WHERE deleted_at IS NOT NULL`
+      );
+      await dbExec(
+        db,
+        `CREATE INDEX IF NOT EXISTS idx_boards_deleted
+         ON boards (id) WHERE deleted_at IS NOT NULL`
+      );
+
+      for (const [key, value] of [
+        ['LIFECYCLE_DELETED_RETENTION_DAYS', '0'],
+        ['LIFECYCLE_ARCHIVED_RETENTION_DAYS', '0'],
+      ]) {
+        const existing = await settingsQueries.getSettingByKey(db, key);
+        if (!existing) {
+          await settingsQueries.createSetting(db, key, value);
+        }
+      }
+
+      console.log('✅ Migration 23: Lifecycle soft-delete ready');
+    }
   }
 ];
 

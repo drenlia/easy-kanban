@@ -4,7 +4,7 @@ import { wrapQuery } from '../utils/queryLogger.js';
 import { logTaskActivity, generateTaskUpdateDetails } from '../services/activityLogger.js';
 import * as reportingLogger from '../services/reportingLogger.js';
 import { TASK_ACTIONS } from '../constants/activityActions.js';
-import { authenticateToken } from '../middleware/auth.js';
+import { authenticateToken, requireRole } from '../middleware/auth.js';
 import { checkTaskLimit } from '../middleware/licenseCheck.js';
 import notificationService from '../services/notificationService.js';
 import { getTranslator, t } from '../utils/i18n.js';
@@ -14,6 +14,9 @@ import { dbTransaction } from '../utils/dbAsync.js';
 // MIGRATED: Import sqlManager
 import { tasks as taskQueries, boards as boardQueries, helpers, sprints as sprintQueries, taskWork as taskWorkQueries } from '../utils/sqlManager/index.js';
 import { AUTOMATION_CONFIG_KEYS } from '../constants/automation.js';
+import {
+  purgeTaskCompletelyAndUpdateStorage,
+} from '../services/taskPurgeService.js';
 
 const router = express.Router();
 
@@ -21,6 +24,12 @@ const router = express.Router();
 const getTenantId = (req) => {
   return req.tenantId || null;
 };
+
+function resolveTenantStoragePaths(req) {
+  if (req.locals?.tenantStoragePaths) return req.locals.tenantStoragePaths;
+  if (req.app.locals?.tenantStoragePaths) return req.app.locals.tenantStoragePaths;
+  return null;
+}
 
 /** console.log gated by SERVER_DEBUG_HTTP (pass result of serverDebug once per request). */
 function taskHttpLog(dbgHttp, ...args) {
@@ -1612,151 +1621,257 @@ router.post('/batch-update', authenticateToken, async (req, res) => {
   }
 });
 
-// Delete task
+// Soft-delete task (move to trash)
 router.delete('/:id', authenticateToken, async (req, res) => {
   const { id } = req.params;
   const userId = req.user?.id || 'system';
   
   try {
     const db = getRequestDatabase(req);
-    const dbgHttp = await serverDebug(db, 'SERVER_DEBUG_HTTP');
-    
-    // MIGRATED: Get task details before deletion for logging
-    const tTranslator = await getTranslator(db); // Use different name to avoid shadowing imported t
+    const tTranslator = await getTranslator(db);
     const task = await taskQueries.getTaskById(db, id);
-    if (!task) {
+    if (!task || task.deleted_at || task.deletedAt) {
       return res.status(404).json({ error: tTranslator('errors.taskNotFound') });
     }
     
-    // MIGRATED: Get board title and project identifier for activity logging
     const board = await helpers.getBoardById(db, task.boardid || task.boardId);
     const boardTitle = board ? board.title : 'Unknown Board';
-    // Get project identifier from board (explicitly selected in getBoardById query)
     const projectIdentifier = board?.project || null;
     const taskTicket = task.ticket || null;
-    
-    // Log to reporting system BEFORE deletion (while we can still fetch task data)
-    // Fire-and-forget: Don't await to avoid blocking API response
-    logReportingActivity(db, 'task_deleted', userId, id).catch(error => {
-      console.error('Background reporting activity logging failed:', error);
-    });
-    
-    // MIGRATED: Get task attachments before deleting the task
-    const attachments = await helpers.getAttachmentsForTask(db, id);
-
-    // Delete the attachment files from disk
-    const path = await import('path');
-    const fs = await import('fs');
-    const { fileURLToPath } = await import('url');
-    const { dirname } = await import('path');
-    const __filename = fileURLToPath(import.meta.url);
-    // Get tenant-specific storage paths (set by tenant routing middleware)
-    const getStoragePaths = (req) => {
-      // Check req.locals first (multi-tenant mode) then req.app.locals (single-tenant mode)
-      if (req.locals?.tenantStoragePaths) {
-        return req.locals.tenantStoragePaths;
-      }
-      if (req.app.locals?.tenantStoragePaths) {
-        return req.app.locals.tenantStoragePaths;
-      }
-      // Fallback to base paths (single-tenant mode)
-      const basePath = process.env.DOCKER_ENV === 'true'
-        ? '/app/server'
-        : dirname(dirname(__filename));
-      return {
-        attachments: path.join(basePath, 'attachments'),
-        avatars: path.join(basePath, 'avatars')
-      };
-    };
-    
-    const storagePaths = getStoragePaths(req);
-    
-    for (const attachment of attachments) {
-      // Extract filename from URL (e.g., "/attachments/filename.ext" or "/api/files/attachments/filename.ext" -> "filename.ext")
-      const filename = attachment.url.replace('/attachments/', '').replace('/api/files/attachments/', '');
-      const filePath = path.join(storagePaths.attachments, filename);
-      try {
-        await fs.promises.unlink(filePath);
-        taskHttpLog(dbgHttp, `✅ Deleted file: ${filename}`);
-      } catch (error) {
-        console.error('Error deleting file:', error);
-      }
-    }
-    
-    // MIGRATED: Delete the task (cascades to attachments and comments)
-    await taskQueries.deleteTask(db, id);
-    
-    // Update storage usage after deleting task (which cascades to attachments)
-    // Import updateStorageUsage dynamically to avoid circular dependencies
-    const { updateStorageUsage } = await import('../utils/storageUtils.js');
-    await updateStorageUsage(db);
-    
-    // MIGRATED: Renumber remaining tasks in the same column sequentially from 0
-    // CRITICAL: Normalize snake_case to camelCase (getTaskById returns snake_case)
     const columnId = task.columnid || task.columnId;
     const boardId = task.boardid || task.boardId;
+
+    logReportingActivity(db, 'task_deleted', userId, id).catch((error) => {
+      console.error('Background reporting activity logging failed:', error);
+    });
+
+    const softDeleted = await taskQueries.softDeleteTask(db, id, userId);
+    if (!softDeleted) {
+      return res.status(404).json({ error: tTranslator('errors.taskNotFound') });
+    }
+
     const remainingTasks = await taskQueries.getRemainingTasksInColumn(db, columnId, boardId);
-    
-    // Update positions sequentially from 0
     await taskQueries.renumberTasksInColumn(db, remainingTasks);
-    
-    // Send batch position update WebSocket event to prevent frontend from making individual PUT requests
-    // This avoids hundreds of individual update requests when many tasks need renumbering
+
     if (remainingTasks.length > 0) {
       const positionUpdates = remainingTasks.map((taskItem, index) => ({
         taskId: taskItem.id,
         position: index,
-        columnId: columnId
+        columnId,
       }));
-      
-      // Publish batch position update to prevent frontend from making individual PUT requests
       await notificationService.publish('tasks-positions-updated', {
-        boardId: boardId,  // Use normalized boardId
+        boardId,
         updates: positionUpdates,
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
       }, getTenantId(req));
     }
-    
-    // Log deletion activity
-    // Fire-and-forget: Don't await activity logging to avoid blocking API response
-    // Create bilingual message for delete (use imported t function with language parameter)
-    // Pass task ticket and project identifier so they can be appended to the message
+
     const deleteDetails = JSON.stringify({
-      en: t('activity.deletedTask', { taskTitle: task.title, taskRef: '', boardTitle: boardTitle }, 'en'),
-      fr: t('activity.deletedTask', { taskTitle: task.title, taskRef: '', boardTitle: boardTitle }, 'fr')
+      en: t('activity.deletedTask', { taskTitle: task.title, taskRef: '', boardTitle }, 'en'),
+      fr: t('activity.deletedTask', { taskTitle: task.title, taskRef: '', boardTitle }, 'fr'),
     });
-    logTaskActivity(
-      userId,
-      TASK_ACTIONS.DELETE,
-      id,
-      deleteDetails,
-      {
-        columnId: columnId,  // Use normalized columnId
-        boardId: boardId,  // Use normalized boardId
-        tenantId: getTenantId(req),
-        authType: req.user?.authType,
-        db: db,
-        taskTicket: taskTicket,  // Pass ticket so it can be appended to the message
-        projectIdentifier: projectIdentifier  // Pass project identifier so it can be appended
-      }
-    ).catch(error => {
+    logTaskActivity(userId, TASK_ACTIONS.DELETE, id, deleteDetails, {
+      columnId,
+      boardId,
+      tenantId: getTenantId(req),
+      authType: req.user?.authType,
+      db,
+      taskTicket,
+      projectIdentifier,
+    }).catch((error) => {
       console.error('Background activity logging failed:', error);
     });
-    
-    // Publish to Redis for real-time updates
-    // CRITICAL: Use normalized boardId (not task.boardId which might be undefined)
+
     await notificationService.publish('task-deleted', {
-      boardId: boardId,  // Use normalized boardId instead of task.boardId
+      boardId,
       taskId: id,
-      timestamp: new Date().toISOString()
+      softDeleted: true,
+      timestamp: new Date().toISOString(),
     }, getTenantId(req));
-    
-    res.json({ message: 'Task and attachments deleted successfully' });
+
+    res.json({ message: 'Task moved to trash', softDeleted: true });
   } catch (error) {
-    console.error('Error deleting task:', error);
+    console.error('Error soft-deleting task:', error);
     const db = getRequestDatabase(req);
     const tTranslator = await getTranslator(db);
     res.status(500).json({ error: tTranslator('errors.failedToDeleteTask') });
+  }
+});
+
+// Restore soft-deleted task
+router.post('/:id/restore', authenticateToken, async (req, res) => {
+  const { id } = req.params;
+  try {
+    const db = getRequestDatabase(req);
+    const tTranslator = await getTranslator(db);
+    const task = await taskQueries.getTaskById(db, id);
+    if (!task || !(task.deleted_at || task.deletedAt)) {
+      return res.status(404).json({ error: tTranslator('errors.taskNotFound') });
+    }
+
+    const boardId = task.boardid || task.boardId;
+    const board = await boardQueries.getBoardById(db, boardId);
+    if (!board) {
+      return res.status(409).json({
+        error: 'Board no longer exists',
+        code: 'board_gone',
+      });
+    }
+    if (board.deleted_at || board.deletedAt) {
+      return res.status(409).json({
+        error: 'Restore the board before restoring this task',
+        code: 'board_soft_deleted',
+      });
+    }
+
+    const originalColumnId = task.columnid || task.columnId;
+    const originalPosition = Number(task.position);
+    let columnId = originalColumnId;
+    const boardColumns = await helpers.getColumnsForBoard(db, boardId);
+    const colOnBoard = (boardColumns || []).find((c) => c.id === columnId);
+    let usedOriginalColumn = true;
+    if (!colOnBoard) {
+      usedOriginalColumn = false;
+      const nonArchived = (boardColumns || []).find(
+        (c) => !(c.is_archived === true || c.is_archived === 1)
+      );
+      if (!nonArchived) {
+        return res.status(409).json({
+          error: 'No column available to restore this task',
+          code: 'no_column',
+        });
+      }
+      columnId = nonArchived.id;
+    }
+
+    let position;
+    let shifted = [];
+    if (usedOriginalColumn && Number.isFinite(originalPosition) && originalPosition >= 0) {
+      position = originalPosition;
+      shifted = await taskQueries.shiftLiveTasksFromPosition(db, columnId, position);
+    } else {
+      const maxPos = await taskQueries.getMaxLivePositionInColumn(db, columnId);
+      position = Number(maxPos) + 1;
+    }
+
+    await taskQueries.restoreTask(db, id, columnId, boardId, position);
+
+    const restoredRaw = await taskQueries.getTaskWithRelationships(db, id);
+    const restored = {
+      ...restoredRaw,
+      columnId: restoredRaw.columnId || restoredRaw.columnid || columnId,
+      boardId: restoredRaw.boardId || restoredRaw.boardid || boardId,
+      memberId: restoredRaw.memberId || restoredRaw.memberid,
+      requesterId: restoredRaw.requesterId || restoredRaw.requesterid,
+      startDate: restoredRaw.startDate || restoredRaw.startdate,
+      dueDate: restoredRaw.dueDate || restoredRaw.duedate,
+      position,
+      deletedAt: null,
+      deletedBy: null,
+    };
+
+    const tenantId = getTenantId(req);
+    if (shifted.length > 0) {
+      await notificationService.publish(
+        'tasks-positions-updated',
+        {
+          boardId,
+          updates: shifted.map((row) => ({
+            taskId: row.id,
+            position: row.position,
+            columnId: row.columnId || columnId,
+          })),
+          timestamp: new Date().toISOString(),
+        },
+        tenantId
+      );
+    }
+
+    await notificationService.publish(
+      'task-restored',
+      {
+        boardId,
+        task: restored,
+        timestamp: new Date().toISOString(),
+      },
+      tenantId
+    );
+
+    res.json(restored);
+  } catch (error) {
+    console.error('Error restoring task:', error);
+    const db = getRequestDatabase(req);
+    const tTranslator = await getTranslator(db);
+    res.status(500).json({ error: tTranslator('errors.failedToUpdateTask') || 'Failed to restore task' });
+  }
+});
+
+// Permanently purge a soft-deleted (or any) task — admin only
+router.delete('/:id/permanent', authenticateToken, requireRole(['admin']), async (req, res) => {
+  const { id } = req.params;
+  try {
+    const db = getRequestDatabase(req);
+    const tTranslator = await getTranslator(db);
+    const task = await taskQueries.getTaskById(db, id);
+    if (!task) {
+      return res.status(404).json({ error: tTranslator('errors.taskNotFound') });
+    }
+    const boardId = task.boardid || task.boardId;
+    const wasSoftDeleted = !!(task.deleted_at || task.deletedAt);
+    const columnId = task.columnid || task.columnId;
+
+    await purgeTaskCompletelyAndUpdateStorage(db, id, resolveTenantStoragePaths(req));
+
+    if (!wasSoftDeleted) {
+      const remainingTasks = await taskQueries.getRemainingTasksInColumn(db, columnId, boardId);
+      await taskQueries.renumberTasksInColumn(db, remainingTasks);
+    }
+
+    await notificationService.publish(
+      wasSoftDeleted ? 'task-purged' : 'task-deleted',
+      {
+        boardId,
+        taskId: id,
+        timestamp: new Date().toISOString(),
+      },
+      getTenantId(req)
+    );
+
+    res.json({ message: 'Task permanently deleted' });
+  } catch (error) {
+    console.error('Error permanently deleting task:', error);
+    const db = getRequestDatabase(req);
+    const tTranslator = await getTranslator(db);
+    res.status(500).json({ error: tTranslator('errors.failedToDeleteTask') });
+  }
+});
+
+// Batch permanent purge — admin only
+router.post('/permanent-batch', authenticateToken, requireRole(['admin']), async (req, res) => {
+  const { taskIds } = req.body || {};
+  if (!Array.isArray(taskIds) || taskIds.length === 0) {
+    return res.status(400).json({ error: 'taskIds array required' });
+  }
+  try {
+    const db = getRequestDatabase(req);
+    const storagePaths = resolveTenantStoragePaths(req);
+    const purged = [];
+    for (const taskId of taskIds) {
+      const task = await taskQueries.getTaskById(db, taskId);
+      if (!task) continue;
+      const boardId = task.boardid || task.boardId;
+      await purgeTaskCompletelyAndUpdateStorage(db, taskId, storagePaths);
+      await notificationService.publish('task-purged', {
+        boardId,
+        taskId,
+        timestamp: new Date().toISOString(),
+      }, getTenantId(req));
+      purged.push(taskId);
+    }
+    res.json({ purged });
+  } catch (error) {
+    console.error('Error batch purging tasks:', error);
+    res.status(500).json({ error: 'Failed to permanently delete tasks' });
   }
 });
 

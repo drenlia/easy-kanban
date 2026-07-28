@@ -71,6 +71,9 @@ export interface Task {
   /** Soft blocked flag — does not prevent moves. */
   isBlocked?: boolean;
   blockedReason?: string | null;
+  /** Soft-delete timestamp (ISO). Present when task is in Trash. */
+  deletedAt?: string | null;
+  deletedBy?: string | null;
 }
 
 export interface Tag {
@@ -105,6 +108,9 @@ export interface Board {
   project?: string;
   columns: Columns;
   position?: number;
+  /** Soft-delete timestamp (ISO). Soft-deleted boards are hidden from tabs. */
+  deletedAt?: string | null;
+  deletedBy?: string | null;
 }
 
 export interface QueryLog {

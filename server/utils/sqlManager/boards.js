@@ -9,6 +9,7 @@ import { wrapQuery } from '../queryLogger.js';
 export async function getAllBoards(db) {
   const query = `
     SELECT * FROM boards 
+    WHERE deleted_at IS NULL
     ORDER BY position ASC
   `;
   
@@ -31,7 +32,9 @@ export async function getBoardById(db, boardId) {
       project,
       position,
       created_at as "createdAt",
-      updated_at as "updatedAt"
+      updated_at as "updatedAt",
+      deleted_at as "deletedAt",
+      deleted_by as "deletedBy"
     FROM boards 
     WHERE id = $1
   `;
@@ -77,6 +80,7 @@ export async function getMaxBoardPosition(db) {
   // Position is now NUMERIC, so no need to cast
   const query = `
     SELECT MAX(position) as "maxPos" FROM boards
+    WHERE deleted_at IS NULL
   `;
   
   const stmt = wrapQuery(db.prepare(query), 'SELECT');
@@ -165,6 +169,7 @@ export async function deleteBoard(db, id) {
 export async function getAllBoardsWithPositions(db) {
   const query = `
     SELECT id, position FROM boards 
+    WHERE deleted_at IS NULL
     ORDER BY position ASC
   `;
   
@@ -256,8 +261,8 @@ export async function getBoardTaskRelationships(db, boardId) {
       tr.to_task_id as "toTaskId",
       tr.created_at as "createdAt"
     FROM task_rels tr
-    JOIN tasks t1 ON tr.task_id = t1.id
-    JOIN tasks t2 ON tr.to_task_id = t2.id
+    JOIN tasks t1 ON tr.task_id = t1.id AND t1.deleted_at IS NULL
+    JOIN tasks t2 ON tr.to_task_id = t2.id AND t2.deleted_at IS NULL
     WHERE t1.boardid = $1 AND t2.boardid = $1
     ORDER BY tr.created_at DESC
   `;
@@ -266,5 +271,91 @@ export async function getBoardTaskRelationships(db, boardId) {
   const result = await stmt.all(boardId);
   console.log(`🔗 [getBoardTaskRelationships] Found ${result.length} relationships for board ${boardId}`, result);
   return result;
+}
+
+/**
+ * Soft-delete a board
+ */
+export async function softDeleteBoard(db, boardId, deletedBy) {
+  const query = `
+    UPDATE boards
+    SET deleted_at = CURRENT_TIMESTAMP,
+        deleted_by = $2,
+        updated_at = CURRENT_TIMESTAMP
+    WHERE id = $1 AND deleted_at IS NULL
+    RETURNING *
+  `;
+  const stmt = wrapQuery(db.prepare(query), 'UPDATE');
+  return await stmt.get(boardId, deletedBy || null);
+}
+
+/**
+ * Restore a soft-deleted board (tasks stay soft-deleted)
+ */
+export async function restoreBoard(db, boardId) {
+  const query = `
+    UPDATE boards
+    SET deleted_at = NULL,
+        deleted_by = NULL,
+        updated_at = CURRENT_TIMESTAMP
+    WHERE id = $1 AND deleted_at IS NOT NULL
+    RETURNING *
+  `;
+  const stmt = wrapQuery(db.prepare(query), 'UPDATE');
+  return await stmt.get(boardId);
+}
+
+/**
+ * Count live (non-soft-deleted) boards
+ */
+export async function countLiveBoards(db) {
+  const query = `
+    SELECT COUNT(*)::int AS count FROM boards WHERE deleted_at IS NULL
+  `;
+  const stmt = wrapQuery(db.prepare(query), 'SELECT');
+  const row = await stmt.get();
+  return row?.count || 0;
+}
+
+/**
+ * Soft-deleted boards for Admin Lifecycle
+ */
+export async function getDeletedBoards(db) {
+  const query = `
+    SELECT id, title, project, position,
+           created_at as "createdAt",
+           updated_at as "updatedAt",
+           deleted_at as "deletedAt",
+           deleted_by as "deletedBy",
+           (SELECT COUNT(*)::int FROM tasks t WHERE t.boardid = boards.id AND t.deleted_at IS NOT NULL) as "trashTaskCount"
+    FROM boards
+    WHERE deleted_at IS NOT NULL
+    ORDER BY deleted_at DESC
+  `;
+  const stmt = wrapQuery(db.prepare(query), 'SELECT');
+  return await stmt.all();
+}
+
+/**
+ * Soft-deleted boards past retention
+ */
+export async function getExpiredSoftDeletedBoards(db, retentionDays) {
+  const query = `
+    SELECT id
+    FROM boards
+    WHERE deleted_at IS NOT NULL
+      AND deleted_at < (CURRENT_TIMESTAMP - ($1::text || ' days')::interval)
+  `;
+  const stmt = wrapQuery(db.prepare(query), 'SELECT');
+  return await stmt.all(String(retentionDays));
+}
+
+/**
+ * Task IDs on a board (including soft-deleted) for permanent board purge
+ */
+export async function getAllTaskIdsForBoard(db, boardId) {
+  const query = `SELECT id FROM tasks WHERE boardid = $1`;
+  const stmt = wrapQuery(db.prepare(query), 'SELECT');
+  return await stmt.all(boardId);
 }
 

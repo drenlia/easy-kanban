@@ -168,8 +168,7 @@
     "sprintAssignFailedTitle": "Could not assign sprint",
     "sprintAssignFailedBody": "The task was not updated. Try again or assign the sprint from the task card.",
     "wipLimit": "WIP limit (soft)",
-    "wipLimitPlaceholder": "Empty = unlimited",
-    "wipLimitHint": "Warns when the column reaches this many tasks. Moves are still allowed.",
+    "wipLimitHint": "Soft warning at this count; empty = unlimited.",
     "policyText": "Column policy",
     "policyTextPlaceholder": "Optional: entry/exit rules for this column…",
     "clearPolicy": "Clear policy",
@@ -188,8 +187,32 @@
     "and": "and"
   },
   "deleteConfirmation": {
-    "areYouSure": "Are you sure?",
-    "deleting": "Deleting..."
+    "areYouSure": "Move this task to trash?",
+    "deleting": "Moving to trash..."
+  },
+  "trash": {
+    "title": "Trash",
+    "subtitle": "Live board below",
+    "instruction": "Restore or Delete permanently the tasks below.",
+    "untitled": "Untitled task",
+    "restore": "Restore",
+    "purge": "Delete forever",
+    "purgeConfirm": "Permanently delete this task? This cannot be undone.",
+    "deletedAt": "Deleted {{date}}",
+    "deletedBy": "Deleted by",
+    "deletedOn": "Deleted on",
+    "unknownUser": "Unknown",
+    "unknownColumn": "Unknown column",
+    "loading": "Loading trash…",
+    "emptyTitle": "Trash is empty",
+    "emptyHint": "Soft-deleted tasks from this board appear here.",
+    "loadFailed": "Failed to load trash",
+    "restored": "Task restored",
+    "purged": "Task permanently deleted",
+    "restoreFailed": "Failed to restore task",
+    "purgeFailed": "Failed to permanently delete task",
+    "restoreBoardFirst": "An admin must restore the board before this task can be restored",
+    "readOnlyHint": "This task is in the trash (read-only)."
   },
   "addCommentModal": {
     "editComment": "Edit Comment",

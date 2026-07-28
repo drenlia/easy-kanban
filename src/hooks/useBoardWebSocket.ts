@@ -115,6 +115,12 @@ export const useBoardWebSocket = ({
     }
   }, [setSelectedBoard, setColumns, selectedBoardRef, refreshBoardDataRef]);
 
+  const handleBoardRestored = useCallback((data: any) => {
+    if (refreshBoardDataRef.current) {
+      refreshBoardDataRef.current({ force: true });
+    }
+  }, [refreshBoardDataRef]);
+
   const handleBoardReordered = useCallback((data: any) => {
     // Refresh boards list to show new order
     if (refreshBoardDataRef.current) {
@@ -126,6 +132,7 @@ export const useBoardWebSocket = ({
     handleBoardCreated,
     handleBoardUpdated,
     handleBoardDeleted,
+    handleBoardRestored,
     handleBoardReordered,
   };
 };

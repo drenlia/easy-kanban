@@ -14,6 +14,8 @@ interface ModalManagerProps {
   members: TeamMember[];
   onTaskClose: () => void;
   onTaskUpdate: (task: Task) => Promise<void>;
+  onRestoreTask?: () => Promise<void>;
+  onPurgeTask?: () => Promise<void>;
   
   // Help Modal
   showHelpModal: boolean;
@@ -38,6 +40,8 @@ const ModalManager: React.FC<ModalManagerProps> = ({
   members,
   onTaskClose,
   onTaskUpdate,
+  onRestoreTask,
+  onPurgeTask,
   showHelpModal,
   onHelpClose,
   showProfileModal,
@@ -51,6 +55,10 @@ const ModalManager: React.FC<ModalManagerProps> = ({
   siteSettings,
   boards,
 }) => {
+  const isReadOnly =
+    !!(selectedTask?.deletedAt || (selectedTask as any)?.deleted_at);
+  const isAdmin = !!currentUser?.roles?.includes('admin');
+
   return (
     <>
       {/* Task Details Modal */}
@@ -65,6 +73,10 @@ const ModalManager: React.FC<ModalManagerProps> = ({
             siteSettings={siteSettings}
             boards={boards}
             scrollToComments={taskDetailsOptions?.scrollToComments}
+            readOnly={isReadOnly}
+            onRestore={isReadOnly ? onRestoreTask : undefined}
+            onPurge={isReadOnly && isAdmin ? onPurgeTask : undefined}
+            isAdmin={isAdmin}
           />
         </Suspense>
       )}
