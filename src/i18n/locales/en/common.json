@@ -131,6 +131,7 @@
     "hideBoardToolbar": "Hide tools, members & progress",
     "filtersActiveHeading": "Filters active",
     "filterReasonSearch": "Search criteria",
+    "filterReasonSearchPanelClosed": "Search criteria (panel closed — not applied)",
     "filterReasonMembers": "Team members selected",
     "filterReasonRoles": "Role filters",
     "filterReasonColumns": "Columns hidden",

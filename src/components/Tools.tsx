@@ -223,7 +223,11 @@ export default function Tools({
               <ToolIcon icon={Search} />
               {hasActiveFilters && (
                 <span
-                  className="absolute top-1 right-1 w-2 h-2 rounded-full bg-red-500 ring-1 ring-white dark:ring-gray-800"
+                  className={`absolute rounded-full bg-red-500 ring-1 ring-white dark:ring-gray-800 ${
+                    isSearchActive
+                      ? 'top-1 right-1 w-2 h-2'
+                      : 'top-1.5 right-1.5 w-1.5 h-1.5'
+                  }`}
                   aria-hidden="true"
                 />
               )}

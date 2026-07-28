@@ -44,6 +44,7 @@ import { useTaskDeleteConfirmation } from './hooks/useTaskDeleteConfirmation';
 import api, { getMembers, getBoards, deleteTask, updateTask, reorderTasks, reorderColumns, reorderBoards, updateColumn, updateBoard, createTaskAtTop, createTask, copyTask, createColumn, createBoard, deleteColumn, deleteBoard, getUserSettings, createUser, getUserStatus, getActivityFeed, updateSavedFilterView, getCurrentUser, updateAppUrl } from './api';
 import { toast, ToastContainer } from './utils/toast';
 import { getWipStatus, hasWipLimit } from './utils/kanbanFlowUtils';
+import { isAgentMemberId } from './utils/agentMemberUi';
 import { useLoadingState } from './hooks/useLoadingState';
 import { useDebug } from './hooks/useDebug';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
@@ -88,6 +89,7 @@ import {
 import { 
   filterTasks,
   hasActiveFilters,
+  hasConfiguredSearchFilters,
   wouldTaskBeFilteredOut 
 } from './utils/taskUtils';
 import { dedupeTasksInColumns } from './utils/taskReorderingUtils';
@@ -3622,7 +3624,7 @@ function AppContent() {
 
     const visibleSet = new Set(visibleColumnIds);
 
-    // Selected board: filteredColumns already has search/member/sprint applied — count visible cols only
+    // Selected board: filteredColumns already has search/member/sprint/agent applied — count visible cols only
     if (board.id === selectedBoard && taskFilters.filteredColumns && Object.keys(taskFilters.filteredColumns).length > 0) {
       const currentBoardData = boards.find((b) => b.id === selectedBoard);
       const currentBoardColumnIds = currentBoardData ? Object.keys(currentBoardData.columns || {}) : [];
@@ -3645,7 +3647,7 @@ function AppContent() {
       }
     }
 
-    // Other boards (or fallback): count visible columns with search/sprint; member filter only when members selected
+    // Other boards (or fallback): apply same search/sprint/agent/member filters as the selected board
     const applyMemberFilter = taskFilters.selectedMembers.length > 0;
 
     let totalCount = 0;
@@ -3656,6 +3658,15 @@ function AppContent() {
       const filteredTasks = column.tasks.filter((task) => {
         if (!task) return false;
 
+        // Agent visibility applies to every board’s tab counts, not only the selected board
+        if (
+          siteSettings?.AI_ENABLED === 'true' &&
+          !taskFilters.showAgentTasks &&
+          isAgentMemberId(task.memberId)
+        ) {
+          return false;
+        }
+
         if (taskFilters.selectedSprintId !== null) {
           if (taskFilters.selectedSprintId === 'backlog') {
             if (task.sprintId !== null && task.sprintId !== undefined) return false;
@@ -3664,11 +3675,11 @@ function AppContent() {
           }
         }
 
-        if (taskFilters.isSearchActive) {
+        if (hasConfiguredSearchFilters(taskFilters.searchFilters)) {
           const searchFiltered = filterTasks(
             [task],
             taskFilters.searchFilters,
-            taskFilters.isSearchActive,
+            true,
             members,
             boards
           );

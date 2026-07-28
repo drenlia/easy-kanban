@@ -173,6 +173,7 @@
     "policyText": "Column policy",
     "policyTextPlaceholder": "Optional: entry/exit rules for this column…",
     "clearPolicy": "Clear policy",
+    "clearWipLimit": "Clear WIP limit",
     "wipMeterTooltip": "{{count}} tasks · WIP limit {{limit}}",
     "taskCount": "Task count",
     "totalEffortTooltip": "Total effort: {{display}}",

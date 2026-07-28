@@ -148,7 +148,7 @@ export const clearOtherUserPreferenceCookies = (currentUserId: string | null): v
 const BASE_DEFAULT_PREFERENCES: UserPreferences = {
   taskViewMode: 'expand', // Default to expand
   viewMode: 'kanban', // Default to kanban view
-  isSearchActive: false, // Default to no search active
+  isSearchActive: false, // Search panel UI visibility only — filter criteria still apply when set
   isAdvancedSearchExpanded: false, // Default to collapsed (basic search)
   selectedTaskId: null, // Default to no task selected
   lastSelectedBoard: null, // Default to no board remembered

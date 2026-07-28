@@ -14,6 +14,7 @@ import {
   ColumnVisibilityWarning
 } from '../../types';
 import { TaskViewMode, ViewMode, loadUserPreferences, loadUserPreferencesAsync, updateAppSettingsPreference } from '../../utils/userPreferences';
+import { hasConfiguredSearchFilters } from '../../utils/taskUtils';
 import TeamMembers from '../TeamMembers';
 import Tools from '../Tools';
 import BoardMetrics from '../BoardMetrics';
@@ -330,37 +331,15 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
   }, [selectedBoard, columns, boardColumnVisibility]);
 
   const activeFilterTooltip = useMemo(() => {
-    if (!activeFilters) return '';
+    const hasSearchCriteria = hasConfiguredSearchFilters(searchFilters);
 
-    const reasons: string[] = [];
-    const hasSearchCriteria =
-      isSearchActive &&
-      !!(
-        searchFilters?.text ||
-        searchFilters?.dateFrom ||
-        searchFilters?.dateTo ||
-        searchFilters?.dueDateFrom ||
-        searchFilters?.dueDateTo ||
-        searchFilters?.selectedPriorities?.length ||
-        searchFilters?.selectedTags?.length ||
-        searchFilters?.projectId ||
-        searchFilters?.taskId
-      );
-    if (hasSearchCriteria) {
-      reasons.push(t('tools.filterReasonSearch', { ns: 'common' }));
-    }
-    if (selectedMembers.length > 0) {
-      reasons.push(t('tools.filterReasonMembers', { ns: 'common' }));
-    }
-    if (
+    const hasRoleFilters =
       !includeAssignees ||
       includeWatchers ||
       includeCollaborators ||
-      includeRequesters
-    ) {
-      reasons.push(t('tools.filterReasonRoles', { ns: 'common' }));
-    }
+      includeRequesters;
 
+    let hasHiddenColumns = false;
     const allColumns = Object.values(columns);
     if (allColumns.length > 0 && visibleColumnsForCurrentBoard.length > 0) {
       const isArchived = (col: { is_archived?: boolean | number }) =>
@@ -370,15 +349,37 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
         const col = columns[colId];
         return col && !isArchived(col);
       });
-      if (
+      hasHiddenColumns =
         visibleNonArchived.length > 0 &&
-        visibleNonArchived.length < nonArchived.length
-      ) {
-        reasons.push(t('tools.filterReasonColumns', { ns: 'common' }));
-      }
+        visibleNonArchived.length < nonArchived.length;
     }
 
-    if (siteSettings?.AI_ENABLED === 'true' && !showAgentTasks) {
+    const agentHidden =
+      siteSettings?.AI_ENABLED === 'true' && !showAgentTasks;
+
+    const badgeActive =
+      hasSearchCriteria ||
+      selectedMembers.length > 0 ||
+      hasRoleFilters ||
+      hasHiddenColumns ||
+      agentHidden;
+
+    if (!badgeActive) return '';
+
+    const reasons: string[] = [];
+    if (hasSearchCriteria) {
+      reasons.push(t('tools.filterReasonSearch', { ns: 'common' }));
+    }
+    if (selectedMembers.length > 0) {
+      reasons.push(t('tools.filterReasonMembers', { ns: 'common' }));
+    }
+    if (hasRoleFilters) {
+      reasons.push(t('tools.filterReasonRoles', { ns: 'common' }));
+    }
+    if (hasHiddenColumns) {
+      reasons.push(t('tools.filterReasonColumns', { ns: 'common' }));
+    }
+    if (agentHidden) {
       reasons.push(t('tools.filterReasonAgentHidden', { ns: 'common' }));
     }
 
@@ -387,8 +388,6 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
     }
     return `${t('tools.filtersActiveHeading', { ns: 'common' })}\n• ${reasons.join('\n• ')}`;
   }, [
-    activeFilters,
-    isSearchActive,
     searchFilters,
     selectedMembers,
     includeAssignees,
@@ -401,6 +400,8 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
     showAgentTasks,
     t,
   ]);
+
+  const showSearchFilterBadge = !!activeFilterTooltip;
 
   const getVisibleColumns = (boardId: string | null) => {
     if (boardId === selectedBoard) {
@@ -670,7 +671,7 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
             onViewModeChange={onViewModeChange}
             isSearchActive={isSearchActive}
             onToggleSearch={onToggleSearch}
-            hasActiveFilters={activeFilters}
+            hasActiveFilters={showSearchFilterBadge}
             activeFilterTooltip={activeFilterTooltip}
             onHideToolbar={() => void handleToggleBoardToolbar()}
           />

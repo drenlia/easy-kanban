@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { Columns, Task, TeamMember, Board, Priority } from '../types';
 import { SavedFilterView, getSavedFilterView } from '../api';
 import { TaskViewMode, ViewMode, loadUserPreferences, updateUserPreference } from '../utils/userPreferences';
-import { filterTasks, hasActiveFilters } from '../utils/taskUtils';
+import { filterTasks, hasConfiguredSearchFilters } from '../utils/taskUtils';
 import { SYSTEM_MEMBER_ID } from '../constants/appConstants';
 import { dedupeTasksInColumns } from '../utils/taskReorderingUtils';
 import { isAgentMemberId } from '../utils/agentMemberUi';
@@ -95,8 +95,10 @@ export const useTaskFilters = ({
       // Previously we returned here, which left filteredColumns stuck on the previous board until
       // another event forced a refresh.
       
-      // Always filter by selectedMembers if any are selected, or if any checkboxes are checked
-      const isFiltering = isSearchActive || selectedMembers.length > 0 || includeAssignees || includeWatchers || includeCollaborators || includeRequesters;
+      // Filter when search criteria are set, members selected, or role chips affect results.
+      // Search panel visibility (isSearchActive) does not gate search criteria.
+      const searchConfigured = hasConfiguredSearchFilters(searchFilters);
+      const isFiltering = searchConfigured || selectedMembers.length > 0 || includeAssignees || includeWatchers || includeCollaborators || includeRequesters;
       
       const stripAgentIfNeeded = (tasks: Task[]) =>
         showAgentTasks ? tasks : tasks.filter((task) => !isAgentMemberId(task.memberId));
@@ -226,14 +228,14 @@ export const useTaskFilters = ({
         }
         
         // SECOND: Apply search filters, but skip member filtering if we have checkboxes enabled
-        if (isSearchActive) {
+        if (searchConfigured) {
           // Create filters without member filtering if we have checkboxes enabled
           const searchOnlyFilters = (includeAssignees || includeWatchers || includeCollaborators || includeRequesters) ? {
             ...effectiveFilters,
             selectedMembers: [] // Skip member filtering in search, we'll handle it in custom filter
           } : effectiveFilters;
           
-          columnTasks = filterTasks(columnTasks, searchOnlyFilters, isSearchActive, members, boards);
+          columnTasks = filterTasks(columnTasks, searchOnlyFilters, true, members, boards);
         }
         
         // THIRD: Apply our custom member filtering with assignees/watchers/collaborators/requesters
@@ -300,7 +302,7 @@ export const useTaskFilters = ({
       // Run filtering immediately
       performFiltering();
     }
-  }, [columns, searchFilters.text, searchFilters.dateFrom, searchFilters.dateTo, searchFilters.dueDateFrom, searchFilters.dueDateTo, searchFilters.selectedPriorities, searchFilters.selectedTags, searchFilters.projectId, searchFilters.taskId, isSearchActive, selectedMembers, includeAssignees, includeWatchers, includeCollaborators, includeRequesters, selectedSprintId, members, boards, showAgentTasks]);
+  }, [columns, searchFilters.text, searchFilters.dateFrom, searchFilters.dateTo, searchFilters.dueDateFrom, searchFilters.dueDateTo, searchFilters.selectedPriorities, searchFilters.selectedTags, searchFilters.projectId, searchFilters.taskId, selectedMembers, includeAssignees, includeWatchers, includeCollaborators, includeRequesters, selectedSprintId, members, boards, showAgentTasks]);
 
   // Helper function to quickly check if a task should be included (synchronous checks only for WebSocket updates)
   const shouldIncludeTask = useCallback((task: Task): boolean => {
@@ -326,12 +328,13 @@ export const useTaskFilters = ({
       return false;
     }
 
-    // If no other filters active, include all tasks (that passed sprint filter)
-    const isFiltering = isSearchActive || selectedMembers.length > 0 || includeAssignees || includeWatchers || includeCollaborators || includeRequesters;
+    // Search panel visibility does not gate search criteria
+    const searchConfigured = hasConfiguredSearchFilters(searchFilters);
+    const isFiltering = searchConfigured || selectedMembers.length > 0 || includeAssignees || includeWatchers || includeCollaborators || includeRequesters;
     if (!isFiltering) return true;
 
     // Apply search filters (text, dates, priorities, tags, etc.)
-    if (isSearchActive) {
+    if (searchConfigured) {
       const effectiveFilters = {
         ...searchFilters,
         selectedMembers: selectedMembers.length > 0 ? selectedMembers : searchFilters.selectedMembers
@@ -344,7 +347,7 @@ export const useTaskFilters = ({
       } : effectiveFilters;
       
       // Use the filterTasks utility with a single task
-      const filtered = filterTasks([task], searchOnlyFilters, isSearchActive, members, boards);
+      const filtered = filterTasks([task], searchOnlyFilters, true, members, boards);
       if (filtered.length === 0) return false; // Task didn't pass search filters
     }
 
@@ -383,7 +386,7 @@ export const useTaskFilters = ({
     }
 
     return true;
-  }, [isSearchActive, searchFilters, selectedMembers, includeAssignees, includeWatchers, includeCollaborators, includeRequesters, members, boards, selectedSprintId, showAgentTasks]);
+  }, [searchFilters, selectedMembers, includeAssignees, includeWatchers, includeCollaborators, includeRequesters, members, boards, selectedSprintId, showAgentTasks]);
 
   // Keep shouldIncludeTaskRef in sync for WebSocket handlers
 

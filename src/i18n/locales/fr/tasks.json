@@ -173,6 +173,7 @@
     "policyText": "Politique de colonne",
     "policyTextPlaceholder": "Optionnel : règles d'entrée/sortie pour cette colonne…",
     "clearPolicy": "Effacer la politique",
+    "clearWipLimit": "Effacer la limite WIP",
     "wipMeterTooltip": "{{count}} tâches · limite WIP {{limit}}",
     "taskCount": "Nombre de tâches",
     "totalEffortTooltip": "Effort total : {{display}}",

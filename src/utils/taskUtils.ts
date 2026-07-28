@@ -25,10 +25,30 @@ const stripHtmlTags = (html: string): string => {
 };
 
 /**
- * Filter tasks based on search criteria
+ * True when search/filter fields have values (independent of whether the Search panel is open).
  */
-export const filterTasks = (tasks: Task[], searchFilters: SearchFilters, isSearchActive: boolean, members?: TeamMember[], boards?: any[]): Task[] => {
-  if (!isSearchActive) return tasks;
+export const hasConfiguredSearchFilters = (searchFilters: SearchFilters): boolean => {
+  return !!(
+    searchFilters.text ||
+    searchFilters.dateFrom ||
+    searchFilters.dateTo ||
+    searchFilters.dueDateFrom ||
+    searchFilters.dueDateTo ||
+    searchFilters.selectedMembers.length > 0 ||
+    searchFilters.selectedPriorities.length > 0 ||
+    searchFilters.selectedTags.length > 0 ||
+    searchFilters.projectId ||
+    searchFilters.taskId
+  );
+};
+
+/**
+ * Filter tasks based on search criteria.
+ * Criteria always apply when set — Search panel visibility (`isSearchActive`) does not gate filtering.
+ * The `isSearchActive` argument is kept for call-site compatibility and ignored.
+ */
+export const filterTasks = (tasks: Task[], searchFilters: SearchFilters, _isSearchActive?: boolean, members?: TeamMember[], boards?: any[]): Task[] => {
+  if (!hasConfiguredSearchFilters(searchFilters)) return tasks;
 
   return tasks.filter(task => {
     // Enhanced text search (title, description, comments, requester name)
@@ -135,16 +155,17 @@ export const filterTasks = (tasks: Task[], searchFilters: SearchFilters, isSearc
 };
 
 /**
- * Get filtered columns for display
+ * Get filtered columns for display.
+ * Panel visibility does not gate filtering — only whether criteria are set.
  */
-export const getFilteredColumns = (columns: Columns, searchFilters: SearchFilters, isSearchActive: boolean, members?: TeamMember[], boards?: any[]): Columns => {
-  if (!isSearchActive) return columns;
+export const getFilteredColumns = (columns: Columns, searchFilters: SearchFilters, _isSearchActive?: boolean, members?: TeamMember[], boards?: any[]): Columns => {
+  if (!hasConfiguredSearchFilters(searchFilters)) return columns;
 
   const filteredColumns: Columns = {};
   Object.entries(columns).forEach(([columnId, column]) => {
     filteredColumns[columnId] = {
       ...column,
-      tasks: filterTasks(column.tasks, searchFilters, isSearchActive, members, boards)
+      tasks: filterTasks(column.tasks, searchFilters, true, members, boards)
     };
   });
   return filteredColumns;
@@ -153,8 +174,8 @@ export const getFilteredColumns = (columns: Columns, searchFilters: SearchFilter
 /**
  * Get filtered task count for a board (for tab pills)
  */
-export const getFilteredTaskCountForBoard = (board: Board, searchFilters: SearchFilters, isSearchActive: boolean, members?: TeamMember[], boards?: any[]): number => {
-  if (!isSearchActive) {
+export const getFilteredTaskCountForBoard = (board: Board, searchFilters: SearchFilters, _isSearchActive?: boolean, members?: TeamMember[], boards?: any[]): number => {
+  if (!hasConfiguredSearchFilters(searchFilters)) {
     // Return total task count when no filters are active (excluding archived columns)
     let totalCount = 0;
     Object.values(board.columns || {}).forEach(column => {
@@ -172,39 +193,28 @@ export const getFilteredTaskCountForBoard = (board: Board, searchFilters: Search
     // Convert to boolean to handle SQLite integer values (0/1)
     const isArchived = Boolean(column.is_archived);
     if (!isArchived) {
-      totalCount += filterTasks(column.tasks, searchFilters, isSearchActive, members, boards).length;
+      totalCount += filterTasks(column.tasks, searchFilters, true, members, boards).length;
     }
   });
   return totalCount;
 };
 
 /**
- * Check if any filters are active
+ * Check if search filter criteria are set (and thus applied to the board).
+ * `isSearchActive` is ignored — kept for call-site compatibility.
  */
-export const hasActiveFilters = (searchFilters: SearchFilters, isSearchActive: boolean): boolean => {
-  return isSearchActive && (
-    searchFilters.text || 
-    searchFilters.dateFrom || 
-    searchFilters.dateTo || 
-    searchFilters.dueDateFrom || 
-    searchFilters.dueDateTo || 
-    searchFilters.selectedMembers.length > 0 || 
-    searchFilters.selectedPriorities.length > 0 || 
-    searchFilters.selectedTags.length > 0 ||
-    searchFilters.projectId ||
-    searchFilters.taskId
-  );
+export const hasActiveFilters = (searchFilters: SearchFilters, _isSearchActive?: boolean): boolean => {
+  return hasConfiguredSearchFilters(searchFilters);
 };
 
 /**
  * Check if a single task would be filtered out by current filters
  */
-export const wouldTaskBeFilteredOut = (task: Task, searchFilters: SearchFilters, isSearchActive: boolean): boolean => {
-  if (!isSearchActive) return false;
+export const wouldTaskBeFilteredOut = (task: Task, searchFilters: SearchFilters, _isSearchActive?: boolean): boolean => {
+  if (!hasConfiguredSearchFilters(searchFilters)) return false;
   
-  // Use the existing filterTasks function with a single task array
-  const filtered = filterTasks([task], searchFilters, isSearchActive);
-  return filtered.length === 0; // If filtered array is empty, task was filtered out
+  const filtered = filterTasks([task], searchFilters, true);
+  return filtered.length === 0;
 };
 
 /**

@@ -944,7 +944,7 @@ export default function KanbanColumn({
                 </label>
               </div>
 
-              {/* Soft WIP limit — label + field on one line */}
+              {/* Soft WIP limit — label + field + clear on one line */}
               {!isFinished && !isArchived && (
                 <div className="bg-gray-50 dark:bg-gray-800 p-3 rounded-lg border dark:border-gray-600">
                   <div className="flex items-center gap-2">
@@ -963,9 +963,22 @@ export default function KanbanColumn({
                       value={wipLimitInput}
                       onChange={(e) => setWipLimitInput(e.target.value)}
                       placeholder={t('column.wipLimitPlaceholder')}
-                      className="min-w-0 flex-1 px-2 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-sm [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                      className="w-[5.5rem] shrink-0 px-2 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-sm [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                       disabled={isSubmitting}
                     />
+                    {!!String(wipLimitInput).trim() && (
+                      <KanbanChromeTooltip label={t('column.clearWipLimit')}>
+                        <button
+                          type="button"
+                          onClick={() => setWipLimitInput('')}
+                          disabled={isSubmitting}
+                          className="p-1 rounded text-gray-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors disabled:opacity-50"
+                          aria-label={t('column.clearWipLimit')}
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </KanbanChromeTooltip>
+                    )}
                   </div>
                 </div>
               )}
@@ -1077,7 +1090,8 @@ export default function KanbanColumn({
                 const wipStatus = getWipStatus(unfilteredCount, column.wip_limit);
                 const showMeter = hasWipLimit(column.wip_limit);
                 if (displayCount === 0 && !showMeter) return null;
-                // Softer pills — WIP states stay a bit stronger for visibility
+                // Soft light-blue pills by default; slightly stronger when filters active.
+                // (Gray was accidental after activeFilters stopped being always-true.)
                 const pillClass =
                   wipStatus === 'over'
                     ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-200'
@@ -1085,7 +1099,7 @@ export default function KanbanColumn({
                       ? 'bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300'
                       : hasActiveFilters
                         ? 'bg-blue-50 text-blue-600 dark:bg-blue-900/35 dark:text-blue-300'
-                        : 'bg-gray-100/80 text-gray-500 dark:bg-gray-700/50 dark:text-gray-400';
+                        : 'bg-blue-50/80 text-blue-500 dark:bg-blue-900/25 dark:text-blue-400';
                 const label = showMeter
                   ? t('column.wipMeterTooltip', {
                       count: unfilteredCount,

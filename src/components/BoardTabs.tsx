@@ -195,7 +195,7 @@ const DroppableBoardTab: React.FC<{
             px-1.5 py-0.5 text-[0.65rem] leading-none rounded-full font-medium min-w-[1.25rem] text-center pointer-events-none tabular-nums
             ${hasActiveFilters
               ? 'bg-blue-50 text-blue-600 dark:bg-blue-900/35 dark:text-blue-300'
-              : 'bg-gray-100/80 text-gray-500 dark:bg-gray-700/50 dark:text-gray-400'}
+              : 'bg-blue-50/80 text-blue-500 dark:bg-blue-900/25 dark:text-blue-400'}
           `}
           >
             {taskCount}
@@ -243,7 +243,7 @@ const SortableBoardTab: React.FC<{
         ref={setNodeRef}
         style={style}
         className={`
-          relative group inline-flex max-w-full min-w-0 items-center
+          relative group inline-flex shrink-0 items-center
           ${isSelected ? tabTrackActive : tabTrackInactive}
           ${isDragging ? 'opacity-60 shadow-lg ring-2 ring-gray-300/50 dark:ring-gray-500/40' : ''}
         `}
@@ -258,12 +258,12 @@ const SortableBoardTab: React.FC<{
           <GripVertical className="h-4 w-4" aria-hidden />
         </div>
 
-        <div className="flex min-w-0 flex-1 items-center pl-8">
+        <div className="flex items-center pl-8">
           <button
             type="button"
             onClick={onSelect}
             onDoubleClick={onEdit}
-            className="min-w-0 flex-1 cursor-pointer border-0 bg-transparent text-left text-inherit transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-1 dark:focus-visible:ring-offset-gray-900 rounded-sm"
+            className="cursor-pointer border-0 bg-transparent text-left text-inherit transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-1 dark:focus-visible:ring-offset-gray-900 rounded-sm"
             title={t('boardTabs.clickToSelectDoubleClickToRename')}
           >
             <div className="flex items-center gap-2">
@@ -273,7 +273,7 @@ const SortableBoardTab: React.FC<{
                   className={`shrink-0 px-1.5 py-0.5 text-[0.65rem] font-medium leading-none rounded-full tabular-nums ${
                     hasActiveFilters
                       ? 'bg-blue-50 text-blue-600 dark:bg-blue-900/35 dark:text-blue-300'
-                      : 'bg-gray-100/80 text-gray-500 dark:bg-gray-700/50 dark:text-gray-400'
+                      : 'bg-blue-50/80 text-blue-500 dark:bg-blue-900/25 dark:text-blue-400'
                   }`}
                 >
                   {taskCount}
@@ -370,7 +370,7 @@ const RegularBoardTab: React.FC<{
               className={`shrink-0 px-1.5 py-0.5 text-[0.65rem] font-medium leading-none rounded-full tabular-nums ${
                 hasActiveFilters
                   ? 'bg-blue-50 text-blue-600 dark:bg-blue-900/35 dark:text-blue-300'
-                  : 'bg-gray-100/80 text-gray-500 dark:bg-gray-700/50 dark:text-gray-400'
+                  : 'bg-blue-50/80 text-blue-500 dark:bg-blue-900/25 dark:text-blue-400'
               }`}
             >
               {taskCount}
@@ -407,6 +407,8 @@ export default function BoardTabs({
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
+  /** When true, both chevron slots stay mounted so show/hide never resizes the track. */
+  const [tabsOverflow, setTabsOverflow] = useState(false);
   const tabsContainerRef = useRef<HTMLDivElement>(null);
   
   // Cross-board drag state
@@ -450,8 +452,11 @@ export default function BoardTabs({
     if (!tabsContainerRef.current) return;
     
     const container = tabsContainerRef.current;
-    setCanScrollLeft(container.scrollLeft > 0);
-    setCanScrollRight(container.scrollLeft < container.scrollWidth - container.clientWidth);
+    const maxScroll = container.scrollWidth - container.clientWidth;
+    const overflowing = maxScroll > 1;
+    setTabsOverflow(overflowing);
+    setCanScrollLeft(overflowing && container.scrollLeft > 1);
+    setCanScrollRight(overflowing && container.scrollLeft < maxScroll - 1);
   };
 
   // Scroll functions
@@ -622,12 +627,18 @@ export default function BoardTabs({
   return (
     <div className="mb-6">
       <div className="flex items-center justify-between gap-2">
-        <div className="flex min-w-0 flex-1 items-center gap-2" data-tour-id="board-tabs">
-          {canScrollLeft && (
+        <div className="flex min-w-0 flex-1 items-center gap-1" data-tour-id="board-tabs">
+          {/* Reserve both chevron slots whenever tabs overflow — toggling arrows must not change track width */}
+          {tabsOverflow && (
             <button
               type="button"
               onClick={scrollLeft}
-              className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg border border-transparent text-gray-500 transition-colors hover:border-gray-200 hover:bg-white hover:text-gray-800 dark:text-gray-400 dark:hover:border-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-100"
+              disabled={!canScrollLeft}
+              aria-hidden={!canScrollLeft}
+              tabIndex={canScrollLeft ? 0 : -1}
+              className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg border border-transparent text-gray-500 transition-opacity hover:border-gray-200 hover:bg-white hover:text-gray-800 dark:text-gray-400 dark:hover:border-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-100 ${
+                canScrollLeft ? 'opacity-100' : 'pointer-events-none opacity-0'
+              }`}
               title={t('boardTabs.scrollLeft')}
             >
               <ChevronLeft size={18} strokeWidth={2} />
@@ -637,13 +648,13 @@ export default function BoardTabs({
           <div
             ref={tabsContainerRef}
             data-board-tabs-scroll
-            className="board-tabs-scroll flex min-w-0 flex-1 items-center gap-1 overflow-x-auto rounded-xl border border-gray-200/90 bg-gray-100/55 px-1 py-1 dark:border-gray-700/90 dark:bg-gray-800/45 hide-scrollbar"
+            className="board-tabs-scroll min-w-0 flex-1 overflow-x-auto scroll-smooth rounded-xl border border-gray-200/90 bg-gray-100/55 px-1 py-1 dark:border-gray-700/90 dark:bg-gray-800/45 hide-scrollbar"
           >
             {isAdmin ? (
               // Admin view with drag and drop (only when not dragging tasks)
               draggedTask ? (
                 // When dragging a task, render tabs without board DndContext to allow cross-board drops
-                <div className="flex flex-shrink-0 items-center gap-1">
+                <div className="flex w-max flex-shrink-0 items-center gap-1">
                   {boards.map(board => (
                     <div key={board.id} className="shrink-0">
                       {editingBoardId === board.id ? (
@@ -682,7 +693,7 @@ export default function BoardTabs({
                 // Normal board management with DndContext (only when not dragging a task)
                 <DndContext onDragEnd={handleDragEnd}>
                   <SortableContext items={boards.filter(board => board && board.id).map(board => board.id)} strategy={rectSortingStrategy}>
-                    <div className="flex flex-shrink-0 items-center gap-1">
+                    <div className="flex w-max flex-shrink-0 items-center gap-1">
                   {boards.map(board => (
                   <div key={board.id} className="shrink-0">
                     {editingBoardId === board.id ? (
@@ -737,7 +748,7 @@ export default function BoardTabs({
                   </SortableContext>
                 </DndContext>
               ) : (
-                <div className="flex flex-shrink-0 items-center gap-1">
+                <div className="flex w-max flex-shrink-0 items-center gap-1">
                   {boards.map(board => (
                     <div key={board.id} className="shrink-0">
                       {editingBoardId === board.id ? (
@@ -774,7 +785,7 @@ export default function BoardTabs({
                 </div>
               )
             ) : (
-              <div className="flex flex-shrink-0 items-center gap-1">
+              <div className="flex w-max flex-shrink-0 items-center gap-1">
                 {boards.map(board => (
                   <div key={board.id} className="shrink-0">
                     {editingBoardId === board.id ? (
@@ -825,12 +836,17 @@ export default function BoardTabs({
               </div>
             )}
           </div>
-          
-          {canScrollRight && (
+
+          {tabsOverflow && (
             <button
               type="button"
               onClick={scrollRight}
-              className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg border border-transparent text-gray-500 transition-colors hover:border-gray-200 hover:bg-white hover:text-gray-800 dark:text-gray-400 dark:hover:border-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-100"
+              disabled={!canScrollRight}
+              aria-hidden={!canScrollRight}
+              tabIndex={canScrollRight ? 0 : -1}
+              className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg border border-transparent text-gray-500 transition-opacity hover:border-gray-200 hover:bg-white hover:text-gray-800 dark:text-gray-400 dark:hover:border-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-100 ${
+                canScrollRight ? 'opacity-100' : 'pointer-events-none opacity-0'
+              }`}
               title={t('boardTabs.scrollRight')}
             >
               <ChevronRight size={18} strokeWidth={2} />
