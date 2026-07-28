@@ -1,30 +1,27 @@
 # Notification System Explanation
 
+> **Current stack (PostgreSQL-only):** App realtime uses `notificationService.publish()` → **PostgreSQL `LISTEN`/`NOTIFY`**. Redis is used only for the **Socket.IO adapter** across pods — not for event pub/sub. Canonical multi-pod flow: [`REALTIME_UPDATE_FLOW-MULTI-TENANCY.md`](./REALTIME_UPDATE_FLOW-MULTI-TENANCY.md).
+
 ## Your Questions Answered
 
-### Q1: "After modifying a user, do we just need to save to the database, without needing to publish to Redis?"
+### Q1: "After modifying a user, do we just need to save to the database, without needing to publish?"
 
-**Answer: NO** - We still need to explicitly publish notifications.
+**Answer: NO** — We still need to explicitly publish notifications.
 
-Even with PostgreSQL, just saving to the database doesn't automatically trigger WebSocket updates. We need to explicitly call `notificationService.publish()` to send the notification.
+Just saving to the database does not automatically trigger WebSocket updates. Call `notificationService.publish()` so clients get a structured event.
 
 **Why?**
 - Database writes are separate from notification publishing
 - The notification system needs to know *what* changed and *who* to notify
 - WebSocket clients need structured event data, not just database changes
 
-**However**, with PostgreSQL, we *could* use database triggers to automatically call `pg_notify()` when data changes, which would eliminate the need for explicit publish calls. But that's not how it's currently implemented.
+**However**, we *could* use database triggers to call `pg_notify()` on data changes and drop explicit publish calls. That is not how it is implemented today.
 
-### Q2: "If DB_TYPE=postgresql, should we still see 'publishing to Redis' in logs?"
+### Q2: "Should we still see 'publishing to Redis' in logs for app events?"
 
-**Answer: NO** - The logs were misleading and have been fixed.
+**Answer: NO** — App event publish goes through PostgreSQL NOTIFY.
 
-The log messages said "Redis" but the actual implementation was using PostgreSQL. This was because:
-- The log messages were written before the unified notification service was created
-- The code calls `notificationService.publish()` which routes to PostgreSQL when `DB_TYPE=postgresql`
-- But the log messages still said "Redis" because they weren't updated
-
-**Fixed:** All log messages in `adminUsers.js` now correctly show "PostgreSQL" or "Redis" based on the actual system being used.
+Misleading "Redis" log lines for app events were cleaned up. Redis may still appear in logs related to the **Socket.IO adapter** connection, which is expected and separate from `notificationService.publish()`.
 
 ---
 
@@ -34,10 +31,10 @@ The log messages said "Redis" but the actual implementation was using PostgreSQL
 
 1. **Save to Database** → Updates PostgreSQL
 2. **Explicit Publish** → `notificationService.publish('member-updated', data)`
-3. **Unified Service Routes** → Since `DB_TYPE=postgresql`, uses PostgreSQL NOTIFY
-4. **PostgreSQL NOTIFY** → `pg_notify('member-updated', payload)`
+3. **Unified Service** → Always PostgreSQL NOTIFY
+4. **PostgreSQL NOTIFY** → `pg_notify(…)`
 5. **WebSocket Service Listens** → Receives notification via LISTEN
-6. **Socket.IO Broadcast** → Sends to connected clients
+6. **Socket.IO Broadcast** → Sends to connected clients (Redis adapter across pods)
 7. **Frontend Updates** → React state updates, UI refreshes
 
 ### Why We Need Explicit Publish
@@ -90,8 +87,8 @@ EXECUTE FUNCTION notify_member_updated();
 
 ## Summary
 
-- ✅ **We still need explicit publish calls** - Just saving to DB isn't enough
-- ✅ **Logs now show correct system** - Fixed to show "PostgreSQL" when using PostgreSQL
-- ✅ **Redis is still running** - But not used for pub/sub when `DB_TYPE=postgresql`
-- 💡 **Future enhancement** - Could use database triggers to eliminate explicit publish calls
+- ✅ **We still need explicit publish calls** — Just saving to DB isn't enough
+- ✅ **App events use PostgreSQL NOTIFY** — via `notificationService.publish()`
+- ✅ **Redis is still used** — Socket.IO adapter across pods, not app event pub/sub
+- 💡 **Future enhancement** — Could use database triggers to eliminate explicit publish calls
 

@@ -1,5 +1,7 @@
 # WebSocket Payload Optimization - POC Implementation
 
+> **Transport note:** Examples below historically used `notificationService.publish()`. Live code uses **`notificationService.publish()`** (PostgreSQL NOTIFY). Redis remains the Socket.IO adapter only. See [`REALTIME_UPDATE_FLOW-MULTI-TENANCY.md`](./REALTIME_UPDATE_FLOW-MULTI-TENANCY.md).
+
 ## Summary
 
 Implemented optimized WebSocket payloads for task update operations, reducing payload size by **80-95%** (from 5-30KB to 200-500 bytes) while maintaining full frontend compatibility.
@@ -33,7 +35,7 @@ Implemented optimized WebSocket payloads for task update operations, reducing pa
 ```javascript
 // Sent full task with relationships (5-30KB)
 const taskResponse = await fetchTaskWithRelationships(db, id);
-await redisService.publish('task-updated', {
+await notificationService.publish('task-updated', {
   boardId: taskResponse.boardId,
   task: { ...taskResponse, updatedBy: userId },
   timestamp: ...
@@ -44,7 +46,7 @@ await redisService.publish('task-updated', {
 ```javascript
 // Sends only changed fields (200-500 bytes)
 const minimalTask = buildMinimalTaskUpdatePayload(...);
-await redisService.publish('task-updated', {
+await notificationService.publish('task-updated', {
   boardId: targetBoardId,
   task: minimalTask,
   timestamp: ...
@@ -69,7 +71,7 @@ const taskResponse = await fetchTaskWithRelationships(db, id);
 ```javascript
 // Fetched full tasks with relationships (5-30KB × N tasks)
 const taskResponses = await fetchTasksWithRelationshipsBatch(db, taskIds);
-tasks.map(task => redisService.publish('task-updated', {
+tasks.map(task => notificationService.publish('task-updated', {
   boardId,
   task: { ...task, updatedBy: userId }, // Full task
   timestamp: ...
@@ -86,7 +88,7 @@ updates.map(update => {
     updatedBy: userId
   };
   if (columnChanged) minimalTask.columnId = update.columnId;
-  redisService.publish('task-updated', {
+  notificationService.publish('task-updated', {
     boardId: targetBoardId,
     task: minimalTask,
     timestamp: ...
@@ -109,7 +111,7 @@ updates.map(update => {
 ```javascript
 // Sent full task with relationships (5-30KB)
 const taskResponse = await fetchTaskWithRelationships(db, taskId);
-await redisService.publish('task-updated', {
+await notificationService.publish('task-updated', {
   boardId: currentTask.boardId,
   task: { ...taskResponse, updatedBy: userId },
   timestamp: ...
@@ -125,7 +127,7 @@ const minimalTask = {
   updatedBy: userId
 };
 if (columnChanged) minimalTask.columnId = columnId;
-await redisService.publish('task-updated', {
+await notificationService.publish('task-updated', {
   boardId: currentTask.boardId,
   task: minimalTask,
   timestamp: ...

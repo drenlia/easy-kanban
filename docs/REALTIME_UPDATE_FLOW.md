@@ -33,21 +33,14 @@ await notificationService.publish('member-updated', {
 
 ### 3. **Unified Notification Service** (`server/services/notificationService.js`)
 ```javascript
-// Automatically routes to PostgreSQL or Redis based on DB_TYPE
+// Always PostgreSQL LISTEN/NOTIFY (Redis is only for the Socket.IO adapter)
 async publish(channel, data, tenantId = null) {
-  const usePostgres = process.env.DB_TYPE === 'postgresql';
-  
-  if (usePostgres) {
-    // ✅ YOU ARE USING THIS PATH
-    return await postgresNotificationService.publish(channel, data, tenantId);
-  } else {
-    // Fall back to Redis pub/sub
-    return await redisService.publish(channel, data, tenantId);
-  }
+  // Adds _rtId (and _notifyTenantId in multi-tenant) then:
+  return await postgresNotificationService.publish(channel, payload, tenantId);
 }
 ```
 
-**Since `DB_TYPE=postgresql`**, it uses **PostgreSQL LISTEN/NOTIFY**.
+**App events always use PostgreSQL LISTEN/NOTIFY.** Redis is not used as a notification bus.
 
 ### 4. **PostgreSQL NOTIFY** (`server/services/postgresNotificationService.js`)
 ```javascript
@@ -145,27 +138,27 @@ const handleMemberUpdated = useCallback(async (data: any) => {
 
 ---
 
-## Summary: **PostgreSQL PUB/SUB** ✅
+## Summary: **PostgreSQL LISTEN/NOTIFY** ✅
 
-**Answer to your question:** The real-time update was provided by **PostgreSQL LISTEN/NOTIFY**, not Redis.
+**Answer to your question:** The real-time update was provided by **PostgreSQL LISTEN/NOTIFY**, not Redis pub/sub.
 
 ### Why PostgreSQL?
-Since you have `DB_TYPE=postgresql` set in your environment, the system uses:
+The stack is PostgreSQL-only for app data and app event fan-out:
 1. **PostgreSQL `pg_notify()`** to publish notifications
 2. **PostgreSQL `LISTEN`** to subscribe to notifications
 3. **WebSocket service** to forward notifications to connected clients
+4. **Redis Socket.IO adapter** (when multi-pod) so room emits reach clients on other pods
 
 ### Benefits of PostgreSQL LISTEN/NOTIFY:
 - ✅ **Transactional**: Notifications only fire after database commit
-- ✅ **Ordered**: PostgreSQL guarantees message order
-- ✅ **No External Dependency**: No need for Redis (though Redis is still available for other uses)
+- ✅ **Ordered**: PostgreSQL guarantees message order on a connection
+- ✅ **No Redis pub/sub dependency** for app events (Redis still used for Socket.IO adapter)
 - ✅ **Schema-based Isolation**: Multi-tenant isolation at the database level
 - ✅ **Low Latency**: Direct database-to-application communication
 
-### Redis is Still Available:
-- Redis is still running in your Docker setup
-- It's used for other purposes (caching, session storage, etc.)
-- But for pub/sub notifications, PostgreSQL is being used
+### Redis role today:
+- Socket.IO adapter across pods (required when `MULTI_TENANT=true` / multi-replica)
+- **Not** the application notification bus
 
 ---
 
@@ -178,7 +171,7 @@ PUT /api/admin/users/:userId/member-name
          ↓
 notificationService.publish('member-updated', data)
          ↓
-postgresNotificationService.publish()  [DB_TYPE=postgresql]
+postgresNotificationService.publish()
          ↓
 PostgreSQL pg_notify('member-updated', payload)
          ↓
@@ -186,7 +179,9 @@ PostgreSQL LISTEN connection receives notification
          ↓
 websocketService.setupPostgresSubscriptions() callback
          ↓
-Socket.IO broadcast: io.emit('member-updated', data)
+Socket.IO broadcast: io.emit / io.to('tenant-…').emit
+         ↓
+(Redis adapter fans rooms across pods when multi-replica)
          ↓
 Frontend WebSocket client receives event
          ↓
@@ -203,23 +198,14 @@ Other user sees updated display name ✨
 
 ## Code Locations
 
-- **Route Handler**: `server/routes/adminUsers.js:73-137`
-- **Notification Service**: `server/services/notificationService.js:23-33`
-- **PostgreSQL Publisher**: `server/services/postgresNotificationService.js:100-150`
-- **WebSocket Subscription**: `server/services/websocketService.js:402-408`
-- **Frontend Handler**: `src/hooks/useMemberWebSocket.ts:40-67`
+- **Route Handler**: `server/routes/adminUsers.js`
+- **Notification Service**: `server/services/notificationService.js`
+- **PostgreSQL Publisher**: `server/services/postgresNotificationService.js`
+- **WebSocket Subscription**: `server/services/websocketService.js`
+- **Frontend Handler**: `src/hooks/useMemberWebSocket.ts`
 
 ---
 
 ## Testing
 
-To verify which system is being used, check your server logs:
-- Look for: `📤 Publishing member-updated to Redis` (old, if using Redis)
-- Look for: `📡 Subscribed to PostgreSQL channel: member-updated` (current, using PostgreSQL)
-
-Or check your environment:
-```bash
-echo $DB_TYPE
-# Should output: postgresql
-```
-
+To verify NOTIFY is in use, check server logs for PostgreSQL subscription / publish lines (not “Publishing … to Redis” for app events).

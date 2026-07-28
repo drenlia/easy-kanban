@@ -1,5 +1,7 @@
 # Socket.IO Multi-Tenant Connection Routing
 
+> App events use PostgreSQL NOTIFY; Redis is the Socket.IO adapter. Canonical multi-pod flow: [`REALTIME_UPDATE_FLOW-MULTI-TENANCY.md`](./REALTIME_UPDATE_FLOW-MULTI-TENANCY.md). Namespace for live SaaS: **`easy-kanban-pg`**.
+
 ## Overview
 
 In multi-tenant mode, each tenant connects to `/socket.io` through their tenant-specific domain (e.g., `test1.ezkan.cloud/socket.io`). The system routes and isolates connections per tenant using hostname-based tenant identification and tenant-prefixed Socket.IO rooms.
@@ -129,11 +131,11 @@ socket.on('join-board', (boardId) => {
 
 ### 5. **Event Broadcasting with Tenant Isolation**
 
-All Redis pub/sub events are broadcast to tenant-specific rooms:
+App events arrive via **PostgreSQL NOTIFY** (`notificationService` / `postgresNotificationService`). Handlers then emit into tenant-specific Socket.IO rooms (Redis adapter fans rooms across pods):
 
 ```javascript
-// server/services/websocketService.js:268-278
-redisService.subscribeToAllTenants('task-updated', (data, tenantId) => {
+// Pattern in server/services/websocketService.js
+postgresNotificationService.subscribeToAllTenants('task-updated', (data, tenantId) => {
   if (tenantId) {
     // Multi-tenant: broadcast only to clients of this tenant
     this.io?.to(`tenant-${tenantId}`).emit('task-updated', data);
@@ -146,8 +148,7 @@ redisService.subscribeToAllTenants('task-updated', (data, tenantId) => {
 
 **Board-specific events:**
 ```javascript
-// server/services/websocketService.js:306-312
-redisService.subscribeToAllTenants('task-relationship-created', (data, tenantId) => {
+postgresNotificationService.subscribeToAllTenants('task-relationship-created', (data, tenantId) => {
   const room = tenantId 
     ? `tenant-${tenantId}-board-${data.boardId}`  // "tenant-test1-board-123"
     : `board-${data.boardId}`;                      // "board-123"
@@ -225,7 +226,7 @@ const extractTenantId = (hostname) => {
 1. **Hostname-based routing**: Each tenant uses a unique subdomain
 2. **Database verification**: User must exist in tenant's database
 3. **Tenant-prefixed rooms**: All rooms include tenant ID
-4. **Redis pub/sub filtering**: Events include `tenantId` and broadcast to tenant-specific rooms
+4. **NOTIFY + room filtering**: Events include `tenantId` and broadcast to tenant-specific rooms
 5. **Connection tracking**: `connectedClients` Map includes `tenantId` for filtering
 
 ## Multi-Pod Considerations

@@ -1,5 +1,9 @@
 # WebSocket Architecture Review
 
+> **Status note (docs hygiene):** This review predates the PostgreSQL-only + NOTIFY path. Treat [`REALTIME_UPDATE_FLOW-MULTI-TENANCY.md`](./REALTIME_UPDATE_FLOW-MULTI-TENANCY.md) as canonical for how events fan out today.  
+> **App events:** `notificationService.publish()` → PostgreSQL `LISTEN`/`NOTIFY` → Socket.IO emit.  
+> **Redis:** Socket.IO **adapter only** (required for multi-pod). Mentions of `redisService.publish()` below are historical.
+
 ## Executive Summary
 
 Your current WebSocket implementation is **functionally solid** but has several areas that could benefit from refinement, especially as you scale. The architecture is well-designed for multi-tenancy and handles the basics well, but there are opportunities for improvement in reliability, observability, and maintainability.
@@ -11,7 +15,7 @@ Your current WebSocket implementation is **functionally solid** but has several 
 ## ✅ Strengths
 
 ### 1. **Multi-Tenant Architecture**
-- ✅ Excellent tenant isolation with prefixed channels (`tenant-{id}-{channel}`)
+- ✅ Excellent tenant isolation with prefixed channels / rooms (`tenant-{id}-…`)
 - ✅ Proper tenant-aware room management for Socket.IO
 - ✅ Redis adapter properly configured for multi-pod deployments
 - ✅ Transport strategy adapts based on deployment mode (multi-tenant vs single-tenant)
@@ -23,12 +27,12 @@ Your current WebSocket implementation is **functionally solid** but has several 
 - ✅ Graceful handling of connection errors
 
 ### 3. **Error Handling (Basic)**
-- ✅ Redis publish failures don't break API responses (fire-and-forget pattern)
-- ✅ Graceful degradation when Redis is unavailable
+- ✅ NOTIFY / publish failures don't break API responses (fire-and-forget pattern)
+- ✅ Graceful degradation when Redis adapter is unavailable (local emits only)
 - ✅ Connection errors are logged appropriately
 
 ### 4. **Code Organization**
-- ✅ Clear separation of concerns (websocketService, redisService)
+- ✅ Clear separation of concerns (`websocketService`, `notificationService` / Postgres NOTIFY)
 - ✅ Consistent pattern across endpoints
 - ✅ Frontend hooks are well-structured
 
@@ -305,11 +309,11 @@ API Endpoint → PostgreSQL UPDATE → LISTEN/NOTIFY → WebSocket Service → S
 
 Your WebSocket implementation is **functionally solid** and handles the core requirements well. The multi-tenant architecture is excellent, and the recent payload optimization work shows good progress.
 
-**Key Takeaways**:
-1. **Add retry logic and message queuing** for Redis publishes (HIGH PRIORITY)
+**Key Takeaways** (reinterpret for current stack):
+1. **Reliability for NOTIFY / emit** — failures are still best-effort; consider monitoring (historical “Redis publish retry” items applied to `notificationService.publish`)
 2. **Simplify frontend batch processing** (consider using `immer` or a state library)
 3. **Add monitoring/metrics** to track system health
-4. **Consider PostgreSQL LISTEN/NOTIFY** for long-term scalability (as you mentioned)
+4. **PostgreSQL LISTEN/NOTIFY is already the live path** — see multi-tenancy realtime doc for multi-pod trade-offs (`_rtId` dedupe, etc.)
 
 The current implementation will work fine for your current scale, but these improvements will make it more robust and maintainable as you grow.
 
@@ -317,8 +321,8 @@ The current implementation will work fine for your current scale, but these impr
 
 ## 📝 Next Steps
 
-1. **Immediate**: Add Redis retry logic and message queuing
-2. **Short-term**: Add monitoring/metrics, complete payload optimization
-3. **Long-term**: Evaluate PostgreSQL LISTEN/NOTIFY migration
+1. **Immediate**: Observability around NOTIFY + Socket.IO emit failures
+2. **Short-term**: Complete payload optimization where still needed
+3. **Long-term**: Multi-pod fan-out refinements (documented in `REALTIME_UPDATE_FLOW-MULTI-TENANCY.md`)
 
 

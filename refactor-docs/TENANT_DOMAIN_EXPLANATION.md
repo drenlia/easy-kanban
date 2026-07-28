@@ -108,7 +108,7 @@ TENANT_DOMAIN: "ezkan.cloud"  # Ignored when MULTI_TENANT=false
 
 In single-tenant mode, `TENANT_DOMAIN` is ignored because:
 - No hostname-based routing needed
-- Single database at `/app/server/data/kanban.db`
+- Single Postgres database (typically the **`public`** schema) — not a SQLite `kanban.db` file
 - All requests use the same database
 
 ## Important Notes
@@ -132,7 +132,7 @@ If tenant routing isn't working:
 
 ```bash
 # Check environment variable
-kubectl exec -n easy-kanban <pod> -- env | grep TENANT_DOMAIN
+kubectl exec -n easy-kanban-pg <pod> -- env | grep TENANT_DOMAIN
 
 # Check hostname extraction
 # Request to: customer1.ezkan.cloud
