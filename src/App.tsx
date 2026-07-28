@@ -791,6 +791,8 @@ function AppContent() {
           }
         } catch (error) {
           console.error('Failed to restore preferences:', error);
+        } finally {
+          setLanguageLoaded(true);
         }
       };
       
@@ -1636,13 +1638,10 @@ function AppContent() {
           taskFilters.loadSavedFilterView(userSpecificPrefs.currentFilterViewId);
         }
         
-        // Set initial selected board with preference fallback - only if not already set
-        if (!selectedBoard) {
-          const initialBoard = getInitialSelectedBoardWithPreferences(currentUser.id);
-          if (initialBoard) {
-            setSelectedBoard(initialBoard);
-          }
-        }
+        // Do NOT setSelectedBoard here. Prefs can run before loadInitialData finishes, which
+        // triggers the board-selection effect → refreshBoardData (columns only) while members
+        // are still []. Column then skips every card until members arrive. Board selection is
+        // handled in loadInitialData once members + boards are available together.
         
         // Update APP_URL if user is the owner (part of initialization process)
         try {
@@ -1896,10 +1895,8 @@ function AppContent() {
           // CRITICAL FIX: If no board is selected yet, immediately select one and load its columns
           // This prevents the blank board race condition on initial load/refresh
           if (loadedBoards.length > 0 && !selectedBoard) {
-            // Determine which board to select (same logic as auto-selection effect)
-            const cookiePreference = getCookie('lastSelectedBoard');
-            const userPreference = currentUser?.user_preferences?.lastSelectedBoard;
-            const preferredBoardId = cookiePreference || userPreference;
+            // Prefer cookie / stored preference (same helper prefs used to call early — that raced members)
+            const preferredBoardId = getInitialSelectedBoardWithPreferences(currentUser.id);
             
             // Try to find the preferred board, fallback to first board
             const boardToSelect = preferredBoardId 
@@ -1909,7 +1906,7 @@ function AppContent() {
             if (boardToSelect) {
               if (feDebug('FE_DEBUG_APP_CORE')) console.log(`🎯 [INITIAL LOAD] Auto-selecting board: ${boardToSelect.title} (${boardToSelect.id})`);
 
-              // Set board and columns synchronously to prevent blank board
+              // Set board, columns, AND members already set above — avoid blank-card race
               setSelectedBoard(boardToSelect.id);
               setColumns(boardToSelect.columns || {});
               

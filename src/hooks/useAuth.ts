@@ -20,6 +20,7 @@ const INITIAL_INTENDED_DESTINATION = getInitialIntendedDestination();
 interface UseAuthReturn {
   // State
   isAuthenticated: boolean;
+  authChecked: boolean;
   currentUser: CurrentUser | null;
   siteSettings: SiteSettings;
   hasDefaultAdmin: boolean | null;
@@ -196,6 +197,22 @@ export const useAuth = (callbacks: UseAuthCallbacks): UseAuthReturn => {
     };
   }, [handleLogout]);
 
+  // Escape hatch for ghost sessions (authenticated without user → App shows "Restoring session…").
+  // Skip while OAuth is mid-flight: isAuthenticated is set before /me returns.
+  useEffect(() => {
+    if (!isAuthenticated || currentUser || isProcessingOAuthRef.current) return;
+    const timer = window.setTimeout(() => {
+      if (isProcessingOAuthRef.current) return;
+      if (!localStorage.getItem('authToken')) return;
+      // Still authenticated with no user after waiting — clear the stuck state
+      console.warn('🔑 Ghost session timed out — logging out');
+      // Login page reads this and shows sessionExpired (same pattern as token expiry)
+      sessionStorage.setItem('tokenExpiredRedirect', 'true');
+      handleLogout();
+    }, 8000);
+    return () => window.clearTimeout(timer);
+  }, [isAuthenticated, currentUser, handleLogout]);
+
   const handleProfileUpdated = async () => {
     try {
       // Refresh current user data to get updated avatar and roles
@@ -250,6 +267,16 @@ export const useAuth = (callbacks: UseAuthCallbacks): UseAuthReturn => {
       // Verify token and get current user
       api.getCurrentUser()
         .then(response => {
+          if (!response?.user?.id) {
+            console.log('🔑 Mount auth check got token but no user payload — clearing session');
+            localStorage.removeItem('authToken');
+            setIsAuthenticated(false);
+            setCurrentUser(null);
+            setAuthChecked(true);
+            mountCheckCompletedRef.current = true;
+            callbacks.onPageChange('kanban');
+            return;
+          }
           console.log('🔑 Mount auth check succeeded');
           setCurrentUser(response.user);
           setIsAuthenticated(true);
@@ -280,6 +307,8 @@ export const useAuth = (callbacks: UseAuthCallbacks): UseAuthReturn => {
           } else {
             // Network error or other issue - don't clear token, just mark as checked
             console.warn('⚠️ Failed to verify token on mount (non-auth error), keeping token:', error.message);
+            setIsAuthenticated(false);
+            setCurrentUser(null);
             setAuthChecked(true);
             mountCheckCompletedRef.current = true;
             // Do not set isAuthenticated without a verified user (demo reset used to leave
@@ -403,8 +432,12 @@ export const useAuth = (callbacks: UseAuthCallbacks): UseAuthReturn => {
           })
           .catch((error) => {
             console.error('Failed to get current user after OAuth:', error);
-            // Fallback: still redirect even if user fetch fails
+            // Avoid ghost session (authenticated + null user → "Restoring session…")
             isProcessingOAuthRef.current = false;
+            localStorage.removeItem('authToken');
+            setIsAuthenticated(false);
+            setCurrentUser(null);
+            setAuthChecked(true);
             const destinationToUse = intendedDestination || storedIntendedDestination;
             if (destinationToUse) {
               if (destinationToUse.startsWith('/')) {
@@ -413,7 +446,7 @@ export const useAuth = (callbacks: UseAuthCallbacks): UseAuthReturn => {
                 window.location.hash = destinationToUse;
               }
             } else {
-              window.location.hash = '#kanban';
+              window.location.hash = '#login';
             }
           });
         

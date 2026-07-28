@@ -44,6 +44,16 @@ export function getAgentMemberStub(overrides?: Partial<TeamMember>): TeamMember 
   };
 }
 
+/** Placeholder while members are still loading (or assignee missing from the list). */
+export function getUnknownMemberStub(memberId: string, overrides?: Partial<TeamMember>): TeamMember {
+  return {
+    id: memberId,
+    name: '…',
+    color: '#9CA3AF',
+    ...overrides,
+  };
+}
+
 export function resolveTaskMember(
   members: TeamMember[] | undefined,
   memberId: string | null | undefined
@@ -58,5 +68,6 @@ export function resolveTaskMember(
     return found;
   }
   if (isAgentMemberId(memberId)) return getAgentMemberStub();
-  return undefined;
+  // Do not hide cards when members[] is empty/stale (board can hydrate before members).
+  return getUnknownMemberStub(memberId);
 }
