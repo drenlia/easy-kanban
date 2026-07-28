@@ -770,7 +770,8 @@
     "deleteBoard": "Supprimer le tableau"
   },
   "boardMetrics": {
-    "progress": "Progression"
+    "progress": "Progression",
+    "totalEffortTooltip": "Effort total : {{hours}}h"
   },
   "teamMembers": {
     "title": "Membres de l'équipe",

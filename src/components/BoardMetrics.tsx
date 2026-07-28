@@ -1,6 +1,7 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
-import { Columns, Task } from '../types';
+import { Columns } from '../types';
+import { sumTaskEffort } from '../utils/taskUtils';
 
 interface BoardMetricsProps {
   columns: Columns;
@@ -12,6 +13,7 @@ const BoardMetrics: React.FC<BoardMetricsProps> = ({ columns, filteredColumns = 
   // Calculate metrics from all tasks across all columns
   const allTasks = Object.values(filteredColumns).flatMap(column => column.tasks || []);
   const totalTasks = allTasks.length;
+  const totalEffort = sumTaskEffort(allTasks);
   
   // Count completed tasks (tasks in finished or archived columns)
   const completedTasks = Object.values(filteredColumns)
@@ -38,14 +40,25 @@ const BoardMetrics: React.FC<BoardMetricsProps> = ({ columns, filteredColumns = 
           </div>
         </div>
         
-        {/* Progress Bar */}
-        <div className="w-full">
-          <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
-            <div 
-              className="bg-blue-500 h-2 rounded-full transition-all duration-300 ease-out"
-              style={{ width: `${completionPercentage}%` }}
-            />
+        {/* Progress bar + optional effort on the same row (keeps card height aligned with Tools / Team Members) */}
+        <div className="flex items-center gap-1.5 w-full min-w-0">
+          <div className="flex-1 min-w-0">
+            <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+              <div 
+                className="bg-blue-500 h-2 rounded-full transition-all duration-300 ease-out"
+                style={{ width: `${completionPercentage}%` }}
+              />
+            </div>
           </div>
+          {totalEffort > 0 && (
+            <span
+              className="shrink-0 text-[0.65rem] leading-none tabular-nums text-gray-400 dark:text-gray-500"
+              title={t('boardMetrics.totalEffortTooltip', { hours: totalEffort })}
+              aria-label={t('boardMetrics.totalEffortTooltip', { hours: totalEffort })}
+            >
+              {totalEffort}h
+            </span>
+          )}
         </div>
       </div>
     </div>

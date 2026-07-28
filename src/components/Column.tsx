@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { createPortal } from 'react-dom';
-import { Plus, MoreVertical, X, GripVertical, Archive, AlertTriangle, ScrollText } from 'lucide-react';
+import { Plus, MoreVertical, X, GripVertical, Archive, AlertTriangle, ScrollText, Trash2 } from 'lucide-react';
 import { Column, Task, TeamMember, PriorityOption, CurrentUser, Tag, ColumnVisibilityWarning } from '../types';
 import { TaskViewMode } from '../utils/userPreferences';
 import TaskCard from './TaskCard';
@@ -10,6 +10,7 @@ import { CSS } from '@dnd-kit/utilities';
 import { useDroppable } from '@dnd-kit/core';
 import { parseFinishedColumnNames } from '../utils/columnUtils';
 import { getWipStatus, hasWipLimit } from '../utils/kanbanFlowUtils';
+import { sumTaskEffort } from '../utils/taskUtils';
 import { KanbanChromeTooltip } from './KanbanChromeTooltip';
 import { resolveTaskMember } from '../utils/agentMemberUi';
 
@@ -267,8 +268,11 @@ export default function KanbanColumn({
   const [shouldSelectAll, setShouldSelectAll] = useState(false);
   const columnHeaderRef = useRef<HTMLDivElement>(null);
   const editInputRef = useRef<HTMLInputElement>(null);
+  const effortAnchorRef = useRef<HTMLDivElement>(null);
   const lastSaveTimestampRef = useRef<number>(0);
   const editingStartedRef = useRef<boolean>(false);
+  const columnEffort = useMemo(() => sumTaskEffort(filteredTasks), [filteredTasks]);
+  const [effortPos, setEffortPos] = useState<{ top: number; left: number } | null>(null);
   
   // Refs to track latest state values for click-outside handler
   const titleRef = useRef(title);
@@ -427,6 +431,48 @@ export default function KanbanColumn({
       column: column
     }
   });
+
+  // Portal effort label to the right of the ⋯ menu (fixed) so header layout never shifts
+  useEffect(() => {
+    if (columnEffort <= 0 || isDragging) {
+      setEffortPos(null);
+      return;
+    }
+
+    const update = () => {
+      const el = effortAnchorRef.current;
+      if (!el) {
+        setEffortPos(null);
+        return;
+      }
+      const rect = el.getBoundingClientRect();
+      if (rect.bottom < 0 || rect.top > window.innerHeight || rect.right < 0 || rect.left > window.innerWidth) {
+        setEffortPos(null);
+        return;
+      }
+      setEffortPos({
+        top: rect.top + rect.height / 2,
+        // Right-align into the column’s right padding (p-4 ≈ 16px) so hours stay inside the column, tight to the ⋯
+        left: rect.right + 14,
+      });
+    };
+
+    update();
+    const scrollRoot = document.querySelector('.kanban-scrollable-container');
+    window.addEventListener('resize', update);
+    scrollRoot?.addEventListener('scroll', update, { passive: true });
+    document.addEventListener('scroll', update, { passive: true, capture: true });
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(update) : null;
+    if (effortAnchorRef.current) ro?.observe(effortAnchorRef.current);
+    if (columnHeaderRef.current) ro?.observe(columnHeaderRef.current);
+
+    return () => {
+      window.removeEventListener('resize', update);
+      scrollRoot?.removeEventListener('scroll', update);
+      document.removeEventListener('scroll', update, true);
+      ro?.disconnect();
+    };
+  }, [columnEffort, isDragging, isEditing, filteredTasks.length, column.title]);
 
   // Use droppable hook for the column container itself - for column-to-column drops
   const { setNodeRef: setColumnDroppableRef, isOver: isColumnOver } = useDroppable({
@@ -938,32 +984,57 @@ export default function KanbanColumn({
                 </label>
               </div>
 
-              {/* Soft WIP limit */}
+              {/* Soft WIP limit — label + field on one line */}
               {!isFinished && !isArchived && (
-                <div className="bg-gray-50 dark:bg-gray-800 p-3 rounded-lg border dark:border-gray-600 space-y-1">
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-200">
-                    {t('column.wipLimit')}
-                  </label>
-                  <input
-                    type="number"
-                    min={1}
-                    step={1}
-                    value={wipLimitInput}
-                    onChange={(e) => setWipLimitInput(e.target.value)}
-                    placeholder={t('column.wipLimitPlaceholder')}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-sm"
-                    disabled={isSubmitting}
-                  />
-                  <p className="text-xs text-gray-500 dark:text-gray-400">{t('column.wipLimitHint')}</p>
+                <div className="bg-gray-50 dark:bg-gray-800 p-3 rounded-lg border dark:border-gray-600">
+                  <div className="flex items-center gap-2">
+                    <label
+                      htmlFor={`column-wip-${column.id}`}
+                      className="text-sm font-medium text-gray-700 dark:text-gray-200 shrink-0"
+                    >
+                      {t('column.wipLimit')}
+                    </label>
+                    <input
+                      id={`column-wip-${column.id}`}
+                      type="number"
+                      inputMode="numeric"
+                      min={1}
+                      step={1}
+                      value={wipLimitInput}
+                      onChange={(e) => setWipLimitInput(e.target.value)}
+                      placeholder={t('column.wipLimitPlaceholder')}
+                      className="min-w-0 flex-1 px-2 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-sm [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                      disabled={isSubmitting}
+                    />
+                  </div>
                 </div>
               )}
 
               {/* Column policy */}
               <div className="bg-gray-50 dark:bg-gray-800 p-3 rounded-lg border dark:border-gray-600 space-y-1">
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-200">
-                  {t('column.policyText')}
-                </label>
+                <div className="flex items-center justify-between gap-2">
+                  <label
+                    htmlFor={`column-policy-${column.id}`}
+                    className="text-sm font-medium text-gray-700 dark:text-gray-200"
+                  >
+                    {t('column.policyText')}
+                  </label>
+                  {!!policyText.trim() && (
+                    <KanbanChromeTooltip label={t('column.clearPolicy')}>
+                      <button
+                        type="button"
+                        onClick={() => setPolicyText('')}
+                        disabled={isSubmitting}
+                        className="p-1 rounded text-gray-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors disabled:opacity-50"
+                        aria-label={t('column.clearPolicy')}
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </KanbanChromeTooltip>
+                  )}
+                </div>
                 <textarea
+                  id={`column-policy-${column.id}`}
                   value={policyText}
                   onChange={(e) => setPolicyText(e.target.value)}
                   rows={2}
@@ -1112,10 +1183,15 @@ export default function KanbanColumn({
               </span>
             </KanbanChromeTooltip>
           )}
+
+          {/* Non-admin: zero-size anchor at end of chrome for portaled effort */}
+          {!isAdmin && (
+            <div ref={effortAnchorRef} className="w-0 h-[18px] shrink-0 overflow-visible" aria-hidden />
+          )}
         
           {/* Column Management Menu - Admin Only */}
           {isAdmin && (
-            <div className="relative column-menu-container flex items-center">
+            <div ref={effortAnchorRef} className="relative column-menu-container flex items-center">
               <KanbanChromeTooltip label={t('column.columnManagementOptions')}>
                 <button
                   onClick={() => setShowMenu(!showMenu)}
@@ -1266,6 +1342,23 @@ export default function KanbanColumn({
           </SortableContext>
         )}
       </div>
+
+      {/* Effort total — fixed portal to the right of ⋯ so header layout never changes */}
+      {columnEffort > 0 && effortPos && createPortal(
+        <span
+          className="fixed text-[0.65rem] leading-none tabular-nums text-gray-400 dark:text-gray-500 select-none pointer-events-none whitespace-nowrap z-[40]"
+          style={{
+            top: effortPos.top,
+            left: effortPos.left,
+            transform: 'translate(-100%, -50%)',
+          }}
+          title={t('column.totalEffortTooltip', { hours: columnEffort })}
+          aria-label={t('column.totalEffortTooltip', { hours: columnEffort })}
+        >
+          {columnEffort}h
+        </span>,
+        document.body
+      )}
 
       {/* Column Delete Confirmation Dialog - Small popup like BoardTabs */}
       {showColumnDeleteConfirm === column.id && deleteButtonPosition && onConfirmColumnDelete && onCancelColumnDelete && getColumnTaskCount && createPortal(

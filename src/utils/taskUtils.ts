@@ -208,6 +208,17 @@ export const wouldTaskBeFilteredOut = (task: Task, searchFilters: SearchFilters,
 };
 
 /**
+ * Sum task effort (hours). Non-finite / missing values count as 0.
+ */
+export const sumTaskEffort = (tasks: Task[] | undefined | null): number => {
+  if (!tasks || tasks.length === 0) return 0;
+  return tasks.reduce((sum, task) => {
+    const effort = Number(task.effort);
+    return sum + (Number.isFinite(effort) ? effort : 0);
+  }, 0);
+};
+
+/**
  * Format member names for tooltips: full list, one name per line (use with multiline tooltip chrome).
  */
 export const formatMembersTooltip = (members: TeamMember[], type: 'watcher' | 'collaborator'): string => {

@@ -770,7 +770,8 @@
     "deleteBoard": "Delete Board"
   },
   "boardMetrics": {
-    "progress": "Progress"
+    "progress": "Progress",
+    "totalEffortTooltip": "Total effort: {{hours}}h"
   },
   "teamMembers": {
     "title": "Team Members",
