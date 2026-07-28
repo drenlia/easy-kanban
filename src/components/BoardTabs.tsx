@@ -192,8 +192,10 @@ const DroppableBoardTab: React.FC<{
         {taskCount !== undefined && taskCount > 0 && (
           <span
             className={`
-            px-1.5 py-0.5 text-[0.65rem] leading-none rounded-full font-semibold min-w-[1.25rem] text-center pointer-events-none tabular-nums
-            ${hasActiveFilters ? 'bg-blue-600 text-white dark:bg-blue-500' : 'bg-gray-200 text-gray-700 dark:bg-gray-600 dark:text-gray-100'}
+            px-1.5 py-0.5 text-[0.65rem] leading-none rounded-full font-medium min-w-[1.25rem] text-center pointer-events-none tabular-nums
+            ${hasActiveFilters
+              ? 'bg-blue-50 text-blue-600 dark:bg-blue-900/35 dark:text-blue-300'
+              : 'bg-gray-100/80 text-gray-500 dark:bg-gray-700/50 dark:text-gray-400'}
           `}
           >
             {taskCount}
@@ -268,10 +270,10 @@ const SortableBoardTab: React.FC<{
               <span className="truncate max-w-[10rem]">{board.title}</span>
               {showTaskCount && taskCount !== undefined && taskCount > 0 && (
                 <span
-                  className={`shrink-0 px-1.5 py-0.5 text-[0.65rem] font-semibold leading-none rounded-full tabular-nums ${
+                  className={`shrink-0 px-1.5 py-0.5 text-[0.65rem] font-medium leading-none rounded-full tabular-nums ${
                     hasActiveFilters
-                      ? 'bg-blue-600 text-white dark:bg-blue-500'
-                      : 'bg-gray-200 text-gray-700 dark:bg-gray-600 dark:text-gray-100'
+                      ? 'bg-blue-50 text-blue-600 dark:bg-blue-900/35 dark:text-blue-300'
+                      : 'bg-gray-100/80 text-gray-500 dark:bg-gray-700/50 dark:text-gray-400'
                   }`}
                 >
                   {taskCount}
@@ -365,10 +367,10 @@ const RegularBoardTab: React.FC<{
           <span className="truncate max-w-[11rem]">{board.title}</span>
           {showTaskCount && taskCount !== undefined && taskCount > 0 && (
             <span
-              className={`shrink-0 px-1.5 py-0.5 text-[0.65rem] font-semibold leading-none rounded-full tabular-nums ${
+              className={`shrink-0 px-1.5 py-0.5 text-[0.65rem] font-medium leading-none rounded-full tabular-nums ${
                 hasActiveFilters
-                  ? 'bg-blue-600 text-white dark:bg-blue-500'
-                  : 'bg-gray-200 text-gray-700 dark:bg-gray-600 dark:text-gray-100'
+                  ? 'bg-blue-50 text-blue-600 dark:bg-blue-900/35 dark:text-blue-300'
+                  : 'bg-gray-100/80 text-gray-500 dark:bg-gray-700/50 dark:text-gray-400'
               }`}
             >
               {taskCount}

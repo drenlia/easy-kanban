@@ -82,6 +82,8 @@ interface KanbanPageProps {
   onToggleCollaborators: (include: boolean) => void;
   onToggleRequesters: (include: boolean) => void;
   onToggleSystem: (include: boolean) => void;
+  showAgentTasks?: boolean;
+  onToggleShowAgentTasks?: (show: boolean) => void;
   onTaskViewModeChange: (mode: TaskViewMode) => void;
   onViewModeChange: (mode: ViewMode) => void;
   onToggleSearch: () => void;
@@ -201,6 +203,8 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
   onToggleCollaborators,
   onToggleRequesters,
   onToggleSystem,
+  showAgentTasks = true,
+  onToggleShowAgentTasks,
   onTaskViewModeChange,
   viewMode,
   onViewModeChange,
@@ -324,6 +328,79 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
       return !(column.is_archived === true || column.is_archived === 1);
     });
   }, [selectedBoard, columns, boardColumnVisibility]);
+
+  const activeFilterTooltip = useMemo(() => {
+    if (!activeFilters) return '';
+
+    const reasons: string[] = [];
+    const hasSearchCriteria =
+      isSearchActive &&
+      !!(
+        searchFilters?.text ||
+        searchFilters?.dateFrom ||
+        searchFilters?.dateTo ||
+        searchFilters?.dueDateFrom ||
+        searchFilters?.dueDateTo ||
+        searchFilters?.selectedPriorities?.length ||
+        searchFilters?.selectedTags?.length ||
+        searchFilters?.projectId ||
+        searchFilters?.taskId
+      );
+    if (hasSearchCriteria) {
+      reasons.push(t('tools.filterReasonSearch', { ns: 'common' }));
+    }
+    if (selectedMembers.length > 0) {
+      reasons.push(t('tools.filterReasonMembers', { ns: 'common' }));
+    }
+    if (
+      !includeAssignees ||
+      includeWatchers ||
+      includeCollaborators ||
+      includeRequesters
+    ) {
+      reasons.push(t('tools.filterReasonRoles', { ns: 'common' }));
+    }
+
+    const allColumns = Object.values(columns);
+    if (allColumns.length > 0 && visibleColumnsForCurrentBoard.length > 0) {
+      const isArchived = (col: { is_archived?: boolean | number }) =>
+        col.is_archived === true || col.is_archived === 1;
+      const nonArchived = allColumns.filter((col) => !isArchived(col));
+      const visibleNonArchived = visibleColumnsForCurrentBoard.filter((colId) => {
+        const col = columns[colId];
+        return col && !isArchived(col);
+      });
+      if (
+        visibleNonArchived.length > 0 &&
+        visibleNonArchived.length < nonArchived.length
+      ) {
+        reasons.push(t('tools.filterReasonColumns', { ns: 'common' }));
+      }
+    }
+
+    if (siteSettings?.AI_ENABLED === 'true' && !showAgentTasks) {
+      reasons.push(t('tools.filterReasonAgentHidden', { ns: 'common' }));
+    }
+
+    if (reasons.length === 0) {
+      return t('tools.filtersActiveHeading', { ns: 'common' });
+    }
+    return `${t('tools.filtersActiveHeading', { ns: 'common' })}\n• ${reasons.join('\n• ')}`;
+  }, [
+    activeFilters,
+    isSearchActive,
+    searchFilters,
+    selectedMembers,
+    includeAssignees,
+    includeWatchers,
+    includeCollaborators,
+    includeRequesters,
+    columns,
+    visibleColumnsForCurrentBoard,
+    siteSettings?.AI_ENABLED,
+    showAgentTasks,
+    t,
+  ]);
 
   const getVisibleColumns = (boardId: string | null) => {
     if (boardId === selectedBoard) {
@@ -593,6 +670,8 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
             onViewModeChange={onViewModeChange}
             isSearchActive={isSearchActive}
             onToggleSearch={onToggleSearch}
+            hasActiveFilters={activeFilters}
+            activeFilterTooltip={activeFilterTooltip}
             onHideToolbar={() => void handleToggleBoardToolbar()}
           />
           <div className="flex-1 min-w-0">
@@ -613,14 +692,16 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
               onToggleCollaborators={onToggleCollaborators}
               onToggleRequesters={onToggleRequesters}
               onToggleSystem={onToggleSystem}
+              showAgentTasks={showAgentTasks}
               currentUserId={currentUser?.id}
               currentUser={currentUser}
               systemTaskCount={getSystemTaskCount}
             />
           </div>
-          <BoardMetrics 
+          <BoardMetrics
             columns={columns}
             filteredColumns={getFullyFilteredColumns}
+            siteSettings={siteSettings}
           />
         </div>
       ) : (
@@ -653,6 +734,8 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
           visibleColumns={visibleColumnsForCurrentBoard}
           onColumnsChange={(visibleColumns) => selectedBoard && handleColumnVisibilityChange(selectedBoard, visibleColumns)}
           selectedBoard={selectedBoard}
+          showAgentTasks={showAgentTasks}
+          onToggleShowAgentTasks={onToggleShowAgentTasks}
         />
       )}
 

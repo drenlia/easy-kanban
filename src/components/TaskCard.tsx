@@ -9,6 +9,7 @@ import AddCommentModal from './AddCommentModal';
 import DateRangePicker from './DateRangePicker';
 import { formatToYYYYMMDD, formatToYYYYMMDDHHmmss, parseLocalDate } from '../utils/dateUtils';
 import { getColumnAgeDays } from '../utils/kanbanFlowUtils';
+import { formatEffortDisplay, parseEffortUnit } from '../utils/taskUtils';
 import {
   createComment,
   fetchTaskAttachments,
@@ -2436,7 +2437,7 @@ const TaskCard = React.memo(function TaskCard({
                     }}
                     className="hover:bg-gray-100 rounded px-0.5 py-0.5 transition-colors cursor-pointer text-xs"
                   >
-                    {task.effort}h
+                    {formatEffortDisplay(task.effort, parseEffortUnit(siteSettings))}
                   </button>
                 </KanbanChromeTooltip>
               )}

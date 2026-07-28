@@ -1601,6 +1601,9 @@ function AppContent() {
         taskFilters.setIncludeCollaborators(userSpecificPrefs.includeCollaborators);
         taskFilters.setIncludeRequesters(userSpecificPrefs.includeRequesters);
         taskFilters.setIncludeSystem(userSpecificPrefs.includeSystem);
+        if (typeof userSpecificPrefs.showAgentTasks === 'boolean') {
+          taskFilters.setShowAgentTasks(userSpecificPrefs.showAgentTasks);
+        }
         taskFilters.setTaskViewMode(userSpecificPrefs.taskViewMode);
         taskFilters.setViewMode(userSpecificPrefs.viewMode);
         taskFilters.viewModeRef.current = userSpecificPrefs.viewMode;
@@ -3568,9 +3571,36 @@ function AppContent() {
 
   // Filter handlers, shouldIncludeTask, and filtering useEffect are now in useTaskFilters hook (taskFilters.*)
 
-  // Use filtered columns state
-  const hasColumnFilters = selectedBoard ? (boardColumnVisibility[selectedBoard] && boardColumnVisibility[selectedBoard].length < Object.keys(columns).length) : false;
-  const activeFilters = hasActiveFilters(taskFilters.searchFilters, taskFilters.isSearchActive) || taskFilters.selectedMembers.length > 0 || taskFilters.includeAssignees || taskFilters.includeWatchers || taskFilters.includeCollaborators || taskFilters.includeRequesters || hasColumnFilters;
+  // Use filtered columns state — only count hidden *non-archived* columns (archived are hidden by default)
+  const hasColumnFilters = (() => {
+    if (!selectedBoard || !boardColumnVisibility[selectedBoard]) return false;
+    const visibleIds = boardColumnVisibility[selectedBoard];
+    const allColumns = Object.values(columns);
+    if (allColumns.length === 0) return false;
+    const isArchived = (col: { is_archived?: boolean | number }) =>
+      col.is_archived === true || col.is_archived === 1;
+    const nonArchived = allColumns.filter((col) => !isArchived(col));
+    const visibleNonArchived = visibleIds.filter((colId) => {
+      const col = columns[colId];
+      return col && !isArchived(col);
+    });
+    // Visibility list not synced with columns yet — don't treat as filtered
+    if (visibleNonArchived.length === 0 && visibleIds.length > 0) return false;
+    return visibleNonArchived.length < nonArchived.length;
+  })();
+  // Role chips: default is Assignees-only (includeAssignees true, others false).
+  // Do not treat that default as an "active filter" or the Search indicator never clears.
+  const hasNonDefaultRoleFilters =
+    !taskFilters.includeAssignees ||
+    taskFilters.includeWatchers ||
+    taskFilters.includeCollaborators ||
+    taskFilters.includeRequesters;
+  const activeFilters =
+    hasActiveFilters(taskFilters.searchFilters, taskFilters.isSearchActive) ||
+    taskFilters.selectedMembers.length > 0 ||
+    hasNonDefaultRoleFilters ||
+    hasColumnFilters ||
+    (siteSettings?.AI_ENABLED === 'true' && !taskFilters.showAgentTasks);
   const getTaskCountForBoard = (board: Board) => {
     // During board switching, return the last calculated count to prevent flashing
     if (isSwitchingBoard && lastTaskCountsRef.current[board.id] !== undefined) {
@@ -3911,6 +3941,8 @@ function AppContent() {
         onToggleCollaborators={taskFilters.handleToggleCollaborators}
         onToggleRequesters={taskFilters.handleToggleRequesters}
         onToggleSystem={taskFilters.handleToggleSystem}
+        showAgentTasks={taskFilters.showAgentTasks}
+        onToggleShowAgentTasks={taskFilters.handleToggleShowAgentTasks}
         onTaskViewModeChange={handleTaskViewModeChange}
         viewMode={taskFilters.viewMode}
         onViewModeChange={handleViewModeChange}

@@ -366,6 +366,19 @@ const migrations = [
 
       console.log('✅ Migration 21: Kanban flow basics (WIP, policy, aging, blocked) ready');
     }
+  },
+  {
+    version: 22,
+    name: 'add_effort_unit_setting',
+    description: 'Insert EFFORT_UNIT setting (hours | points) for task effort display',
+    up: async (db) => {
+      const { settings: settingsQueries } = await import('../utils/sqlManager/index.js');
+      const existing = await settingsQueries.getSettingByKey(db, 'EFFORT_UNIT');
+      if (!existing) {
+        await settingsQueries.createSetting(db, 'EFFORT_UNIT', 'hours');
+      }
+      console.log('✅ Migration 22: EFFORT_UNIT setting ready');
+    }
   }
 ];
 

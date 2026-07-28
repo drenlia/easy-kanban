@@ -5,6 +5,7 @@ import { TaskViewMode, ViewMode, loadUserPreferences, updateUserPreference } fro
 import { filterTasks, hasActiveFilters } from '../utils/taskUtils';
 import { SYSTEM_MEMBER_ID } from '../constants/appConstants';
 import { dedupeTasksInColumns } from '../utils/taskReorderingUtils';
+import { isAgentMemberId } from '../utils/agentMemberUi';
 
 // Extend Window interface for justUpdatedFromWebSocket flag
 declare global {
@@ -39,6 +40,7 @@ export const useTaskFilters = ({
   const [includeCollaborators, setIncludeCollaborators] = useState(userPrefs.includeCollaborators);
   const [includeRequesters, setIncludeRequesters] = useState(userPrefs.includeRequesters);
   const [includeSystem, setIncludeSystem] = useState(userPrefs.includeSystem || false);
+  const [showAgentTasks, setShowAgentTasks] = useState(userPrefs.showAgentTasks !== false);
   
   // Computed: Check if we're in "All Roles" mode (all main role checkboxes checked)
   const isAllModeActive = useMemo(() => {
@@ -96,8 +98,22 @@ export const useTaskFilters = ({
       // Always filter by selectedMembers if any are selected, or if any checkboxes are checked
       const isFiltering = isSearchActive || selectedMembers.length > 0 || includeAssignees || includeWatchers || includeCollaborators || includeRequesters;
       
+      const stripAgentIfNeeded = (tasks: Task[]) =>
+        showAgentTasks ? tasks : tasks.filter((task) => !isAgentMemberId(task.memberId));
+
       if (!isFiltering) {
-        setFilteredColumns(uniqueColumns);
+        if (!showAgentTasks) {
+          const withoutAgent: Columns = {};
+          for (const [columnId, column] of Object.entries(uniqueColumns)) {
+            withoutAgent[columnId] = {
+              ...column,
+              tasks: stripAgentIfNeeded(column.tasks || []),
+            };
+          }
+          setFilteredColumns(withoutAgent);
+        } else {
+          setFilteredColumns(uniqueColumns);
+        }
         return;
       }
 
@@ -225,6 +241,9 @@ export const useTaskFilters = ({
         if (includeAssignees || includeWatchers || includeCollaborators || includeRequesters) {
           columnTasks = customFilterTasks(columnTasks);
         }
+
+        // FOURTH: Optionally hide AI Agent–assigned tasks (independent of member chip selection)
+        columnTasks = stripAgentIfNeeded(columnTasks);
         
         // IMPORTANT: Create new column object and ensure task objects are preserved
         // When filtering, we create a new array but the task objects inside are references
@@ -281,7 +300,7 @@ export const useTaskFilters = ({
       // Run filtering immediately
       performFiltering();
     }
-  }, [columns, searchFilters.text, searchFilters.dateFrom, searchFilters.dateTo, searchFilters.dueDateFrom, searchFilters.dueDateTo, searchFilters.selectedPriorities, searchFilters.selectedTags, searchFilters.projectId, searchFilters.taskId, isSearchActive, selectedMembers, includeAssignees, includeWatchers, includeCollaborators, includeRequesters, selectedSprintId, members, boards]);
+  }, [columns, searchFilters.text, searchFilters.dateFrom, searchFilters.dateTo, searchFilters.dueDateFrom, searchFilters.dueDateTo, searchFilters.selectedPriorities, searchFilters.selectedTags, searchFilters.projectId, searchFilters.taskId, isSearchActive, selectedMembers, includeAssignees, includeWatchers, includeCollaborators, includeRequesters, selectedSprintId, members, boards, showAgentTasks]);
 
   // Helper function to quickly check if a task should be included (synchronous checks only for WebSocket updates)
   const shouldIncludeTask = useCallback((task: Task): boolean => {
@@ -301,6 +320,11 @@ export const useTaskFilters = ({
       }
     }
     // If selectedSprintId is null, show all tasks (no sprint filtering)
+
+    // Hide Agent-assigned tasks when the Search & Filter Agent toggle is off
+    if (!showAgentTasks && isAgentMemberId(task.memberId)) {
+      return false;
+    }
 
     // If no other filters active, include all tasks (that passed sprint filter)
     const isFiltering = isSearchActive || selectedMembers.length > 0 || includeAssignees || includeWatchers || includeCollaborators || includeRequesters;
@@ -359,7 +383,9 @@ export const useTaskFilters = ({
     }
 
     return true;
-  }, [isSearchActive, searchFilters, selectedMembers, includeAssignees, includeWatchers, includeCollaborators, includeRequesters, members, boards, selectedSprintId]);
+  }, [isSearchActive, searchFilters, selectedMembers, includeAssignees, includeWatchers, includeCollaborators, includeRequesters, members, boards, selectedSprintId, showAgentTasks]);
+
+  // Keep shouldIncludeTaskRef in sync for WebSocket handlers
 
   // Store shouldIncludeTask in a ref to avoid stale closures in WebSocket handlers
   const shouldIncludeTaskRef = useRef(shouldIncludeTask);
@@ -550,6 +576,20 @@ export const useTaskFilters = ({
     }
   };
 
+  const handleToggleShowAgentTasks = (show: boolean) => {
+    setShowAgentTasks(show);
+    updateCurrentUserPreference('showAgentTasks', show);
+    // Keep Team Members strip in sync: hide Agent chip and drop any Agent selection
+    if (!show) {
+      setSelectedMembers((prev) => {
+        if (!prev.some((id) => isAgentMemberId(id))) return prev;
+        const newSelection = prev.filter((id) => !isAgentMemberId(id));
+        updateCurrentUserPreference('selectedMembers', newSelection);
+        return newSelection;
+      });
+    }
+  };
+
   return {
     // State
     selectedMembers,
@@ -558,6 +598,7 @@ export const useTaskFilters = ({
     includeCollaborators,
     includeRequesters,
     includeSystem,
+    showAgentTasks,
     isAllModeActive,
     taskViewMode,
     viewMode,
@@ -579,6 +620,7 @@ export const useTaskFilters = ({
     setIncludeCollaborators,
     setIncludeRequesters,
     setIncludeSystem,
+    setShowAgentTasks,
     setTaskViewMode,
     setViewMode,
     setIsSearchActive,
@@ -603,6 +645,7 @@ export const useTaskFilters = ({
     handleToggleCollaborators,
     handleToggleRequesters,
     handleToggleSystem,
+    handleToggleShowAgentTasks,
     clearVisibilityObstructingFilters,
   };
 };

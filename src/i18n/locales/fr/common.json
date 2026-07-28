@@ -128,7 +128,13 @@
     "currentShrinkView": "Vue réduite (descriptions tronquées)",
     "currentCompactViewHiddenDescriptions": "Vue compacte (tickets uniquement) — les descriptions sont masquées",
     "showBoardToolbar": "Afficher outils, membres et progression",
-    "hideBoardToolbar": "Masquer outils, membres et progression"
+    "hideBoardToolbar": "Masquer outils, membres et progression",
+    "filtersActiveHeading": "Filtres actifs",
+    "filterReasonSearch": "Critères de recherche",
+    "filterReasonMembers": "Membres de l'équipe sélectionnés",
+    "filterReasonRoles": "Filtres de rôle",
+    "filterReasonColumns": "Colonnes masquées",
+    "filterReasonAgentHidden": "Tâches de l'agent IA masquées"
   },
   "textEditor": {
     "placeholder": "Commencez à taper...",
@@ -749,6 +755,8 @@
     "clearAllTags": "Effacer toutes les étiquettes",
     "dueFrom": "fin de",
     "clearDueFrom": "Effacer la date d'échéance de début",
+    "showAgentTasks": "Afficher les tâches de l'agent IA",
+    "hideAgentTasks": "Masquer les tâches de l'agent IA",
     "dueTo": "fin à",
     "clearDueTo": "Effacer la date d'échéance de fin",
     "priority": "priorité",
@@ -771,7 +779,7 @@
   },
   "boardMetrics": {
     "progress": "Progression",
-    "totalEffortTooltip": "Effort total : {{hours}}h"
+    "totalEffortTooltip": "Effort total : {{display}}"
   },
   "teamMembers": {
     "title": "Membres de l'équipe",

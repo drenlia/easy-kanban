@@ -887,6 +887,7 @@ const initializeDefaultData = async (db, tenantId = null) => {
       ['APP_LANGUAGE', 'EN'], // Default application language (EN or FR)
       ['SITE_OPENS_NEW_TAB', 'true'], // Default to opening links in new tab (matches current behavior)
       ['HIGHLIGHT_OVERDUE_TASKS', 'true'], // Highlight overdue tasks in light red
+      ['EFFORT_UNIT', 'hours'], // Task effort display unit: hours | points
       ['STORAGE_LIMIT', '5368709120'], // 5GB storage limit in bytes (5 * 1024^3)
       ['STORAGE_USED', '0'], // Current storage usage in bytes
       ['UPLOAD_MAX_FILESIZE', '10485760'], // 10MB max file size in bytes (10 * 1024^2)

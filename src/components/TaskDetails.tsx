@@ -56,6 +56,7 @@ import {
 } from '../constants/appConstants';
 import { feDebug } from '../utils/clientDebug';
 import { commentTextToHtml } from '../utils/commentContent';
+import { parseEffortUnit } from '../utils/taskUtils';
 import websocketClient from '../services/websocketClient';
 
 function detailsLog(...args: unknown[]) {
@@ -1978,7 +1979,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">
-                  {t('labels.effort')}
+                  {parseEffortUnit(siteSettings) === 'points' ? t('labels.effortPoints') : t('labels.effortHours')}
                 </label>
                 <input
                   type="text"

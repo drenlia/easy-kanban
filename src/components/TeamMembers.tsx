@@ -47,6 +47,8 @@ interface TeamMembersProps {
   onToggleCollaborators?: (include: boolean) => void;
   onToggleRequesters?: (include: boolean) => void;
   onToggleSystem?: (include: boolean) => void;
+  /** When false, hide Agent from the member strip (Search & Filter Agent toggle). */
+  showAgentTasks?: boolean;
   currentUserId?: string;
   currentUser?: any; // To check if user is admin
   systemTaskCount?: number;
@@ -69,6 +71,7 @@ export default function TeamMembers({
   onToggleCollaborators,
   onToggleRequesters,
   onToggleSystem,
+  showAgentTasks = true,
   currentUserId,
   currentUser,
   systemTaskCount = 0
@@ -81,10 +84,10 @@ export default function TeamMembers({
     }
   };
 
-  // Create system user member object when needed
-  // Use members directly - API will include/exclude SYSTEM based on includeSystem parameter
-  // Pin Agent at the end so it reads as a system capability, not a teammate
-  const displayMembers = sortMembersAgentLast(members);
+  // Pin Agent last; omit Agent entirely when Search & Filter Agent toggle is off
+  const displayMembers = sortMembersAgentLast(
+    showAgentTasks ? members : members.filter((m) => !isAgentMemberId(m.id))
+  );
   
   // Function to truncate display name to 12 characters
   const truncateDisplayName = (name: string, maxLength: number = 12): string => {

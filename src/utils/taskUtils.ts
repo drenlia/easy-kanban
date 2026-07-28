@@ -208,7 +208,7 @@ export const wouldTaskBeFilteredOut = (task: Task, searchFilters: SearchFilters,
 };
 
 /**
- * Sum task effort (hours). Non-finite / missing values count as 0.
+ * Sum task effort (unit-agnostic integer). Non-finite / missing values count as 0.
  */
 export const sumTaskEffort = (tasks: Task[] | undefined | null): number => {
   if (!tasks || tasks.length === 0) return 0;
@@ -216,6 +216,18 @@ export const sumTaskEffort = (tasks: Task[] | undefined | null): number => {
     const effort = Number(task.effort);
     return sum + (Number.isFinite(effort) ? effort : 0);
   }, 0);
+};
+
+export type EffortUnit = 'hours' | 'points';
+
+/** Tenant setting EFFORT_UNIT: hours (default) | points */
+export const parseEffortUnit = (settings?: { [key: string]: string } | null): EffortUnit =>
+  settings?.EFFORT_UNIT === 'points' ? 'points' : 'hours';
+
+/** Display effort: `10h` for hours, bare `10` for points. */
+export const formatEffortDisplay = (value: number, unit: EffortUnit): string => {
+  const n = Number.isFinite(value) ? value : 0;
+  return unit === 'hours' ? `${n}h` : String(n);
 };
 
 /**

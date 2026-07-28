@@ -176,6 +176,30 @@ const AdminProjectSettingsTab: React.FC<AdminProjectSettingsTabProps> = ({
           </div>
         </div>
 
+        {/* Effort unit (hours vs story points) */}
+        <div className="bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg p-4">
+          <label className="text-sm font-medium text-gray-700 dark:text-gray-300 block mb-1">
+            {t('effortUnit')}
+          </label>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mb-3">
+            {t('effortUnitDescription')}
+          </p>
+          <select
+            value={editingSettings.EFFORT_UNIT === 'points' ? 'points' : 'hours'}
+            onChange={async (e) => {
+              const newValue = e.target.value === 'points' ? 'points' : 'hours';
+              handleInputChange('EFFORT_UNIT', newValue);
+              if (onAutoSave) {
+                await onAutoSave('EFFORT_UNIT', newValue);
+              }
+            }}
+            className="w-full max-w-xs px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 text-sm"
+          >
+            <option value="hours">{t('effortUnitHours')}</option>
+            <option value="points">{t('effortUnitPoints')}</option>
+          </select>
+        </div>
+
         {/* Default Project Prefix */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div>

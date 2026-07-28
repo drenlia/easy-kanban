@@ -128,7 +128,13 @@
     "currentShrinkView": "Shrink view (truncated descriptions)",
     "currentCompactViewHiddenDescriptions": "Compact view (tickets only) — descriptions are hidden",
     "showBoardToolbar": "Show tools, members & progress",
-    "hideBoardToolbar": "Hide tools, members & progress"
+    "hideBoardToolbar": "Hide tools, members & progress",
+    "filtersActiveHeading": "Filters active",
+    "filterReasonSearch": "Search criteria",
+    "filterReasonMembers": "Team members selected",
+    "filterReasonRoles": "Role filters",
+    "filterReasonColumns": "Columns hidden",
+    "filterReasonAgentHidden": "AI Agent tasks hidden"
   },
   "textEditor": {
     "placeholder": "Start typing...",
@@ -749,6 +755,8 @@
     "clearAllTags": "Clear all tags",
     "dueFrom": "due from",
     "clearDueFrom": "Clear due from date",
+    "showAgentTasks": "Show AI Agent tasks",
+    "hideAgentTasks": "Hide AI Agent tasks",
     "dueTo": "due to",
     "clearDueTo": "Clear due to date",
     "priority": "priority",
@@ -771,7 +779,7 @@
   },
   "boardMetrics": {
     "progress": "Progress",
-    "totalEffortTooltip": "Total effort: {{hours}}h"
+    "totalEffortTooltip": "Total effort: {{display}}"
   },
   "teamMembers": {
     "title": "Team Members",

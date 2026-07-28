@@ -17,6 +17,7 @@ import DOMPurify from 'dompurify';
 import { getAuthenticatedAttachmentUrl, getAuthenticatedAvatarUrl } from '../utils/authImageUrl';
 import { commentTextToHtml } from '../utils/commentContent';
 import { feDebug } from '../utils/clientDebug';
+import { parseEffortUnit } from '../utils/taskUtils';
 import { AGENT_MEMBER_ID, SYSTEM_MEMBER_ID } from '../constants/appConstants';
 
 function pageLog(...args: unknown[]) {
@@ -1480,7 +1481,9 @@ export default function TaskPage({
                 </div>
 
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">{t('labels.effort')}</label>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">
+                    {parseEffortUnit(siteSettings) === 'points' ? t('labels.effortPoints') : t('labels.effortHours')}
+                  </label>
                   <input
                     type="text"
                     inputMode="numeric"

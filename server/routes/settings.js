@@ -94,6 +94,7 @@ router.get('/', async (req, res, next) => {
       'MAIL_ENABLED',
       'GOOGLE_CLIENT_ID',
       'HIGHLIGHT_OVERDUE_TASKS',
+      'EFFORT_UNIT',
       'DEFAULT_FINISHED_COLUMN_NAMES',
       ...FE_PUBLIC_DEBUG_FLAG_KEYS,
       ...AI_PUBLIC_SETTING_KEYS

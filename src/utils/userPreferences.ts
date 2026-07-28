@@ -45,6 +45,8 @@ export interface UserPreferences {
   includeCollaborators: boolean;
   includeRequesters: boolean;
   includeSystem: boolean;
+  /** When false, hide tasks assigned to the AI Agent (does not change selectedMembers). Default true. */
+  showAgentTasks: boolean;
   taskDetailsWidth: number;
   ganttTaskColumnWidth: number;
   kanbanColumnWidth: number; // User-adjustable width for Kanban columns (default: 300px)
@@ -158,6 +160,7 @@ const BASE_DEFAULT_PREFERENCES: UserPreferences = {
   includeCollaborators: false, // Default to not include collaborators
   includeRequesters: false, // Default to not include requesters
   includeSystem: false, // Default to not include system user
+  showAgentTasks: true, // Default: show Agent-assigned tasks on the board
   taskDetailsWidth: 480, // Default width in pixels (30rem equivalent)
   ganttTaskColumnWidth: 320, // Default Gantt task column width in pixels
   kanbanColumnWidth: 300, // Default Kanban column width in pixels
@@ -452,6 +455,7 @@ export const saveUserPreferences = async (preferences: UserPreferences, userId: 
           saveIfDefined('includeCollaborators', preferences.includeCollaborators),
           saveIfDefined('includeRequesters', preferences.includeRequesters),
           saveIfDefined('includeSystem', preferences.includeSystem),
+          saveIfDefined('showAgentTasks', preferences.showAgentTasks),
           
           // Search State (for cross-device consistency)
           saveIfDefined('isSearchActive', preferences.isSearchActive),
@@ -603,6 +607,7 @@ export const loadUserPreferencesAsync = async (userId: string | null = null): Pr
         includeCollaborators: smartMerge(preferences.includeCollaborators, dbSettings.includeCollaborators, defaults.includeCollaborators),
         includeRequesters: smartMerge(preferences.includeRequesters, dbSettings.includeRequesters, defaults.includeRequesters),
         includeSystem: smartMerge(preferences.includeSystem, dbSettings.includeSystem, defaults.includeSystem),
+        showAgentTasks: smartMerge(preferences.showAgentTasks, dbSettings.showAgentTasks, defaults.showAgentTasks),
         
         // Search State
         isAdvancedSearchExpanded: smartMerge(preferences.isAdvancedSearchExpanded, dbSettings.isAdvancedSearchExpanded, defaults.isAdvancedSearchExpanded),
@@ -764,6 +769,7 @@ export const updateUserPreference = async <K extends keyof UserPreferences>(
         'includeCollaborators': 'includeCollaborators',
         'includeRequesters': 'includeRequesters',
         'includeSystem': 'includeSystem',
+        'showAgentTasks': 'showAgentTasks',
         'searchFilters': 'searchFilters',
         'listViewColumnVisibility': 'listViewColumnVisibility',
         'listViewShowDependencies': 'listViewShowDependencies',

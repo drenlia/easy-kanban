@@ -10,7 +10,7 @@ import { CSS } from '@dnd-kit/utilities';
 import { useDroppable } from '@dnd-kit/core';
 import { parseFinishedColumnNames } from '../utils/columnUtils';
 import { getWipStatus, hasWipLimit } from '../utils/kanbanFlowUtils';
-import { sumTaskEffort } from '../utils/taskUtils';
+import { sumTaskEffort, formatEffortDisplay, parseEffortUnit } from '../utils/taskUtils';
 import { KanbanChromeTooltip } from './KanbanChromeTooltip';
 import { resolveTaskMember } from '../utils/agentMemberUi';
 
@@ -268,11 +268,13 @@ export default function KanbanColumn({
   const [shouldSelectAll, setShouldSelectAll] = useState(false);
   const columnHeaderRef = useRef<HTMLDivElement>(null);
   const editInputRef = useRef<HTMLInputElement>(null);
-  const effortAnchorRef = useRef<HTMLDivElement>(null);
   const lastSaveTimestampRef = useRef<number>(0);
   const editingStartedRef = useRef<boolean>(false);
   const columnEffort = useMemo(() => sumTaskEffort(filteredTasks), [filteredTasks]);
-  const [effortPos, setEffortPos] = useState<{ top: number; left: number } | null>(null);
+  const effortDisplay = useMemo(
+    () => formatEffortDisplay(columnEffort, parseEffortUnit(siteSettings)),
+    [columnEffort, siteSettings]
+  );
   
   // Refs to track latest state values for click-outside handler
   const titleRef = useRef(title);
@@ -431,48 +433,6 @@ export default function KanbanColumn({
       column: column
     }
   });
-
-  // Portal effort label to the right of the ⋯ menu (fixed) so header layout never shifts
-  useEffect(() => {
-    if (columnEffort <= 0 || isDragging) {
-      setEffortPos(null);
-      return;
-    }
-
-    const update = () => {
-      const el = effortAnchorRef.current;
-      if (!el) {
-        setEffortPos(null);
-        return;
-      }
-      const rect = el.getBoundingClientRect();
-      if (rect.bottom < 0 || rect.top > window.innerHeight || rect.right < 0 || rect.left > window.innerWidth) {
-        setEffortPos(null);
-        return;
-      }
-      setEffortPos({
-        top: rect.top + rect.height / 2,
-        // Right-align into the column’s right padding (p-4 ≈ 16px) so hours stay inside the column, tight to the ⋯
-        left: rect.right + 14,
-      });
-    };
-
-    update();
-    const scrollRoot = document.querySelector('.kanban-scrollable-container');
-    window.addEventListener('resize', update);
-    scrollRoot?.addEventListener('scroll', update, { passive: true });
-    document.addEventListener('scroll', update, { passive: true, capture: true });
-    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(update) : null;
-    if (effortAnchorRef.current) ro?.observe(effortAnchorRef.current);
-    if (columnHeaderRef.current) ro?.observe(columnHeaderRef.current);
-
-    return () => {
-      window.removeEventListener('resize', update);
-      scrollRoot?.removeEventListener('scroll', update);
-      document.removeEventListener('scroll', update, true);
-      ro?.disconnect();
-    };
-  }, [columnEffort, isDragging, isEditing, filteredTasks.length, column.title]);
 
   // Use droppable hook for the column container itself - for column-to-column drops
   const { setNodeRef: setColumnDroppableRef, isOver: isColumnOver } = useDroppable({
@@ -1117,30 +1077,50 @@ export default function KanbanColumn({
                 const wipStatus = getWipStatus(unfilteredCount, column.wip_limit);
                 const showMeter = hasWipLimit(column.wip_limit);
                 if (displayCount === 0 && !showMeter) return null;
+                // Softer pills — WIP states stay a bit stronger for visibility
                 const pillClass =
                   wipStatus === 'over'
-                    ? 'bg-amber-500 text-white dark:bg-amber-600'
+                    ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-200'
                     : wipStatus === 'at'
-                      ? 'bg-amber-200 text-amber-900 dark:bg-amber-700 dark:text-amber-50'
+                      ? 'bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300'
                       : hasActiveFilters
-                        ? 'bg-blue-600 text-white dark:bg-blue-500'
-                        : 'bg-gray-200 text-gray-700 dark:bg-gray-600 dark:text-gray-100';
+                        ? 'bg-blue-50 text-blue-600 dark:bg-blue-900/35 dark:text-blue-300'
+                        : 'bg-gray-100/80 text-gray-500 dark:bg-gray-700/50 dark:text-gray-400';
                 const label = showMeter
                   ? t('column.wipMeterTooltip', {
                       count: unfilteredCount,
                       limit: column.wip_limit,
                     })
                   : undefined;
+                const tooltipParts = [
+                  label || t('column.taskCount'),
+                  columnEffort > 0
+                    ? t('column.totalEffortTooltip', { display: effortDisplay })
+                    : null,
+                ].filter(Boolean);
                 return (
-                  <KanbanChromeTooltip label={label || t('column.taskCount')} wrapperClassName="shrink-0">
-                    <span
-                      className={`
-                        shrink-0 px-1.5 py-0.5 text-[0.65rem] leading-none rounded-full font-semibold min-w-[1.25rem] text-center pointer-events-none tabular-nums
-                        ${pillClass}
-                      `}
-                    >
-                      {showMeter ? `${unfilteredCount} / ${column.wip_limit}` : displayCount}
-                    </span>
+                  <KanbanChromeTooltip
+                    label={tooltipParts.join(' · ')}
+                    wrapperClassName="shrink-0"
+                  >
+                    <div className="flex flex-col items-center gap-0.5 shrink-0 pointer-events-none">
+                      {columnEffort > 0 && (
+                        <span
+                          className="text-[0.6rem] leading-none tabular-nums text-gray-400 dark:text-gray-500 select-none"
+                          aria-label={t('column.totalEffortTooltip', { display: effortDisplay })}
+                        >
+                          {effortDisplay}
+                        </span>
+                      )}
+                      <span
+                        className={`
+                          px-1.5 py-0.5 text-[0.65rem] leading-none rounded-full font-medium min-w-[1.25rem] text-center tabular-nums
+                          ${pillClass}
+                        `}
+                      >
+                        {showMeter ? `${unfilteredCount} / ${column.wip_limit}` : displayCount}
+                      </span>
+                    </div>
                   </KanbanChromeTooltip>
                 );
               })()}
@@ -1183,15 +1163,10 @@ export default function KanbanColumn({
               </span>
             </KanbanChromeTooltip>
           )}
-
-          {/* Non-admin: zero-size anchor at end of chrome for portaled effort */}
-          {!isAdmin && (
-            <div ref={effortAnchorRef} className="w-0 h-[18px] shrink-0 overflow-visible" aria-hidden />
-          )}
         
           {/* Column Management Menu - Admin Only */}
           {isAdmin && (
-            <div ref={effortAnchorRef} className="relative column-menu-container flex items-center">
+            <div className="relative column-menu-container flex items-center">
               <KanbanChromeTooltip label={t('column.columnManagementOptions')}>
                 <button
                   onClick={() => setShowMenu(!showMenu)}
@@ -1342,23 +1317,6 @@ export default function KanbanColumn({
           </SortableContext>
         )}
       </div>
-
-      {/* Effort total — fixed portal to the right of ⋯ so header layout never changes */}
-      {columnEffort > 0 && effortPos && createPortal(
-        <span
-          className="fixed text-[0.65rem] leading-none tabular-nums text-gray-400 dark:text-gray-500 select-none pointer-events-none whitespace-nowrap z-[40]"
-          style={{
-            top: effortPos.top,
-            left: effortPos.left,
-            transform: 'translate(-100%, -50%)',
-          }}
-          title={t('column.totalEffortTooltip', { hours: columnEffort })}
-          aria-label={t('column.totalEffortTooltip', { hours: columnEffort })}
-        >
-          {columnEffort}h
-        </span>,
-        document.body
-      )}
 
       {/* Column Delete Confirmation Dialog - Small popup like BoardTabs */}
       {showColumnDeleteConfirm === column.id && deleteButtonPosition && onConfirmColumnDelete && onCancelColumnDelete && getColumnTaskCount && createPortal(

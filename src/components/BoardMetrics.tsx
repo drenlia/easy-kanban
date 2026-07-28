@@ -1,19 +1,22 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { Columns } from '../types';
-import { sumTaskEffort } from '../utils/taskUtils';
+import { formatEffortDisplay, parseEffortUnit, sumTaskEffort } from '../utils/taskUtils';
 
 interface BoardMetricsProps {
   columns: Columns;
   filteredColumns?: Columns;
+  siteSettings?: { [key: string]: string };
 }
 
-const BoardMetrics: React.FC<BoardMetricsProps> = ({ columns, filteredColumns = columns }) => {
+const BoardMetrics: React.FC<BoardMetricsProps> = ({ columns, filteredColumns = columns, siteSettings }) => {
   const { t } = useTranslation('common');
+  const effortUnit = parseEffortUnit(siteSettings);
   // Calculate metrics from all tasks across all columns
   const allTasks = Object.values(filteredColumns).flatMap(column => column.tasks || []);
   const totalTasks = allTasks.length;
   const totalEffort = sumTaskEffort(allTasks);
+  const effortDisplay = formatEffortDisplay(totalEffort, effortUnit);
   
   // Count completed tasks (tasks in finished or archived columns)
   const completedTasks = Object.values(filteredColumns)
@@ -53,10 +56,10 @@ const BoardMetrics: React.FC<BoardMetricsProps> = ({ columns, filteredColumns = 
           {totalEffort > 0 && (
             <span
               className="shrink-0 text-[0.65rem] leading-none tabular-nums text-gray-400 dark:text-gray-500"
-              title={t('boardMetrics.totalEffortTooltip', { hours: totalEffort })}
-              aria-label={t('boardMetrics.totalEffortTooltip', { hours: totalEffort })}
+              title={t('boardMetrics.totalEffortTooltip', { display: effortDisplay })}
+              aria-label={t('boardMetrics.totalEffortTooltip', { display: effortDisplay })}
             >
-              {totalEffort}h
+              {effortDisplay}
             </span>
           )}
         </div>

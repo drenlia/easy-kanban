@@ -6,6 +6,7 @@ import { getAllTags, getSavedFilterViews, getSharedFilterViews, createSavedFilte
 import { loadUserPreferences, updateUserPreference } from '../utils/userPreferences';
 import ManageFiltersModal from './ManageFiltersModal';
 import ColumnFilterDropdown from './ColumnFilterDropdown';
+import { getAgentAvatarSrc } from '../utils/agentMemberUi';
 
 interface SearchFilters {
   text: string;
@@ -33,6 +34,9 @@ interface SearchInterfaceProps {
   visibleColumns?: string[];
   onColumnsChange?: (visibleColumns: string[]) => void;
   selectedBoard?: string | null;
+  /** Show tasks assigned to AI Agent (default true). Does not change member chip selection. */
+  showAgentTasks?: boolean;
+  onToggleShowAgentTasks?: (show: boolean) => void;
 }
 
 export default function SearchInterface({
@@ -46,7 +50,9 @@ export default function SearchInterface({
   columns,
   visibleColumns,
   onColumnsChange,
-  selectedBoard
+  selectedBoard,
+  showAgentTasks = true,
+  onToggleShowAgentTasks,
 }: SearchInterfaceProps) {
   const { t } = useTranslation('common');
   const [showPriorityDropdown, setShowPriorityDropdown] = useState(false);
@@ -247,6 +253,10 @@ export default function SearchInterface({
       taskId: ''
     });
     onFilterViewChange?.(null); // Reset to "None"
+    // Re-show Agent tasks — treated as an active filter when hidden
+    if (siteSettings?.AI_ENABLED === 'true' && onToggleShowAgentTasks && !showAgentTasks) {
+      onToggleShowAgentTasks(true);
+    }
     
     // DON'T clear column filters - preserve user's column visibility preferences
     // This is better UX as users expect column selections to persist
@@ -401,47 +411,6 @@ export default function SearchInterface({
             </div>
           </div>
           
-          {/* Active Filters Indicator */}
-          {(() => {
-            const hasSearchFilters = filters.text || filters.dateFrom || filters.dateTo || filters.dueDateFrom || filters.dueDateTo || filters.selectedPriorities.length > 0 || filters.selectedTags.length > 0 || filters.projectId || filters.taskId;
-            
-            // Check if any non-archived columns are hidden (archived columns are hidden by default)
-            const hasColumnFilters = columns && visibleColumns && visibleColumns.length > 0 && (() => {
-              const allColumns = Object.values(columns);
-              
-              // Safety check: if columns object is empty or not yet loaded, don't show filter indicator
-              if (allColumns.length === 0) {
-                return false;
-              }
-              
-              // Filter non-archived columns (is_archived can be boolean true or number 1)
-              const nonArchivedColumns = allColumns.filter(col => !(col.is_archived === true || col.is_archived === 1));
-              const visibleNonArchivedColumns = visibleColumns.filter(colId => {
-                const col = columns[colId];
-                // Check if column exists and is not archived
-                return col && !(col.is_archived === true || col.is_archived === 1);
-              });
-              
-              // Safety check: if we can't find any visible columns in the columns object,
-              // it means the data isn't synchronized yet - don't show the filter indicator
-              if (visibleNonArchivedColumns.length === 0 && visibleColumns.length > 0) {
-                return false;
-              }
-              
-              return visibleNonArchivedColumns.length < nonArchivedColumns.length;
-            })();
-            
-            return hasSearchFilters || hasColumnFilters;
-          })() && (
-            <button
-              onClick={handleToggleCollapse}
-              className="text-red-600 dark:text-red-400 text-xs font-medium hover:text-red-700 dark:hover:text-red-300 hover:underline cursor-pointer transition-colors"
-              title={isCollapsed ? t('searchInterface.viewActiveFilters') : t('searchInterface.hideFilters')}
-            >
-              {t('searchInterface.filtersActive')}
-            </button>
-          )}
-
           {/* Saved Filters Section */}
           <div className="flex items-center gap-2">
             <span className="text-xs font-medium text-gray-700 dark:text-gray-300">{t('searchInterface.saveApply')}:</span>
@@ -579,8 +548,13 @@ export default function SearchInterface({
               });
               return visibleNonArchivedColumns.length < nonArchivedColumns.length;
             })();
+
+            const hasAgentHidden =
+              siteSettings?.AI_ENABLED === 'true' &&
+              !!onToggleShowAgentTasks &&
+              !showAgentTasks;
             
-            return hasSearchFilters || hasColumnFilters;
+            return hasSearchFilters || hasColumnFilters || hasAgentHidden;
           })() && (
             <button
               onClick={handleClearAllFilters}
@@ -591,14 +565,48 @@ export default function SearchInterface({
             </button>
           )}
         </div>
-        
-        <button
-          onClick={handleToggleCollapse}
-          className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
-          title={isCollapsed ? t('searchInterface.expandAdvanced') : t('searchInterface.collapseBasic')}
-        >
-          {isCollapsed ? <ChevronDown size={14} className="text-gray-500" /> : <ChevronUp size={14} className="text-gray-500" />}
-        </button>
+
+        <div className="flex items-center gap-2 shrink-0">
+          {siteSettings?.AI_ENABLED === 'true' && onToggleShowAgentTasks && (
+            <button
+              type="button"
+              onClick={() => onToggleShowAgentTasks(!showAgentTasks)}
+              className={`
+                shrink-0 rounded-full p-0.5 transition-all
+                focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-1
+                ${showAgentTasks
+                  ? 'ring-2 ring-blue-500 ring-offset-1 dark:ring-offset-gray-800'
+                  : 'opacity-45 grayscale hover:opacity-70'
+                }
+              `}
+              title={
+                showAgentTasks
+                  ? t('searchInterface.hideAgentTasks')
+                  : t('searchInterface.showAgentTasks')
+              }
+              aria-label={
+                showAgentTasks
+                  ? t('searchInterface.hideAgentTasks')
+                  : t('searchInterface.showAgentTasks')
+              }
+              aria-pressed={showAgentTasks}
+            >
+              <img
+                src={getAgentAvatarSrc()}
+                alt=""
+                className="h-6 w-6 rounded-full object-cover"
+                draggable={false}
+              />
+            </button>
+          )}
+          <button
+            onClick={handleToggleCollapse}
+            className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
+            title={isCollapsed ? t('searchInterface.expandAdvanced') : t('searchInterface.collapseBasic')}
+          >
+            {isCollapsed ? <ChevronDown size={14} className="text-gray-500" /> : <ChevronUp size={14} className="text-gray-500" />}
+          </button>
+        </div>
       </div>
 
       {!isCollapsed && (

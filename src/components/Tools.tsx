@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Minimize2, Maximize2, Search, Minus, LayoutGrid, List, Calendar, ChevronUp, type LucideIcon } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { TaskViewMode, ViewMode } from '../utils/userPreferences';
+import { KanbanChromeTooltip } from './KanbanChromeTooltip';
 
 interface ToolsProps {
   taskViewMode: TaskViewMode;
@@ -10,6 +11,10 @@ interface ToolsProps {
   onViewModeChange: (mode: ViewMode) => void;
   isSearchActive: boolean;
   onToggleSearch: () => void;
+  /** True when any board filter is active (search fields, members, columns, Agent hidden, etc.) */
+  hasActiveFilters?: boolean;
+  /** Instant tooltip listing why the indicator is on (multiline OK) */
+  activeFilterTooltip?: string;
   /** When set, shows a chevron in the title row to collapse Tools / members / progress */
   onHideToolbar?: () => void;
 }
@@ -37,6 +42,8 @@ export default function Tools({
   onViewModeChange,
   isSearchActive,
   onToggleSearch,
+  hasActiveFilters = false,
+  activeFilterTooltip = '',
   onHideToolbar,
 }: ToolsProps) {
   const { t } = useTranslation('common');
@@ -189,17 +196,55 @@ export default function Tools({
         </div>
 
         {/* Search Toggle */}
-        <button
-          type="button"
-          onClick={onToggleSearch}
-          className={`${buttonBaseClass} ${
-            isSearchActive ? buttonActiveClass : buttonIdleClass
-          }`}
-          title={isSearchActive ? t('tools.hideSearchFilters') : t('tools.showSearchFilters')}
-          data-tour-id="search-filter"
-        >
-          <ToolIcon icon={Search} />
-        </button>
+        {(() => {
+          const searchButton = (
+            <button
+              type="button"
+              onClick={onToggleSearch}
+              className={`${buttonBaseClass} ${
+                isSearchActive ? buttonActiveClass : buttonIdleClass
+              }`}
+              title={
+                hasActiveFilters && activeFilterTooltip
+                  ? undefined
+                  : isSearchActive
+                    ? t('tools.hideSearchFilters')
+                    : t('tools.showSearchFilters')
+              }
+              aria-label={
+                hasActiveFilters && activeFilterTooltip
+                  ? activeFilterTooltip.replace(/\n/g, '. ')
+                  : isSearchActive
+                    ? t('tools.hideSearchFilters')
+                    : t('tools.showSearchFilters')
+              }
+              data-tour-id="search-filter"
+            >
+              <ToolIcon icon={Search} />
+              {hasActiveFilters && (
+                <span
+                  className="absolute top-1 right-1 w-2 h-2 rounded-full bg-red-500 ring-1 ring-white dark:ring-gray-800"
+                  aria-hidden="true"
+                />
+              )}
+            </button>
+          );
+
+          if (hasActiveFilters && activeFilterTooltip) {
+            return (
+              <KanbanChromeTooltip
+                label={activeFilterTooltip}
+                delayMs={0}
+                placement="bottom"
+                wrapperClassName="relative shrink-0 inline-flex"
+              >
+                {searchButton}
+              </KanbanChromeTooltip>
+            );
+          }
+
+          return searchButton;
+        })()}
 
         {/* Task density dropdown */}
         {(viewMode === 'kanban' || viewMode === 'list' || viewMode === 'gantt') && (

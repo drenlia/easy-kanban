@@ -83,6 +83,8 @@ interface MainLayoutProps {
   onToggleCollaborators: (include: boolean) => void;
   onToggleRequesters: (include: boolean) => void;
   onToggleSystem: (include: boolean) => void;
+  showAgentTasks?: boolean;
+  onToggleShowAgentTasks?: (show: boolean) => void;
   onTaskViewModeChange: (mode: TaskViewMode) => void;
   onViewModeChange: (mode: ViewMode) => void;
   onToggleSearch: () => void;
