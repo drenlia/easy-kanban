@@ -90,7 +90,8 @@ import {
   filterTasks,
   hasActiveFilters,
   hasConfiguredSearchFilters,
-  wouldTaskBeFilteredOut 
+  wouldTaskBeFilteredOut,
+  clearTaskSoftDelete,
 } from './utils/taskUtils';
 import { dedupeTasksInColumns } from './utils/taskReorderingUtils';
 import { moveTaskToBoard } from './api';
@@ -318,11 +319,9 @@ function AppContent() {
     if (boardId) {
       taskWebSocketRef.current?.handleTaskRestored?.({
         boardId,
-        task: {
+        task: clearTaskSoftDelete({
           ...task,
-          deletedAt: null,
-          deletedBy: null,
-        },
+        }),
       });
     }
   }, []);
@@ -331,22 +330,21 @@ function AppContent() {
     if (!selectedTask?.id) return;
     try {
       const restored = await restoreTask(selectedTask.id);
-      const normalized: Task = {
+      const normalized = clearTaskSoftDelete({
         ...restored,
         columnId: restored.columnId || (restored as any).columnid,
         boardId: restored.boardId || (restored as any).boardid,
         memberId: restored.memberId || (restored as any).memberid,
         requesterId: restored.requesterId || (restored as any).requesterid,
-        deletedAt: null,
-        deletedBy: null,
-      };
+      } as Task);
       recentlyDeletedTasksRef.current.delete(selectedTask.id);
       taskWebSocketRef.current?.handleTaskRestored?.({
         boardId: normalized.boardId,
         task: normalized,
       });
+      // Keep TaskDetails open, but switch from read-only lifecycle mode to editable
+      handleSelectTask(normalized);
       toast.success(t('trash.restored'));
-      handleSelectTask(null);
     } catch (error: any) {
       const code = error?.response?.data?.code;
       if (code === 'board_soft_deleted') {
@@ -1353,9 +1351,11 @@ function AppContent() {
       for (const column of Object.values(columns)) {
         const updatedTask = column.tasks.find(task => task.id === selectedTask.id);
         if (updatedTask) {
-          // Only update if the task data has actually changed
-          if (JSON.stringify(updatedTask) !== JSON.stringify(selectedTask)) {
-            setSelectedTask(updatedTask);
+          // Live board tasks are never soft-deleted; clear markers so a stale
+          // snake_case deleted_at from TaskDetails open cannot re-lock the UI.
+          const normalizedLive = clearTaskSoftDelete(updatedTask);
+          if (JSON.stringify(normalizedLive) !== JSON.stringify(selectedTask)) {
+            setSelectedTask(normalizedLive);
           }
           break;
         }

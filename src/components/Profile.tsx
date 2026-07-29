@@ -335,7 +335,7 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
         <img
           src={previewUrl}
           alt="Preview"
-          className="h-20 w-20 rounded-full object-cover border-2 border-white shadow-lg"
+          className="h-20 w-20 rounded-full object-cover shadow-lg"
         />
       );
     }
@@ -345,7 +345,7 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
         <img
           src={getAuthenticatedAvatarUrl(currentUser.googleAvatarUrl)}
           alt="Profile"
-          className="h-20 w-20 rounded-full object-cover border-2 border-white shadow-lg"
+          className="h-20 w-20 rounded-full object-cover shadow-lg"
         />
       );
     }
@@ -355,7 +355,7 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
         <img
           src={getAuthenticatedAvatarUrl(currentUser.avatarUrl)}
           alt="Profile"
-          className="h-20 w-20 rounded-full object-cover border-2 border-white shadow-lg"
+          className="h-20 w-20 rounded-full object-cover shadow-lg"
         />
       );
     }
@@ -363,7 +363,7 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
     // Default initials avatar
     const initials = (currentUser?.firstName?.[0] || '') + (currentUser?.lastName?.[0] || '');
     return (
-      <div className="h-20 w-20 rounded-full flex items-center justify-center text-2xl font-bold text-white border-2 border-white shadow-lg bg-gradient-to-br from-blue-500 to-purple-600">
+      <div className="h-20 w-20 rounded-full flex items-center justify-center text-2xl font-bold text-white shadow-lg bg-gradient-to-br from-blue-500 to-purple-600">
         {initials || 'U'}
       </div>
     );

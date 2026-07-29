@@ -90,6 +90,8 @@ interface TextEditorProps {
   allowImageDelete?: boolean;  // Show delete button on images (default: true)
   allowImageResize?: boolean;  // Allow resizing images (default: true)
   imageDisplayMode?: 'full' | 'compact'; // Image display size (default: 'full')
+  /** When false, TipTap content is not editable (e.g. soft-deleted task details). Default true. */
+  editable?: boolean;
 }
 
 const defaultToolbarOptions: ToolbarOptions = {
@@ -168,7 +170,8 @@ export default function TextEditor({
   allowImagePaste = true,
   allowImageDelete = true,
   allowImageResize = true,
-  imageDisplayMode = 'full'
+  imageDisplayMode = 'full',
+  editable = true,
 }: TextEditorProps) {
   const { t } = useTranslation('common');
   const { siteSettings } = useSettings();
@@ -637,6 +640,7 @@ export default function TextEditor({
       })
     ],
     content: getFixedInitialContent(),
+    editable,
     onUpdate: ({ editor }) => {
       if (onChange) {
         const content = editor.getHTML();
@@ -770,6 +774,12 @@ export default function TextEditor({
       }
     }
   }, [editor, initialContent]);
+
+  React.useEffect(() => {
+    if (editor && !editor.isDestroyed) {
+      editor.setEditable(editable);
+    }
+  }, [editor, editable]);
 
   // Handle pasted images
   const handleImagePaste = React.useCallback(async (file: File): Promise<void> => {

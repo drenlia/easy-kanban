@@ -2,6 +2,28 @@ import { Task, SearchFilters, Columns, Board, TeamMember } from '../types';
 import { getTaskWatchers, getTaskCollaborators } from '../api';
 import { parseLocalDate } from './dateUtils';
 
+/** Soft-delete markers from API / SQL (camelCase or snake_case). */
+export const isTaskSoftDeleted = (task: Task | null | undefined): boolean => {
+  if (!task) return false;
+  const deletedAt = task.deletedAt ?? (task as any).deleted_at;
+  return deletedAt != null && deletedAt !== '';
+};
+
+/** Clear soft-delete fields so TaskDetails cannot stay stuck in read-only after restore. */
+export const clearTaskSoftDelete = <T extends Task | Record<string, unknown>>(task: T): T => {
+  const next = { ...task } as T & {
+    deletedAt?: string | null;
+    deletedBy?: string | null;
+    deleted_at?: string | null;
+    deleted_by?: string | null;
+  };
+  next.deletedAt = null;
+  next.deletedBy = null;
+  next.deleted_at = null;
+  next.deleted_by = null;
+  return next;
+};
+
 /**
  * Strip HTML tags from a string for text search
  */

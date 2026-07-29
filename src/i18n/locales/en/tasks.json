@@ -279,6 +279,7 @@
     "clickToChangeDates": "Click to change dates",
     "clickToChangeEffort": "Click to change effort",
     "hoverToViewComments": "Hover to view comments",
+    "addComment": "Add comment",
     "attachment": "{{count}} attachment",
     "attachments": "{{count}} attachments",
     "attachmentsTitle": "Attachments ({{count}})",

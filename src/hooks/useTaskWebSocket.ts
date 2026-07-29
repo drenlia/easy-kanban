@@ -912,10 +912,24 @@ export const useTaskWebSocket = ({
     if (!data.task.memberId && data.task.memberid) {
       data.task.memberId = data.task.memberid;
     }
+    // Clear camelCase + snake_case so a later merge cannot revive read-only mode
     data.task.deletedAt = null;
     data.task.deletedBy = null;
+    data.task.deleted_at = null;
+    data.task.deleted_by = null;
     handleTaskCreated(data);
-  }, [handleTaskCreated, recentlyDeletedTasksRef]);
+    // If TaskDetails is open on this task, exit read-only lifecycle mode
+    if (selectedTaskRef.current?.id === data.task.id) {
+      setSelectedTask({
+        ...selectedTaskRef.current,
+        ...data.task,
+        deletedAt: null,
+        deletedBy: null,
+        deleted_at: null,
+        deleted_by: null,
+      });
+    }
+  }, [handleTaskCreated, recentlyDeletedTasksRef, setSelectedTask]);
 
   const handleTaskPurged = useCallback((data: any) => {
     if (!data.taskId) return;

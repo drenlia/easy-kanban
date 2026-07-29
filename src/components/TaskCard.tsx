@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
-import { Clock, MessageCircle, Calendar, Paperclip, Pencil, Check, Ban } from 'lucide-react';
+import { Clock, MessageCircle, Calendar, Paperclip, Pencil, Check, Ban, Plus } from 'lucide-react';
 import { Task, TeamMember, Priority, PriorityOption, CurrentUser, Tag } from '../types';
 import { TaskViewMode } from '../utils/userPreferences';
 import TaskCardToolbar from './TaskCardToolbar';
@@ -153,6 +153,18 @@ const TaskCard = React.memo(function TaskCard({
   const { t } = useTranslation('tasks');
   const [showMemberSelect, setShowMemberSelect] = useState(false);
   const [showCommentTooltip, setShowCommentTooltip] = useState(false);
+
+  // Only one assignee menu across all cards
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const openTaskId = (event as CustomEvent<{ taskId?: string }>).detail?.taskId;
+      if (openTaskId && openTaskId !== task.id) {
+        setShowMemberSelect(false);
+      }
+    };
+    window.addEventListener('easykanban:assignee-menu-open', handler);
+    return () => window.removeEventListener('easykanban:assignee-menu-open', handler);
+  }, [task.id]);
   const [tooltipPosition, setTooltipPosition] = useState<{left: number, top: number}>({left: 0, top: 0});
   const [showTagRemovalMenu, setShowTagRemovalMenu] = useState(false);
   const [selectedTagForRemoval, setSelectedTagForRemoval] = useState<Tag | null>(null);
@@ -1053,8 +1065,11 @@ const TaskCard = React.memo(function TaskCard({
     
     // Only fetch if not provided via props and needed
     const fetchSprints = async () => {
-      // Fetch if selector is opened OR if task has sprintId and we don't have sprints yet
-      const shouldFetch = showSprintSelector || (task.sprintId && sprints.length === 0);
+      // Fetch if selector/date picker is opened OR if task has sprintId and we don't have sprints yet
+      const shouldFetch =
+        showSprintSelector ||
+        showDateRangePicker ||
+        (task.sprintId && sprints.length === 0);
       if (!shouldFetch) return;
       
       try {
@@ -1078,7 +1093,7 @@ const TaskCard = React.memo(function TaskCard({
     };
 
     fetchSprints();
-  }, [propSprints, showSprintSelector, task.sprintId, sprints.length]);
+  }, [propSprints, showSprintSelector, showDateRangePicker, task.sprintId, sprints.length]);
 
   // Close sprint selector when clicking outside
   useEffect(() => {
@@ -1853,7 +1868,6 @@ const TaskCard = React.memo(function TaskCard({
           </div>
         )}
 
-        {/* Blocked + aging moved to TaskCardToolbar (after delete) */}
         {/* TaskCard Toolbar - Extracted to separate component */}
         <TaskCardToolbar
           task={task}
@@ -1865,16 +1879,23 @@ const TaskCard = React.memo(function TaskCard({
           onEdit={onEdit}
           onSelect={onSelect}
           onRemove={onRemove}
-          onAddComment={handleAddComment}
           onMemberChange={handleMemberChange}
           onToggleMemberSelect={() => {
             void (async () => {
               if (!showMemberSelect) {
                 await flushPendingEdits();
+                window.dispatchEvent(
+                  new CustomEvent('easykanban:assignee-menu-open', {
+                    detail: { taskId: task.id },
+                  })
+                );
+                setShowMemberSelect(true);
+              } else {
+                setShowMemberSelect(false);
               }
-              setShowMemberSelect(!showMemberSelect);
             })();
           }}
+          onCloseMemberSelect={() => setShowMemberSelect(false)}
           setDropdownPosition={setDropdownPosition}
           dropdownPosition={dropdownPosition}
           listeners={listeners}
@@ -2248,46 +2269,50 @@ const TaskCard = React.memo(function TaskCard({
         <div className="flex items-center justify-between text-sm text-gray-500">
           {/* Left side - flow status, dates, effort, comments */}
           <div className="flex items-center gap-2 min-w-0">
-            {(task.isBlocked ||
-              (!columnIsFinished && !columnIsArchived && getColumnAgeDays(task.columnEnteredAt) >= 1)) && (
-              <div className="flex items-center gap-1 shrink-0">
-                {task.isBlocked && (
-                  <KanbanChromeTooltip
-                    label={task.blockedReason || t('taskCard.blocked')}
-                    delayMs={0}
-                    wrapperClassName="inline-flex"
+            {/* Before calendar: days-in-column and/or blocked (Ban replaces Clock when blocked) */}
+            {(() => {
+              const daysInColumn =
+                !columnIsFinished && !columnIsArchived
+                  ? getColumnAgeDays(task.columnEnteredAt)
+                  : 0;
+              const showDays = daysInColumn >= 1;
+              const showBlocked = Boolean(task.isBlocked);
+              if (!showDays && !showBlocked) return null;
+
+              const daysLabel = showDays
+                ? t('taskCard.daysInColumn', { count: daysInColumn })
+                : null;
+              const blockedLabel = task.blockedReason || t('taskCard.blocked');
+              const tooltipLabel =
+                showBlocked && showDays
+                  ? `${blockedLabel} · ${daysLabel}`
+                  : showBlocked
+                    ? blockedLabel
+                    : daysLabel || '';
+
+              return (
+                <KanbanChromeTooltip
+                  label={tooltipLabel}
+                  delayMs={0}
+                  wrapperClassName="inline-flex shrink-0"
+                >
+                  <span
+                    className={`inline-flex items-center gap-0.5 text-[10px] font-semibold tabular-nums ${
+                      showBlocked
+                        ? 'text-red-500 dark:text-red-400'
+                        : daysInColumn >= 7
+                          ? 'text-amber-700 dark:text-amber-300'
+                          : 'text-gray-500 dark:text-gray-400'
+                    }`}
+                    aria-label={tooltipLabel}
                   >
-                    <span className="inline-flex text-red-500 dark:text-red-400" aria-label={t('taskCard.blocked')}>
-                      <Ban size={12} />
-                    </span>
-                  </KanbanChromeTooltip>
-                )}
-                {!columnIsFinished &&
-                  !columnIsArchived &&
-                  getColumnAgeDays(task.columnEnteredAt) >= 1 && (
-                    <KanbanChromeTooltip
-                      label={t('taskCard.daysInColumn', {
-                        count: getColumnAgeDays(task.columnEnteredAt),
-                      })}
-                      delayMs={0}
-                      wrapperClassName="inline-flex"
-                    >
-                      <span
-                        className={`inline-flex items-center gap-0.5 text-[10px] font-semibold tabular-nums ${
-                          getColumnAgeDays(task.columnEnteredAt) >= 7
-                            ? 'text-amber-700 dark:text-amber-300'
-                            : 'text-gray-500 dark:text-gray-400'
-                        }`}
-                      >
-                        <Clock size={12} />
-                        {t('taskCard.daysInColumnShort', {
-                          count: getColumnAgeDays(task.columnEnteredAt),
-                        })}
-                      </span>
-                    </KanbanChromeTooltip>
-                  )}
-              </div>
-            )}
+                    {showBlocked ? <Ban size={12} /> : <Clock size={12} />}
+                    {showDays &&
+                      t('taskCard.daysInColumnShort', { count: daysInColumn })}
+                  </span>
+                </KanbanChromeTooltip>
+              );
+            })()}
             {/* Dates - ultra compact with sprint selector */}
             <div className="flex items-center gap-0.5">
               <KanbanChromeTooltip label={t('taskCard.clickToSelectSprint')} delayMs={0} wrapperClassName="inline-flex">
@@ -2443,25 +2468,62 @@ const TaskCard = React.memo(function TaskCard({
               )}
             </div>
 
-            {/* Comments - squeezed close to effort */}
-            {validComments && validComments.length > 0 && (
-              <div 
-                ref={commentContainerRef}
-                className="relative"
-                onMouseEnter={handleCommentTooltipShow}
-                onMouseLeave={handleCommentTooltipHide}
+            {/* Comments — always visible; gray when empty (click to add), blue when present */}
+            <div
+              ref={commentContainerRef}
+              className="relative"
+              onMouseEnter={() => {
+                if (validComments.length > 0) handleCommentTooltipShow();
+              }}
+              onMouseLeave={handleCommentTooltipHide}
+            >
+              <KanbanChromeTooltip
+                label={
+                  validComments.length > 0
+                    ? t('taskCard.hoverToViewComments')
+                    : t('taskCard.addComment')
+                }
+                wrapperClassName="inline-flex"
               >
-                <KanbanChromeTooltip label={t('taskCard.hoverToViewComments')} wrapperClassName="inline-flex">
-                  <div className="flex items-center gap-0.5 rounded px-1 py-1">
-                    <MessageCircle size={12} className="text-blue-600" />
-                    <span className="text-blue-600 font-medium text-xs">
-                      {validComments.length}
-                    </span>
-                  </div>
-                </KanbanChromeTooltip>
-              
-              </div>
-            )}
+                <button
+                  type="button"
+                  className={`flex items-center gap-0.5 rounded px-1 py-1 transition-colors ${
+                    validComments.length > 0
+                      ? 'text-blue-600'
+                      : 'text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300'
+                  }`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    isInteractingWithDropdownRef.current = true;
+                    if (clickTimerRef.current) {
+                      clearTimeout(clickTimerRef.current);
+                      clickTimerRef.current = null;
+                    }
+                    if (validComments.length === 0) {
+                      handleAddComment();
+                    }
+                    setTimeout(() => {
+                      isInteractingWithDropdownRef.current = false;
+                    }, 500);
+                  }}
+                  onMouseDown={(e) => {
+                    e.stopPropagation();
+                    isInteractingWithDropdownRef.current = true;
+                    if (clickTimerRef.current) {
+                      clearTimeout(clickTimerRef.current);
+                      clickTimerRef.current = null;
+                    }
+                  }}
+                  data-tour-id="task-card-comments"
+                >
+                  <MessageCircle size={12} />
+                  {validComments.length > 0 && (
+                    <span className="font-medium text-xs">{validComments.length}</span>
+                  )}
+                </button>
+              </KanbanChromeTooltip>
+            </div>
           </div>
 
           {/* Right side - attachments and priority */}
@@ -2820,19 +2882,35 @@ const TaskCard = React.memo(function TaskCard({
                       </div>
                       
                       {/* Sticky footer */}
-                      <div className="border-t border-gray-700 dark:border-gray-300 p-3 bg-gray-900 dark:bg-gray-100 rounded-b-md flex items-center justify-between">
+                      <div className="border-t border-gray-700 dark:border-gray-300 p-3 bg-gray-900 dark:bg-gray-100 rounded-b-md flex items-center justify-between gap-2">
                         <span className="text-gray-300 dark:text-gray-800 font-medium">
                           {t('taskCard.comments', { count: validComments.length })}
                         </span>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onSelect(task, { scrollToComments: true });
-                          }}
-                          className="px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded transition-colors"
-                        >
-                          {t('taskCard.open')}
-                        </button>
+                        <div className="flex items-center gap-1.5">
+                          <KanbanChromeTooltip label={t('taskCard.addComment')} wrapperClassName="inline-flex">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setShowCommentTooltip(false);
+                                handleAddComment();
+                              }}
+                              className="inline-flex h-6 w-6 items-center justify-center rounded bg-gray-700 hover:bg-gray-600 text-gray-100 dark:bg-gray-300 dark:hover:bg-gray-400 dark:text-gray-900 transition-colors"
+                              aria-label={t('taskCard.addComment')}
+                            >
+                              <Plus size={14} />
+                            </button>
+                          </KanbanChromeTooltip>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onSelect(task, { scrollToComments: true });
+                            }}
+                            className="px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded transition-colors"
+                          >
+                            {t('taskCard.open')}
+                          </button>
+                        </div>
                       </div>
         </div>,
         document.body
@@ -3039,6 +3117,11 @@ const TaskCard = React.memo(function TaskCard({
           onClose={handleDateRangePickerClose}
           position={dateRangePickerPosition}
           sprint={task.sprintId && sprints.length > 0 ? sprints.find(s => s.id === task.sprintId) : null}
+          availableSprints={sprints}
+          sprintsLoading={sprintsLoading}
+          onSprintSelect={(sprint) => {
+            handleSprintSelect(sprint);
+          }}
         />
       )}
 

@@ -104,7 +104,7 @@ export default function TeamMembers({
         <img
           src={getAgentAvatarSrc(member)}
           alt={member.name}
-          className="w-7 h-7 rounded-full object-cover border-2 border-white shadow-sm bg-white"
+          className="w-7 h-7 rounded-full object-cover"
         />
       );
     }
@@ -114,7 +114,7 @@ export default function TeamMembers({
         <img 
           src={getAuthenticatedAvatarUrl(member.googleAvatarUrl)} 
           alt={member.name}
-          className="w-7 h-7 rounded-full object-cover border-2 border-white shadow-sm"
+          className="w-7 h-7 rounded-full object-cover"
         />
       );
     }
@@ -124,7 +124,7 @@ export default function TeamMembers({
         <img 
           src={getAuthenticatedAvatarUrl(member.avatarUrl)} 
           alt={member.name}
-          className="w-7 h-7 rounded-full object-cover border-2 border-white shadow-sm"
+          className="w-7 h-7 rounded-full object-cover"
         />
       );
     }
@@ -133,7 +133,7 @@ export default function TeamMembers({
     const initials = member.name.split(' ').map(n => n[0]).join('').toUpperCase();
     return (
       <div 
-        className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white border-2 border-white shadow-sm"
+        className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white"
         style={{ backgroundColor: member.color }}
       >
         {initials}

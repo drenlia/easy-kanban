@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { createPortal } from 'react-dom';
-import { Copy, Eye, UserPlus, GripVertical, MessageSquarePlus, TagIcon, Plus, Trash2, Link, Archive } from 'lucide-react';
+import { Copy, Eye, UserPlus, GripVertical, TagIcon, Plus, Trash2, Link, Archive } from 'lucide-react';
 import { Task, TeamMember, Tag } from '../types';
 import { formatMembersTooltip } from '../utils/taskUtils';
 import { getAuthenticatedAvatarUrl } from '../utils/authImageUrl';
@@ -30,9 +30,10 @@ interface TaskCardToolbarProps {
   onEdit: (task: Task) => void;
   onSelect: (task: Task, options?: { scrollToComments?: boolean }) => void;
   onRemove: (taskId: string, event?: React.MouseEvent) => void;
-  onAddComment?: () => void;
   onMemberChange: (memberId: string) => void;
   onToggleMemberSelect: () => void;
+  /** Close assignee menu without toggling (outside click / exclusive open). */
+  onCloseMemberSelect: () => void;
   setDropdownPosition: (position: 'above' | 'below') => void;
   dropdownPosition: 'above' | 'below';
   listeners?: any; // DnD kit listeners
@@ -71,9 +72,9 @@ export default function TaskCardToolbar({
   onEdit,
   onSelect,
   onRemove,
-  onAddComment,
   onMemberChange,
   onToggleMemberSelect,
+  onCloseMemberSelect,
   setDropdownPosition: _setDropdownPosition,
   dropdownPosition: _dropdownPosition,
   listeners,
@@ -337,26 +338,24 @@ export default function TaskCardToolbar({
     };
   }, [showQuickTagDropdown]);
 
-  // Close member dropdown when clicking outside
+  // Close member dropdown when clicking outside (capture so other avatars' stopPropagation cannot block it)
   useEffect(() => {
+    if (!showMemberSelect) return;
+
     const handleClickOutside = (event: MouseEvent) => {
       const target = event.target as HTMLElement;
-      
-      // Check if click is outside both the member button and the portal dropdown
       if (
-        memberButtonRef.current && 
-        !memberButtonRef.current.contains(target) &&
-        !target.closest('[data-member-dropdown]') // Check if click is inside the portal dropdown
+        memberButtonRef.current?.contains(target) ||
+        target.closest('[data-member-dropdown]')
       ) {
-        onToggleMemberSelect();
+        return;
       }
+      onCloseMemberSelect();
     };
 
-    if (showMemberSelect) {
-      document.addEventListener('mousedown', handleClickOutside);
-      return () => document.removeEventListener('mousedown', handleClickOutside);
-    }
-  }, [showMemberSelect, onToggleMemberSelect]);
+    document.addEventListener('mousedown', handleClickOutside, true);
+    return () => document.removeEventListener('mousedown', handleClickOutside, true);
+  }, [showMemberSelect, onCloseMemberSelect]);
 
   const handleMemberToggle = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -371,79 +370,55 @@ export default function TaskCardToolbar({
 
   const agentLockedLabel = t('toolbar.disabledWhileAgent');
 
+  const toolbarHoverVisibility = toolbarPinnedOpen
+    ? 'pointer-events-auto opacity-100'
+    : 'pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100';
+
+  // Fixed slots: [AI or grip][grip if AI][actions] …… [watchers][trash][avatar]
+  // When no agent, grip occupies the AI activity button slot (no empty spacer).
+  // Trash stays at a constant X so bulk-delete muscle memory works across cards.
+  const trashRightClass = 'right-12';
+  const watchersRightClass = 'right-[72px]';
+
+  const gripHandle = !agentBlocking && !isDragDisabled ? (
+    <KanbanChromeTooltip label={t('toolbar.dragToMove')} wrapperClassName="">
+      <div
+        {...listeners}
+        {...attributes}
+        className="p-1 rounded cursor-grab active:cursor-grabbing hover:bg-gray-200 dark:hover:bg-gray-700 opacity-60 hover:opacity-100 transition-opacity"
+      >
+        <GripVertical size={14} className="text-gray-400" />
+      </div>
+    </KanbanChromeTooltip>
+  ) : (
+    <span className="inline-flex h-[22px] w-[22px] shrink-0 p-1" aria-hidden />
+  );
+
   return (
     <>
-      {/* Agent status icon opens Agent activity (config/controls live there). */}
-      {isAgentAssigned ? (
-        <div className="absolute top-1 left-1 z-[6] flex items-center gap-0.5">
-          <AgentStatusButton
-            status={agentWorkStatus}
-            onClick={(e) => {
-              e.stopPropagation();
-              onOpenAgentActivity?.();
-            }}
-          />
-          {!agentBlocking && !isDragDisabled && (
-            <KanbanChromeTooltip label={t('toolbar.dragToMove')} wrapperClassName="">
-              <div
-                {...listeners}
-                {...attributes}
-                className="p-1 rounded cursor-grab active:cursor-grabbing hover:bg-gray-200 opacity-50 hover:opacity-100 transition-opacity"
-              >
-                <GripVertical size={12} className="text-gray-400" />
-              </div>
-            </KanbanChromeTooltip>
-          )}
-        </div>
-      ) : (
-        <KanbanChromeTooltip label={t('toolbar.dragToMove')} wrapperClassName="absolute top-1 left-1 z-[6]">
-          <div
-            {...listeners}
-            {...attributes}
-            className={`p-1 rounded ${
-              !isDragDisabled
-                ? 'cursor-grab active:cursor-grabbing hover:bg-gray-200 opacity-60 hover:opacity-100'
-                : 'cursor-not-allowed opacity-0'
-            } transition-all duration-200`}
-          >
-            <GripVertical size={12} className="text-gray-400" />
-          </div>
-        </KanbanChromeTooltip>
-      )}
+      {/* Left cluster: AI (when assigned) + grip; grip takes AI slot when agent absent */}
+      <div className="absolute top-1 left-1 z-[6] flex items-center gap-0.5">
+        {isAgentAssigned ? (
+          <>
+            <AgentStatusButton
+              status={agentWorkStatus}
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpenAgentActivity?.();
+              }}
+            />
+            {gripHandle}
+          </>
+        ) : (
+          gripHandle
+        )}
 
-      {/* Unified Toolbar - visibility via parent `group` hover so reorder under cursor still shows toolbar */}
-      <div
-        className={`absolute top-0 z-[5] px-2 py-1 transition-opacity duration-200 ${
-          isAgentAssigned
-            ? !agentBlocking && !isDragDisabled
-              ? 'left-11'
-              : 'left-8'
-            : 'left-4'
-        } ${
-          toolbarPinnedOpen
-            ? 'pointer-events-auto opacity-100'
-            : 'pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100'
-        }`}
-        data-tour-id="task-card-toolbar"
-      >
-          <div className="flex gap-0">
-              {/* Add Comment Button */}
-            {onAddComment && (
-              <KanbanChromeTooltip label={t('toolbar.addComment')}>
-                <button
-                  className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-colors"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onAddComment();
-                  }}
-                >
-                  <MessageSquarePlus size={14} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors" />
-                </button>
-              </KanbanChromeTooltip>
-            )}
-            
-            {/* Add Tag Button - Always show when onTagAdd is provided, regardless of available tags */}
-            {onTagAdd && (
+        <div
+          className={`flex items-center gap-0.5 transition-opacity duration-200 ${toolbarHoverVisibility}`}
+          data-tour-id="task-card-toolbar"
+        >
+
+          {onTagAdd && (
               <KanbanChromeTooltip label={agentBlocking ? agentLockedLabel : t('toolbar.addTag')}>
                 <button
                   ref={quickTagButtonRef}
@@ -463,7 +438,6 @@ export default function TaskCardToolbar({
               </KanbanChromeTooltip>
             )}
             
-            {/* Copy Task Button — safe while agent runs (clone only) */}
             <KanbanChromeTooltip label={t('toolbar.copyTask')}>
               <button
                 onClick={handleCopy}
@@ -473,9 +447,6 @@ export default function TaskCardToolbar({
               </button>
             </KanbanChromeTooltip>
             
-            {/* View Details Button - REMOVED: Click anywhere on card to open details */}
-            
-            {/* Link Task Button */}
             {onStartLinking && (
               <KanbanChromeTooltip
                 label={
@@ -533,20 +504,16 @@ export default function TaskCardToolbar({
               </KanbanChromeTooltip>
             )}
             
-            {/* Archive Task Button - Show on all tasks when archive column exists, but not if task is already archived */}
             {(() => {
-              // Check if an archive column exists in the board
               const archiveColumn = columns && Object.values(columns).find(col => 
                 col.is_archived === true || (col.is_archived as any) === 1
               );
               
-              // Check if current column is archived
               const currentColumn = columns && columns[task.columnId];
               const isCurrentColumnArchived = currentColumn && (
                 currentColumn.is_archived === true || (currentColumn.is_archived as any) === 1
               );
               
-              // Show button if archive column exists AND task is not already in an archived column
               return archiveColumn && !isCurrentColumnArchived ? (
                 <KanbanChromeTooltip label={agentBlocking ? agentLockedLabel : t('toolbar.archiveTask')}>
                   <button
@@ -567,29 +534,13 @@ export default function TaskCardToolbar({
                 </KanbanChromeTooltip>
               ) : null;
             })()}
-            
-            {/* Delete Task Button */}
-            <KanbanChromeTooltip label={agentBlocking ? agentLockedLabel : t('toolbar.deleteTask')}>
-              <button
-                disabled={agentBlocking}
-                onClick={(e) => {
-                  if (agentBlocking) return;
-                  onRemove(task.id, e);
-                }}
-                className={`p-1 rounded-full transition-colors ${
-                  agentBlocking
-                    ? 'opacity-40 cursor-not-allowed'
-                    : 'hover:bg-red-100 dark:hover:bg-red-900/40'
-                }`}
-              >
-                <Trash2 size={14} className="text-red-500" />
-              </button>
-            </KanbanChromeTooltip>
         </div>
       </div>
 
-      {/* Watchers & Collaborators — left of avatar */}
-      <div className="absolute top-0 right-[40px] flex items-center gap-1 z-30 px-2 py-1" style={{ top: '7px' }}>
+      {/* Watchers & Collaborators — fixed slot left of trash (grows leftward; does not move trash) */}
+      <div
+        className={`absolute top-[7px] ${watchersRightClass} z-30 flex items-center justify-end gap-1.5`}
+      >
           {task.watchers && task.watchers.length > 0 && (
             <KanbanChromeTooltip label={formatMembersTooltip(task.watchers, 'watcher')} delayMs={0} wrapperClassName="flex items-center">
               <span className="flex items-center">
@@ -608,6 +559,29 @@ export default function TaskCardToolbar({
           )}
       </div>
 
+      {/* Delete — pinned right slot (constant X on every card) */}
+      <div
+        className={`absolute top-0 ${trashRightClass} z-[5] py-1 transition-opacity duration-200 ${toolbarHoverVisibility}`}
+        data-tour-id="task-card-delete"
+      >
+        <KanbanChromeTooltip label={agentBlocking ? agentLockedLabel : t('toolbar.deleteTask')}>
+          <button
+            disabled={agentBlocking}
+            onClick={(e) => {
+              if (agentBlocking) return;
+              onRemove(task.id, e);
+            }}
+            className={`p-1 rounded-full transition-colors ${
+              agentBlocking
+                ? 'opacity-40 cursor-not-allowed'
+                : 'hover:bg-red-100 dark:hover:bg-red-900/40'
+            }`}
+          >
+            <Trash2 size={14} className="text-red-500" />
+          </button>
+        </KanbanChromeTooltip>
+      </div>
+
       {/* Avatar Overlay - Top Right */}
       <div className={`absolute top-1 right-2 ${showMemberSelect ? 'z-[110]' : 'z-20'}`}>
         <div className="relative">
@@ -624,10 +598,10 @@ export default function TaskCardToolbar({
               onMouseDown={(e) => {
                 e.stopPropagation();
               }}
-              className={`p-1 rounded-full shadow-sm transition-colors ${
+              className={`rounded-full transition-colors ${
                 agentBlocking
                   ? 'opacity-60 cursor-not-allowed'
-                  : 'hover:bg-gray-100 cursor-pointer'
+                  : 'hover:opacity-90 cursor-pointer'
               }`}
               data-member-button="true"
             >
@@ -635,17 +609,17 @@ export default function TaskCardToolbar({
               <img
                 src={getAgentAvatarSrc(member)}
                 alt={member.name}
-                className="w-8 h-8 rounded-full object-cover border-2 border-white bg-white"
+                className="w-8 h-8 rounded-full object-cover"
               />
             ) : member.googleAvatarUrl || member.avatarUrl ? (
               <img
                 src={getAuthenticatedAvatarUrl(member.googleAvatarUrl || member.avatarUrl)}
                 alt={member.name}
-                className="w-8 h-8 rounded-full object-cover border-2 border-white"
+                className="w-8 h-8 rounded-full object-cover"
               />
             ) : (
               <div 
-                className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium text-white border-2 border-white"
+                className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium text-white"
                 style={{ backgroundColor: member.color }}
               >
                 {member.id === SYSTEM_MEMBER_ID ? '🤖' : member.name.charAt(0).toUpperCase()}
@@ -768,7 +742,7 @@ export default function TaskCardToolbar({
                     <img
                       src={getAgentAvatarSrc(m)}
                       alt={m.name}
-                      className="w-6 h-6 rounded-full object-cover bg-white"
+                      className="w-6 h-6 rounded-full object-cover"
                     />
                   ) : m.googleAvatarUrl || m.avatarUrl ? (
                     <img

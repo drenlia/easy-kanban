@@ -583,7 +583,7 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
                         <img
                           src={getAuthenticatedAvatarUrl(user.googleAvatarUrl || user.avatarUrl)}
                           alt={`${user.firstName} ${user.lastName}`}
-                          className="h-10 w-10 rounded-full object-cover border-2 border-gray-200 dark:border-gray-600"
+                          className="h-10 w-10 rounded-full object-cover"
                         />
                       ) : (
                         <div 
@@ -846,13 +846,13 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
                         <img
                           src={avatarPreviewUrl}
                           alt="Avatar preview"
-                          className="w-12 h-12 rounded-full border-2 border-gray-200"
+                          className="w-12 h-12 rounded-full object-cover"
                         />
                       ) : (editingUserData.googleAvatarUrl || editingUserData.avatarUrl) ? (
                         <img
                           src={getAuthenticatedAvatarUrl(editingUserData.googleAvatarUrl || editingUserData.avatarUrl)}
                           alt="User avatar"
-                          className="w-12 h-12 rounded-full border-2 border-gray-200"
+                          className="w-12 h-12 rounded-full object-cover"
                         />
                       ) : (
                         <div 

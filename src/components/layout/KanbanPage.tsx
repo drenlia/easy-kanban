@@ -14,7 +14,7 @@ import {
   ColumnVisibilityWarning
 } from '../../types';
 import { TaskViewMode, ViewMode, loadUserPreferences, loadUserPreferencesAsync, updateAppSettingsPreference } from '../../utils/userPreferences';
-import { hasConfiguredSearchFilters } from '../../utils/taskUtils';
+import { hasConfiguredSearchFilters, clearTaskSoftDelete } from '../../utils/taskUtils';
 import TeamMembers from '../TeamMembers';
 import Tools from '../Tools';
 import BoardMetrics from '../BoardMetrics';
@@ -455,16 +455,17 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
     async (taskId: string) => {
       try {
         const restored = await restoreTask(taskId);
-        const normalized: Task = {
+        const normalized = clearTaskSoftDelete({
           ...restored,
           columnId: restored.columnId || (restored as any).columnid,
           boardId: restored.boardId || (restored as any).boardid,
           memberId: restored.memberId || (restored as any).memberid,
           requesterId: restored.requesterId || (restored as any).requesterid,
-          deletedAt: null,
-          deletedBy: null,
-        };
+        } as Task);
         onTaskRestoredLocally?.(normalized);
+        if (selectedTask?.id === taskId) {
+          onSelectTask(normalized);
+        }
         toast.success(t('trash.restored'));
         setTrashTasks((prev) => {
           const next = prev.filter((task) => task.id !== taskId);
@@ -487,7 +488,7 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
         throw error;
       }
     },
-    [onTaskRestoredLocally, t, selectedBoard]
+    [onTaskRestoredLocally, onSelectTask, selectedTask?.id, t, selectedBoard]
   );
 
   const handlePurgeTrashTask = useCallback(

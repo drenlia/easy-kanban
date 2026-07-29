@@ -4,13 +4,27 @@ import { X, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { parseLocalDate, formatToYYYYMMDD } from '../utils/dateUtils';
 
+export type DateRangePickerSprint = {
+  id: string;
+  name: string;
+  start_date: string;
+  end_date: string;
+  is_active?: boolean | number;
+};
+
 interface DateRangePickerProps {
   startDate: string;
   endDate: string | null | undefined;
   onDateChange: (startDate: string, endDate: string) => void;
   onClose: () => void;
   position: { left: number; top: number };
-  sprint?: { id: string; name: string; start_date: string; end_date: string } | null; // Optional sprint data
+  /** Currently associated sprint (enables “apply sprint dates”). */
+  sprint?: DateRangePickerSprint | null;
+  /** Sprints for the in-calendar chooser when the task has no sprint. */
+  availableSprints?: DateRangePickerSprint[];
+  sprintsLoading?: boolean;
+  /** Assign a sprint from the in-calendar chooser (no-sprint case). */
+  onSprintSelect?: (sprint: DateRangePickerSprint) => void;
 }
 
 const DateRangePicker: React.FC<DateRangePickerProps> = ({
@@ -19,9 +33,12 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
   onDateChange,
   onClose,
   position,
-  sprint
+  sprint,
+  availableSprints = [],
+  sprintsLoading = false,
+  onSprintSelect,
 }) => {
-  const { t } = useTranslation('common');
+  const { t } = useTranslation(['common', 'tasks']);
   const [tempStartDate, setTempStartDate] = useState<string>(startDate || '');
   const [tempEndDate, setTempEndDate] = useState<string>(endDate || '');
   const [selectedStart, setSelectedStart] = useState<Date | null>(
@@ -35,48 +52,53 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
     return new Date(date.getFullYear(), date.getMonth(), 1);
   });
   const [selectionMode, setSelectionMode] = useState<'start' | 'end'>('start');
+  const [showSprintChooser, setShowSprintChooser] = useState(false);
+  const [sprintSearchTerm, setSprintSearchTerm] = useState('');
   const pickerRef = useRef<HTMLDivElement>(null);
   const [adjustedPosition, setAdjustedPosition] = useState<{ left: number; top: number }>(position);
 
-  // Adjust position to prevent going below viewport
+  const hasAssignedSprint = !!(sprint && sprint.start_date && sprint.end_date);
+
+  // Keep the whole picker (including expanded sprint chooser) inside the viewport
   useEffect(() => {
-    // Use requestAnimationFrame to ensure the element is rendered before measuring
-    requestAnimationFrame(() => {
-      if (!pickerRef.current) return;
-      
-      const viewportHeight = window.innerHeight;
-      const pickerHeight = pickerRef.current.offsetHeight || 350; // Smaller estimated height
-      const availableSpaceBelow = viewportHeight - position.top;
-      
-      let newTop = position.top;
-      
-      // If not enough space below, position above instead
-      if (availableSpaceBelow < pickerHeight) {
-        const availableSpaceAbove = position.top;
-        // Position above if there's more space above, or if below wouldn't fit
-        if (availableSpaceAbove > pickerHeight || availableSpaceAbove > availableSpaceBelow) {
-          newTop = Math.max(10, position.top - pickerHeight); // At least 10px from top
-        } else {
-          // If we must go below, at least ensure it's not cut off
-          newTop = Math.max(10, viewportHeight - pickerHeight - 10); // 10px margin from bottom
+    let cancelled = false;
+    const frame = requestAnimationFrame(() => {
+      // Second frame: layout has settled after sprint chooser expand/collapse
+      requestAnimationFrame(() => {
+        if (cancelled || !pickerRef.current) return;
+
+        const viewportHeight = window.innerHeight;
+        const viewportWidth = window.innerWidth;
+        const pickerHeight = pickerRef.current.offsetHeight || 350;
+        const pickerWidth = pickerRef.current.offsetWidth || 280;
+
+        let newTop = position.top;
+        let newLeft = position.left;
+
+        // Prefer below the trigger; if it won't fit, slide up so the bottom stays on-screen
+        if (newTop + pickerHeight > viewportHeight - 10) {
+          newTop = Math.max(10, viewportHeight - pickerHeight - 10);
         }
-      }
-      
-      // Adjust horizontal position if needed
-      let newLeft = position.left;
-      const pickerWidth = 280; // Actual width after making it smaller
-      const viewportWidth = window.innerWidth;
-      
-      if (newLeft + pickerWidth > viewportWidth) {
-        newLeft = viewportWidth - pickerWidth - 10; // 10px margin from right
-      }
-      if (newLeft < 10) {
-        newLeft = 10; // 10px margin from left
-      }
-      
-      setAdjustedPosition({ left: newLeft, top: newTop });
+        if (newTop < 10) {
+          newTop = 10;
+        }
+
+        if (newLeft + pickerWidth > viewportWidth - 10) {
+          newLeft = Math.max(10, viewportWidth - pickerWidth - 10);
+        }
+        if (newLeft < 10) {
+          newLeft = 10;
+        }
+
+        setAdjustedPosition({ left: newLeft, top: newTop });
+      });
     });
-  }, [position]);
+
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(frame);
+    };
+  }, [position, showSprintChooser, sprintsLoading, availableSprints.length]);
 
   // Close on outside click and handle ESC key
   useEffect(() => {
@@ -250,33 +272,52 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
   };
 
   // Apply sprint dates
-  const handleApplySprintDates = () => {
-    if (!sprint || !sprint.start_date || !sprint.end_date) return;
-    
-    const sprintStartStr = formatToYYYYMMDD(sprint.start_date);
-    const sprintEndStr = formatToYYYYMMDD(sprint.end_date);
-    
-    // Update temp dates (same as typing manually)
+  const applySprintDateRange = (sprintData: DateRangePickerSprint) => {
+    if (!sprintData.start_date || !sprintData.end_date) return;
+
+    const sprintStartStr = formatToYYYYMMDD(sprintData.start_date);
+    const sprintEndStr = formatToYYYYMMDD(sprintData.end_date);
+
     setTempStartDate(sprintStartStr);
     setTempEndDate(sprintEndStr);
-    
-    // Update selected dates
-    const sprintStart = parseLocalDate(sprint.start_date);
-    const sprintEnd = parseLocalDate(sprint.end_date);
+
+    const sprintStart = parseLocalDate(sprintData.start_date);
+    const sprintEnd = parseLocalDate(sprintData.end_date);
     setSelectedStart(sprintStart);
     setSelectedEnd(sprintEnd);
-    
-    // Update current month to show sprint start month
     setCurrentMonth(new Date(sprintStart.getFullYear(), sprintStart.getMonth(), 1));
-    
-    // Set selection mode to end (ready for further adjustments)
     setSelectionMode('end');
-    
-    // Apply changes immediately (same effect as typing manually)
+
     onDateChange(sprintStartStr, sprintEndStr);
-    // Close the picker after applying sprint dates (same as Apply button)
     onClose();
   };
+
+  const handleApplySprintDates = () => {
+    if (!sprint || !sprint.start_date || !sprint.end_date) return;
+    applySprintDateRange(sprint);
+  };
+
+  const handleSprintButtonClick = () => {
+    if (hasAssignedSprint) {
+      handleApplySprintDates();
+      return;
+    }
+    setShowSprintChooser((prev) => !prev);
+  };
+
+  const handleChooseSprint = (chosen: DateRangePickerSprint) => {
+    if (onSprintSelect) {
+      // Parent assigns sprintId + dates (same as card sprint picker)
+      onSprintSelect(chosen);
+      onClose();
+      return;
+    }
+    applySprintDateRange(chosen);
+  };
+
+  const filteredSprints = availableSprints.filter((s) =>
+    s.name.toLowerCase().includes(sprintSearchTerm.toLowerCase())
+  );
 
   // Generate calendar days
   const generateCalendarDays = () => {
@@ -359,11 +400,12 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
   return createPortal(
     <div
       ref={pickerRef}
-      className="fixed bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg shadow-2xl z-[9999] p-2"
+      className="fixed bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg shadow-2xl z-[9999] p-2 overflow-y-auto"
       style={{
         left: `${adjustedPosition.left}px`,
         top: `${adjustedPosition.top}px`,
-        width: '280px'
+        width: '280px',
+        maxHeight: 'calc(100vh - 20px)',
       }}
       onClick={(e) => e.stopPropagation()}
       onKeyDown={handleKeyDown}
@@ -492,38 +534,115 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
       </div>
 
       {/* Action Buttons */}
-      <div className="flex items-center justify-between gap-1.5 pt-2 border-t border-gray-200 dark:border-gray-700">
-        <button
-          onClick={handleClear}
-          className="px-2 py-1 text-[10px] font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
-        >
-          {t('dateRangePicker.clear')}
-        </button>
-        <div className="flex gap-1.5">
-          {/* Sprint Button - Show if sprint is available */}
-          {sprint && sprint.start_date && sprint.end_date && (
+      <div className="flex flex-col gap-1.5 pt-2 border-t border-gray-200 dark:border-gray-700">
+        <div className="flex items-center justify-between gap-1.5">
+          <button
+            onClick={handleClear}
+            className="px-2 py-1 text-[10px] font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
+          >
+            {t('dateRangePicker.clear')}
+          </button>
+          <div className="flex gap-1.5">
+            {/* Sprint: apply dates when assigned; otherwise open in-calendar sprint chooser */}
             <button
-              onClick={handleApplySprintDates}
-              className="px-2 py-1 text-[10px] font-medium bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors border border-blue-200 dark:border-blue-700"
-              title={`${t('dateRangePicker.applySprintDates')}: ${sprint.name}`}
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleSprintButtonClick();
+              }}
+              className={`px-2 py-1 text-[10px] font-medium rounded transition-colors border ${
+                showSprintChooser && !hasAssignedSprint
+                  ? 'bg-blue-100 dark:bg-blue-900/50 text-blue-800 dark:text-blue-200 border-blue-300 dark:border-blue-600'
+                  : 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-700 hover:bg-blue-100 dark:hover:bg-blue-900/50'
+              }`}
+              title={
+                hasAssignedSprint
+                  ? `${t('dateRangePicker.applySprintDates')}: ${sprint!.name}`
+                  : t('dateRangePicker.chooseSprint')
+              }
             >
               {t('dateRangePicker.sprint')}
             </button>
-          )}
-          <button
-            onClick={onClose}
-            className="px-2 py-1 text-[10px] font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
-          >
-            {t('dateRangePicker.cancel')}
-          </button>
-          <button
-            onClick={handleApply}
-            disabled={!tempStartDate}
-            className="px-2 py-1 text-[10px] font-medium bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {t('dateRangePicker.apply')}
-          </button>
+            <button
+              onClick={onClose}
+              className="px-2 py-1 text-[10px] font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
+            >
+              {t('dateRangePicker.cancel')}
+            </button>
+            <button
+              onClick={handleApply}
+              disabled={!tempStartDate}
+              className="px-2 py-1 text-[10px] font-medium bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {t('dateRangePicker.apply')}
+            </button>
+          </div>
         </div>
+
+        {/* In-calendar sprint chooser (task has no sprint) */}
+        {showSprintChooser && !hasAssignedSprint && (
+          <div
+            className="mt-1 max-h-40 overflow-hidden rounded-md border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800"
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="p-1.5 border-b border-gray-200 dark:border-gray-600">
+              <input
+                type="text"
+                value={sprintSearchTerm}
+                onChange={(e) => setSprintSearchTerm(e.target.value)}
+                placeholder={t('taskCard.searchSprints', { ns: 'tasks' })}
+                className="w-full px-2 py-1 text-[11px] border border-gray-300 dark:border-gray-600 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
+                autoFocus
+              />
+            </div>
+            <div className="max-h-28 overflow-y-auto">
+              {sprintsLoading ? (
+                <div className="px-2 py-2 text-[11px] text-gray-500 dark:text-gray-400">
+                  {t('taskCard.loadingSprints', { ns: 'tasks' })}
+                </div>
+              ) : filteredSprints.length === 0 ? (
+                <div className="px-2 py-2 text-[11px] text-gray-500 dark:text-gray-400">
+                  {t('taskCard.noSprintsAvailable', { ns: 'tasks' })}
+                </div>
+              ) : (
+                filteredSprints.map((s) => (
+                  <button
+                    key={s.id}
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleChooseSprint(s);
+                    }}
+                    className={`w-full text-left px-2 py-1.5 text-[11px] hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors ${
+                      s.is_active === 1 || s.is_active === true
+                        ? 'bg-green-50 dark:bg-green-900/10'
+                        : ''
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-1">
+                      <span className="font-medium text-gray-900 dark:text-white truncate">
+                        {s.name}
+                      </span>
+                      {(s.is_active === 1 || s.is_active === true) && (
+                        <span className="shrink-0 px-1.5 py-0.5 text-[9px] font-semibold rounded-full bg-green-500 text-white">
+                          {t('taskCard.active', { ns: 'tasks' })}
+                        </span>
+                      )}
+                    </div>
+                    {(s.start_date || s.end_date) && (
+                      <div className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5 font-mono">
+                        {s.start_date ? formatToYYYYMMDD(s.start_date) : '—'}
+                        {' → '}
+                        {s.end_date ? formatToYYYYMMDD(s.end_date) : '—'}
+                      </div>
+                    )}
+                  </button>
+                ))
+              )}
+            </div>
+          </div>
+        )}
       </div>
     </div>,
     document.body

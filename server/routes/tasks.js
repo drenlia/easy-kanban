@@ -1768,6 +1768,8 @@ router.post('/:id/restore', authenticateToken, async (req, res) => {
       position,
       deletedAt: null,
       deletedBy: null,
+      deleted_at: null,
+      deleted_by: null,
     };
 
     const tenantId = getTenantId(req);

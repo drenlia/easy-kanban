@@ -869,6 +869,7 @@
   "dateRangePicker": {
     "sprint": "Sprint",
     "applySprintDates": "Appliquer les dates du sprint",
+    "chooseSprint": "Choisir un sprint",
     "title": "Sélectionner une plage de dates",
     "startDate": "Date de début",
     "endDate": "Date de fin",

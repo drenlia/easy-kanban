@@ -37,7 +37,7 @@ function MemberAvatar({ member }: { member?: TeamMember }) {
       <img
         src={getAgentAvatarSrc(member)}
         alt={member.name}
-        className="h-6 w-6 rounded-full object-cover ring-1 ring-white dark:ring-gray-800"
+        className="h-6 w-6 rounded-full object-cover"
         title={member.name}
       />
     );
@@ -48,7 +48,7 @@ function MemberAvatar({ member }: { member?: TeamMember }) {
       <img
         src={getAuthenticatedAvatarUrl(member.googleAvatarUrl) || ''}
         alt={member.name}
-        className="h-6 w-6 rounded-full object-cover ring-1 ring-white dark:ring-gray-800"
+        className="h-6 w-6 rounded-full object-cover"
         title={member.name}
       />
     );
@@ -59,7 +59,7 @@ function MemberAvatar({ member }: { member?: TeamMember }) {
       <img
         src={getAuthenticatedAvatarUrl(member.avatarUrl) || ''}
         alt={member.name}
-        className="h-6 w-6 rounded-full object-cover ring-1 ring-white dark:ring-gray-800"
+        className="h-6 w-6 rounded-full object-cover"
         title={member.name}
       />
     );
@@ -74,7 +74,7 @@ function MemberAvatar({ member }: { member?: TeamMember }) {
 
   return (
     <div
-      className="flex h-6 w-6 items-center justify-center rounded-full text-[9px] font-semibold text-white ring-1 ring-white dark:ring-gray-800"
+      className="flex h-6 w-6 items-center justify-center rounded-full text-[9px] font-semibold text-white"
       style={{ backgroundColor: member.color || '#6b7280' }}
       title={member.name}
     >

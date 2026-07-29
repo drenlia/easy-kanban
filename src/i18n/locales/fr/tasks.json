@@ -279,6 +279,7 @@
     "clickToChangeDates": "Cliquer pour modifier les dates",
     "clickToChangeEffort": "Cliquer pour modifier l'effort",
     "hoverToViewComments": "Survoler pour voir les commentaires",
+    "addComment": "Ajouter un commentaire",
     "attachment": "{{count}} pièce jointe",
     "attachments": "{{count}} pièces jointes",
     "attachmentsTitle": "Pièces jointes ({{count}})",

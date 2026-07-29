@@ -1,6 +1,7 @@
 import React, { Suspense } from 'react';
 import { Task, TeamMember, CurrentUser } from '../../types';
 import { lazyWithRetry } from '../../utils/lazyWithRetry';
+import { isTaskSoftDeleted } from '../../utils/taskUtils';
 
 // Lazy load modal components to reduce initial bundle size with retry logic
 const TaskDetails = lazyWithRetry(() => import('../TaskDetails'));
@@ -55,8 +56,7 @@ const ModalManager: React.FC<ModalManagerProps> = ({
   siteSettings,
   boards,
 }) => {
-  const isReadOnly =
-    !!(selectedTask?.deletedAt || (selectedTask as any)?.deleted_at);
+  const isReadOnly = isTaskSoftDeleted(selectedTask);
   const isAdmin = !!currentUser?.roles?.includes('admin');
 
   return (

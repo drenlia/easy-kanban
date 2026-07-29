@@ -866,6 +866,7 @@
   "dateRangePicker": {
     "sprint": "Sprint",
     "applySprintDates": "Apply sprint dates",
+    "chooseSprint": "Choose a sprint",
     "title": "Select Date Range",
     "startDate": "Start Date",
     "endDate": "End Date",

@@ -864,7 +864,7 @@ export default function ListView({
         <div className="flex items-center gap-1">
           {member.id === SYSTEM_MEMBER_ID ? (
             <div 
-              className="w-5 h-5 rounded-full flex items-center justify-center text-xs border border-gray-200"
+              className="w-5 h-5 rounded-full flex items-center justify-center text-xs"
               style={{ backgroundColor: member.color }}
             >
               🤖
@@ -873,17 +873,17 @@ export default function ListView({
             <img
               src={getAgentAvatarSrc(member)}
               alt={member.name}
-              className="w-5 h-5 rounded-full object-cover border border-gray-200 bg-white"
+              className="w-5 h-5 rounded-full object-cover"
             />
           ) : member.googleAvatarUrl || member.avatarUrl ? (
             <img
               src={getAuthenticatedAvatarUrl(member.googleAvatarUrl || member.avatarUrl)}
               alt={member.name}
-              className="w-5 h-5 rounded-full object-cover border border-gray-200"
+              className="w-5 h-5 rounded-full object-cover"
             />
           ) : (
             <div 
-              className="w-5 h-5 rounded-full flex items-center justify-center text-xs font-medium text-white border border-gray-200"
+              className="w-5 h-5 rounded-full flex items-center justify-center text-xs font-medium text-white"
               style={{ backgroundColor: member.color }}
             >
               {member.name.charAt(0).toUpperCase()}
@@ -1192,7 +1192,10 @@ export default function ListView({
     const fetchSprints = async () => {
       // Check if any task has a sprintId and we don't have sprints yet
       const hasTasksWithSprints = allTasks.some(task => task.sprintId);
-      const shouldFetch = showSprintSelector || (hasTasksWithSprints && sprints.length === 0);
+      const shouldFetch =
+        showSprintSelector ||
+        !!showDateRangePicker ||
+        (hasTasksWithSprints && sprints.length === 0);
       if (!shouldFetch) return;
       
       try {
@@ -1216,7 +1219,7 @@ export default function ListView({
     };
 
     fetchSprints();
-  }, [propSprints, showSprintSelector, sprints.length, allTasks]);
+  }, [propSprints, showSprintSelector, showDateRangePicker, sprints.length, allTasks]);
 
   // Close sprint selector when clicking outside
   useEffect(() => {
@@ -2443,7 +2446,7 @@ export default function ListView({
               >
                 {member.id === SYSTEM_MEMBER_ID ? (
                   <div 
-                    className="w-4 h-4 rounded-full flex items-center justify-center text-xs border border-gray-200"
+                    className="w-4 h-4 rounded-full flex items-center justify-center text-xs"
                     style={{ backgroundColor: member.color }}
                   >
                     🤖
@@ -2452,17 +2455,17 @@ export default function ListView({
                   <img
                     src={getAgentAvatarSrc(member)}
                     alt={member.name}
-                    className="w-4 h-4 rounded-full object-cover border border-gray-200 bg-white"
+                    className="w-4 h-4 rounded-full object-cover"
                   />
                 ) : member.googleAvatarUrl || member.avatarUrl ? (
                   <img
                     src={getAuthenticatedAvatarUrl(member.googleAvatarUrl || member.avatarUrl)}
                     alt={member.name}
-                    className="w-4 h-4 rounded-full object-cover border border-gray-200"
+                    className="w-4 h-4 rounded-full object-cover"
                   />
                 ) : (
                   <div 
-                    className="w-4 h-4 rounded-full flex items-center justify-center text-xs font-medium text-white border border-gray-200"
+                    className="w-4 h-4 rounded-full flex items-center justify-center text-xs font-medium text-white"
                     style={{ backgroundColor: member.color }}
                   >
                     {member.name.charAt(0).toUpperCase()}
@@ -2930,6 +2933,11 @@ export default function ListView({
               onClose={handleDateRangePickerClose}
               position={dateRangePickerPosition}
               sprint={sprint}
+              availableSprints={sprints}
+              sprintsLoading={sprintsLoading}
+              onSprintSelect={(chosen) => {
+                handleSprintSelect(showDateRangePicker, chosen);
+              }}
             />
           );
         })(),

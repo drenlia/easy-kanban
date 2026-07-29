@@ -56,7 +56,7 @@ import {
 } from '../constants/appConstants';
 import { feDebug } from '../utils/clientDebug';
 import { commentTextToHtml } from '../utils/commentContent';
-import { parseEffortUnit } from '../utils/taskUtils';
+import { parseEffortUnit, isTaskSoftDeleted } from '../utils/taskUtils';
 import websocketClient from '../services/websocketClient';
 
 function detailsLog(...args: unknown[]) {
@@ -180,8 +180,7 @@ export default function TaskDetails({
     isAgentAssigned &&
     !!agentStatus &&
     (AGENT_DRAG_BLOCKING_STATUSES as readonly string[]).includes(agentStatus);
-  const isReadOnlyMode =
-    readOnly || !!(task.deletedAt || (task as any).deleted_at);
+  const isReadOnlyMode = readOnly || isTaskSoftDeleted(task);
   const isWritersLocked = isAgentWorkActive || isReadOnlyMode;
 
   useEffect(() => {
@@ -1775,17 +1774,17 @@ export default function TaskDetails({
               </label>
               <TextEditor
                 onSubmit={async () => {
-                  if (isReadOnlyMode) return;
+                  if (isWritersLocked) return;
                   // Save pending attachments when submit is triggered
                   await savePendingAttachments();
                 }}
                 onChange={(content) => {
-                  if (isReadOnlyMode) return;
+                  if (isWritersLocked) return;
                   handleTextUpdate('description', content);
                 }}
-                onAttachmentsChange={isReadOnlyMode ? undefined : handleAttachmentsChange}
-                onAttachmentDelete={isReadOnlyMode ? undefined : handleAttachmentDelete}
-                onImageRemovalNeeded={isReadOnlyMode ? undefined : handleImageRemoval}
+                onAttachmentsChange={isWritersLocked ? undefined : handleAttachmentsChange}
+                onAttachmentDelete={isWritersLocked ? undefined : handleAttachmentDelete}
+                onImageRemovalNeeded={isWritersLocked ? undefined : handleImageRemoval}
                 initialContent={editedTask.description}
                 placeholder={t('placeholders.enterDescription')}
                 minHeight="120px"
@@ -1801,12 +1800,13 @@ export default function TaskDetails({
                   link: true,
                   lists: true,
                   alignment: false,
-                  attachments: !isReadOnlyMode
+                  attachments: !isWritersLocked
                 }}
-                allowImagePaste={!isReadOnlyMode}
-                allowImageDelete={!isReadOnlyMode}
-                allowImageResize={!isReadOnlyMode}
-                showToolbar={!isReadOnlyMode}
+                allowImagePaste={!isWritersLocked}
+                allowImageDelete={!isWritersLocked}
+                allowImageResize={!isWritersLocked}
+                showToolbar={!isWritersLocked}
+                editable={!isWritersLocked}
                 className="w-full"
               />
               
