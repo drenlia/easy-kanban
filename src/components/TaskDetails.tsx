@@ -164,6 +164,7 @@ export default function TaskDetails({
   const resizeRef = useRef<HTMLDivElement>(null);
   const [commentAttachments, setCommentAttachments] = useState<Record<string, Attachment[]>>({});
   const textSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const blockedReasonSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const commentsRef = useRef<HTMLDivElement>(null);
   const [availableTags, setAvailableTags] = useState<Tag[]>([]);
   const [taskTags, setTaskTags] = useState<Tag[]>([]);
@@ -763,6 +764,9 @@ export default function TaskDetails({
     return () => {
       if (textSaveTimeoutRef.current) {
         clearTimeout(textSaveTimeoutRef.current);
+      }
+      if (blockedReasonSaveTimeoutRef.current) {
+        clearTimeout(blockedReasonSaveTimeoutRef.current);
       }
     };
   }, []);
@@ -2118,15 +2122,29 @@ export default function TaskDetails({
                   <input
                     type="text"
                     value={editedTask.blockedReason || ''}
-                    onChange={(e) =>
-                      setEditedTask((prev) => ({ ...prev, blockedReason: e.target.value }))
-                    }
-                    onBlur={(e) =>
-                      handleUpdate({
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      setEditedTask((prev) => ({ ...prev, blockedReason: value }));
+                      if (blockedReasonSaveTimeoutRef.current) {
+                        clearTimeout(blockedReasonSaveTimeoutRef.current);
+                      }
+                      blockedReasonSaveTimeoutRef.current = setTimeout(() => {
+                        void handleUpdate({
+                          isBlocked: true,
+                          blockedReason: value.trim() || null,
+                        });
+                      }, 500);
+                    }}
+                    onBlur={(e) => {
+                      if (blockedReasonSaveTimeoutRef.current) {
+                        clearTimeout(blockedReasonSaveTimeoutRef.current);
+                        blockedReasonSaveTimeoutRef.current = null;
+                      }
+                      void handleUpdate({
                         isBlocked: true,
                         blockedReason: e.target.value.trim() || null,
-                      })
-                    }
+                      });
+                    }}
                     placeholder={t('labels.blockedReasonPlaceholder')}
                     className="mt-2 w-full px-3 py-2 border rounded-md bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-100 text-sm"
                     disabled={isSubmitting || isWritersLocked}

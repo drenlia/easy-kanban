@@ -59,6 +59,8 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
   onResendInvitation,
 }) => {
   const { t } = useTranslation('admin');
+  // Email invites are disabled when DEMO_ENABLED=true (see emailService)
+  const isDemoMode = process.env.DEMO_ENABLED === 'true';
   const [showAddUserForm, setShowAddUserForm] = useState(false);
   const [showEditUserForm, setShowEditUserForm] = useState(false);
   const [showColorPicker, setShowColorPicker] = useState<string | null>(null);
@@ -76,6 +78,17 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
   const actionButtonRefs = useRef<{[key: string]: {[type: string]: HTMLButtonElement | null}}>({});
   const noButtonRef = useRef<HTMLButtonElement>(null);
   const [deleteButtonPosition, setDeleteButtonPosition] = useState<{top: number, left: number, userId: string, maxHeight?: number} | null>(null);
+
+  const getEmptyNewUser = () => ({
+    email: '',
+    password: '',
+    firstName: '',
+    lastName: '',
+    displayName: '',
+    role: 'user',
+    // Demo mode cannot send invites — always create locally as active
+    isActive: isDemoMode ? true : false
+  });
   
   // Helper function to check if a user is the instance owner
   const isOwner = (userEmail: string) => {
@@ -189,15 +202,7 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
     authProvider: ''
   });
   
-  const [newUser, setNewUser] = useState({
-    email: '',
-    password: '',
-    firstName: '',
-    lastName: '',
-    displayName: '',
-    role: 'user',
-    isActive: false
-  });
+  const [newUser, setNewUser] = useState(getEmptyNewUser);
 
   const handleColorChange = (userId: string, currentColor: string, event: React.MouseEvent) => {
     setEditingColor(currentColor);
@@ -275,17 +280,10 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
 
   const handleAddUser = async () => {
     try {
-      await onAddUser(newUser);
+      const userPayload = isDemoMode ? { ...newUser, isActive: true } : newUser;
+      await onAddUser(userPayload);
       setShowAddUserForm(false);
-      setNewUser({
-        email: '',
-        password: '',
-        firstName: '',
-        lastName: '',
-        displayName: '',
-        role: 'user',
-        isActive: false
-      });
+      setNewUser(getEmptyNewUser());
       toast.success(t('users.userCreatedSuccessfully'), '');
     } catch (err: any) {
       console.error('Failed to add user:', err);
@@ -378,14 +376,7 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
 
   const handleCancelAddUser = () => {
     setShowAddUserForm(false);
-    setNewUser({
-      email: '',
-      password: '',
-      firstName: '',
-      lastName: '',
-      displayName: '',
-      role: 'user'
-    });
+    setNewUser(getEmptyNewUser());
   };
 
   const handleNewUserChange = (field: string, value: string) => {
@@ -732,11 +723,26 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
                   <input
                     type="checkbox"
                     id="isActive"
-                    checked={newUser.isActive}
-                    onChange={(e) => setNewUser(prev => ({ ...prev, isActive: e.target.checked }))}
-                    className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                    checked={isDemoMode || newUser.isActive}
+                    disabled={isDemoMode}
+                    onChange={(e) => {
+                      if (isDemoMode) return;
+                      setNewUser(prev => ({ ...prev, isActive: e.target.checked }));
+                    }}
+                    title={isDemoMode ? t('users.activeCreateLocallyDemo') : undefined}
+                    className={`h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded ${
+                      isDemoMode ? 'opacity-60 cursor-not-allowed' : ''
+                    }`}
                   />
-                  <label htmlFor="isActive" className="ml-2 block text-sm text-gray-700 dark:text-gray-300">
+                  <label
+                    htmlFor="isActive"
+                    className={`ml-2 block text-sm ${
+                      isDemoMode
+                        ? 'text-gray-500 dark:text-gray-400 cursor-not-allowed'
+                        : 'text-gray-700 dark:text-gray-300'
+                    }`}
+                    title={isDemoMode ? t('users.activeCreateLocallyDemo') : undefined}
+                  >
                     {t('users.activeCreateLocally')}
                   </label>
                 </div>

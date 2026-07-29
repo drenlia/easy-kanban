@@ -4,11 +4,12 @@ import { useTaskDetails } from '../hooks/useTaskDetails';
 import { Task, TeamMember, CurrentUser, Attachment } from '../types';
 import { ArrowLeft, Save, Clock, User, Calendar, AlertCircle, Tag, Users, Paperclip, Edit2, X, ChevronDown, ChevronUp, GitBranch } from 'lucide-react';
 import { parseTaskRoute } from '../utils/routingUtils';
-import { getTaskById, getMembers, getBoards, addWatcherToTask, removeWatcherFromTask, addCollaboratorToTask, removeCollaboratorFromTask, addTagToTask, removeTagFromTask, deleteComment, updateComment, fetchTaskAttachments, deleteAttachment, fetchCommentAttachments, getTaskRelationships, getAvailableTasksForRelationship, addTaskRelationship, removeTaskRelationship } from '../api';
+import { getTaskById, getMembers, getBoards, addWatcherToTask, removeWatcherFromTask, addCollaboratorToTask, removeCollaboratorFromTask, addTagToTask, removeTagFromTask, deleteComment, updateComment, fetchTaskAttachments, deleteAttachment, fetchCommentAttachments, getTaskRelationships, getAvailableTasksForRelationship, addTaskRelationship, removeTaskRelationship, getAllSprints } from '../api';
 import { useFileUpload } from '../hooks/useFileUpload';
 import { generateTaskUrl } from '../utils/routingUtils';
 import { loadUserPreferences, updateUserPreference } from '../utils/userPreferences';
 import { truncateMemberName } from '../utils/memberUtils';
+import { formatToYYYYMMDD } from '../utils/dateUtils';
 import TextEditor from './TextEditor';
 import ModalManager from './layout/ModalManager';
 import Header from './layout/Header';
@@ -22,6 +23,32 @@ import { AGENT_MEMBER_ID, SYSTEM_MEMBER_ID } from '../constants/appConstants';
 
 function pageLog(...args: unknown[]) {
   if (feDebug('FE_DEBUG_TASK_PAGE')) console.log(...args);
+}
+
+/** Normalize API date values for <input type="date"> (YYYY-MM-DD). */
+function toDateInputValue(value: string | null | undefined): string {
+  if (!value) return '';
+  const match = String(value).match(/^(\d{4}-\d{2}-\d{2})/);
+  return match ? match[1] : '';
+}
+
+/** Normalize task payload from GET /tasks/:ticket (may include snake_case DB columns). */
+function normalizeTaskFromApi(taskData: any): Task {
+  const start = taskData.startDate || taskData.startdate || null;
+  const due = taskData.dueDate || taskData.duedate || null;
+  return {
+    ...taskData,
+    memberId: taskData.memberId || taskData.memberid || '',
+    requesterId: taskData.requesterId || taskData.requesterid || '',
+    columnId: taskData.columnId || taskData.columnid || '',
+    boardId: taskData.boardId || taskData.boardid || '',
+    startDate: toDateInputValue(start) || null,
+    dueDate: toDateInputValue(due) || null,
+    sprintId: taskData.sprintId || taskData.sprint_id || null,
+    isBlocked: Boolean(taskData.isBlocked ?? taskData.is_blocked),
+    blockedReason: taskData.blockedReason || taskData.blocked_reason || null,
+    priorityId: taskData.priorityId ?? taskData.priority_id ?? null,
+  };
 }
 
 interface TaskPageProps {
@@ -57,6 +84,14 @@ export default function TaskPage({
   const [boards, setBoards] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [sprints, setSprints] = useState<Array<{
+    id: string;
+    name: string;
+    start_date: string;
+    end_date: string;
+    is_active?: boolean;
+  }>>([]);
+  const [blockedReasonDraft, setBlockedReasonDraft] = useState('');
   
   // Use members from props
   const members = propMembers;
@@ -185,8 +220,9 @@ export default function TaskPage({
         }
 
         pageLog('✅ [TaskPage] Setting state with loaded data');
-        setTask(taskData);
+        setTask(normalizeTaskFromApi(taskData));
         setBoards(boardsData);
+        setBlockedReasonDraft(taskData.blockedReason || taskData.blocked_reason || '');
       } catch (error) {
         console.error('❌ [TaskPage] Error loading task page data:', error);
         console.error('❌ [TaskPage] Error details:', {
@@ -204,6 +240,26 @@ export default function TaskPage({
 
     loadPageData();
   }, [taskId]);
+
+  // Load sprints for Schedule & Priority section
+  useEffect(() => {
+    let cancelled = false;
+    const loadSprints = async () => {
+      try {
+        const data = await getAllSprints();
+        if (!cancelled) {
+          setSprints(Array.isArray(data) ? data : []);
+        }
+      } catch (err) {
+        console.error('Failed to load sprints for TaskPage:', err);
+        if (!cancelled) setSprints([]);
+      }
+    };
+    loadSprints();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Load task relationships
   useEffect(() => {
@@ -286,6 +342,9 @@ export default function TaskPage({
     columnId: '',
     boardId: '',
     position: 0,
+    sprintId: null,
+    isBlocked: false,
+    blockedReason: null,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     comments: []
@@ -420,6 +479,11 @@ export default function TaskPage({
     handleUpdateComment,
     saveImmediately
   } = taskDetailsHook;
+
+  // Keep blocked reason draft aligned when switching tasks
+  useEffect(() => {
+    setBlockedReasonDraft(editedTask.blockedReason || '');
+  }, [editedTask.id]);
 
   // Direct attachment management (matching TaskDetails exactly)
   const [taskAttachments, setTaskAttachments] = useState<Array<{
@@ -769,7 +833,15 @@ export default function TaskPage({
     };
   }, []);
 
-  const handleBack = () => {
+  const handleBack = async () => {
+    // Flush any pending debounced edits (e.g. blocked reason still being typed)
+    // so board cards / peers receive the latest task-updated payload.
+    try {
+      await saveImmediately();
+    } catch (err) {
+      console.error('Failed to flush task before leaving Task Page:', err);
+    }
+
     // Navigate back to the kanban board
     if (task?.boardId) {
       // Try to get project identifier if available
@@ -905,6 +977,19 @@ export default function TaskPage({
                   <Clock className="h-4 w-4 mr-1" />
                   {t('taskPage.unsavedChanges')}
                 </span>
+              )}
+              {hasChanges && !isSaving && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    // Flush any in-flight editor HTML into state, then save from the ref
+                    window.setTimeout(() => saveImmediately(), 0);
+                  }}
+                  className="inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-md bg-blue-600 text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+                >
+                  <Save className="h-4 w-4 mr-1" />
+                  {t('taskPage.save')}
+                </button>
               )}
               {isSaving && (
                 <span className="text-sm text-blue-600 flex items-center">
@@ -1438,23 +1523,35 @@ export default function TaskPage({
                 <div className="px-6 pb-6">
               <div className="space-y-4">
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">{t('labels.priority')}</label>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">{t('labels.sprint')}</label>
                   <select
-                    value={editedTask.priorityId || ''}
+                    value={editedTask.sprintId || ''}
                     onChange={(e) => {
-                      const priorityId = e.target.value ? parseInt(e.target.value) : null;
-                      const priority = priorityId ? availablePriorities.find(p => p.id === priorityId) : null;
-                      handleTaskUpdate({ 
-                        priorityId: priorityId,
-                        priority: priority?.priority || null 
+                      const sprintId = e.target.value || null;
+                      if (!sprintId) {
+                        handleTaskUpdate({ sprintId: null });
+                        return;
+                      }
+                      const sprint = sprints.find(s => s.id === sprintId);
+                      handleTaskUpdate({
+                        sprintId,
+                        startDate: sprint?.start_date
+                          ? formatToYYYYMMDD(sprint.start_date)
+                          : editedTask.startDate,
+                        dueDate: sprint?.end_date
+                          ? formatToYYYYMMDD(sprint.end_date)
+                          : editedTask.dueDate,
                       });
                     }}
                     className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                   >
-                    <option value="">{t('taskPage.noPriority')}</option>
-                    {availablePriorities.map((priority) => (
-                      <option key={priority.id} value={priority.id}>
-                        {priority.priority}
+                    <option value="">{t('sprintSelector.backlog')}</option>
+                    {sprints.map((sprint) => (
+                      <option key={sprint.id} value={sprint.id}>
+                        {sprint.name}
+                        {sprint.start_date && sprint.end_date
+                          ? ` (${toDateInputValue(sprint.start_date)} → ${toDateInputValue(sprint.end_date)})`
+                          : ''}
                       </option>
                     ))}
                   </select>
@@ -1464,7 +1561,7 @@ export default function TaskPage({
                   <label className="block text-xs font-medium text-gray-600 mb-1">{t('labels.startDate')}</label>
                   <input
                     type="date"
-                    value={editedTask.startDate || ''}
+                    value={toDateInputValue(editedTask.startDate)}
                     onChange={(e) => handleTaskUpdate({ startDate: e.target.value || null })}
                     className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                   />
@@ -1474,7 +1571,7 @@ export default function TaskPage({
                   <label className="block text-xs font-medium text-gray-600 mb-1">{t('labels.dueDate')}</label>
                   <input
                     type="date"
-                    value={editedTask.dueDate || ''}
+                    value={toDateInputValue(editedTask.dueDate)}
                     onChange={(e) => handleTaskUpdate({ dueDate: e.target.value || null })}
                     className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                   />
@@ -1499,6 +1596,83 @@ export default function TaskPage({
                     className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                     placeholder="0"
                   />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">{t('labels.priority')}</label>
+                  <select
+                    value={editedTask.priorityId || ''}
+                    onChange={(e) => {
+                      const priorityId = e.target.value ? parseInt(e.target.value) : null;
+                      const priority = priorityId ? availablePriorities.find(p => p.id === priorityId) : null;
+                      handleTaskUpdate({ 
+                        priorityId: priorityId,
+                        priority: priority?.priority || null 
+                      });
+                    }}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+                  >
+                    <option value="">{t('taskPage.noPriority')}</option>
+                    {availablePriorities.map((priority) => (
+                      <option key={priority.id} value={priority.id}>
+                        {priority.priority}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between gap-3 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2">
+                    <div>
+                      <div className="text-sm font-medium text-gray-700 dark:text-gray-200">
+                        {t('labels.blocked')}
+                      </div>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">
+                        {t('labels.blockedHint')}
+                      </p>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                      <input
+                        type="checkbox"
+                        className="sr-only peer"
+                        checked={Boolean(editedTask.isBlocked)}
+                        onChange={(e) =>
+                          handleTaskUpdate({
+                            isBlocked: e.target.checked,
+                            blockedReason: e.target.checked ? editedTask.blockedReason || null : null,
+                          })
+                        }
+                      />
+                      <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-red-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-red-600" />
+                    </label>
+                  </div>
+                  {editedTask.isBlocked && (
+                    <input
+                      type="text"
+                      value={blockedReasonDraft}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        setBlockedReasonDraft(value);
+                        // Debounced autosave so navigating away mid-typing still persists
+                        handleTaskUpdate({
+                          isBlocked: true,
+                          blockedReason: value.trim() || null,
+                        });
+                      }}
+                      onBlur={(e) => {
+                        const value = e.target.value.trim() || null;
+                        setBlockedReasonDraft(e.target.value.trim());
+                        handleTaskUpdate({
+                          isBlocked: true,
+                          blockedReason: value,
+                        });
+                        // Flush immediately on blur
+                        window.setTimeout(() => saveImmediately(), 0);
+                      }}
+                      placeholder={t('labels.blockedReasonPlaceholder')}
+                      className="mt-2 w-full px-3 py-2 border rounded-md bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-100 text-sm"
+                    />
+                  )}
                 </div>
               </div>
                 </div>

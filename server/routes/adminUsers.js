@@ -316,7 +316,9 @@ router.get('/can-create', authenticateToken, requireRole(['admin']), async (req,
 
 // Create new user
 router.post('/', authenticateToken, requireRole(['admin']), async (req, res) => {
-  const { email, password, firstName, lastName, role, displayName, baseUrl: baseUrlFromBody, isActive } = req.body;
+  const { email, password, firstName, lastName, role, displayName, baseUrl: baseUrlFromBody } = req.body;
+  // Demo mode cannot send invite emails — always create users as active locally
+  const isActive = process.env.DEMO_ENABLED === 'true' ? true : req.body.isActive;
   const db = getRequestDatabase(req);
   const t = getTranslator(db);
   

@@ -98,9 +98,20 @@ function buildMinimalTaskUpdatePayload(currentTask, updatedTask, changedFields, 
   if (changedFields.includes('sprintId')) {
     minimalTask.sprintId = updatedTask.sprintId || null;
   }
-  if (changedFields.includes('isBlocked') || Boolean(currentTask.isBlocked ?? currentTask.is_blocked) !== Boolean(updatedTask.isBlocked)) {
-    minimalTask.isBlocked = Boolean(updatedTask.isBlocked);
-    minimalTask.blockedReason = updatedTask.blockedReason || null;
+  // Include blocked flag + reason whenever either changes (reason-only edits must reach peers/cards)
+  if (
+    changedFields.includes('isBlocked') ||
+    changedFields.includes('blockedReason') ||
+    Boolean(currentTask.isBlocked ?? currentTask.is_blocked) !== Boolean(updatedTask.isBlocked)
+  ) {
+    minimalTask.isBlocked =
+      updatedTask.isBlocked !== undefined
+        ? Boolean(updatedTask.isBlocked)
+        : Boolean(currentTask.isBlocked ?? currentTask.is_blocked);
+    minimalTask.blockedReason =
+      updatedTask.blockedReason !== undefined
+        ? (updatedTask.blockedReason || null)
+        : (currentTask.blockedReason || currentTask.blocked_reason || null);
   }
   
   // Handle priority changes
@@ -479,17 +490,34 @@ router.get('/:id', authenticateToken, async (req, res) => {
     }
     
     // Convert snake_case to camelCase for frontend
+    // getTaskByTicket uses SELECT t.* (Postgres lowercase columns); always normalize.
     // CRITICAL: Use priorityName from JOIN only - never use task.priority (text field can be stale)
-    // If priorityName is null, the priority was deleted or doesn't exist, so return null
+    const rawStart = task.startdate || task.startDate || null;
+    const rawDue = task.duedate || task.dueDate || null;
+    const toDateString = (value) => {
+      if (!value) return null;
+      if (value instanceof Date) return value.toISOString().split('T')[0];
+      const match = String(value).match(/^(\d{4}-\d{2}-\d{2})/);
+      return match ? match[1] : String(value);
+    };
     const taskResponse = {
       ...task,
-      priority: task.priorityName || null, // Use JOIN value only, not task.priority
+      priority: task.priorityName || null,
       priorityId: task.priorityId || null,
-      priorityName: task.priorityName || null, // Use JOIN value only, not task.priority
+      priorityName: task.priorityName || null,
       priorityColor: task.priorityColor || null,
-      sprintId: task.sprint_id || null,
-      createdAt: task.created_at,
-      updatedAt: task.updated_at
+      sprintId: task.sprint_id || task.sprintId || null,
+      createdAt: task.created_at || task.createdAt,
+      updatedAt: task.updated_at || task.updatedAt,
+      columnEnteredAt: task.column_entered_at || task.columnEnteredAt || null,
+      isBlocked: Boolean(task.is_blocked ?? task.isBlocked),
+      blockedReason: task.blocked_reason || task.blockedReason || null,
+      columnId: task.columnid || task.columnId || null,
+      boardId: task.boardid || task.boardId || null,
+      memberId: task.memberid || task.memberId || null,
+      requesterId: task.requesterid || task.requesterId || null,
+      startDate: toDateString(rawStart),
+      dueDate: toDateString(rawDue),
     };
     
     taskHttpLog(dbgHttp, '📦 [TASK API] Final task data:', {
@@ -1014,7 +1042,7 @@ router.post('/copy', authenticateToken, checkTaskLimit, async (req, res) => {
 
 // Update task
 router.put('/:id', authenticateToken, async (req, res) => {
-  const { id } = req.params;
+  const { id: idParam } = req.params;
   const task = req.body;
   const userId = req.user?.id || 'system';
   
@@ -1026,12 +1054,19 @@ router.put('/:id', authenticateToken, async (req, res) => {
     const tTranslator = await getTranslator(db);
     const now = new Date().toISOString();
     
-    // MIGRATED: Get current task for change tracking and previous location
-    const validationStartTime = Date.now();
-    const currentTask = await taskQueries.getTaskById(db, id);
+    // Resolve ticket (TASK-123) or UUID — Task Page routes use tickets
+    const isTicket = /^[A-Z]+-\d+$/i.test(idParam);
+    let currentTask = isTicket
+      ? await taskQueries.getTaskByTicket(db, idParam)
+      : await taskQueries.getTaskById(db, idParam);
+    if (!currentTask && task?.id && task.id !== idParam) {
+      currentTask = await taskQueries.getTaskById(db, task.id);
+    }
     if (!currentTask) {
       return res.status(404).json({ error: tTranslator('errors.taskNotFound') });
     }
+    const id = currentTask.id;
+    const validationStartTime = Date.now();
     
     const previousColumnId = currentTask.columnid || currentTask.columnId;
     const previousBoardId = currentTask.boardid || currentTask.boardId;
@@ -1088,6 +1123,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
       columnId: currentTask.columnid || currentTask.columnId || null,
       boardId: currentTask.boardid || currentTask.boardId || null,
       isBlocked: Boolean(currentTask.is_blocked ?? currentTask.isBlocked),
+      blockedReason: currentTask.blocked_reason || currentTask.blockedReason || null,
     };
     
     // Helper function to normalize values for comparison (treat null, undefined, empty string as equivalent)
@@ -1132,6 +1168,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
     
     // Generate change details
     const changes = [];
+    // Note: blockedReason is tracked for WebSocket below, but not activity-logged (too noisy while typing)
     const fieldsToTrack = ['title', 'description', 'memberId', 'requesterId', 'startDate', 'dueDate', 'effort', 'columnId', 'isBlocked'];
     
     // Check if priority changed (by ID or name) - only if values are actually different
@@ -1297,20 +1334,25 @@ router.put('/:id', authenticateToken, async (req, res) => {
     const dbUpdateStartTime = Date.now();
     // Preserve existing startDate if new one is null/undefined (PostgreSQL NOT NULL constraint)
     const startDate = task.startDate != null ? task.startDate : (normalizedCurrentTask.startDate || new Date().toISOString().split('T')[0]);
+    // Task Page loads by ticket and historically omitted camelCase location fields — never wipe them.
+    const nextColumnId = task.columnId ?? task.columnid ?? normalizedCurrentTask.columnId;
+    const nextBoardId = task.boardId ?? task.boardid ?? normalizedCurrentTask.boardId;
+    const nextMemberId = task.memberId ?? task.memberid ?? normalizedCurrentTask.memberId;
+    const nextRequesterId = task.requesterId ?? task.requesterid ?? normalizedCurrentTask.requesterId;
     await taskQueries.updateTask(db, id, {
-      title: task.title,
-      description: task.description,
-      memberId: task.memberId,
-      requesterId: task.requesterId,
+      title: task.title !== undefined ? task.title : currentTask.title,
+      description: task.description !== undefined ? task.description : normalizedCurrentTask.description,
+      memberId: nextMemberId,
+      requesterId: nextRequesterId,
       startDate: startDate,
-      dueDate: task.dueDate,
-      effort: task.effort != null ? task.effort : 0,
+      dueDate: task.dueDate !== undefined ? task.dueDate : normalizedCurrentTask.dueDate,
+      effort: task.effort != null ? task.effort : (normalizedCurrentTask.effort ?? 0),
       priority: priorityName,
       priority_id: priorityId,
-      columnId: task.columnId,
-      boardId: task.boardId,
-      position: task.position || 0,
-      sprint_id: task.sprintId || null,
+      columnId: nextColumnId,
+      boardId: nextBoardId,
+      position: task.position != null ? task.position : (currentTask.position || 0),
+      sprint_id: task.sprintId !== undefined ? (task.sprintId || null) : (currentTask.sprint_id || currentTask.sprintId || null),
       pre_boardId: previousBoardId,
       pre_columnId: previousColumnId,
       isBlocked: task.isBlocked !== undefined ? Boolean(task.isBlocked) : Boolean(currentTask.is_blocked ?? currentTask.isBlocked),
@@ -1457,6 +1499,12 @@ router.put('/:id', authenticateToken, async (req, res) => {
     // where we also generate the bilingual activity log message
     // Reuse the same variables declared earlier for WebSocket tracking
     if (hasChanged(currentSprintId, newSprintId)) changedFields.push('sprintId');
+    // Reason-only edits must still publish so board cards / peers refresh the tooltip text
+    const newBlockedReason =
+      task.blockedReason !== undefined ? (task.blockedReason || null) : normalizedCurrentTask.blockedReason;
+    if (hasChanged(normalizedCurrentTask.blockedReason, newBlockedReason)) {
+      changedFields.push('blockedReason');
+    }
     
     // Build minimal payload (only changed fields + required fields)
     const { minimalTask, targetBoardId } = buildMinimalTaskUpdatePayload(

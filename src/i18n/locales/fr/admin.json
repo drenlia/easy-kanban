@@ -106,6 +106,7 @@
     "displayName": "Nom d'affichage",
     "role": "Rôle",
     "activeCreateLocally": "Actif (créer l'utilisateur localement sans envoyer d'invitation)",
+    "activeCreateLocallyDemo": "Les invitations sont désactivées en mode démo. Les utilisateurs doivent être créés localement comme actifs.",
     "save": "Enregistrer",
     "inviteUser": "Inviter un utilisateur",
     "cancel": "Annuler",

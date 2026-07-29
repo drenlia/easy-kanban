@@ -106,6 +106,7 @@
     "displayName": "Display Name",
     "role": "Role",
     "activeCreateLocally": "Active (create user locally without sending invite)",
+    "activeCreateLocallyDemo": "Invites are disabled in demo mode. Users must be created as active locally.",
     "save": "Save",
     "inviteUser": "Invite User",
     "cancel": "Cancel",

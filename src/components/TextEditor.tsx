@@ -200,6 +200,8 @@ export default function TextEditor({
   const editorRef = React.useRef<HTMLDivElement>(null);
   const headingDropdownRef = React.useRef<HTMLDivElement>(null);
   const tableDropdownRef = React.useRef<HTMLDivElement>(null);
+  // TipTap HTML after last programmatic setContent / create — used to ignore non-user updates
+  const contentBaselineRef = React.useRef<string | null>(null);
 
   // Track previous existingAttachments to prevent infinite updates
   const prevExistingAttachmentsRef = React.useRef<string>('');
@@ -641,11 +643,29 @@ export default function TextEditor({
     ],
     content: getFixedInitialContent(),
     editable,
-    onUpdate: ({ editor }) => {
-      if (onChange) {
-        const content = editor.getHTML();
-        onChange(content);
+    onCreate: ({ editor }) => {
+      contentBaselineRef.current = editor.getHTML();
+    },
+    onBlur: ({ editor }) => {
+      // Flush latest HTML to parent before focus moves (e.g. Save button click)
+      if (!onChange || !editable) return;
+      const content = editor.getHTML();
+      if (contentBaselineRef.current !== null && content === contentBaselineRef.current) {
+        return;
       }
+      contentBaselineRef.current = content;
+      onChange(content);
+    },
+    onUpdate: ({ editor }) => {
+      if (!onChange) return;
+      const content = editor.getHTML();
+      // Ignore updates that don't change content relative to the last programmatic baseline
+      // (e.g. setEditable emitting 'update' on mount with the same document).
+      if (contentBaselineRef.current !== null && content === contentBaselineRef.current) {
+        return;
+      }
+      contentBaselineRef.current = content;
+      onChange(content);
     },
     editorProps: {
       attributes: {
@@ -755,29 +775,40 @@ export default function TextEditor({
   // Update editor content when existingAttachments change (e.g., when they're loaded)
   useEffect(() => {
     if (editor && existingAttachments.length > 0 && initialContent?.includes('img-')) {
+      // Don't overwrite while the user is typing
+      if (editor.isFocused) return;
       const fixedContent = getFixedInitialContent();
-      if (fixedContent !== initialContent) {
-        editor.commands.setContent(fixedContent);
+      if (fixedContent !== initialContent && fixedContent !== editor.getHTML()) {
+        // emitUpdate=false: do not treat URL fixes as user edits
+        editor.commands.setContent(fixedContent, false);
+        contentBaselineRef.current = editor.getHTML();
       }
     }
   }, [existingAttachments, initialContent, editor]);
 
-  // Update editor content when initialContent prop changes
+  // Update editor content when initialContent prop changes from an external source
+  // (task switch, websocket). Skip while focused so parent onChange echo cannot
+  // reset the document mid-edit and break autosave.
   React.useEffect(() => {
     if (editor && initialContent !== undefined) {
+      if (editor.isFocused) return;
       const currentContent = editor.getHTML();
       if (currentContent !== initialContent) {
         console.log('🔄 TextEditor: initialContent changed, updating editor content');
         console.log('🔄 From:', currentContent.substring(0, 100) + '...');
         console.log('🔄 To:', initialContent.substring(0, 100) + '...');
-        editor.commands.setContent(initialContent);
+        // emitUpdate=false: prop sync must not mark the parent form dirty
+        editor.commands.setContent(initialContent, false);
+        contentBaselineRef.current = editor.getHTML();
       }
     }
   }, [editor, initialContent]);
 
   React.useEffect(() => {
     if (editor && !editor.isDestroyed) {
-      editor.setEditable(editable);
+      // Second arg false: setEditable emits 'update' by default and would falsely
+      // trigger onChange → "Unsaved changes" as soon as the editor mounts.
+      editor.setEditable(editable, false);
     }
   }, [editor, editable]);
 

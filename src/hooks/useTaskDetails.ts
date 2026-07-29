@@ -54,6 +54,8 @@ export const useTaskDetails = ({ task, members, currentUser, onUpdate, siteSetti
       }))
   }));
 
+  const [hasChanges, setHasChanges] = useState(false);
+
   // Update editedTask when task prop changes (e.g., when data is loaded)
   useEffect(() => {
     if (!task.id) return;
@@ -110,10 +112,12 @@ export const useTaskDetails = ({ task, members, currentUser, onUpdate, siteSetti
         requesterId: task.requesterId || members[0]?.id || prev.requesterId || '',
         comments: nextComments
       }));
+      if (taskIdChanged) {
+        setHasChanges(false);
+      }
     }
   }, [task, members]);
 
-  const [hasChanges, setHasChanges] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
   const [newComment, setNewComment] = useState('');
@@ -131,17 +135,80 @@ export const useTaskDetails = ({ task, members, currentUser, onUpdate, siteSetti
   const [taskCollaborators, setTaskCollaborators] = useState<TeamMember[]>([]);
 
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const isSavingRef = useRef(false);
+  const pendingSaveRef = useRef<Task | null>(null);
+  const editedTaskRef = useRef(editedTask);
+  editedTaskRef.current = editedTask;
+  const onUpdateRef = useRef(onUpdate);
+  onUpdateRef.current = onUpdate;
 
-  // Load task data
+  // Immediate save — always persist the latest editedTaskRef snapshot
+  const saveImmediately = useCallback(async (taskToSave?: Task) => {
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+      saveTimeoutRef.current = null;
+    }
+
+    const payload = taskToSave || editedTaskRef.current;
+    if (!payload?.id) {
+      console.error('Cannot save task: missing id');
+      return;
+    }
+
+    try {
+      isSavingRef.current = true;
+      setIsSaving(true);
+      const saved = await updateTask(payload);
+      // Prefer server response when available; keep local description if response omits it
+      const merged = {
+        ...payload,
+        ...(saved || {}),
+        description: saved?.description ?? payload.description,
+        title: saved?.title ?? payload.title,
+      };
+      editedTaskRef.current = merged;
+      setEditedTask(merged);
+      setLastSaved(new Date());
+      onUpdateRef.current(merged);
+      if (!pendingSaveRef.current) {
+        setHasChanges(false);
+      }
+    } catch (error) {
+      console.error('Error saving task:', error);
+    } finally {
+      isSavingRef.current = false;
+      setIsSaving(false);
+      if (pendingSaveRef.current) {
+        const pending = pendingSaveRef.current;
+        pendingSaveRef.current = null;
+        void saveImmediately(pending);
+      }
+    }
+  }, []);
+
+  // Debounced save — never drop updates when a save is already in flight
+  const debouncedSave = useCallback((taskToSave: Task) => {
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+    }
+
+    saveTimeoutRef.current = setTimeout(() => {
+      if (isSavingRef.current) {
+        pendingSaveRef.current = taskToSave;
+        return;
+      }
+      void saveImmediately(taskToSave);
+    }, 1000);
+  }, [saveImmediately]);
+
+  // Load task data (tags, priorities, attachments). Do NOT depend on description —
+  // that would re-fetch on every keystroke and race autosave.
   const loadTaskData = useCallback(async () => {
-    // Don't load data for empty/default tasks
     if (!task.id || task.id === '') {
       return;
     }
 
     try {
-      
-      // Load tags
       const [allTags, taskTagsResponse] = await Promise.all([
         getAllTags(),
         getTaskTags(task.id)
@@ -149,21 +216,15 @@ export const useTaskDetails = ({ task, members, currentUser, onUpdate, siteSetti
       setAvailableTags(allTags);
       setTaskTags(taskTagsResponse);
 
-      // Load priorities
       const priorities = await getAllPriorities();
       setAvailablePriorities(priorities);
 
-      // Initialize watchers and collaborators from task prop
-      setTaskWatchers(task.watchers || []);
-      setTaskCollaborators(task.collaborators || []);
-
-      // Load task attachments
       const attachments = await fetchTaskAttachments(task.id);
       const filteredAttachments = attachments.filter((att: any) => att && att.id && att.name && att.url);
       setTaskAttachments(filteredAttachments);
 
-      // Fix any remaining blob URLs in the description
-      const currentDescription = editedTask.description;
+      const currentTask = editedTaskRef.current;
+      const currentDescription = currentTask.description;
       if (currentDescription && currentDescription.includes('blob:') && filteredAttachments.length > 0) {
         let fixedDescription = currentDescription;
         filteredAttachments.forEach(attachment => {
@@ -173,22 +234,20 @@ export const useTaskDetails = ({ task, members, currentUser, onUpdate, siteSetti
             fixedDescription = fixedDescription.replace(blobPattern, authenticatedUrl || attachment.url);
           }
         });
-        
+
         if (fixedDescription !== currentDescription) {
-          setEditedTask(prev => ({ ...prev, description: fixedDescription }));
-          // Save the fixed description
-          const updatedTask = { ...editedTask, description: fixedDescription };
-          saveImmediately(updatedTask);
+          const updatedTask = { ...currentTask, description: fixedDescription };
+          setEditedTask(updatedTask);
+          await saveImmediately(updatedTask);
         }
       }
 
-      // Load comment attachments
       const commentAttachmentsMap: { [commentId: string]: Attachment[] } = {};
-      for (const comment of editedTask.comments || []) {
+      for (const comment of currentTask.comments || []) {
         if (comment.id) {
           try {
-            const attachments = await fetchCommentAttachments(comment.id);
-            commentAttachmentsMap[comment.id] = attachments;
+            const commentAtts = await fetchCommentAttachments(comment.id);
+            commentAttachmentsMap[comment.id] = commentAtts;
           } catch (error) {
             console.warn(`Failed to load attachments for comment ${comment.id}:`, error);
             commentAttachmentsMap[comment.id] = [];
@@ -199,58 +258,48 @@ export const useTaskDetails = ({ task, members, currentUser, onUpdate, siteSetti
     } catch (error) {
       console.error('Error loading task data:', error);
     }
-  }, [task.id, editedTask.description]);
+  }, [task.id, saveImmediately]);
 
-  // Debounced save function
-  const debouncedSave = useCallback((taskToSave: Task) => {
-    if (saveTimeoutRef.current) {
-      clearTimeout(saveTimeoutRef.current);
-    }
-
-    saveTimeoutRef.current = setTimeout(async () => {
-      if (isSaving) return;
-      
-      try {
-        setIsSaving(true);
-        await updateTask(taskToSave);
-        setLastSaved(new Date());
-        onUpdate(taskToSave);
-        setHasChanges(false);
-      } catch (error) {
-        console.error('Error saving task:', error);
-      } finally {
-        setIsSaving(false);
-      }
-    }, 1000);
-  }, [isSaving, onUpdate]);
-
-  // Immediate save function
-  const saveImmediately = useCallback(async (taskToSave: Task) => {
-    if (saveTimeoutRef.current) {
-      clearTimeout(saveTimeoutRef.current);
-      saveTimeoutRef.current = null;
-    }
-
-    try {
-      setIsSaving(true);
-      await updateTask(taskToSave);
-      setLastSaved(new Date());
-      onUpdate(taskToSave);
-      setHasChanges(false);
-    } catch (error) {
-      console.error('Error saving task:', error);
-    } finally {
-      setIsSaving(false);
-    }
-  }, [onUpdate]);
+  // Re-sync watchers/collaborators when the task identity or those lists change from the server
+  useEffect(() => {
+    if (!task.id) return;
+    setTaskWatchers(task.watchers || []);
+    setTaskCollaborators(task.collaborators || []);
+  }, [task.id, task.watchers, task.collaborators]);
 
   // Handle task field updates
   const handleTaskUpdate = useCallback((updates: Partial<Task>) => {
-    const updatedTask = { ...editedTask, ...updates };
+    const normalizeRichText = (html: string | null | undefined) => {
+      const trimmed = (html || '').trim();
+      if (!trimmed || trimmed === '<p></p>' || trimmed === '<p><br></p>' || trimmed === '<p><br/></p>') {
+        return '';
+      }
+      return trimmed;
+    };
+
+    const prev = editedTaskRef.current;
+    const hasActualChange = (Object.keys(updates) as (keyof Task)[]).some((key) => {
+      const next = updates[key];
+      const current = prev[key];
+      if (key === 'description') {
+        return normalizeRichText(next as string) !== normalizeRichText(current as string);
+      }
+      if (next == null || next === '') {
+        return !(current == null || current === '');
+      }
+      return next !== current;
+    });
+
+    if (!hasActualChange) {
+      return;
+    }
+
+    const updatedTask = { ...prev, ...updates };
+    editedTaskRef.current = updatedTask;
     setEditedTask(updatedTask);
     setHasChanges(true);
     debouncedSave(updatedTask);
-  }, [editedTask, debouncedSave]);
+  }, [debouncedSave]);
 
   // Handle attachment changes
   const handleAttachmentChange = useCallback((files: { file: File; tempId: string }[]) => {
@@ -258,9 +307,9 @@ export const useTaskDetails = ({ task, members, currentUser, onUpdate, siteSetti
     
     if (files.length > 0) {
       // Save immediately when attachments are pending
-      saveImmediately(editedTask);
+      saveImmediately(editedTaskRef.current);
     }
-  }, [editedTask, saveImmediately]);
+  }, [saveImmediately]);
 
   // Handle image removal
   const handleImageRemoval = useCallback((filename: string) => {
