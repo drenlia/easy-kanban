@@ -302,15 +302,26 @@ const TOOLS = [
   }
 ];
 
+function automationHeaders(automation, extra = {}) {
+  const headers = {
+    Authorization: `Bearer ${automation.token}`,
+    Accept: 'application/json',
+    ...extra
+  };
+  const tenantId = automation.tenantId;
+  if (tenantId && tenantId !== 'default') {
+    headers['X-Tenant-Id'] = String(tenantId);
+  }
+  return headers;
+}
+
 async function callToolApi(automation, name, args, dryRun = false) {
   const base = String(automation.apiBaseUrl || '').replace(/\/+$/, '');
   const res = await fetch(`${base}/api/agent/automation/tools`, {
     method: 'POST',
-    headers: {
-      Authorization: `Bearer ${automation.token}`,
-      'Content-Type': 'application/json',
-      Accept: 'application/json'
-    },
+    headers: automationHeaders(automation, {
+      'Content-Type': 'application/json'
+    }),
     body: JSON.stringify({ name, arguments: args || {}, dryRun })
   });
   const body = await res.json().catch(() => ({}));
@@ -323,10 +334,7 @@ async function callToolApi(automation, name, args, dryRun = false) {
 async function getStatus(automation) {
   const base = String(automation.apiBaseUrl || '').replace(/\/+$/, '');
   const res = await fetch(`${base}/api/agent/automation/status`, {
-    headers: {
-      Authorization: `Bearer ${automation.token}`,
-      Accept: 'application/json'
-    }
+    headers: automationHeaders(automation)
   });
   if (!res.ok) return { control: 'none', status: 'unknown' };
   return res.json();
@@ -336,10 +344,7 @@ async function applyPlan(automation) {
   const base = String(automation.apiBaseUrl || '').replace(/\/+$/, '');
   const res = await fetch(`${base}/api/agent/automation/apply`, {
     method: 'POST',
-    headers: {
-      Authorization: `Bearer ${automation.token}`,
-      Accept: 'application/json'
-    }
+    headers: automationHeaders(automation)
   });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) {
@@ -381,7 +386,10 @@ function buildContext(payload) {
  */
 export async function runAutomationJob(job) {
   const payload = job.payload;
-  const automation = payload.automation;
+  const automation = {
+    ...(payload.automation || {}),
+    tenantId: payload.automation?.tenantId || payload.tenantId || job.tenantId
+  };
   if (!automation?.apiBaseUrl || !automation?.token) {
     throw new Error('Automation apiBaseUrl and token are required');
   }

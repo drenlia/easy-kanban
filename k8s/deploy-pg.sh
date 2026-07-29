@@ -86,6 +86,8 @@ fi
 
 # Generate random JWT secret
 JWT_SECRET=$(openssl rand -base64 32 | tr -d "=+/" | cut -c1-32)
+# Shared app ↔ runner bearer (preserved if secret already exists — see ensure block)
+RUNNER_TOKEN=$(openssl rand -hex 32)
 
 # Initialize RECOVERED_TOKEN variable
 RECOVERED_TOKEN=""
@@ -168,6 +170,34 @@ generate_manifests() {
         }
     else
         echo "   ✅ Redis already deployed"
+    fi
+
+    # Shared agent runner (one for all tenants, like postgres/redis)
+    echo "   🤖 Ensuring kanban-runner is deployed..."
+    if kubectl get secret kanban-runner-secret -n "${NAMESPACE}" &>/dev/null; then
+        EXISTING_RUNNER_TOKEN=$(kubectl get secret kanban-runner-secret -n "${NAMESPACE}" -o jsonpath='{.data.RUNNER_TOKEN}' 2>/dev/null | base64 -d 2>/dev/null || true)
+        if [ -n "${EXISTING_RUNNER_TOKEN}" ]; then
+            RUNNER_TOKEN="${EXISTING_RUNNER_TOKEN}"
+            echo "   ✅ Reusing existing kanban-runner-secret"
+        fi
+    fi
+    sed -e "s/easy-kanban-pg/${NAMESPACE}/g" \
+        -e "s/RUNNER_TOKEN_PLACEHOLDER/${RUNNER_TOKEN}/g" \
+        "${SCRIPT_DIR}/runner-secret-pg.yaml" > "${TEMP_DIR}/runner-secret.yaml"
+    kubectl apply -f "${TEMP_DIR}/runner-secret.yaml"
+    if ! kubectl get deployment kanban-runner -n "${NAMESPACE}" &>/dev/null; then
+        echo "   🤖 Deploying kanban-runner..."
+        sed -e "s/easy-kanban-pg/${NAMESPACE}/g" \
+            "${SCRIPT_DIR}/runner-deployment-pg.yaml" > "${TEMP_DIR}/runner-deployment.yaml"
+        kubectl apply -f "${TEMP_DIR}/runner-deployment.yaml"
+        kubectl wait --for=condition=available --timeout=180s deployment/kanban-runner -n "${NAMESPACE}" || {
+            echo "   ⚠️  kanban-runner may still be starting (image must be pushed first)"
+        }
+    else
+        echo "   ✅ kanban-runner already deployed"
+        sed -e "s/easy-kanban-pg/${NAMESPACE}/g" \
+            "${SCRIPT_DIR}/runner-deployment-pg.yaml" > "${TEMP_DIR}/runner-deployment.yaml"
+        kubectl apply -f "${TEMP_DIR}/runner-deployment.yaml"
     fi
     
     # Generate ConfigMap for PostgreSQL

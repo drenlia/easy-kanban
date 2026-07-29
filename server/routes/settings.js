@@ -143,6 +143,25 @@ router.get('/', authenticateToken, requireRole(['admin']), async (req, res, next
         settingsObj[setting.key] = setting.value;
       }
     });
+
+    // Multi-tenant: overlay platform runner env so Admin shows the shared runner (read-only in UI)
+    if (process.env.MULTI_TENANT === 'true') {
+      settingsObj.AI_RUNNER_PLATFORM_MANAGED = 'true';
+      const platformUrl = String(
+        process.env.AI_RUNNER_URL || process.env.RUNNER_URL || 'http://kanban-runner:8080'
+      ).trim();
+      settingsObj.AI_RUNNER_URL = platformUrl.replace(/\/+$/, '');
+      const platformToken = String(
+        process.env.RUNNER_TOKEN || process.env.AI_RUNNER_TOKEN || ''
+      ).trim();
+      if (platformToken) {
+        settingsObj.AI_RUNNER_TOKEN = maskApiKey(platformToken);
+        settingsObj.AI_RUNNER_TOKEN_SET = 'true';
+      } else {
+        settingsObj.AI_RUNNER_TOKEN = '';
+        settingsObj.AI_RUNNER_TOKEN_SET = 'false';
+      }
+    }
     
     res.json(settingsObj);
   } catch (error) {
@@ -231,10 +250,15 @@ router.post('/ai/runner/probe', authenticateToken, requireRole(['admin']), async
   try {
     const db = getRequestDatabase(req);
     const { probeRunner } = await import('../services/agentRunnerClient.js');
-    const result = await probeRunner(db, {
-      runnerUrl: req.body?.runnerUrl,
-      runnerToken: req.body?.runnerToken
-    });
+    // Multi-tenant: always probe the platform env runner (ignore draft body overrides)
+    const overrides =
+      process.env.MULTI_TENANT === 'true'
+        ? {}
+        : {
+            runnerUrl: req.body?.runnerUrl,
+            runnerToken: req.body?.runnerToken
+          };
+    const result = await probeRunner(db, overrides);
     if (!result.ok) {
       return res.status(400).json(result);
     }
@@ -262,6 +286,17 @@ router.put('/', authenticateToken, requireRole(['admin']), async (req, res, next
     // Prevent updates to WEBSITE_URL - it's read-only and set during instance purchase
     if (key === 'WEBSITE_URL') {
       return res.status(403).json({ error: 'WEBSITE_URL is read-only and cannot be updated' });
+    }
+
+    // Shared platform runner in multi-tenant: URL/token come from ConfigMap/Secret only
+    if (
+      process.env.MULTI_TENANT === 'true' &&
+      (key === 'AI_RUNNER_URL' || key === 'AI_RUNNER_TOKEN')
+    ) {
+      return res.status(403).json({
+        error:
+          'AI_RUNNER_URL and AI_RUNNER_TOKEN are managed by the platform in multi-tenant mode and cannot be updated'
+      });
     }
     
     // Prevent updates to APP_URL through general settings endpoint - it's owner-only

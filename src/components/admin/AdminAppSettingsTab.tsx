@@ -18,6 +18,28 @@ interface AdminAppSettingsTabProps {
 
 type AppSettingsSubTab = 'ui' | 'uploads' | 'notifications' | 'notification-queue' | 'troubleshooting' | 'ai';
 
+/** sessionStorage key: troubleshooting tab visible after secret chord on gated deployments */
+const TROUBLESHOOTING_UNLOCK_KEY = 'adminTroubleshootingUnlocked';
+
+/**
+ * Hidden unlock for Troubleshooting when MULTI_TENANT or DEMO_ENABLED:
+ * Ctrl+Alt+Shift+T (Control key — not Cmd/Meta — so Mac/Linux/Windows browsers match).
+ * Toggle while Admin → App Settings is open. Session-only (sessionStorage).
+ */
+function isTroubleshootingGatedDeployment(): boolean {
+  return (
+    process.env.MULTI_TENANT === 'true' || process.env.DEMO_ENABLED === 'true'
+  );
+}
+
+function readTroubleshootingUnlocked(): boolean {
+  try {
+    return sessionStorage.getItem(TROUBLESHOOTING_UNLOCK_KEY) === 'true';
+  } catch {
+    return false;
+  }
+}
+
 const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
   settings,
   editingSettings,
@@ -31,6 +53,11 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
   const [activeSubTab, setActiveSubTab] = useState<AppSettingsSubTab>('ui');
   const [notificationDefaults, setNotificationDefaults] = useState<{ [key: string]: boolean }>({});
   const [autosaveSuccess, setAutosaveSuccess] = useState<string | null>(null);
+  const troubleshootingGated = isTroubleshootingGatedDeployment();
+  const [troubleshootingUnlocked, setTroubleshootingUnlocked] = useState(
+    () => !troubleshootingGated || readTroubleshootingUnlocked()
+  );
+  const showTroubleshootingTab = !troubleshootingGated || troubleshootingUnlocked;
 
   // Initialize notification defaults from settings
   useEffect(() => {
@@ -76,13 +103,60 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
     return 'ui';
   };
 
-  // Initialize activeSubTab from URL hash
+  // Initialize activeSubTab from URL hash (fall back if troubleshooting is gated/locked)
   useEffect(() => {
-    setActiveSubTab(subTabFromHash(window.location.hash));
-  }, []);
+    const tab = subTabFromHash(window.location.hash);
+    if (tab === 'troubleshooting' && !showTroubleshootingTab) {
+      setActiveSubTab('ui');
+      window.location.hash = '#admin#app-settings#user-interface';
+      return;
+    }
+    setActiveSubTab(tab);
+  }, [showTroubleshootingTab]);
+
+  // Hidden chord: Ctrl+Alt+Shift+T toggles Troubleshooting on MULTI_TENANT / DEMO
+  useEffect(() => {
+    if (!troubleshootingGated) return;
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      // Use e.ctrlKey (not metaKey) so Mac matches Windows/Linux with the Control key.
+      if (!(e.ctrlKey && e.altKey && e.shiftKey && !e.metaKey)) return;
+      if (e.key !== 't' && e.key !== 'T') return;
+      e.preventDefault();
+      setTroubleshootingUnlocked((prev) => {
+        const next = !prev;
+        try {
+          if (next) {
+            sessionStorage.setItem(TROUBLESHOOTING_UNLOCK_KEY, 'true');
+          } else {
+            sessionStorage.removeItem(TROUBLESHOOTING_UNLOCK_KEY);
+          }
+        } catch {
+          /* ignore */
+        }
+        if (next) {
+          toast.success(t('appSettings.troubleshootingUnlocked'), '');
+        } else {
+          toast.success(t('appSettings.troubleshootingLocked'), '');
+          setActiveSubTab((cur) => {
+            if (cur === 'troubleshooting') {
+              window.location.hash = '#admin#app-settings#user-interface';
+              return 'ui';
+            }
+            return cur;
+          });
+        }
+        return next;
+      });
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [troubleshootingGated, t]);
 
   // Update URL hash when activeSubTab changes
   const handleSubTabChange = (tab: AppSettingsSubTab) => {
+    if (tab === 'troubleshooting' && !showTroubleshootingTab) return;
     setActiveSubTab(tab);
     const hashByTab: Record<AppSettingsSubTab, string> = {
       ui: '#admin#app-settings#user-interface',
@@ -98,12 +172,18 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
   // Listen for hash changes (back/forward navigation)
   useEffect(() => {
     const handleHashChange = () => {
-      setActiveSubTab(subTabFromHash(window.location.hash));
+      const tab = subTabFromHash(window.location.hash);
+      if (tab === 'troubleshooting' && !showTroubleshootingTab) {
+        setActiveSubTab('ui');
+        window.location.hash = '#admin#app-settings#user-interface';
+        return;
+      }
+      setActiveSubTab(tab);
     };
 
     window.addEventListener('hashchange', handleHashChange);
     return () => window.removeEventListener('hashchange', handleHashChange);
-  }, []);
+  }, [showTroubleshootingTab]);
 
   const handleSave = async () => {
     setIsSaving(true);
@@ -369,16 +449,18 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
             />
             {t('appSettings.ai')}
           </button>
-          <button
-            onClick={() => handleSubTabChange('troubleshooting')}
-            className={`py-2 px-1 border-b-2 font-medium text-sm ${
-              activeSubTab === 'troubleshooting'
-                ? 'border-blue-500 text-blue-600 dark:text-blue-400'
-                : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600'
-            }`}
-          >
-            {t('appSettings.troubleshooting')}
-          </button>
+          {showTroubleshootingTab && (
+            <button
+              onClick={() => handleSubTabChange('troubleshooting')}
+              className={`py-2 px-1 border-b-2 font-medium text-sm ${
+                activeSubTab === 'troubleshooting'
+                  ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                  : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600'
+              }`}
+            >
+              {t('appSettings.troubleshooting')}
+            </button>
+          )}
         </nav>
       </div>
 
@@ -389,7 +471,7 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
           onSettingsChange={onSettingsChange}
           onAutoSave={onAutoSave}
         />
-      ) : activeSubTab === 'troubleshooting' && onAutoSave ? (
+      ) : activeSubTab === 'troubleshooting' && showTroubleshootingTab && onAutoSave ? (
         <AdminTroubleshootingTab
           editingSettings={editingSettings}
           onSettingsChange={onSettingsChange}

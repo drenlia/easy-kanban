@@ -118,6 +118,17 @@ spec:
             secretKeyRef:
               name: postgres-secret
               key: password
+        # Shared with kanban-runner (platform-managed in multi-tenant)
+        - name: RUNNER_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: kanban-runner-secret
+              key: RUNNER_TOKEN
+        - name: AI_RUNNER_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: kanban-runner-secret
+              key: RUNNER_TOKEN
         resources:
           requests:
             memory: "256Mi"

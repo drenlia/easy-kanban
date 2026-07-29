@@ -1,0 +1,92 @@
+# Shared agent runner for all tenants in easy-kanban-pg (like postgres/redis).
+# Internal only — ClusterIP Service; no Ingress.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kanban-runner
+  namespace: easy-kanban-pg
+  labels:
+    app: kanban-runner
+    component: agent-runner
+    database: postgresql
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kanban-runner
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app: kanban-runner
+        component: agent-runner
+        database: postgresql
+    spec:
+      containers:
+      - name: kanban-runner
+        image: 10.110.240.233:5000/easy-kanban-runner:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8080
+          name: http
+        env:
+        - name: PORT
+          value: "8080"
+        - name: MAX_CONCURRENT
+          value: "1"
+        - name: RUNNER_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: kanban-runner-secret
+              key: RUNNER_TOKEN
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+        # /health is unauthenticated; /v1/status requires Bearer
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 15
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+      tolerations:
+      - key: node-role.kubernetes.io/control-plane
+        operator: Exists
+        effect: NoSchedule
+      restartPolicy: Always
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kanban-runner
+  namespace: easy-kanban-pg
+  labels:
+    app: kanban-runner
+    component: agent-runner
+spec:
+  selector:
+    app: kanban-runner
+  ports:
+  - name: http
+    port: 8080
+    targetPort: 8080
+    protocol: TCP
+  type: ClusterIP

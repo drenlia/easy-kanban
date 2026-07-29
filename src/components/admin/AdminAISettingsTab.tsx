@@ -104,6 +104,9 @@ const AdminAISettingsTab: React.FC<AdminAISettingsTabProps> = ({
   }, [models, model]);
 
   const enabled = isEnabled(editingSettings.AI_ENABLED);
+  const platformRunnerManaged =
+    process.env.MULTI_TENANT === 'true' ||
+    editingSettings.AI_RUNNER_PLATFORM_MANAGED === 'true';
   const keySet = editingSettings.AI_API_KEY_SET === 'true' || Boolean(savedKeyMask);
   const runnerTokenSet =
     editingSettings.AI_RUNNER_TOKEN_SET === 'true' || Boolean(savedRunnerTokenMask);
@@ -114,6 +117,7 @@ const AdminAISettingsTab: React.FC<AdminAISettingsTabProps> = ({
     !isMaskedApiKeyDisplay(trimmedKey);
   const trimmedRunnerToken = runnerTokenDraft.trim();
   const runnerTokenReplaced =
+    !platformRunnerManaged &&
     trimmedRunnerToken !== '' &&
     trimmedRunnerToken !== savedRunnerTokenMask &&
     !isMaskedApiKeyDisplay(trimmedRunnerToken);
@@ -126,8 +130,9 @@ const AdminAISettingsTab: React.FC<AdminAISettingsTabProps> = ({
     baseUrl.trim() !== (editingSettings.AI_API_BASE_URL || '') ||
     model.trim() !== (editingSettings.AI_MODEL || '') ||
     maxConcurrent.trim() !== (editingSettings.AI_MAX_CONCURRENT || '1') ||
-    runnerUrl.trim() !==
-      (editingSettings.AI_RUNNER_URL || 'http://kanban-runner:8080') ||
+    (!platformRunnerManaged &&
+      runnerUrl.trim() !==
+        (editingSettings.AI_RUNNER_URL || 'http://kanban-runner:8080')) ||
     keyReplaced ||
     runnerTokenReplaced;
 
@@ -202,8 +207,10 @@ const AdminAISettingsTab: React.FC<AdminAISettingsTabProps> = ({
         AI_API_BASE_URL: url,
         AI_MODEL: modelVal,
         AI_MAX_CONCURRENT: maxVal,
-        AI_RUNNER_URL: runnerUrlVal,
       };
+      if (!platformRunnerManaged) {
+        next.AI_RUNNER_URL = runnerUrlVal;
+      }
 
       if (provider !== (editingSettings.AI_PROVIDER || 'openai')) {
         await putSetting('AI_PROVIDER', provider);
@@ -218,7 +225,10 @@ const AdminAISettingsTab: React.FC<AdminAISettingsTabProps> = ({
         await putSetting('AI_MAX_CONCURRENT', maxVal);
         setMaxConcurrent(maxVal);
       }
-      if (runnerUrlVal !== (editingSettings.AI_RUNNER_URL || '')) {
+      if (
+        !platformRunnerManaged &&
+        runnerUrlVal !== (editingSettings.AI_RUNNER_URL || '')
+      ) {
         await putSetting('AI_RUNNER_URL', runnerUrlVal);
       }
       if (keyReplaced) {
@@ -228,7 +238,7 @@ const AdminAISettingsTab: React.FC<AdminAISettingsTabProps> = ({
         next.AI_API_KEY_SET = 'true';
         next.AI_API_KEY = hint;
       }
-      if (runnerTokenReplaced) {
+      if (!platformRunnerManaged && runnerTokenReplaced) {
         const saved = await putSetting('AI_RUNNER_TOKEN', trimmedRunnerToken);
         const hint = saved?.value || maskApiKey(trimmedRunnerToken);
         setRunnerTokenDraft(hint);
@@ -333,10 +343,13 @@ const AdminAISettingsTab: React.FC<AdminAISettingsTabProps> = ({
     setValidationError(null);
     setValidationOk(null);
     try {
-      const { data } = await api.post('/admin/settings/ai/runner/probe', {
-        runnerUrl: runnerUrl.trim(),
-        runnerToken: runnerTokenReplaced ? trimmedRunnerToken : undefined,
-      });
+      const body = platformRunnerManaged
+        ? {}
+        : {
+            runnerUrl: runnerUrl.trim(),
+            runnerToken: runnerTokenReplaced ? trimmedRunnerToken : undefined,
+          };
+      const { data } = await api.post('/admin/settings/ai/runner/probe', body);
       if (!data?.ok) {
         setValidationError(data?.error || t('appSettings.aiRunnerProbeFailed'));
         toast.error(data?.error || t('appSettings.aiRunnerProbeFailed'), '');
@@ -753,15 +766,23 @@ const AdminAISettingsTab: React.FC<AdminAISettingsTabProps> = ({
               {t('appSettings.aiRunnerUrl')}
             </label>
             <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">
-              {t('appSettings.aiRunnerUrlDescription')}
+              {platformRunnerManaged
+                ? t('appSettings.aiRunnerPlatformManagedDescription')
+                : t('appSettings.aiRunnerUrlDescription')}
             </p>
             <div className="flex flex-wrap items-center gap-2 max-w-3xl">
               <input
                 type="url"
                 value={runnerUrl}
                 onChange={(e) => setRunnerUrl(e.target.value)}
+                readOnly={platformRunnerManaged}
+                disabled={platformRunnerManaged}
                 placeholder="http://kanban-runner:8080"
-                className="block min-w-0 flex-1 max-w-xl px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm font-mono bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+                className={`block min-w-0 flex-1 max-w-xl px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm font-mono text-gray-900 dark:text-gray-100 ${
+                  platformRunnerManaged
+                    ? 'bg-gray-100 dark:bg-gray-800 cursor-not-allowed opacity-90'
+                    : 'bg-white dark:bg-gray-700'
+                }`}
               />
               <button
                 type="button"
@@ -776,31 +797,35 @@ const AdminAISettingsTab: React.FC<AdminAISettingsTabProps> = ({
             </div>
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              {t('appSettings.aiRunnerToken')}
-            </label>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">
-              {t('appSettings.aiRunnerTokenDescription')}
-              {runnerTokenSet ? ` ${t('appSettings.aiApiKeyConfigured')}` : ''}
-            </p>
-            <input
-              type="text"
-              autoComplete="off"
-              spellCheck={false}
-              value={runnerTokenDraft}
-              onChange={(e) => setRunnerTokenDraft(e.target.value)}
-              placeholder={
-                runnerTokenSet
-                  ? t('appSettings.aiApiKeyReplacePlaceholder')
-                  : t('appSettings.aiRunnerTokenPlaceholder')
-              }
-              className="block w-full max-w-xl px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm font-mono bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-            />
-          </div>
+          {!platformRunnerManaged && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                {t('appSettings.aiRunnerToken')}
+              </label>
+              <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">
+                {t('appSettings.aiRunnerTokenDescription')}
+                {runnerTokenSet ? ` ${t('appSettings.aiApiKeyConfigured')}` : ''}
+              </p>
+              <input
+                type="text"
+                autoComplete="off"
+                spellCheck={false}
+                value={runnerTokenDraft}
+                onChange={(e) => setRunnerTokenDraft(e.target.value)}
+                placeholder={
+                  runnerTokenSet
+                    ? t('appSettings.aiApiKeyReplacePlaceholder')
+                    : t('appSettings.aiRunnerTokenPlaceholder')
+                }
+                className="block w-full max-w-xl px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm font-mono bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+              />
+            </div>
+          )}
 
           <div className="rounded-md border border-gray-200 dark:border-gray-600 bg-white/70 dark:bg-gray-800/60 px-3 py-2 text-sm text-gray-600 dark:text-gray-300">
-            {t('appSettings.aiRunnerNote')}
+            {platformRunnerManaged
+              ? t('appSettings.aiRunnerPlatformManagedNote')
+              : t('appSettings.aiRunnerNote')}
           </div>
         </section>
 

@@ -307,6 +307,7 @@ export async function launchSingleTask(db, tenantId, taskId, ctx = {}) {
       ? {
           apiBaseUrl: automationApiBase,
           token: automationToken,
+          tenantId: tenantId || 'default',
           scopeType,
           boardIds,
           boards: boardSummaries,

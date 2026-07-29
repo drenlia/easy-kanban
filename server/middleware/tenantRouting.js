@@ -176,13 +176,18 @@ export const tenantRouting = async (req, res, next) => {
       console.log(`🔍 Tenant routing → tenantId: ${tenantId || 'null'}, schema: ${schemaHint}`);
     }
     
-    // For admin portal routes, allow tenant to be specified via query parameter or header
-    // This allows admin portal to access any tenant's database
-    if (req.path.startsWith('/api/admin-portal') && isMultiTenant()) {
+    // Allow tenant override via query/header when Host is the shared in-cluster service
+    // (admin portal; shared agent runner callbacks + automation tool calls).
+    if (
+      isMultiTenant() &&
+      (req.path.startsWith('/api/admin-portal') ||
+        req.path.startsWith('/api/agent/runner') ||
+        req.path.startsWith('/api/agent/automation'))
+    ) {
       const queryTenantId = req.query.tenantId || req.headers['x-tenant-id'];
       if (queryTenantId && /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/.test(queryTenantId)) {
         tenantId = queryTenantId;
-        console.log(`🔑 Admin portal accessing tenant via parameter: ${tenantId}`);
+        console.log(`🔑 Tenant override via parameter/header: ${tenantId} (${req.path})`);
       }
     }
     

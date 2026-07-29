@@ -12,12 +12,27 @@ async function getSetting(db, key) {
   return row?.value ?? '';
 }
 
+function isMultiTenant() {
+  return process.env.MULTI_TENANT === 'true';
+}
+
 /**
- * Resolve runner URL/token (tenant setting, else platform env).
+ * Resolve runner URL/token.
+ * Multi-tenant (shared platform runner): always from env — tenant Admin cannot override.
+ * Single-tenant: tenant setting, optional probe overrides, else platform env.
  * @param {object} db
  * @param {{ runnerUrl?: string, runnerToken?: string }} [overrides]
  */
 export async function resolveRunnerConfig(db, overrides = {}) {
+  if (isMultiTenant()) {
+    let url = String(process.env.AI_RUNNER_URL || process.env.RUNNER_URL || '').trim();
+    if (!url) {
+      url = 'http://kanban-runner:8080';
+    }
+    const token = String(process.env.RUNNER_TOKEN || process.env.AI_RUNNER_TOKEN || '').trim();
+    return { url: url.replace(/\/+$/, ''), token };
+  }
+
   let url =
     overrides.runnerUrl !== undefined
       ? String(overrides.runnerUrl || '').trim()
@@ -96,7 +111,8 @@ export async function probeRunner(db, overrides = {}) {
 
 /**
  * Build absolute callback URL for the tenant.
- * Prefer AI_CALLBACK_BASE_URL for in-cluster/Docker runner→app calls.
+ * Prefer AI_CALLBACK_BASE_URL for in-cluster/Docker runner→app calls
+ * (multi-tenant: shared internal service; runner must send X-Tenant-Id).
  * @param {{ siteUrl?: string, tenantId?: string|null, reqHost?: string, reqProtocol?: string }} opts
  */
 export function buildCallbackUrl(opts = {}) {

@@ -34,13 +34,19 @@ export async function sendCallback(job, body) {
   };
 
   try {
+    const headers = {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+      'X-Agent-Callback-Token': token
+    };
+    const tenantId = job.tenantId || job.payload?.tenantId;
+    if (tenantId && tenantId !== 'default') {
+      headers['X-Tenant-Id'] = String(tenantId);
+    }
+
     const res = await fetch(url, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-        'X-Agent-Callback-Token': token
-      },
+      headers,
       body: JSON.stringify(payload)
     });
     if (!res.ok) {
