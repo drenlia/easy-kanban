@@ -334,6 +334,13 @@ router.get('/check-demo-user', async (req, res) => {
 // Get demo credentials
 router.get('/demo-credentials', async (req, res) => {
   try {
+    // Prevent browsers/proxies from caching passwords across demo resets
+    res.set({
+      'Cache-Control': 'no-store, no-cache, must-revalidate, private',
+      Pragma: 'no-cache',
+      Expires: '0'
+    });
+
     const db = getRequestDatabase(req);
     // MIGRATED: Get settings using sqlManager
     const adminPasswordSetting = await authQueries.getSetting(db, 'ADMIN_PASSWORD');

@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { login } from '../api';
-import { Copy, Check } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
 import { useSettings } from '../contexts/SettingsContext';
 
 interface LoginProps {
@@ -34,28 +34,57 @@ export default function Login({ onLogin, siteSettings, hasDefaultAdmin = true, i
     // i18next automatically saves to localStorage, which will be used when user logs in
   };
   const [googleOAuthEnabled, setGoogleOAuthEnabled] = useState(false);
-  const [copiedItem, setCopiedItem] = useState<string | null>(null);
   const [adminCredentials, setAdminCredentials] = useState<{
     email: string;
     password: string;
   } | null>(null);
+  const [refreshingCredentials, setRefreshingCredentials] = useState(false);
   const [backendAvailable, setBackendAvailable] = useState<boolean>(true);
   const [checkingBackend, setCheckingBackend] = useState<boolean>(true);
-  
-  // Copy to clipboard function
-  const copyToClipboard = async (text: string, itemId: string) => {
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopiedItem(itemId);
-      setTimeout(() => setCopiedItem(null), 2000); // Reset after 2 seconds
-    } catch (err) {
-      console.error('Failed to copy to clipboard:', err);
-    }
-  };
 
   // Check if demo mode is enabled
   const isDemoMode =
     import.meta.env.DEMO_ENABLED === 'true' || process.env.DEMO_ENABLED === 'true';
+
+  const fetchAdminCredentials = useCallback(async () => {
+    try {
+      const response = await fetch('/api/auth/demo-credentials', { cache: 'no-store' });
+      if (response.ok) {
+        const credentials = await response.json();
+        setAdminCredentials(credentials.admin);
+        return credentials.admin as { email: string; password: string };
+      }
+      throw new Error('Failed to fetch demo credentials');
+    } catch (error) {
+      console.error('Failed to fetch admin credentials:', error);
+      const fallback = {
+        email: 'admin@kanban.local',
+        password: 'admin'
+      };
+      setAdminCredentials(fallback);
+      return fallback;
+    }
+  }, []);
+
+  const handleRefreshCredentials = async () => {
+    if (refreshingCredentials) return;
+    setRefreshingCredentials(true);
+    setError('');
+    // Clear typed password so testers don't submit the pre-reset value
+    setPassword('');
+    try {
+      await fetchAdminCredentials();
+    } finally {
+      setRefreshingCredentials(false);
+    }
+  };
+
+  const handleFillCredentials = () => {
+    if (!adminCredentials) return;
+    setEmail(adminCredentials.email);
+    setPassword(adminCredentials.password);
+    setError('');
+  };
 
   // Check backend availability on mount and periodically
   useEffect(() => {
@@ -114,25 +143,8 @@ export default function Login({ onLogin, siteSettings, hasDefaultAdmin = true, i
       return;
     }
 
-    const fetchAdminCredentials = async () => {
-      try {
-        const response = await fetch('/api/auth/demo-credentials');
-        if (response.ok) {
-          const credentials = await response.json();
-          setAdminCredentials(credentials.admin);
-        }
-      } catch (error) {
-        console.error('Failed to fetch admin credentials:', error);
-        // Fallback to default credentials
-        setAdminCredentials({
-          email: 'admin@kanban.local',
-          password: 'admin'
-        });
-      }
-    };
-
     fetchAdminCredentials();
-  }, [isDemoMode, backendAvailable]);
+  }, [isDemoMode, backendAvailable, fetchAdminCredentials]);
 
   // Check for token expiration redirect
   useEffect(() => {
@@ -428,40 +440,41 @@ export default function Login({ onLogin, siteSettings, hasDefaultAdmin = true, i
           )}
 
           {isDemoMode && hasDefaultAdmin && adminCredentials && (
-            <div className="text-center text-sm text-gray-600">
+            <div className="text-center text-sm text-gray-600 dark:text-gray-400">
               <p className="font-semibold mb-2">{t('login.demoCredentials')}</p>
               <div className="space-y-2">
-                <div className="bg-blue-50 border border-blue-200 rounded-md p-3">
-                  <p className="text-xs font-medium text-blue-800 mb-2">Admin Account</p>
-                  <div className="space-y-1">
-                    <div className="flex items-center justify-between">
-                      <span className="font-mono text-xs text-blue-700">{adminCredentials.email}</span>
-                      <button
-                        onClick={() => copyToClipboard(adminCredentials.email, 'admin-email')}
-                        className="ml-2 p-1 hover:bg-blue-100 rounded transition-colors"
-                        title={t('login.copyEmail')}
-                      >
-                        {copiedItem === 'admin-email' ? (
-                          <Check className="w-3 h-3 text-green-600" />
-                        ) : (
-                          <Copy className="w-3 h-3 text-blue-600" />
-                        )}
-                      </button>
+                <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-md p-3">
+                  <p className="text-xs font-medium text-blue-800 dark:text-blue-200 mb-2">Admin Account</p>
+                  <div className="space-y-1 text-left">
+                    <div className="font-mono text-xs text-blue-700 dark:text-blue-300 break-all">
+                      {adminCredentials.email}
                     </div>
-                    <div className="flex items-center justify-between">
-                      <span className="font-mono text-xs text-blue-700">{adminCredentials.password}</span>
-                      <button
-                        onClick={() => copyToClipboard(adminCredentials.password, 'admin-password')}
-                        className="ml-2 p-1 hover:bg-blue-100 rounded transition-colors"
-                        title={t('login.copyPassword')}
-                      >
-                        {copiedItem === 'admin-password' ? (
-                          <Check className="w-3 h-3 text-green-600" />
-                        ) : (
-                          <Copy className="w-3 h-3 text-blue-600" />
-                        )}
-                      </button>
+                    <div className="font-mono text-xs text-blue-700 dark:text-blue-300 break-all">
+                      {adminCredentials.password}
                     </div>
+                  </div>
+                  <div className="mt-3 flex items-center justify-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleRefreshCredentials}
+                      disabled={refreshingCredentials}
+                      className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/40 rounded border border-blue-200 dark:border-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      title={t('login.refreshCredentials')}
+                      aria-label={t('login.refreshCredentials')}
+                    >
+                      <RefreshCw className={`w-3 h-3 ${refreshingCredentials ? 'animate-spin' : ''}`} />
+                      {refreshingCredentials ? t('login.refreshingCredentials') : t('login.refreshCredentials')}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleFillCredentials}
+                      disabled={refreshingCredentials}
+                      className="inline-flex items-center px-2.5 py-1.5 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      title={t('login.fillCredentials')}
+                      aria-label={t('login.fillCredentials')}
+                    >
+                      {t('login.fillCredentials')}
+                    </button>
                   </div>
                 </div>
               </div>
