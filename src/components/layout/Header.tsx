@@ -351,9 +351,21 @@ const Header: React.FC<HeaderProps> = ({
     const fetchSystemInfo = async () => {
       try {
         const info = await getSystemInfo();
-        setSystemInfo(info);
+        // Guard against partial/error payloads — reading .percent on undefined crashes the app
+        if (
+          info &&
+          typeof info.memory?.percent === 'number' &&
+          typeof info.cpu?.percent === 'number' &&
+          typeof info.disk?.percent === 'number'
+        ) {
+          setSystemInfo(info);
+        } else {
+          console.warn('Ignoring invalid system info payload:', info);
+          setSystemInfo(null);
+        }
       } catch (error) {
         console.error('Failed to fetch system info:', error);
+        setSystemInfo(null);
       }
     };
 
@@ -868,7 +880,7 @@ const Header: React.FC<HeaderProps> = ({
       </div>
       
       {/* System Usage Panel - Vertical Compact for Admins (Toggleable) */}
-      {systemInfo && currentUser?.roles?.includes('admin') && showSystemPanel && (
+      {systemInfo?.memory && systemInfo?.cpu && systemInfo?.disk && currentUser?.roles?.includes('admin') && showSystemPanel && (
         <div className="absolute top-full right-0 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-b-lg p-1.5 shadow-lg z-10" data-tour-id="system-usage-panel">
           <div className="flex flex-col space-y-0.5 text-[10px]">
             {/* RAM */}
@@ -930,7 +942,7 @@ const Header: React.FC<HeaderProps> = ({
 
             {/* Last updated indicator */}
             <div className="text-gray-400 dark:text-gray-500 text-center pt-0.5 border-t border-gray-200 dark:border-gray-700">
-              {new Date(systemInfo.timestamp).toLocaleTimeString()}
+              {systemInfo.timestamp ? new Date(systemInfo.timestamp).toLocaleTimeString() : ''}
             </div>
           </div>
         </div>

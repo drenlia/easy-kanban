@@ -1716,20 +1716,23 @@ function AppContent() {
         
         // Update APP_URL if user is the owner (part of initialization process)
         try {
-          const ownerCheck = await api.get('/auth/is-owner');
-          if (ownerCheck.data.isOwner) {
-            if (feDebug('FE_DEBUG_APP_CORE')) {
-              console.log('🔄 User is owner, updating APP_URL during initialization...');
-              const baseUrl = window.location.origin;
-              console.log('🔄 Calling updateAppUrl with:', baseUrl);
-              const result = await updateAppUrl(baseUrl);
-              console.log('✅ APP_URL updated successfully:', result);
-            } else {
-              const baseUrl = window.location.origin;
-              await updateAppUrl(baseUrl);
+          // /auth/is-owner requires JWT — skip when token isn't in storage yet (race during login/HMR)
+          if (localStorage.getItem('authToken')) {
+            const ownerCheck = await api.get('/auth/is-owner');
+            if (ownerCheck.data.isOwner) {
+              if (feDebug('FE_DEBUG_APP_CORE')) {
+                console.log('🔄 User is owner, updating APP_URL during initialization...');
+                const baseUrl = window.location.origin;
+                console.log('🔄 Calling updateAppUrl with:', baseUrl);
+                const result = await updateAppUrl(baseUrl);
+                console.log('✅ APP_URL updated successfully:', result);
+              } else {
+                const baseUrl = window.location.origin;
+                await updateAppUrl(baseUrl);
+              }
+            } else if (feDebug('FE_DEBUG_APP_CORE')) {
+              console.log('ℹ️ User is not owner, skipping APP_URL update');
             }
-          } else if (feDebug('FE_DEBUG_APP_CORE')) {
-            console.log('ℹ️ User is not owner, skipping APP_URL update');
           }
         } catch (error: any) {
           // Don't fail initialization if owner check or APP_URL update fails

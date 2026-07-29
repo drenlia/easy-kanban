@@ -97,8 +97,8 @@ api.interceptors.request.use((config) => {
       '/auth/check-demo-user',
       '/api/auth/instance-status',
       '/auth/instance-status',
-      '/api/auth/is-owner', // Allow owner check without token (will return false if not authenticated)
-      '/auth/is-owner', // Also check without /api prefix
+      // Do NOT list /auth/is-owner here — it requires JWT. Listing it as "public"
+      // lets the client send unauthenticated requests and spams server AUTH logs.
       '/api/settings',
       '/settings',
       '/api/health',
