@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useLayoutEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { BarChart3, Trophy, TrendingUp, Users, List } from 'lucide-react';
 import UserStatsReport from './reports/UserStatsReport';
@@ -240,8 +240,22 @@ const Reports: React.FC<ReportsProps> = ({ currentUser }) => {
     return reportFilters[reportId] || {};
   };
 
+  const tabsRef = useRef<HTMLDivElement>(null);
+  const pinTabsOnNextTabChangeRef = useRef(false);
+
   // Handle tab change with URL update and save to user preferences
   const handleTabChange = async (tab: ReportTab) => {
+    if (tab === activeTab) return;
+
+    // If the page title has already scrolled away, keep tabs pinned under the app
+    // header after switch so a shorter tab doesn't "jump" back to the title.
+    const stickyOffset = 56; // top-14
+    const tabsEl = tabsRef.current;
+    if (tabsEl) {
+      const pinY = tabsEl.getBoundingClientRect().top + window.scrollY - stickyOffset;
+      pinTabsOnNextTabChangeRef.current = window.scrollY > pinY + 1;
+    }
+
     setActiveTab(tab);
     // Update URL hash for tab persistence
     window.location.hash = `reports#${tab}`;
@@ -255,6 +269,16 @@ const Reports: React.FC<ReportsProps> = ({ currentUser }) => {
       }
     }
   };
+
+  useLayoutEffect(() => {
+    if (!pinTabsOnNextTabChangeRef.current) return;
+    pinTabsOnNextTabChangeRef.current = false;
+    const tabsEl = tabsRef.current;
+    if (!tabsEl) return;
+    const stickyOffset = 56; // top-14
+    const pinY = Math.max(0, tabsEl.getBoundingClientRect().top + window.scrollY - stickyOffset);
+    window.scrollTo({ top: pinY, behavior: 'auto' });
+  }, [activeTab]);
 
   // EARLY RETURN: Check if reports are disabled BEFORE any tab logic
   if (!loading && settings?.REPORTS_ENABLED === 'false') {
@@ -343,15 +367,21 @@ const Reports: React.FC<ReportsProps> = ({ currentUser }) => {
 
   return (
     <div className="flex flex-col gap-4">
-      {/* Header + tabs in one rounded card (matches board chrome) */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-100 dark:border-gray-700">
-        <div className="reports-header px-4 py-4">
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
-            {t('reports.title')}
-          </h1>
-        </div>
+      {/* Title card — scrolls away */}
+      <div className="reports-header bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-100 dark:border-gray-700 px-4 py-4">
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
+          {t('reports.title')}
+        </h1>
+      </div>
 
-        <div className="reports-tabs sticky top-[66px] z-40 bg-white dark:bg-gray-800 rounded-b-lg">
+      {/* Tabs + content share a tall parent so sticky tabs work while scrolling.
+          Negative margin pulls tabs closer to the title card. */}
+      <div className="flex flex-col gap-4 -mt-3">
+        <div
+          ref={tabsRef}
+          className="reports-tabs sticky top-14 z-40 bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-100 dark:border-gray-700"
+          data-tour-id="reports-tabs"
+        >
           <div className="flex gap-1 px-2 overflow-x-auto">
             {tabs.map((tab) => {
               const Icon = tab.icon;
@@ -376,30 +406,30 @@ const Reports: React.FC<ReportsProps> = ({ currentUser }) => {
             })}
           </div>
         </div>
-      </div>
 
-      {/* Report Content */}
-      <div>
-        {currentTab === 'stats' && <UserStatsReport gamificationEnabled={settings?.REPORTS_GAMIFICATION_ENABLED === 'true'} achievementsEnabled={settings?.REPORTS_ACHIEVEMENTS_ENABLED === 'true'} />}
-        {currentTab === 'leaderboard' && <LeaderboardReport />}
-        {currentTab === 'burndown' && (
-          <BurndownReport 
-            initialFilters={getReportFilters('burndown')}
-            onFiltersChange={(filters) => updateReportFilters('burndown', filters)}
-          />
-        )}
-        {currentTab === 'team' && (
-          <TeamPerformanceReport 
-            initialFilters={getReportFilters('team')}
-            onFiltersChange={(filters) => updateReportFilters('team', filters)}
-          />
-        )}
-        {currentTab === 'tasks' && (
-          <TaskListReport 
-            initialFilters={getReportFilters('tasks')}
-            onFiltersChange={(filters) => updateReportFilters('tasks', filters)}
-          />
-        )}
+        {/* Report Content — min-height keeps short tabs from collapsing scroll and revealing the title */}
+        <div className="min-h-[calc(100vh-8.5rem)]">
+          {currentTab === 'stats' && <UserStatsReport gamificationEnabled={settings?.REPORTS_GAMIFICATION_ENABLED === 'true'} achievementsEnabled={settings?.REPORTS_ACHIEVEMENTS_ENABLED === 'true'} />}
+          {currentTab === 'leaderboard' && <LeaderboardReport />}
+          {currentTab === 'burndown' && (
+            <BurndownReport 
+              initialFilters={getReportFilters('burndown')}
+              onFiltersChange={(filters) => updateReportFilters('burndown', filters)}
+            />
+          )}
+          {currentTab === 'team' && (
+            <TeamPerformanceReport 
+              initialFilters={getReportFilters('team')}
+              onFiltersChange={(filters) => updateReportFilters('team', filters)}
+            />
+          )}
+          {currentTab === 'tasks' && (
+            <TaskListReport 
+              initialFilters={getReportFilters('tasks')}
+              onFiltersChange={(filters) => updateReportFilters('tasks', filters)}
+            />
+          )}
+        </div>
       </div>
     </div>
   );
