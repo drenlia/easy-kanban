@@ -342,44 +342,44 @@ const Reports: React.FC<ReportsProps> = ({ currentUser }) => {
   const currentTab = tabs.some(tab => tab.id === activeTab) ? activeTab : (tabs[0]?.id || 'burndown');
 
   return (
-    <div className="flex flex-col">
-      {/* Header */}
-      <div className="reports-header bg-white dark:bg-gray-800 py-4 border-b border-gray-200 dark:border-gray-700">
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
-          <BarChart3 className="w-7 h-7" />
-          {t('reports.title')}
-        </h1>
-      </div>
+    <div className="flex flex-col gap-4">
+      {/* Header + tabs in one rounded card (matches board chrome) */}
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-100 dark:border-gray-700">
+        <div className="reports-header px-4 py-4">
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
+            {t('reports.title')}
+          </h1>
+        </div>
 
-      {/* Tabs - Sticky */}
-      <div className="reports-tabs sticky top-[66px] z-40 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
-        <div className="flex gap-1">
-          {tabs.map((tab) => {
-            const Icon = tab.icon;
-            return (
-              <button
-                key={tab.id}
-                onClick={() => handleTabChange(tab.id)}
-                className={`
-                  flex items-center gap-2 px-4 py-3 font-medium text-sm
-                  border-b-2 transition-colors
-                  ${
-                    currentTab === tab.id
-                      ? 'border-blue-500 text-blue-600 dark:text-blue-400'
-                      : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
-                  }
-                `}
-              >
-                <Icon className="w-4 h-4" />
-                {tab.label}
-              </button>
-            );
-          })}
+        <div className="reports-tabs sticky top-[66px] z-40 bg-white dark:bg-gray-800 rounded-b-lg">
+          <div className="flex gap-1 px-2 overflow-x-auto">
+            {tabs.map((tab) => {
+              const Icon = tab.icon;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => handleTabChange(tab.id)}
+                  className={`
+                    flex items-center gap-2 px-4 py-3 font-medium text-sm whitespace-nowrap
+                    border-b-2 transition-colors
+                    ${
+                      currentTab === tab.id
+                        ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                        : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
+                    }
+                  `}
+                >
+                  <Icon className="w-4 h-4" />
+                  {tab.label}
+                </button>
+              );
+            })}
+          </div>
         </div>
       </div>
 
       {/* Report Content */}
-      <div className="mt-6">
+      <div>
         {currentTab === 'stats' && <UserStatsReport gamificationEnabled={settings?.REPORTS_GAMIFICATION_ENABLED === 'true'} achievementsEnabled={settings?.REPORTS_ACHIEVEMENTS_ENABLED === 'true'} />}
         {currentTab === 'leaderboard' && <LeaderboardReport />}
         {currentTab === 'burndown' && (

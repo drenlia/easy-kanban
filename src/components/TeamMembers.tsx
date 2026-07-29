@@ -143,10 +143,10 @@ export default function TeamMembers({
   // Members are now managed from the admin page
 
   return (
-    <div className="p-3 bg-white dark:bg-gray-800 shadow-sm rounded-lg border border-gray-100 dark:border-gray-700" data-tour-id="team-members">
-      <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-3">
-          <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-200 uppercase tracking-wide">
+    <div className="p-3 bg-white dark:bg-gray-800 shadow-sm rounded-lg border border-gray-100 dark:border-gray-700 w-full flex-1 flex flex-col" data-tour-id="team-members">
+      <div className="flex items-center justify-between mb-3 gap-2 min-h-5 shrink-0">
+        <div className="flex items-center gap-3 flex-wrap min-w-0">
+          <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-200 uppercase tracking-wide leading-5 shrink-0">
             {t('teamMembers.title')}
           </h2>
           
@@ -288,7 +288,7 @@ export default function TeamMembers({
         </div>
       )}
 
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap gap-2 flex-1 content-start">
         {displayMembers.map(member => {
           const isSelected = selectedMembers.includes(member.id);
           return (

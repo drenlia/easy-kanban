@@ -138,11 +138,11 @@ export default function Tools({
   return (
     <div
       ref={containerRef}
-      className="p-3 bg-white dark:bg-gray-800 shadow-sm rounded-lg border border-gray-100 dark:border-gray-700 w-[160px]"
+      className="p-3 bg-white dark:bg-gray-800 shadow-sm rounded-lg border border-gray-100 dark:border-gray-700 w-full flex-1 flex flex-col"
       data-tour-id="view-modes"
     >
-      <div className="flex items-center justify-between mb-3 gap-1">
-        <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-200 uppercase tracking-wide">{t('tools.title')}</h2>
+      <div className="flex items-center justify-between mb-3 gap-1 min-h-5 shrink-0">
+        <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-200 uppercase tracking-wide leading-5">{t('tools.title')}</h2>
         {onHideToolbar && (
           <button
             type="button"
@@ -157,7 +157,7 @@ export default function Tools({
         )}
       </div>
 
-      <div className="flex gap-2 justify-center">
+      <div className="flex gap-2 justify-center items-center flex-1 min-h-[2.5rem]">
         {/* Board view dropdown */}
         <div className="relative shrink-0">
           <button

@@ -1929,9 +1929,11 @@ function AppContent() {
         }
       }
     }
-  }, [currentPage, boards, selectedBoard, boardCreationPause, isAuthenticated, currentUser?.id, intendedDestination, justRedirected, languageLoaded, i18n.language]);
+  }, [currentPage, boards, selectedBoard, boardCreationPause, isAuthenticated, currentUser?.id, intendedDestination, justRedirected, languageLoaded]);
 
-  // Load initial data
+  // Load initial data once auth + language preference are ready.
+  // Do NOT re-run on i18n.language — that reloaded every board/task on EN↔FR toggle.
+  // Activity feed is language-specific and refetched in the effect above.
   useEffect(() => {
     // Only load data if authenticated and user preferences have been loaded (currentUser.id exists)
     // Also wait for language to be loaded to ensure activity feed uses correct language
@@ -2015,7 +2017,7 @@ function AppContent() {
     };
 
     loadInitialData();
-  }, [isAuthenticated, currentUser?.id, languageLoaded, i18n.language]);
+  }, [isAuthenticated, currentUser?.id, languageLoaded]);
 
   // Reload members only when includeSystem changes (without flashing the entire screen)
   const isInitialSystemMount = useRef(true);

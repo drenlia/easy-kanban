@@ -27,15 +27,15 @@ const BoardMetrics: React.FC<BoardMetricsProps> = ({ columns, filteredColumns = 
   const completionPercentage = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
 
   return (
-        <div className="p-3 bg-white dark:bg-gray-800 shadow-sm rounded-lg border border-gray-100 dark:border-gray-700 w-full max-w-[120px]">
-      <div className="space-y-3">
-        {/* Header */}
-        <div className="text-center">
-          <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-200 uppercase tracking-wide">
-            {t('boardMetrics.progress')}
-          </h2>
-        </div>
-        
+        <div className="p-3 bg-white dark:bg-gray-800 shadow-sm rounded-lg border border-gray-100 dark:border-gray-700 w-full flex-1 flex flex-col box-border">
+      {/* Same title row height/spacing as Tools + Team Members so headings share one baseline */}
+      <div className="flex items-center justify-center mb-3 min-h-5 shrink-0">
+        <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-200 uppercase tracking-wide leading-5 text-center">
+          {t('boardMetrics.progress')}
+        </h2>
+      </div>
+
+      <div className="space-y-2 flex-1 flex flex-col justify-center min-h-0">
         {/* Progress */}
         <div className="text-center">
           <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">

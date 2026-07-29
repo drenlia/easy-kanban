@@ -134,12 +134,12 @@ const Header: React.FC<HeaderProps> = ({
   // Handle language toggle - save to user preferences when user explicitly chooses
   const handleLanguageToggle = async () => {
     const newLanguage = currentLanguage === 'en' ? 'fr' : 'en';
-    // Always save to user preferences if logged in (this makes it "set in stone")
-    if (currentUser) {
-      await updateUserPreference('language', newLanguage, currentUser.id);
-    }
-    // Change language immediately
+    // Switch UI immediately — do not wait on the preference API
     await i18n.changeLanguage(newLanguage);
+    if (currentUser) {
+      // Persist in background (cookie updates sync; DB write can lag)
+      void updateUserPreference('language', newLanguage, currentUser.id);
+    }
   };
 
   const [systemInfo, setSystemInfo] = useState<SystemInfo | null>(null);

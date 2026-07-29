@@ -918,19 +918,21 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
   return (
     <>
       {showBoardToolbar ? (
-        <div className="flex gap-4 mb-4 items-start">
-          <Tools 
-            taskViewMode={taskViewMode}
-            onTaskViewModeChange={onTaskViewModeChange}
-            viewMode={viewMode}
-            onViewModeChange={onViewModeChange}
-            isSearchActive={isSearchActive}
-            onToggleSearch={onToggleSearch}
-            hasActiveFilters={showSearchFilterBadge}
-            activeFilterTooltip={activeFilterTooltip}
-            onHideToolbar={() => void handleToggleBoardToolbar()}
-          />
-          <div className="flex-1 min-w-0">
+        <div className="flex items-stretch gap-4 mb-4">
+          <div className="w-[160px] shrink-0 flex">
+            <Tools 
+              taskViewMode={taskViewMode}
+              onTaskViewModeChange={onTaskViewModeChange}
+              viewMode={viewMode}
+              onViewModeChange={onViewModeChange}
+              isSearchActive={isSearchActive}
+              onToggleSearch={onToggleSearch}
+              hasActiveFilters={showSearchFilterBadge}
+              activeFilterTooltip={activeFilterTooltip}
+              onHideToolbar={() => void handleToggleBoardToolbar()}
+            />
+          </div>
+          <div className="min-w-0 flex-1 flex">
             <TeamMembers
               members={members}
               selectedMembers={selectedMembers}
@@ -954,11 +956,13 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
               systemTaskCount={getSystemTaskCount}
             />
           </div>
-          <BoardMetrics
-            columns={columns}
-            filteredColumns={getFullyFilteredColumns}
-            siteSettings={siteSettings}
-          />
+          <div className="w-[168px] shrink-0 flex">
+            <BoardMetrics
+              columns={columns}
+              filteredColumns={getFullyFilteredColumns}
+              siteSettings={siteSettings}
+            />
+          </div>
         </div>
       ) : (
         <div className="flex items-center mb-4">

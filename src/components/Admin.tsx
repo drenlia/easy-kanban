@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import api, { createUser, updateUser, getUserTaskCount, resendUserInvitation, getTags, createTag, updateTag, deleteTag, getTagUsage, getBatchTagUsage, getPriorities, createPriority, updatePriority, deletePriority, reorderPriorities, setDefaultPriority, getPriorityUsage, getBatchPriorityUsage } from '../api';
 import { ADMIN_TABS, ROUTES } from '../constants';
@@ -1009,11 +1009,35 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
     }
   };
 
+  const tabsRef = useRef<HTMLDivElement>(null);
+  const pinTabsOnNextTabChangeRef = useRef(false);
+
   const handleTabChange = (tab: string) => {
+    if (tab === activeTab) return;
+
+    // If the page title has already scrolled away, keep tabs pinned under the app
+    // header after switch so a shorter tab doesn't "jump" back to the title.
+    const stickyOffset = 56; // top-14
+    const tabsEl = tabsRef.current;
+    if (tabsEl) {
+      const pinY = tabsEl.getBoundingClientRect().top + window.scrollY - stickyOffset;
+      pinTabsOnNextTabChangeRef.current = window.scrollY > pinY + 1;
+    }
+
     setActiveTab(tab);
     // Update URL hash for tab persistence - preserve admin context
     window.location.hash = `admin#${tab}`;
   };
+
+  useLayoutEffect(() => {
+    if (!pinTabsOnNextTabChangeRef.current) return;
+    pinTabsOnNextTabChangeRef.current = false;
+    const tabsEl = tabsRef.current;
+    if (!tabsEl) return;
+    const stickyOffset = 56; // top-14
+    const pinY = Math.max(0, tabsEl.getBoundingClientRect().top + window.scrollY - stickyOffset);
+    window.scrollTo({ top: pinY, behavior: 'auto' });
+  }, [activeTab]);
 
   if (!currentUser?.roles?.includes('admin')) {
     return (
@@ -1044,19 +1068,10 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
   }
 
   return (
-    <div className="bg-gray-50 dark:bg-gray-900 py-6 px-4 sm:px-6 lg:px-8">
-        {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100">{t('adminPanel')}</h1>
-          <p className="mt-2 text-gray-600 dark:text-gray-400">
-            {t('adminPanelDescription')}
-          </p>
-        </div>
-
-
+    <div className="flex flex-col gap-4">
         {/* Security Warning - Default Admin Account */}
         {hasDefaultAdmin && (
-          <div className="mb-6 bg-yellow-50 dark:bg-yellow-900 border border-yellow-200 dark:border-yellow-700 rounded-md p-4">
+          <div className="bg-yellow-50 dark:bg-yellow-900 border border-yellow-200 dark:border-yellow-700 rounded-lg p-4">
             <div className="flex">
               <div className="flex-shrink-0">
                 <svg className="h-5 w-5 text-yellow-400 dark:text-yellow-500" viewBox="0 0 20 20" fill="currentColor">
@@ -1073,40 +1088,54 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
           </div>
         )}
 
-        {/* Tabs */}
-        <div className="sticky top-16 z-40 bg-gray-50 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 mb-6 -mx-4 px-4 py-2 sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8" data-tour-id="admin-tabs">
-          <nav className="-mb-px flex space-x-8">
-            {['users', 'site-settings', 'sso', 'mail-server', 'tags', 'priorities', 'app-settings', 'project-settings', 'sprint-settings', 'reporting', 'lifecycle', 'licensing'].map((tab) => (
-              <button
-                key={tab}
-                onClick={() => handleTabChange(tab)}
-                className={`py-2 px-1 border-b-2 font-medium text-sm ${
-                  activeTab === tab
-                    ? 'border-blue-500 text-blue-600 dark:text-blue-400'
-                    : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600'
-                }`}
-                data-tour-id={`admin-${tab}`}
-              >
-                {tab === 'users' && t('tabs.users')}
-                {tab === 'site-settings' && t('tabs.siteSettings')}
-                {tab === 'sso' && t('tabs.sso')}
-                {tab === 'mail-server' && t('tabs.mailServer')}
-                {tab === 'tags' && t('tabs.tags')}
-                {tab === 'priorities' && t('tabs.priorities')}
-                {tab === 'app-settings' && t('tabs.appSettings')}
-                {tab === 'project-settings' && t('tabs.projectSettings')}
-                {tab === 'sprint-settings' && t('tabs.sprintSettings')}
-                {tab === 'reporting' && t('tabs.reporting')}
-                {tab === 'lifecycle' && t('tabs.lifecycle')}
-                {tab === 'licensing' && t('tabs.licensing')}
-                {tab === 'notification-queue' && t('tabs.notificationQueue')}
-              </button>
-            ))}
-          </nav>
+        {/* Title card — scrolls away */}
+        <div className="admin-header bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-100 dark:border-gray-700 px-4 py-4">
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{t('adminPanel')}</h1>
+          <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
+            {t('adminPanelDescription')}
+          </p>
         </div>
 
-        {/* Tab Content */}
-        <div className="bg-white dark:bg-gray-800 shadow rounded-lg">
+        {/* Tabs + content share a tall parent so sticky tabs work while scrolling content.
+            Negative margin pulls tabs closer to the title card. */}
+        <div className="flex flex-col gap-4 -mt-3">
+          <div
+            ref={tabsRef}
+            className="sticky top-14 z-40 bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-100 dark:border-gray-700"
+            data-tour-id="admin-tabs"
+          >
+            <nav className="flex space-x-8 overflow-x-auto px-4">
+              {['users', 'site-settings', 'sso', 'mail-server', 'tags', 'priorities', 'app-settings', 'project-settings', 'sprint-settings', 'reporting', 'lifecycle', 'licensing'].map((tab) => (
+                <button
+                  key={tab}
+                  onClick={() => handleTabChange(tab)}
+                  className={`py-3 px-1 border-b-2 font-medium text-sm whitespace-nowrap ${
+                    activeTab === tab
+                      ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                      : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600'
+                  }`}
+                  data-tour-id={`admin-${tab}`}
+                >
+                  {tab === 'users' && t('tabs.users')}
+                  {tab === 'site-settings' && t('tabs.siteSettings')}
+                  {tab === 'sso' && t('tabs.sso')}
+                  {tab === 'mail-server' && t('tabs.mailServer')}
+                  {tab === 'tags' && t('tabs.tags')}
+                  {tab === 'priorities' && t('tabs.priorities')}
+                  {tab === 'app-settings' && t('tabs.appSettings')}
+                  {tab === 'project-settings' && t('tabs.projectSettings')}
+                  {tab === 'sprint-settings' && t('tabs.sprintSettings')}
+                  {tab === 'reporting' && t('tabs.reporting')}
+                  {tab === 'lifecycle' && t('tabs.lifecycle')}
+                  {tab === 'licensing' && t('tabs.licensing')}
+                  {tab === 'notification-queue' && t('tabs.notificationQueue')}
+                </button>
+              ))}
+            </nav>
+          </div>
+
+          {/* Tab Content — min-height keeps short tabs from collapsing scroll and revealing the title */}
+          <div className="bg-white dark:bg-gray-800 shadow-sm rounded-lg border border-gray-100 dark:border-gray-700 min-h-[calc(100vh-8.5rem)]">
           {/* Users Tab */}
           {activeTab === 'users' && (
             <AdminUsersTab
@@ -1254,6 +1283,7 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
           {activeTab === 'notification-queue' && (
             <AdminNotificationQueueTab />
           )}
+          </div>
         </div>
     </div>
   );
