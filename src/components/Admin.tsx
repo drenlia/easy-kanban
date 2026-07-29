@@ -1104,7 +1104,7 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
             className="sticky top-14 z-40 bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-100 dark:border-gray-700"
             data-tour-id="admin-tabs"
           >
-            <nav className="flex space-x-8 overflow-x-auto px-4">
+            <nav className="flex space-x-8 overflow-x-auto px-4 max-w-full">
               {['users', 'site-settings', 'sso', 'mail-server', 'tags', 'priorities', 'app-settings', 'project-settings', 'sprint-settings', 'reporting', 'lifecycle', 'licensing'].map((tab) => (
                 <button
                   key={tab}

@@ -233,17 +233,24 @@ export const getTourSteps = (): TourStepsConfig => {
       content: i18n.t('tour.steps.adminReporting', { ns: 'common' }),
       placement: 'bottom',
     },
-    // Step 32: Admin Licensing
+    // Step 32: Admin Lifecycle
+    {
+      target: '[data-tour-id="admin-lifecycle"]',
+      content: i18n.t('tour.steps.adminLifecycle', { ns: 'common' }),
+      placement: 'bottom',
+    },
+    // Step 33: Admin Licensing
     {
       target: '[data-tour-id="admin-licensing"]',
       content: i18n.t('tour.steps.adminLicensing', { ns: 'common' }),
       placement: 'bottom',
     },
-    // Step 33: System Usage Panel
+    // Step 34: System Usage Panel (back on Kanban; panel must be open)
     {
       target: '[data-tour-id="system-usage-panel"]',
       content: i18n.t('tour.steps.systemUsagePanel', { ns: 'common' }),
       placement: 'left',
+      data: { switchToPage: 'kanban', ensureSystemPanel: true },
     },
   ];
 

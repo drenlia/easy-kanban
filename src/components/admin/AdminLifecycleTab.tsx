@@ -333,7 +333,7 @@ const AdminLifecycleTab: React.FC = () => {
   };
 
   return (
-    <div className="space-y-8" data-tour-id="admin-lifecycle">
+    <div className="space-y-8" data-tour-id="admin-lifecycle-content">
       {/* Retention settings */}
       <section className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-800">
         <h3 className="mb-1 text-lg font-semibold text-gray-900 dark:text-gray-100">{t('retentionTitle')}</h3>

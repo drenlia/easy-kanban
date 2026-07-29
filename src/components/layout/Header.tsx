@@ -88,6 +88,9 @@ const Header: React.FC<HeaderProps> = ({
   sprints: propSprints,
 }) => {
   const { theme } = useTheme();
+  // Host-level metrics are misleading in multi-tenant; hide in demo mode as well.
+  const isSystemPanelAvailable =
+    process.env.MULTI_TENANT !== 'true' && process.env.DEMO_ENABLED !== 'true';
   // Extract all tasks from all boards for sprint counting
   const allTasks = useMemo(() => {
     const tasks: Array<{ id: string; sprintId?: string | null }> = [];
@@ -343,7 +346,7 @@ const Header: React.FC<HeaderProps> = ({
   // Fetch system info with polling when system panel is visible
   // Header is always loaded, so it handles all system info polling (Admin.tsx no longer polls)
   useEffect(() => {
-    if (!currentUser?.roles?.includes('admin') || !showSystemPanel) {
+    if (!isSystemPanelAvailable || !currentUser?.roles?.includes('admin') || !showSystemPanel) {
       setSystemInfo(null); // Clear info when panel is hidden
       return;
     }
@@ -376,7 +379,17 @@ const Header: React.FC<HeaderProps> = ({
     const interval = setInterval(fetchSystemInfo, 20000);
 
     return () => clearInterval(interval);
-  }, [currentUser?.roles, showSystemPanel]);
+  }, [currentUser?.roles, showSystemPanel, isSystemPanelAvailable]);
+
+  // Tour can force the metrics panel open without flipping a closed preference the wrong way
+  useEffect(() => {
+    if (!isSystemPanelAvailable) return;
+    const openForTour = () => {
+      setShowSystemPanel(true);
+    };
+    window.addEventListener('tour:ensure-system-panel', openForTour);
+    return () => window.removeEventListener('tour:ensure-system-panel', openForTour);
+  }, [isSystemPanelAvailable]);
 
   const handleInviteClick = () => {
     setShowInviteDropdown(!showInviteDropdown);
@@ -689,7 +702,7 @@ const Header: React.FC<HeaderProps> = ({
                 <RefreshCw size={16} />
               </button>
 
-              {currentUser?.roles?.includes('admin') && (
+              {isSystemPanelAvailable && currentUser?.roles?.includes('admin') && (
                 <button
                   type="button"
                   onClick={handleSystemPanelToggle}
@@ -761,7 +774,7 @@ const Header: React.FC<HeaderProps> = ({
                     <RefreshCw size={16} />
                     {t('navigation.refreshDataNow')}
                   </button>
-                  {currentUser?.roles?.includes('admin') && (
+                  {isSystemPanelAvailable && currentUser?.roles?.includes('admin') && (
                     <button
                       type="button"
                       role="menuitem"
@@ -880,7 +893,7 @@ const Header: React.FC<HeaderProps> = ({
       </div>
       
       {/* System Usage Panel - Vertical Compact for Admins (Toggleable) */}
-      {systemInfo?.memory && systemInfo?.cpu && systemInfo?.disk && currentUser?.roles?.includes('admin') && showSystemPanel && (
+      {isSystemPanelAvailable && systemInfo?.memory && systemInfo?.cpu && systemInfo?.disk && currentUser?.roles?.includes('admin') && showSystemPanel && (
         <div className="absolute top-full right-0 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-b-lg p-1.5 shadow-lg z-10" data-tour-id="system-usage-panel">
           <div className="flex flex-col space-y-0.5 text-[10px]">
             {/* RAM */}

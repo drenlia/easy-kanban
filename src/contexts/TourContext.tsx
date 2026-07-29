@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useMemo } from 'react';
-import Joyride, { CallBackProps, STATUS } from 'react-joyride';
+import Joyride, { ACTIONS, CallBackProps, EVENTS, STATUS } from 'react-joyride';
 import { useTranslation } from 'react-i18next';
 import { getTourSteps } from '../components/tour/TourSteps';
 import { parseTaskRoute } from '../utils/routingUtils';
@@ -30,12 +30,72 @@ interface TourProviderProps {
   onPageChange?: (page: 'kanban' | 'admin' | 'reports') => void;
 }
 
+/** Scroll an admin tab button into the horizontal tab strip before Joyride measures it. */
+function scrollAdminTabIntoStrip(targetSelector: string): boolean {
+  if (!targetSelector.startsWith('[data-tour-id="admin-')) return false;
+  const tabMatch = targetSelector.match(/admin-([^"]+)/);
+  if (!tabMatch?.[1] || tabMatch[1] === 'tab' || tabMatch[1] === 'tabs') return false;
+
+  const el = document.querySelector(targetSelector) as HTMLElement | null;
+  if (!el) return false;
+
+  const nav =
+    (el.closest('[data-tour-id="admin-tabs"]')?.querySelector('nav') as HTMLElement | null) ||
+    (el.closest('nav') as HTMLElement | null);
+
+  if (!nav) {
+    el.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'auto' });
+    return true;
+  }
+
+  const navRect = nav.getBoundingClientRect();
+  const elRect = el.getBoundingClientRect();
+  const elCenter = (elRect.left + elRect.right) / 2;
+  const navCenter = (navRect.left + navRect.right) / 2;
+  const nextLeft = nav.scrollLeft + (elCenter - navCenter);
+  const maxLeft = Math.max(0, nav.scrollWidth - nav.clientWidth);
+  nav.scrollLeft = Math.max(0, Math.min(maxLeft, nextLeft));
+  return true;
+}
+
+function prepareAdminTourTarget(
+  targetSelector: string,
+  onPageChange?: TourProviderProps['onPageChange'],
+  isAdmin?: boolean
+) {
+  if (!isAdmin || !targetSelector.startsWith('[data-tour-id="admin-')) return;
+
+  const currentHash = window.location.hash;
+  if (onPageChange && !currentHash.includes('admin')) {
+    onPageChange('admin');
+  }
+
+  const tabMatch = targetSelector.match(/admin-([^"]+)/);
+  if (tabMatch?.[1] && tabMatch[1] !== 'tab' && tabMatch[1] !== 'tabs') {
+    const tabName = tabMatch[1];
+    const expectedHash = `#admin#${tabName}`;
+    if (!currentHash.includes(`#${tabName}`) || currentHash !== expectedHash) {
+      window.location.hash = `admin#${tabName}`;
+    }
+  }
+
+  scrollAdminTabIntoStrip(targetSelector);
+}
+
+function ensureSystemUsagePanelVisible(): boolean {
+  if (document.querySelector('[data-tour-id="system-usage-panel"]')) {
+    return true;
+  }
+  window.dispatchEvent(new Event('tour:ensure-system-panel'));
+  return !!document.querySelector('[data-tour-id="system-usage-panel"]');
+}
+
 export const TourProvider: React.FC<TourProviderProps> = ({ children, currentUser, onViewModeChange, onPageChange }) => {
   const { t } = useTranslation('common');
   const { theme } = useTheme();
   const [isRunning, setIsRunning] = useState(false);
+  const [stepIndex, setStepIndex] = useState(0);
   const [isHelpModalOpen, setIsHelpModalOpen] = useState(false);
-  const { userSteps, adminSteps } = getTourSteps();
 
   const joyrideStyles = useMemo(() => {
     const isDark = theme === 'dark';
@@ -91,8 +151,28 @@ export const TourProvider: React.FC<TourProviderProps> = ({ children, currentUse
     };
   }, [theme]);
 
-  // Track previous step index to detect navigation direction
   const previousStepIndexRef = React.useRef<number>(-1);
+  const advancingRef = React.useRef(false);
+
+  const isAdmin = currentUser?.roles?.includes('admin') || currentUser?.role === 'admin';
+  const isSystemPanelAvailable =
+    process.env.MULTI_TENANT !== 'true' && process.env.DEMO_ENABLED !== 'true';
+  const steps = useMemo(() => {
+    const { userSteps, adminSteps } = getTourSteps();
+    const raw = isAdmin ? adminSteps : userSteps;
+    if (isSystemPanelAvailable) return raw;
+    return raw.filter((step) => {
+      const target = typeof step.target === 'string' ? step.target : '';
+      return !target.includes('system-panel-toggle') && !target.includes('system-usage-panel');
+    });
+  }, [isAdmin, isSystemPanelAvailable, t]);
+
+  const beginTourRun = useCallback(() => {
+    previousStepIndexRef.current = -1;
+    advancingRef.current = false;
+    setStepIndex(0);
+    setIsRunning(true);
+  }, []);
 
   // Resume a tour after navigating to Kanban (from TaskPage / Admin / Reports)
   useEffect(() => {
@@ -107,28 +187,25 @@ export const TourProvider: React.FC<TourProviderProps> = ({ children, currentUse
       }
 
       sessionStorage.removeItem('pendingTourStart');
-      previousStepIndexRef.current = -1;
       if (onViewModeChange) {
         onViewModeChange('kanban');
       }
       setTimeout(() => {
-        setIsRunning(true);
+        beginTourRun();
       }, 350);
     };
 
     startIfPending();
     window.addEventListener('hashchange', startIfPending);
-    // Hash may already be #kanban after a sync navigate; retry shortly after paint
     const retry = window.setTimeout(startIfPending, 150);
     return () => {
       window.removeEventListener('hashchange', startIfPending);
       window.clearTimeout(retry);
     };
-  }, [onViewModeChange]);
+  }, [onViewModeChange, beginTourRun]);
 
   const startTour = useCallback(() => {
-    setIsHelpModalOpen(false); // Close help modal first
-    previousStepIndexRef.current = -1; // Reset step index tracking
+    setIsHelpModalOpen(false);
 
     const hash = window.location.hash.toLowerCase();
     const taskRoute = parseTaskRoute();
@@ -137,118 +214,170 @@ export const TourProvider: React.FC<TourProviderProps> = ({ children, currentUse
       hash.includes('admin') ||
       hash.includes('reports');
 
-    // Leave Task / Admin / Reports so step 1 targets exist on the Kanban page
     if (needsKanbanPage && onPageChange) {
       sessionStorage.setItem('pendingTourStart', 'true');
-      onPageChange('kanban'); // also updates hash (incl. selected board)
+      onPageChange('kanban');
       return;
     }
 
-    // Already on Kanban page — still force Kanban view mode before step 1
     if (onViewModeChange) {
       onViewModeChange('kanban');
     }
     setTimeout(() => {
-      setIsRunning(true);
+      beginTourRun();
     }, 200);
-  }, [onViewModeChange, onPageChange]);
+  }, [onViewModeChange, onPageChange, beginTourRun]);
 
   const stopTour = useCallback(() => {
     setIsRunning(false);
+    setStepIndex(0);
+    previousStepIndexRef.current = -1;
+    advancingRef.current = false;
   }, []);
 
   const setHelpModalOpen = useCallback((open: boolean) => {
     setIsHelpModalOpen(open);
   }, []);
 
-  // Determine if user is admin
-  const isAdmin = currentUser?.roles?.includes('admin') || currentUser?.role === 'admin';
-  const steps = isAdmin ? adminSteps : userSteps;
+  const goToStep = useCallback((nextIndex: number) => {
+    if (nextIndex < 0 || nextIndex >= steps.length) return;
+    if (advancingRef.current) return;
+    advancingRef.current = true;
+
+    const nextStep = steps[nextIndex];
+    const target = typeof nextStep?.target === 'string' ? nextStep.target : '';
+    const stepData = nextStep as any;
+
+    if (stepData?.data?.switchToPage === 'admin' && onPageChange && isAdmin) {
+      onPageChange('admin');
+    }
+
+    if (stepData?.data?.switchToPage === 'kanban' && onPageChange) {
+      onPageChange('kanban');
+    }
+
+    if (
+      (stepData?.data?.switchToView === 'list' ||
+        target === '[data-tour-id="export-menu"]' ||
+        target === '[data-tour-id="column-visibility"]') &&
+      onViewModeChange
+    ) {
+      const currentHash = window.location.hash;
+      if (currentHash.includes('admin') && onPageChange) {
+        onPageChange('kanban');
+        setTimeout(() => onViewModeChange('list'), 300);
+      } else {
+        onViewModeChange('list');
+      }
+    }
+
+    const settleAndShow = (delayMs: number) => {
+      window.setTimeout(() => {
+        if (target.startsWith('[data-tour-id="admin-') && isAdmin) {
+          scrollAdminTabIntoStrip(target);
+        }
+        if (stepData?.data?.ensureSystemPanel) {
+          ensureSystemUsagePanelVisible();
+        }
+        setStepIndex(nextIndex);
+        previousStepIndexRef.current = nextIndex;
+        advancingRef.current = false;
+      }, delayMs);
+    };
+
+    if (target.startsWith('[data-tour-id="admin-') && isAdmin) {
+      prepareAdminTourTarget(target, onPageChange, isAdmin);
+      settleAndShow(120);
+      return;
+    }
+
+    if (stepData?.data?.switchToPage === 'kanban' || stepData?.data?.ensureSystemPanel) {
+      // Leave Admin, open metrics panel, wait for it to mount, then show step 34.
+      if (stepData?.data?.ensureSystemPanel) {
+        ensureSystemUsagePanelVisible();
+      }
+      window.setTimeout(() => {
+        ensureSystemUsagePanelVisible();
+        setStepIndex(nextIndex);
+        previousStepIndexRef.current = nextIndex;
+        advancingRef.current = false;
+        window.dispatchEvent(new Event('resize'));
+      }, 450);
+      return;
+    }
+
+    setStepIndex(nextIndex);
+    previousStepIndexRef.current = nextIndex;
+    advancingRef.current = false;
+  }, [steps, onPageChange, onViewModeChange, isAdmin]);
 
   const handleJoyrideCallback = useCallback((data: CallBackProps) => {
     const { status, step, index, type, action } = data;
-    
-    // Determine if we're going forward or backward
-    const isGoingForward = index > previousStepIndexRef.current;
-    const isGoingBack = index < previousStepIndexRef.current;
-    
-    // Update previous step index
-    previousStepIndexRef.current = index;
-    
-    // Switch to List view BEFORE reaching export-menu/column-visibility steps
-    // Do this in step:before of the current step (help-button, step 14) so view is ready for next step
-    if (type === 'step:before' && step && (isGoingForward || action === 'next')) {
-      const nextStep = steps[index + 1];
-      if (nextStep) {
-        const nextStepData = nextStep as any;
-        const nextNeedsListView = nextStepData.data?.switchToView === 'list' || 
-                                 (nextStep.target === '[data-tour-id="export-menu"]' || nextStep.target === '[data-tour-id="column-visibility"]');
-        
-        if (nextNeedsListView && onViewModeChange) {
-          const currentHash = window.location.hash;
-          if (currentHash.includes('admin') && onPageChange) {
-            onPageChange('kanban');
-            setTimeout(() => {
-              if (onViewModeChange) {
-                onViewModeChange('list');
-              }
-            }, 300);
-          } else {
-            onViewModeChange('list');
-          }
-        }
-      }
-    }
-    
-    // Handle view/page switching based on step data - switch BEFORE showing the step
-    // Only switch views/pages when going FORWARD, not when going back
-    if (type === 'step:before' && step && (isGoingForward || action === 'next')) {
-      const stepData = step as any;
-      
-      // Note: List view switching is handled above in the first step:before handler
-      // This section only handles admin page switching and other view/page switches
-      
-      // Switch to Admin panel for admin-tab step and all subsequent admin steps
-      if (stepData.data?.switchToPage === 'admin' && onPageChange && isAdmin) {
-        onPageChange('admin');
-      }
-      
-      // Also check if we're on an admin step by target (for steps after admin-tab)
-      if (step.target && typeof step.target === 'string' && step.target.startsWith('[data-tour-id="admin-') && onPageChange && isAdmin) {
-        // Check if we're already on admin page, if not, switch
-        const currentHash = window.location.hash;
-        if (!currentHash.includes('admin')) {
-          onPageChange('admin');
-        }
-        
-        // Extract tab name from data-tour-id and switch to that tab
-        // Format: [data-tour-id="admin-users"] -> "users"
-        // Format: [data-tour-id="admin-site-settings"] -> "site-settings"
-        const tabMatch = step.target.match(/admin-([^"]+)/);
-        if (tabMatch && tabMatch[1]) {
-          const tabName = tabMatch[1];
-          const currentHash = window.location.hash;
-          const expectedHash = `#admin#${tabName}`;
-          
-          // Only switch if we're not already on this tab
-          if (!currentHash.includes(`#${tabName}`) || currentHash !== expectedHash) {
-            // Update URL hash to trigger tab switch in Admin component
-            window.location.hash = `admin#${tabName}`;
-          }
-        }
-      }
-    }
-    
-    // Handle errors - if target not found, let react-joyride handle it
-    if (type === 'error' && step) {
-      // Don't return here - let react-joyride handle it
-    }
-    
-    if ([STATUS.FINISHED, STATUS.SKIPPED].includes(status)) {
+
+    if ([STATUS.FINISHED, STATUS.SKIPPED].includes(status as any)) {
       stopTour();
-      previousStepIndexRef.current = -1; // Reset on tour end
+      return;
     }
-  }, [stopTour, onViewModeChange, onPageChange, isAdmin, steps]);
+
+    // Controlled mode: advance ourselves so admin tabs can scroll into view first.
+    if (type === EVENTS.STEP_AFTER || type === EVENTS.TARGET_NOT_FOUND) {
+      if (action === ACTIONS.PREV) {
+        goToStep(index - 1);
+        return;
+      }
+
+      // Finish on Next from the last step (controlled mode does not auto-finish).
+      if (action === ACTIONS.NEXT && index >= steps.length - 1) {
+        stopTour();
+        return;
+      }
+
+      if (type === EVENTS.TARGET_NOT_FOUND) {
+        const missing = typeof step?.target === 'string' ? step.target : '';
+        // Last step: open system panel and retry instead of skipping past the end.
+        if (missing.includes('system-usage-panel')) {
+          if (onPageChange && window.location.hash.toLowerCase().includes('admin')) {
+            onPageChange('kanban');
+          }
+          ensureSystemUsagePanelVisible();
+          window.setTimeout(() => {
+            ensureSystemUsagePanelVisible();
+            advancingRef.current = false;
+            // Remount this step so Joyride re-queries the target after the panel opens.
+            setIsRunning(false);
+            setStepIndex(index);
+            previousStepIndexRef.current = index;
+            window.setTimeout(() => setIsRunning(true), 50);
+          }, 450);
+          return;
+        }
+        // Skip unknown missing targets when possible
+        if (index < steps.length - 1) {
+          goToStep(index + 1);
+        } else {
+          stopTour();
+        }
+        return;
+      }
+
+      if (action === ACTIONS.NEXT) {
+        goToStep(index + 1);
+      }
+    }
+
+    // Safety net if a tooltip still lands on a clipped tab.
+    if (type === EVENTS.TOOLTIP || type === EVENTS.STEP_BEFORE) {
+      previousStepIndexRef.current = index;
+      if (step?.target && typeof step.target === 'string' && step.target.startsWith('[data-tour-id="admin-')) {
+        if (scrollAdminTabIntoStrip(step.target)) {
+          window.dispatchEvent(new Event('resize'));
+        }
+      }
+      if (step?.target === '[data-tour-id="system-usage-panel"]') {
+        ensureSystemUsagePanelVisible();
+      }
+    }
+  }, [stopTour, goToStep, steps.length, onPageChange]);
 
   return (
     <TourContext.Provider
@@ -264,6 +393,7 @@ export const TourProvider: React.FC<TourProviderProps> = ({ children, currentUse
       <Joyride
         steps={steps}
         run={isRunning}
+        stepIndex={stepIndex}
         continuous={true}
         showProgress={true}
         showSkipButton={true}
@@ -273,7 +403,7 @@ export const TourProvider: React.FC<TourProviderProps> = ({ children, currentUse
         disableOverlayClose={true}
         hideCloseButton={false}
         disableScrolling={false}
-        disableScrollParentFix={false}
+        disableScrollParentFix={true}
         disableOverlay={false}
         spotlightClicks={true}
         styles={joyrideStyles}

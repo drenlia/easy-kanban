@@ -26,6 +26,15 @@
   
 }
 
+/* Keep Admin / Reports tab strips horizontally scrollable during Joyride.
+   Joyride's scroll-parent fix can set overflow:visible on ancestors, which
+   expands every tab into view and looks broken. */
+[data-tour-id="admin-tabs"] nav,
+[data-tour-id="reports-tabs"] > div {
+  overflow-x: auto !important;
+  max-width: 100%;
+}
+
 /* Prevent scrollable container flash - apply outside @layer for higher priority */
 /* This ensures the background is applied immediately, even during React re-renders */
 /* Use direct colors for light mode, CSS variable for dark mode to prevent flash */

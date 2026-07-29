@@ -1158,6 +1158,7 @@
       "adminMailServer": "Configure email server settings for sending notifications, invitations, and other system emails. Set up SMTP server details and test email functionality.",
       "adminSprintSettings": "Create and manage sprints for your projects. Sprints are time-based planning periods used to organize tasks and track progress. Set sprint names, dates, and mark active sprints.",
       "adminReporting": "Configure reporting features including gamification, leaderboard visibility, and achievement settings. Enable or disable various reporting capabilities for your team.",
+      "adminLifecycle": "Manage the lifecycle of deleted and archived work. Set automatic retention (purge) periods, restore soft-deleted tasks and boards, or permanently purge them when they are no longer needed.",
       "systemPanelToggle": "Use this button to show or hide the system metrics panel. When enabled, you'll see real-time monitoring of RAM, CPU, and disk usage. Your preference is saved and will persist across sessions."
     }
   }
