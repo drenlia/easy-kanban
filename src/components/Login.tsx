@@ -196,8 +196,14 @@ export default function Login({ onLogin, siteSettings, hasDefaultAdmin = true, i
     };
   }, [isDemoMode, fetchAdminCredentials]);
 
-  // Check for token expiration redirect
+  // Check for token expiration / demo-reset redirect
   useEffect(() => {
+    const demoReset = sessionStorage.getItem('demoResetRedirect');
+    if (demoReset === 'true') {
+      setError(t('login.demoWasReset'));
+      sessionStorage.removeItem('demoResetRedirect');
+      return;
+    }
     const tokenExpired = sessionStorage.getItem('tokenExpiredRedirect');
     if (tokenExpired === 'true') {
       setError(t('login.sessionExpired'));

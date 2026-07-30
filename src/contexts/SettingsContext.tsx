@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback, use
 import { getSettings, getPublicSettings } from '../api';
 import websocketClient from '../services/websocketClient';
 import { syncClientDebugFromSettings, feDebug } from '../utils/clientDebug';
+import { syncDemoResetFromSettings } from '../utils/demoReset';
 
 interface SiteSettings {
   [key: string]: string | undefined;
@@ -101,6 +102,10 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) 
       }
 
       syncClientDebugFromSettings(settings);
+      if (await syncDemoResetFromSettings(settings)) {
+        // Full page reload in progress after demo DB wipe — skip further state updates.
+        return settings;
+      }
       setSiteSettings(settings);
       setSystemSettings(settings); // Keep both for backwards compatibility
       setIsLoading(false);

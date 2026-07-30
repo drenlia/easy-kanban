@@ -1187,6 +1187,17 @@ const initializeDefaultData = async (db, tenantId = null) => {
       // Demo seed must not prevent the server from starting (admin/board already created)
       console.error('❌ Demo data initialization failed (continuing startup):', error);
     }
+
+    // Stamp each fresh demo DB so browsers can detect wipe vs stale cookies/localStorage.
+    // No migration needed — settings is a key/value table.
+    if (process.env.DEMO_ENABLED === 'true') {
+      const demoResetAt = new Date().toISOString();
+      await wrapQuery(
+        db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value'),
+        'INSERT'
+      ).run('DEMO_RESET_AT', demoResetAt);
+      console.log(`✅ DEMO_RESET_AT=${demoResetAt}`);
+    }
   }
 
 

@@ -1100,12 +1100,12 @@ export const uploadAvatar = async (file: File) => {
 // Task Relationships
 export const getTaskRelationships = async (taskId: string) => {
   const response = await api.get(`/tasks/${taskId}/relationships`);
-  return response.data;
+  return Array.isArray(response.data) ? response.data : [];
 };
 
 export const getAvailableTasksForRelationship = async (taskId: string) => {
   const response = await api.get(`/tasks/${taskId}/available-for-relationship`);
-  return response.data;
+  return Array.isArray(response.data) ? response.data : [];
 };
 
 export const addTaskRelationship = async (taskId: string, relationship: 'parent' | 'child' | 'related', toTaskId: string) => {
@@ -1123,7 +1123,8 @@ export const removeTaskRelationship = async (taskId: string, relationshipId: str
 
 export const getBoardTaskRelationships = async (boardId: string) => {
   const response = await api.get(`/boards/${boardId}/relationships`);
-  return response.data;
+  // Guard against HTML/error bodies during demo reset / proxy failures
+  return Array.isArray(response.data) ? response.data : [];
 };
 
 // Get complete task flow chart data (optimized)

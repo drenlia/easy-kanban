@@ -107,6 +107,7 @@ router.get('/', async (req, res, next) => {
       'HIGHLIGHT_OVERDUE_TASKS',
       'EFFORT_UNIT',
       'DEFAULT_FINISHED_COLUMN_NAMES',
+      'DEMO_RESET_AT',
       ...FE_PUBLIC_DEBUG_FLAG_KEYS,
       ...AI_PUBLIC_SETTING_KEYS
     ];

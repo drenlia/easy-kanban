@@ -45,6 +45,7 @@ import api, { getMembers, getBoards, deleteTask, updateTask, reorderTasks, reord
 import { toast, ToastContainer } from './utils/toast';
 import { getWipStatus, hasWipLimit } from './utils/kanbanFlowUtils';
 import { isAgentMemberId } from './utils/agentMemberUi';
+import { isDemoModeClient } from './utils/demoReset';
 import { useLoadingState } from './hooks/useLoadingState';
 import { useDebug } from './hooks/useDebug';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
@@ -65,7 +66,7 @@ import { useWebSocketConnection } from './hooks/useWebSocketConnection';
 import { generateUUID } from './utils/uuid';
 import { formatToYYYYMMDD } from './utils/dateUtils';
 import websocketClient from './services/websocketClient';
-import { loadUserPreferences, loadUserPreferencesAsync, mergeClearedKanbanVisibilityFilters, saveUserPreferences, updateUserPreference, updateActivityFeedPreference, loadAdminDefaults, TaskViewMode, ViewMode, isGloballySavingPreferences, registerSavingStateCallback, UserPreferences } from './utils/userPreferences';
+import { loadUserPreferences, loadUserPreferencesAsync, mergeClearedKanbanVisibilityFilters, saveUserPreferences, updateUserPreference, updateActivityFeedPreference, loadAdminDefaults, TaskViewMode, ViewMode, isGloballySavingPreferences, registerSavingStateCallback, UserPreferences, clearAllUserPreferenceCookies } from './utils/userPreferences';
 import { versionDetection } from './utils/versionDetection';
 import { getAllPriorities, getAllTags, getTags, getPriorities, getSettings, getTaskWatchers, getTaskCollaborators, addTagToTask, removeTagFromTask, getBoardTaskRelationships, getTaskRelationships, getAllSprints } from './api';
 import { 
@@ -904,7 +905,7 @@ function AppContent() {
   
   const handleRelationshipsUpdate = useCallback((newRelationships: any[]) => {
     // console.log('🔗 [App] handleRelationshipsUpdate called with:', newRelationships.length, 'relationships');
-    taskLinking.setBoardRelationships(newRelationships);
+    taskLinking.setBoardRelationships(Array.isArray(newRelationships) ? newRelationships : []);
     taskLinking.setTaskRelationships({}); // Clear Kanban hover cache to force fresh data
   }, [taskLinking]);
 
@@ -1572,9 +1573,10 @@ function AppContent() {
     if (!taskLinking.taskRelationships[task.id]) {
       try {
         const relationships = await api.get(`/tasks/${task.id}/relationships`);
+        const rows = Array.isArray(relationships.data) ? relationships.data : [];
         taskLinking.setTaskRelationships((prev: { [taskId: string]: any[] }) => ({
           ...prev,
-          [task.id]: relationships.data || []
+          [task.id]: rows
         }));
         // Set hovered task AFTER relationships are loaded to ensure highlighting works immediately
         taskLinking.setHoveredLinkTask(task);
@@ -1598,6 +1600,7 @@ function AppContent() {
     if (!taskLinking.hoveredLinkTask || !taskLinking.taskRelationships[taskLinking.hoveredLinkTask.id]) return null;
     
     const relationships = taskLinking.taskRelationships[taskLinking.hoveredLinkTask.id];
+    if (!Array.isArray(relationships)) return null;
     
     // Check if the task is a parent of the hovered task
     const parentRel = relationships.find(rel => 
@@ -1947,9 +1950,27 @@ function AppContent() {
           // Get current language for activity feed
           const currentLang = i18n.language || localStorage.getItem('i18nextLng') || 'en';
           const normalizedLang = currentLang.toLowerCase().startsWith('fr') ? 'fr' : 'en';
+
+          // Members can briefly return [] during demo settle (HTML/proxy). Retry a few times
+          // before painting so Team Members + card avatars hydrate together.
+          const loadMembersWithRetry = async () => {
+            const maxAttempts = isDemoModeClient() ? 6 : 2;
+            for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+              try {
+                const loaded = await getMembers(taskFilters.includeSystem);
+                if (Array.isArray(loaded) && loaded.length > 0) return loaded;
+              } catch {
+                /* retry */
+              }
+              if (attempt < maxAttempts) {
+                await new Promise((r) => setTimeout(r, Math.min(400 * attempt, 2000)));
+              }
+            }
+            return [] as TeamMember[];
+          };
           
           const [loadedMembers, loadedBoards, loadedPriorities, loadedTags, loadedSprints, loadedActivities] = await Promise.all([
-            getMembers(taskFilters.includeSystem),
+            loadMembersWithRetry(),
           getBoards(),
           getAllPriorities(),
           getAllTags(),
@@ -2041,6 +2062,51 @@ function AppContent() {
     
     reloadMembers();
   }, [taskFilters.includeSystem, isAuthenticated, currentUser?.id]);
+
+  // Demo-only: if boards loaded but members stayed empty (HTML/error during settle), retry.
+  useEffect(() => {
+    if (!isDemoModeClient()) return;
+    if (!isAuthenticated || !currentUser?.id) return;
+    if (boards.length === 0 || members.length > 0) return;
+
+    let cancelled = false;
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+
+    // Prefs cookies from pre-wipe sessions can linger when DEMO_RESET_AT was first
+    // recorded without a clear — drop them so filters/board IDs don't stay stale.
+    clearAllUserPreferenceCookies();
+
+    const retry = async (attempt: number) => {
+      if (cancelled || attempt > 8) return;
+      const delay = attempt === 1 ? 300 : Math.min(1000 * (attempt - 1), 5000);
+      timeoutId = setTimeout(async () => {
+        if (cancelled) return;
+        try {
+          const loadedMembers = await getMembers(taskFilters.includeSystem);
+          if (cancelled) return;
+          if (Array.isArray(loadedMembers) && loadedMembers.length > 0) {
+            setMembers(loadedMembers);
+            return;
+          }
+        } catch {
+          /* keep retrying */
+        }
+        void retry(attempt + 1);
+      }, delay);
+    };
+
+    void retry(1);
+    return () => {
+      cancelled = true;
+      if (timeoutId) clearTimeout(timeoutId);
+    };
+  }, [
+    isAuthenticated,
+    currentUser?.id,
+    boards.length,
+    members.length,
+    taskFilters.includeSystem,
+  ]);
 
   // Listen for sprint updates from admin panel
   useEffect(() => {

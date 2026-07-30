@@ -3219,8 +3219,21 @@ const TaskCard = React.memo(function TaskCard({
     return false;
   }
   
-  // Re-render if member changes
-  if (prevProps.member?.id !== nextProps.member?.id) {
+  // Re-render if assignee identity OR display fields change.
+  // After demo reset, members often load after cards: stub → real member keeps the
+  // same id but gains name/color/avatar — must not skip that update.
+  if (
+    prevProps.member?.id !== nextProps.member?.id ||
+    prevProps.member?.name !== nextProps.member?.name ||
+    prevProps.member?.color !== nextProps.member?.color ||
+    prevProps.member?.avatarUrl !== nextProps.member?.avatarUrl ||
+    prevProps.member?.googleAvatarUrl !== nextProps.member?.googleAvatarUrl
+  ) {
+    return false;
+  }
+
+  // Assignee dropdown / mentions need a fresh members list after late hydrate
+  if ((prevProps.members?.length || 0) !== (nextProps.members?.length || 0)) {
     return false;
   }
   
