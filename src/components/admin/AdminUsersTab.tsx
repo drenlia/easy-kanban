@@ -746,6 +746,11 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
                     {t('users.activeCreateLocally')}
                   </label>
                 </div>
+                {isDemoMode && (
+                  <p className="text-xs text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-700 rounded px-2 py-1.5">
+                    {t('users.activeCreateLocallyDemo')}
+                  </p>
+                )}
               </div>
               <div className="flex space-x-3 mt-6">
                 <button

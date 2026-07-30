@@ -171,8 +171,8 @@ const MainLayout: React.FC<MainLayoutProps> = ({
   ...kanbanProps
 }) => {
   return (
-    <div className="flex-1 p-6 main-layout-container">
-      <div className="w-4/5 mx-auto">
+    <div className="flex-1 py-6 app-page-inline-gutter main-layout-container">
+      <div className="app-page-shell">
         <Suspense fallback={<PageLoader />}>
           {currentPage === 'admin' ? (
             <Admin 

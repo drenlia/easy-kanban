@@ -2,6 +2,7 @@
  * Utility functions for user invitation
  */
 
+import i18n from '../i18n/config';
 import { createUser } from '../api';
 
 /**
@@ -52,6 +53,10 @@ export const handleInviteUser = async (
   handleRefreshData: () => Promise<void>
 ): Promise<void> => {
   try {
+    if (process.env.DEMO_ENABLED === 'true') {
+      throw new Error(i18n.t('navigation.inviteDisabledDemo'));
+    }
+
     // Check email server status first
     const emailStatusResponse = await fetch('/api/admin/email-status', {
       headers: {
@@ -62,7 +67,17 @@ export const handleInviteUser = async (
     if (emailStatusResponse.ok) {
       const emailStatus = await emailStatusResponse.json();
       if (!emailStatus.available) {
-        throw new Error(`Email server is not available: ${emailStatus.error}. Please configure email settings in the admin panel before inviting users.`);
+        if (
+          emailStatus.demoMode === true ||
+          String(emailStatus.error || '').toLowerCase().includes('demo')
+        ) {
+          throw new Error(i18n.t('navigation.inviteDisabledDemo'));
+        }
+        throw new Error(
+          i18n.t('navigation.emailServerUnavailable', {
+            error: emailStatus.error || emailStatus.message || '',
+          })
+        );
       }
     } else {
       console.warn('Could not check email status, proceeding with invitation');
@@ -84,7 +99,11 @@ export const handleInviteUser = async (
     
     // Check if email was actually sent
     if (result.emailSent === false) {
-      throw new Error(`User created successfully, but invitation email could not be sent: ${result.emailError || 'Email service unavailable'}. The user will need to be manually activated.`);
+      throw new Error(
+        i18n.t('navigation.userCreatedButEmailFailed', {
+          error: result.emailError || 'Email service unavailable',
+        })
+      );
     }
     
     // Refresh members list to show the new user
@@ -93,16 +112,21 @@ export const handleInviteUser = async (
     console.error('Failed to invite user:', error);
     
     // Extract more specific error message
-    let errorMessage = 'Failed to send invitation';
+    let errorMessage = i18n.t('navigation.failedToSendInvitation');
     
     if (error.response?.data?.error) {
       const backendError = error.response.data.error;
       if (backendError.includes('already exists')) {
-        errorMessage = `User with email ${email} already exists`;
+        errorMessage = i18n.t('navigation.userAlreadyExists', { email });
       } else if (backendError.includes('required')) {
-        errorMessage = 'Missing required information. Please try again.';
+        errorMessage = i18n.t('navigation.missingRequiredInfo');
       } else if (backendError.includes('email')) {
-        errorMessage = 'Invalid email address format';
+        errorMessage = i18n.t('navigation.invalidEmailFormat');
+      } else if (
+        String(backendError).toLowerCase().includes('demo') ||
+        error.response?.data?.demoMode === true
+      ) {
+        errorMessage = i18n.t('navigation.inviteDisabledDemo');
       } else {
         errorMessage = backendError;
       }
@@ -113,4 +137,3 @@ export const handleInviteUser = async (
     throw new Error(errorMessage);
   }
 };
-

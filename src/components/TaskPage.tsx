@@ -929,7 +929,7 @@ export default function TaskPage({
   const priority = availablePriorities.find(p => p.id === editedTask.priorityId);
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 overflow-x-hidden">
       {/* App Header */}
       <Header
         currentUser={currentUser}
@@ -951,31 +951,31 @@ export default function TaskPage({
       
       {/* Task Navigation Bar - Sticky */}
       <div className="sticky top-16 z-40 bg-white dark:bg-gray-800 shadow-sm border-b dark:border-gray-700">
-        <div className="w-4/5 max-w-none mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between py-4">
-            <div className="flex items-center space-x-4">
+        <div className="app-page-shell app-page-inline-gutter max-w-full">
+          <div className="flex flex-wrap items-center justify-between gap-2 py-2.5 sm:py-4">
+            <div className="flex items-center gap-2 sm:gap-4 min-w-0 flex-1">
               <button
                 onClick={handleBack}
-                className="flex items-center text-gray-600 dark:text-white hover:text-gray-900 dark:hover:text-blue-400 font-medium transition-colors"
+                className="flex items-center shrink-0 text-gray-600 dark:text-white hover:text-gray-900 dark:hover:text-blue-400 font-medium transition-colors text-sm sm:text-base"
               >
                 <ArrowLeft className="h-5 w-5 mr-1" />
-                {t('taskPage.backToBoard')}
+                <span className="truncate max-w-[9rem] sm:max-w-none">{t('taskPage.backToBoard')}</span>
               </button>
-              <div className="h-6 border-l border-gray-300"></div>
-              <div>
-                <h1 className="text-lg font-semibold text-gray-900 dark:text-gray-100">{editedTask.title}</h1>
-                <p className="text-sm text-gray-500">
+              <div className="h-6 border-l border-gray-300 shrink-0"></div>
+              <div className="min-w-0">
+                <h1 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-gray-100 truncate">{editedTask.title}</h1>
+                <p className="text-xs sm:text-sm text-gray-500 truncate">
                   {getProjectIdentifier() && `${getProjectIdentifier()} / `}
                   {taskId}
                 </p>
               </div>
             </div>
             
-            <div className="flex items-center space-x-4">
+            <div className="flex items-center gap-2 sm:gap-4 shrink-0">
               {hasChanges && (
-                <span className="text-sm text-amber-600 flex items-center">
+                <span className="text-xs sm:text-sm text-amber-600 flex items-center">
                   <Clock className="h-4 w-4 mr-1" />
-                  {t('taskPage.unsavedChanges')}
+                  <span className="hidden sm:inline">{t('taskPage.unsavedChanges')}</span>
                 </span>
               )}
               {hasChanges && !isSaving && (
@@ -985,20 +985,20 @@ export default function TaskPage({
                     // Flush any in-flight editor HTML into state, then save from the ref
                     window.setTimeout(() => saveImmediately(), 0);
                   }}
-                  className="inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-md bg-blue-600 text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+                  className="inline-flex items-center px-2.5 sm:px-3 py-1.5 text-sm font-medium rounded-md bg-blue-600 text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
                 >
-                  <Save className="h-4 w-4 mr-1" />
-                  {t('taskPage.save')}
+                  <Save className="h-4 w-4 sm:mr-1" />
+                  <span className="hidden sm:inline">{t('taskPage.save')}</span>
                 </button>
               )}
               {isSaving && (
-                <span className="text-sm text-blue-600 flex items-center">
+                <span className="text-xs sm:text-sm text-blue-600 flex items-center">
                   <Save className="h-4 w-4 mr-1 animate-spin" />
-                  {t('taskPage.saving')}
+                  <span className="hidden sm:inline">{t('taskPage.saving')}</span>
                 </span>
               )}
               {lastSaved && !hasChanges && !isSaving && (
-                <span className="text-sm text-green-600">
+                <span className="text-xs sm:text-sm text-green-600 hidden sm:inline">
                   {t('taskPage.saved', { time: lastSaved.toLocaleTimeString() })}
                 </span>
               )}
@@ -1008,27 +1008,28 @@ export default function TaskPage({
       </div>
 
       {/* Main Content */}
-      <div className="w-4/5 max-w-none mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+      <div className="app-page-shell app-page-inline-gutter max-w-full py-4 sm:py-6 lg:py-8">
+        {/* Two columns from md (768px) so ~865px half-screens keep title + sidebar side-by-side */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-6 lg:gap-8 min-w-0">
           
           {/* Left Column - Main Content */}
-          <div className="lg:col-span-2 space-y-6">
+          <div className="md:col-span-2 space-y-4 sm:space-y-6 min-w-0">
             
             {/* Title */}
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6">
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-3 sm:p-4 lg:p-6">
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-2">{t('taskPage.taskTitle')}</label>
               <input
                 type="text"
                 value={editedTask.title}
                 onChange={(e) => handleTaskUpdate({ title: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-lg font-medium bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+                className="w-full min-w-0 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-base sm:text-lg font-medium bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                 placeholder={t('placeholders.enterTitle')}
               />
             </div>
 
             {/* Description */}
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6">
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-4">{t('labels.description')}</label>
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-3 sm:p-4 lg:p-6 min-w-0 overflow-hidden">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-3 sm:mb-4">{t('labels.description')}</label>
               <TextEditor
                 onSubmit={async () => {
                   // Save pending attachments when submit is triggered
@@ -1048,7 +1049,7 @@ export default function TaskPage({
                 existingAttachments={displayAttachments}
                 compact={false}
                 resizable={true}
-                className="min-h-[300px]"
+                className="min-h-[200px] sm:min-h-[300px] max-w-full"
                 toolbarOptions={{
                   bold: true,
                   italic: true,
@@ -1072,12 +1073,12 @@ export default function TaskPage({
 
             {/* Attachments */}
             {displayAttachments.length > 0 && (
-              <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6">
+              <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-3 sm:p-4 lg:p-6">
                 <h3 className="text-sm font-medium text-gray-700 dark:text-gray-200 mb-4 flex items-center">
                   <Paperclip className="h-4 w-4 mr-2" />
                   {t('taskPage.attachments', { count: displayAttachments.length })}
                 </h3>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
                   {displayAttachments.map((attachment) => (
                     <div key={attachment.id} className="flex items-center p-3 border border-gray-200 rounded-md">
                       <Paperclip className="h-4 w-4 text-gray-400 mr-3 flex-shrink-0" />
@@ -1111,7 +1112,7 @@ export default function TaskPage({
             )}
 
             {/* Comments */}
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6 border border-transparent dark:border-gray-700">
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-3 sm:p-4 lg:p-6 border border-transparent dark:border-gray-700 min-w-0 overflow-hidden">
               <h3 className="text-sm font-medium text-gray-700 dark:text-gray-200 mb-4 flex items-center">
                 <Users className="h-4 w-4 mr-2" />
                 {t('taskPage.comments', { count: (editedTask.comments || []).filter(comment => 
@@ -1319,7 +1320,7 @@ export default function TaskPage({
             {/* Task Flow Chart */}
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm">
               <div 
-                className={`p-6 cursor-pointer flex items-center justify-between ${collapsedSections.taskFlow ? 'pb-3' : 'pb-0'}`}
+                className={`p-3 sm:p-4 lg:p-6 cursor-pointer flex items-center justify-between ${collapsedSections.taskFlow ? 'pb-3' : 'pb-0'}`}
                 onClick={() => toggleSection('taskFlow')}
               >
                 <h3 className="text-sm font-medium text-gray-700 dark:text-gray-200 flex items-center">
@@ -1333,7 +1334,7 @@ export default function TaskPage({
                 )}
               </div>
               {!collapsedSections.taskFlow && (
-                <div className="px-6 pb-6">
+                <div className="px-3 sm:px-4 lg:px-6 pb-3 sm:pb-4 lg:pb-6">
                   <TaskFlowChart 
                     currentTaskId={task?.id || ''} 
                     currentTaskData={task}
@@ -1344,12 +1345,12 @@ export default function TaskPage({
           </div>
 
           {/* Right Column - Metadata */}
-          <div className="space-y-6">
+          <div className="space-y-4 sm:space-y-6 min-w-0">
             
             {/* Assignment */}
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm">
               <div 
-                className={`p-6 cursor-pointer flex items-center justify-between ${collapsedSections.assignment ? 'pb-3' : 'pb-0'}`}
+                className={`p-3 sm:p-4 lg:p-6 cursor-pointer flex items-center justify-between ${collapsedSections.assignment ? 'pb-3' : 'pb-0'}`}
                 onClick={() => toggleSection('assignment')}
               >
                 <h3 className="text-sm font-medium text-gray-700 dark:text-gray-200 flex items-center">
@@ -1363,7 +1364,7 @@ export default function TaskPage({
                 )}
               </div>
               {!collapsedSections.assignment && (
-                <div className="px-6 pb-6">
+                <div className="px-3 sm:px-4 lg:px-6 pb-3 sm:pb-4 lg:pb-6">
               <div className="space-y-4">
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">{t('labels.assignedTo')}</label>
@@ -1506,7 +1507,7 @@ export default function TaskPage({
             {/* Priority & Dates */}
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm">
               <div 
-                className={`p-6 cursor-pointer flex items-center justify-between ${collapsedSections.schedule ? 'pb-3' : 'pb-0'}`}
+                className={`p-3 sm:p-4 lg:p-6 cursor-pointer flex items-center justify-between ${collapsedSections.schedule ? 'pb-3' : 'pb-0'}`}
                 onClick={() => toggleSection('schedule')}
               >
                 <h3 className="text-sm font-medium text-gray-700 dark:text-gray-200 flex items-center">
@@ -1520,7 +1521,7 @@ export default function TaskPage({
                 )}
               </div>
               {!collapsedSections.schedule && (
-                <div className="px-6 pb-6">
+                <div className="px-3 sm:px-4 lg:px-6 pb-3 sm:pb-4 lg:pb-6">
               <div className="space-y-4">
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">{t('labels.sprint')}</label>
@@ -1682,7 +1683,7 @@ export default function TaskPage({
             {/* Tags */}
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm">
               <div 
-                className={`p-6 cursor-pointer flex items-center justify-between ${collapsedSections.tags ? 'pb-3' : 'pb-0'}`}
+                className={`p-3 sm:p-4 lg:p-6 cursor-pointer flex items-center justify-between ${collapsedSections.tags ? 'pb-3' : 'pb-0'}`}
                 onClick={() => toggleSection('tags')}
               >
                 <h3 className="text-sm font-medium text-gray-700 dark:text-gray-200 flex items-center">
@@ -1696,7 +1697,7 @@ export default function TaskPage({
                 )}
               </div>
               {!collapsedSections.tags && (
-                <div className="px-6 pb-6">
+                <div className="px-3 sm:px-4 lg:px-6 pb-3 sm:pb-4 lg:pb-6">
               <div className="space-y-3">
                 <div className="flex flex-wrap gap-1">
                   {taskTags.map((tag) => (
@@ -1760,7 +1761,7 @@ export default function TaskPage({
             {/* Task Association */}
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm">
               <div 
-                className={`p-6 cursor-pointer flex items-center justify-between ${collapsedSections.associations ? 'pb-3' : 'pb-0'}`}
+                className={`p-3 sm:p-4 lg:p-6 cursor-pointer flex items-center justify-between ${collapsedSections.associations ? 'pb-3' : 'pb-0'}`}
                 onClick={() => toggleSection('associations')}
               >
                 <h3 className="text-sm font-medium text-gray-700 dark:text-gray-200 flex items-center">
@@ -1774,9 +1775,9 @@ export default function TaskPage({
                 )}
               </div>
               {!collapsedSections.associations && (
-                <div className="px-6 pb-6">
+                <div className="px-3 sm:px-4 lg:px-6 pb-3 sm:pb-4 lg:pb-6">
               <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 min-w-0">
                   {/* Parent Field - Left Side */}
                   {parentTask && (
                     <div>
@@ -1904,7 +1905,7 @@ export default function TaskPage({
             {/* Task Info */}
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm">
               <div 
-                className={`p-6 cursor-pointer flex items-center justify-between ${collapsedSections.taskInfo ? 'pb-3' : 'pb-0'}`}
+                className={`p-3 sm:p-4 lg:p-6 cursor-pointer flex items-center justify-between ${collapsedSections.taskInfo ? 'pb-3' : 'pb-0'}`}
                 onClick={() => toggleSection('taskInfo')}
               >
                 <h3 className="text-sm font-medium text-gray-700 dark:text-gray-200">{t('taskPage.taskInformation')}</h3>
@@ -1915,7 +1916,7 @@ export default function TaskPage({
                 )}
               </div>
               {!collapsedSections.taskInfo && (
-                <div className="px-6 pb-6">
+                <div className="px-3 sm:px-4 lg:px-6 pb-3 sm:pb-4 lg:pb-6">
               <div className="space-y-2 text-sm">
                 <div className="flex justify-between">
                   <span className="text-gray-600 dark:text-gray-400">{t('taskPage.taskId')}:</span>

@@ -588,12 +588,6 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
   const activeFilterTooltip = useMemo(() => {
     const hasSearchCriteria = hasConfiguredSearchFilters(searchFilters);
 
-    const hasRoleFilters =
-      !includeAssignees ||
-      includeWatchers ||
-      includeCollaborators ||
-      includeRequesters;
-
     let hasHiddenColumns = false;
     const allColumns = Object.values(columns);
     if (allColumns.length > 0 && visibleColumnsForCurrentBoard.length > 0) {
@@ -612,10 +606,9 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
     const agentHidden =
       siteSettings?.AI_ENABLED === 'true' && !showAgentTasks;
 
+    // Member selection + role chips live in Team Members — do not badge Search for them.
     const badgeActive =
       hasSearchCriteria ||
-      selectedMembers.length > 0 ||
-      hasRoleFilters ||
       hasHiddenColumns ||
       agentHidden;
 
@@ -624,12 +617,6 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
     const reasons: string[] = [];
     if (hasSearchCriteria) {
       reasons.push(t('tools.filterReasonSearch', { ns: 'common' }));
-    }
-    if (selectedMembers.length > 0) {
-      reasons.push(t('tools.filterReasonMembers', { ns: 'common' }));
-    }
-    if (hasRoleFilters) {
-      reasons.push(t('tools.filterReasonRoles', { ns: 'common' }));
     }
     if (hasHiddenColumns) {
       reasons.push(t('tools.filterReasonColumns', { ns: 'common' }));
@@ -644,11 +631,6 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
     return `${t('tools.filtersActiveHeading', { ns: 'common' })}\n• ${reasons.join('\n• ')}`;
   }, [
     searchFilters,
-    selectedMembers,
-    includeAssignees,
-    includeWatchers,
-    includeCollaborators,
-    includeRequesters,
     columns,
     visibleColumnsForCurrentBoard,
     siteSettings?.AI_ENABLED,

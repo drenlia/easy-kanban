@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { Github, HelpCircle, LogOut, User, RefreshCw, UserPlus, Mail, X, Send, Monitor, MonitorOff, MoreHorizontal } from 'lucide-react';
+import { Github, HelpCircle, LogOut, User, RefreshCw, UserPlus, Mail, X, Send, Monitor, MonitorOff, MoreHorizontal, Menu, Check } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { CurrentUser, SiteSettings, TeamMember } from '../../types';
 import ThemeToggle from '../ThemeToggle';
@@ -93,6 +93,7 @@ const Header: React.FC<HeaderProps> = ({
   boards = [],
   sprints: propSprints,
 }) => {
+  const isDemoMode = process.env.DEMO_ENABLED === 'true';
   const { theme } = useTheme();
   // Host-level metrics are misleading in multi-tenant; hide in demo mode as well.
   const isSystemPanelAvailable =
@@ -121,7 +122,9 @@ const Header: React.FC<HeaderProps> = ({
   const [inviteSuccess, setInviteSuccess] = useState('');
   const inviteDropdownRef = useRef<HTMLDivElement>(null);
   const [showMoreMenu, setShowMoreMenu] = useState(false);
+  const [showAppNavMenu, setShowAppNavMenu] = useState(false);
   const moreMenuRef = useRef<HTMLDivElement>(null);
+  const appNavMenuRef = useRef<HTMLDivElement>(null);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const profileMenuRef = useRef<HTMLDivElement>(null);
   const { i18n, t } = useTranslation('common');
@@ -324,6 +327,9 @@ const Header: React.FC<HeaderProps> = ({
       if (moreMenuRef.current && !moreMenuRef.current.contains(target)) {
         setShowMoreMenu(false);
       }
+      if (appNavMenuRef.current && !appNavMenuRef.current.contains(target)) {
+        setShowAppNavMenu(false);
+      }
       if (profileMenuRef.current && !profileMenuRef.current.contains(target)) {
         setShowProfileMenu(false);
       }
@@ -412,6 +418,11 @@ const Header: React.FC<HeaderProps> = ({
   };
 
   const handleInviteSend = async () => {
+    if (isDemoMode) {
+      setInviteError(t('navigation.inviteDisabledDemo'));
+      return;
+    }
+
     if (!inviteEmail.trim()) {
       setInviteError(t('navigation.pleaseEnterEmail'));
       return;
@@ -471,8 +482,8 @@ const Header: React.FC<HeaderProps> = ({
 
   return (
     <header className="sticky top-0 z-50 bg-white dark:bg-gray-800 shadow-sm border-b border-gray-100 dark:border-gray-700" data-tour-id="navigation">
-      <div className="w-4/5 mx-auto px-6 py-2.5 flex justify-between items-center">
-        <div className="flex items-center gap-3">
+      <div className="app-page-shell app-page-inline-gutter py-2.5 flex justify-between items-center gap-2 min-w-0 max-w-full">
+        <div className="flex items-center gap-2 sm:gap-3 min-w-0 shrink">
           <a
             href={siteSettings.SITE_URL || '#'}
             onClick={handleSiteTitleNavigation}
@@ -482,7 +493,7 @@ const Header: React.FC<HeaderProps> = ({
                 handleSiteTitleNavigation(e);
               }
             }}
-            className="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-200 hover:text-blue-600 dark:hover:text-blue-400 transition-colors cursor-pointer"
+            className="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-200 hover:text-blue-600 dark:hover:text-blue-400 transition-colors cursor-pointer min-w-0 shrink"
           >
             {(() => {
               const hideLogo = siteSettings.HIDE_SITE_LOGO === 'true';
@@ -527,24 +538,26 @@ const Header: React.FC<HeaderProps> = ({
                       key={logoSrc}
                       src={logoSrc}
                       alt={showName ? siteName : 'Easy Kanban'}
-                      className="h-7 max-w-[140px] object-contain"
+                      className="h-7 max-w-[100px] sm:max-w-[140px] object-contain shrink-0"
                     />
                   )}
                   {showName && (
-                    <span>{siteName}</span>
+                    <span className="hidden md:inline truncate max-w-[10rem] lg:max-w-[14rem]">{siteName}</span>
                   )}
                 </>
               );
             })()}
           </a>
-          {/* Sprint Selector - only show in Kanban view, hide on TaskPage */}
+          {/* Sprint Selector - only show in Kanban view, hide on TaskPage / very narrow */}
           {currentUser && currentPage === 'kanban' && !hideSprintSelector && (
-            <SprintSelector
-              selectedSprintId={selectedSprintId || null}
-              onSprintChange={onSprintChange || (() => {})}
-              tasks={allTasks}
-              sprints={propSprints}
-            />
+            <div className="hidden sm:block min-w-0">
+              <SprintSelector
+                selectedSprintId={selectedSprintId || null}
+                onSprintChange={onSprintChange || (() => {})}
+                tasks={allTasks}
+                sprints={propSprints}
+              />
+            </div>
           )}
           
           {/* Demo Reset Counter - positioned between sprint selector and invite button */}
@@ -553,25 +566,27 @@ const Header: React.FC<HeaderProps> = ({
           )}
         </div>
         
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1 sm:gap-2 min-w-0 shrink-0">
           {currentUser && (
             <>
-              {/* Quick task search (Kanban) — same text filter as Tools panel */}
+              {/* Quick task search — hide under md; Tools search still available */}
               {currentPage === 'kanban' && !hideSprintSelector && onTaskSearchTextChange && (
                 <>
-                  <HeaderTaskSearch
-                    value={taskSearchText}
-                    onChange={onTaskSearchTextChange}
-                  />
+                  <div className="hidden md:block">
+                    <HeaderTaskSearch
+                      value={taskSearchText}
+                      onChange={onTaskSearchTextChange}
+                    />
+                  </div>
                   <div
-                    className="hidden sm:block h-6 w-px bg-gray-300 dark:bg-gray-600 flex-shrink-0"
+                    className="hidden md:block h-6 w-px bg-gray-300 dark:bg-gray-600 flex-shrink-0"
                     aria-hidden
                   />
                 </>
               )}
 
-              {/* 1. App navigation */}
-              <div className="flex items-center gap-1">
+              {/* Desktop app navigation (lg+) */}
+              <div className="hidden lg:flex items-center gap-1">
                 <button
                   onClick={() => onPageChange('kanban')}
                   className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
@@ -610,12 +625,109 @@ const Header: React.FC<HeaderProps> = ({
                 )}
               </div>
 
-              {/* 2. Team action */}
+              {/* Compact app nav: Kanban / Reports / Admin / Invite */}
+              <div className="relative lg:hidden" ref={appNavMenuRef}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowAppNavMenu((open) => !open);
+                    setShowMoreMenu(false);
+                  }}
+                  className={`flex items-center gap-1 px-2 py-1.5 text-sm font-medium rounded-md transition-colors border ${
+                    showAppNavMenu
+                      ? 'border-blue-400 bg-blue-50 dark:bg-blue-900 text-blue-700 dark:text-blue-300'
+                      : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:border-blue-400'
+                  }`}
+                  title={t('navigation.menu')}
+                  aria-label={t('navigation.menu')}
+                  aria-expanded={showAppNavMenu}
+                  aria-haspopup="menu"
+                  data-tour-id="app-nav-menu"
+                >
+                  <Menu size={16} />
+                  <span className="hidden sm:inline max-w-[4.5rem] truncate">
+                    {currentPage === 'admin'
+                      ? t('navigation.admin')
+                      : currentPage === 'reports'
+                        ? t('navigation.reports')
+                        : t('navigation.kanban')}
+                  </span>
+                </button>
+                {showAppNavMenu && (
+                  <div
+                    role="menu"
+                    className="absolute right-0 top-full mt-2 min-w-[11rem] bg-white dark:bg-gray-800 rounded-lg shadow-lg z-50 border border-gray-200 dark:border-gray-700 py-1"
+                  >
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setShowAppNavMenu(false);
+                        onPageChange('kanban');
+                      }}
+                      className="w-full text-left px-4 py-2.5 text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center justify-between gap-2"
+                    >
+                      <span>{t('navigation.kanban')}</span>
+                      {currentPage === 'kanban' && <Check size={14} className="text-blue-600" />}
+                    </button>
+                    {reportsEnabled && (reportsVisibleTo === 'all' || currentUser.roles?.includes('admin')) && (
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setShowAppNavMenu(false);
+                          onPageChange('reports');
+                        }}
+                        className="w-full text-left px-4 py-2.5 text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center justify-between gap-2"
+                        data-tour-id="reports-button"
+                      >
+                        <span>{t('navigation.reports')}</span>
+                        {currentPage === 'reports' && <Check size={14} className="text-blue-600" />}
+                      </button>
+                    )}
+                    {currentUser.roles?.includes('admin') && (
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setShowAppNavMenu(false);
+                          onPageChange('admin');
+                        }}
+                        className="w-full text-left px-4 py-2.5 text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center justify-between gap-2"
+                        data-tour-id="admin-tab"
+                      >
+                        <span>{t('navigation.admin')}</span>
+                        {currentPage === 'admin' && <Check size={14} className="text-blue-600" />}
+                      </button>
+                    )}
+                    {currentUser.roles?.includes('admin') && onInviteUser && (
+                      <>
+                        <div className="my-1 border-t border-gray-200 dark:border-gray-700" />
+                        <button
+                          type="button"
+                          role="menuitem"
+                          onClick={() => {
+                            setShowAppNavMenu(false);
+                            handleInviteClick();
+                          }}
+                          className="w-full text-left px-4 py-2.5 text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-2"
+                          data-tour-id="invite-user-button"
+                        >
+                          <UserPlus size={16} />
+                          {t('navigation.invite')}
+                        </button>
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Invite — desktop button; dropdown host for both breakpoints */}
               {currentUser.roles?.includes('admin') && onInviteUser && (
                 <div className="relative" ref={inviteDropdownRef}>
                   <button
                     onClick={handleInviteClick}
-                    className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-200 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900 rounded-md transition-colors border border-gray-300 dark:border-gray-600 hover:border-blue-400 dark:hover:border-blue-500"
+                    className="hidden lg:flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-200 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900 rounded-md transition-colors border border-gray-300 dark:border-gray-600 hover:border-blue-400 dark:hover:border-blue-500"
                     title={t('navigation.inviteUser')}
                     data-tour-id="invite-user-button"
                   >
@@ -624,7 +736,7 @@ const Header: React.FC<HeaderProps> = ({
                   </button>
 
                   {showInviteDropdown && (
-                    <div className="absolute right-0 top-full mt-2 w-80 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 z-50">
+                    <div className="absolute right-0 top-full mt-2 w-[min(20rem,calc(100vw-1.5rem))] bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 z-50">
                       <div className="p-4">
                         <div className="flex items-center gap-2 mb-3">
                           <Mail className="h-4 w-4 text-blue-600" />
@@ -632,6 +744,11 @@ const Header: React.FC<HeaderProps> = ({
                         </div>
                         
                         <div className="space-y-3">
+                          {isDemoMode && (
+                            <div className="text-xs text-amber-800 dark:text-amber-200 bg-amber-50 dark:bg-amber-900/40 border border-amber-200 dark:border-amber-700 px-2 py-2 rounded">
+                              {t('navigation.inviteDisabledDemo')}
+                            </div>
+                          )}
                           <div>
                             <input
                               type="email"
@@ -639,9 +756,9 @@ const Header: React.FC<HeaderProps> = ({
                               onChange={(e) => setInviteEmail(e.target.value)}
                               onKeyDown={handleInviteKeyPress}
                               placeholder={t('navigation.enterEmailAddress')}
-                              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-                              disabled={isInviting}
-                              autoFocus
+                              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 disabled:opacity-60 disabled:cursor-not-allowed"
+                              disabled={isInviting || isDemoMode}
+                              autoFocus={!isDemoMode}
                             />
                           </div>
                           
@@ -660,7 +777,7 @@ const Header: React.FC<HeaderProps> = ({
                           <div className="flex items-center gap-2 pt-2">
                             <button
                               onClick={handleInviteSend}
-                              disabled={isInviting || !inviteEmail.trim()}
+                              disabled={isInviting || isDemoMode || !inviteEmail.trim()}
                               className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                             >
                               {isInviting ? (
@@ -686,7 +803,7 @@ const Header: React.FC<HeaderProps> = ({
                 </div>
               )}
 
-              <div className="w-px h-5 bg-gray-200 dark:bg-gray-600 mx-1" aria-hidden="true" />
+              <div className="hidden lg:block w-px h-5 bg-gray-200 dark:bg-gray-600 mx-1" aria-hidden="true" />
             </>
           )}
 

@@ -372,6 +372,7 @@ router.get('/email-status', authenticateToken, requireRole(['admin']), async (re
       available: emailValidation.valid,
       implemented: true,
       hasSettings,
+      demoMode: emailValidation.demoMode === true || process.env.DEMO_ENABLED === 'true',
       error: emailValidation.valid ? null : (emailValidation.error || null),
       message: emailValidation.valid
         ? 'Email service is ready for sending'

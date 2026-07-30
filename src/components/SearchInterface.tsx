@@ -137,7 +137,7 @@ export default function SearchInterface({
 
   // Helper function to get dropdown button styling based on whether it's active
   const getDropdownButtonClassName = (isActive: boolean) => {
-    const baseClasses = "bg-white dark:bg-gray-700 border rounded px-2 py-1 pr-6 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-transparent w-[70px] flex items-center justify-between text-gray-900 dark:text-gray-100";
+    const baseClasses = "bg-white dark:bg-gray-700 border rounded px-2 py-1 pr-6 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-transparent w-[67px] flex items-center justify-between text-gray-900 dark:text-gray-100";
     const activeClasses = isActive ? "border-blue-400 bg-blue-50 dark:bg-blue-900" : "border-gray-300 dark:border-gray-600";
     return `${baseClasses} ${activeClasses}`;
   };
@@ -611,8 +611,8 @@ export default function SearchInterface({
 
       {!isCollapsed && (
         <div className="space-y-3">
-          {/* Row 1: Start Dates, User, Clear Button */}
-          <div className="flex items-center gap-2">
+          {/* Row 1: Start Dates — pl aligns input left edge with header search field */}
+          <div className="flex items-center gap-2 pl-[9px]">
             <div className="relative">
               <label className="text-xs font-medium text-gray-700 dark:text-gray-300 absolute left-[60px] top-1/2 -translate-y-1/2">{t('searchInterface.startFrom')}:</label>
               <input
@@ -723,8 +723,8 @@ export default function SearchInterface({
 
           </div>
 
-          {/* Row 2: Due Dates, Priority */}
-          <div className="flex items-center gap-2">
+          {/* Row 2: Due Dates — same pl as start-date row for vertical input alignment */}
+          <div className="flex items-center gap-2 pl-[9px]">
             <div className="relative">
               <label className="text-xs font-medium text-gray-700 dark:text-gray-300 absolute left-[64px] top-1/2 -translate-y-1/2">{t('searchInterface.dueFrom')}:</label>
               <input
