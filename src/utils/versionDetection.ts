@@ -1,18 +1,32 @@
 /**
  * Version Detection Utility
- * 
+ *
  * Tracks app version changes and notifies listeners when a new version is detected.
  * The initial version is stored in-memory when the app first loads, and subsequent
  * API responses are checked for version changes via the X-App-Version header.
+ *
+ * During K8s rolling updates, clients may briefly hit old + new pods. We must not
+ * treat a temporary "downgrade" (seeing an older X-App-Version) as a new update,
+ * or clear a dismissed target version when an old pod answers.
  */
 
 type VersionChangeCallback = (oldVersion: string, newVersion: string) => void;
+
+const DISMISSED_KEY = 'dismissedVersion';
+
+function readDismissedVersion(): string | null {
+  try {
+    return typeof localStorage !== 'undefined' ? localStorage.getItem(DISMISSED_KEY) : null;
+  } catch {
+    return null;
+  }
+}
 
 class VersionDetectionService {
   private initialVersion: string | null = null;
   private listeners: VersionChangeCallback[] = [];
   private isInitialized = false;
-  private lastNotifiedVersion: string | null = null; // Track last version we notified about
+  private lastNotifiedVersion: string | null = null;
 
   /**
    * Set the initial app version (called on first API response)
@@ -37,71 +51,74 @@ class VersionDetectionService {
    * @param isFromWebSocket - Whether this version came from WebSocket (vs API header)
    */
   checkVersion(newVersion: string, isFromWebSocket: boolean = false): boolean {
-    if (!this.isInitialized || !this.initialVersion) {
-      // First response - check if this version should trigger a notification
-      // For WebSocket updates on fresh sessions, we need to check if this version
-      // was already dismissed. If not, we should notify even though it's the "initial" version.
-      if (isFromWebSocket) {
-        // Check localStorage to see if this version was dismissed
-        const dismissedVersion = typeof localStorage !== 'undefined' 
-          ? localStorage.getItem('dismissedVersion') 
-          : null;
-        
-        if (dismissedVersion !== newVersion) {
-          // This is a new version that hasn't been dismissed
-          // For new sessions, we'll use a placeholder "unknown" as the old version
-          // since we don't know what version they had before
-          console.log(`🔄 New version detected on fresh session: ${newVersion} (not dismissed)`);
-          this.setInitialVersion(newVersion);
-          this.notifyListeners('unknown', newVersion);
-          this.lastNotifiedVersion = newVersion;
-          return true;
-        } else {
-          // Version was already dismissed, just set it as initial
-          console.log(`📦 Initial app version: ${newVersion} (already dismissed)`);
-          this.setInitialVersion(newVersion);
-          return false;
-        }
-      } else {
-        // From API header - just set as initial version (normal flow)
+    if (!newVersion) return false;
+
+    const dismissedVersion = readDismissedVersion();
+
+    // Already adopted / dismissed this build — ignore, including mid-rollout flip-flops
+    if (dismissedVersion === newVersion) {
+      if (!this.isInitialized) {
         this.setInitialVersion(newVersion);
-        this.lastNotifiedVersion = null;
-        return false;
+      } else if (this.initialVersion !== newVersion) {
+        // Sticky: once user refreshed for V, don't let an old pod reset baseline to V-1
+        this.initialVersion = newVersion;
       }
+      return false;
     }
 
-    // Only notify if:
-    // 1. Version is different from initial version
-    // 2. We haven't already notified about this specific version change
-    if (newVersion !== this.initialVersion && newVersion !== this.lastNotifiedVersion) {
+    if (!this.isInitialized || !this.initialVersion) {
+      if (isFromWebSocket) {
+        console.log(`🔄 New version detected on fresh session: ${newVersion} (not dismissed)`);
+        this.setInitialVersion(newVersion);
+        this.notifyListeners('unknown', newVersion);
+        this.lastNotifiedVersion = newVersion;
+        return true;
+      }
+      this.setInitialVersion(newVersion);
+      this.lastNotifiedVersion = null;
+      return false;
+    }
+
+    if (newVersion === this.initialVersion) {
+      return false;
+    }
+
+    // Once we're already prompting for a target build, ignore other builds (old pods mid-rollout)
+    if (this.lastNotifiedVersion && newVersion !== this.lastNotifiedVersion) {
+      console.log(
+        `⏭️ Ignoring version ${newVersion}; already notifying for ${this.lastNotifiedVersion}`
+      );
+      return false;
+    }
+
+    // Mid-rollout: old pod after we already saw / dismissed the new build — do not "update" to older
+    if (dismissedVersion && newVersion !== dismissedVersion) {
+      console.log(
+        `⏭️ Ignoring version ${newVersion} during rollout (target/dismissed: ${dismissedVersion}, baseline: ${this.initialVersion})`
+      );
+      return false;
+    }
+
+    if (newVersion !== this.lastNotifiedVersion) {
       console.log(`🔄 Version change detected: ${this.initialVersion} → ${newVersion}`);
       this.notifyListeners(this.initialVersion, newVersion);
-      this.lastNotifiedVersion = newVersion; // Track that we've notified about this version
+      this.lastNotifiedVersion = newVersion;
       return true;
     }
 
     return false;
   }
 
-  /**
-   * Register a callback to be notified when version changes
-   */
   onVersionChange(callback: VersionChangeCallback) {
     this.listeners.push(callback);
   }
 
-  /**
-   * Remove a version change callback
-   */
   offVersionChange(callback: VersionChangeCallback) {
-    this.listeners = this.listeners.filter(cb => cb !== callback);
+    this.listeners = this.listeners.filter((cb) => cb !== callback);
   }
 
-  /**
-   * Notify all listeners of a version change
-   */
   private notifyListeners(oldVersion: string, newVersion: string) {
-    this.listeners.forEach(callback => {
+    this.listeners.forEach((callback) => {
       try {
         callback(oldVersion, newVersion);
       } catch (error) {
@@ -110,16 +127,10 @@ class VersionDetectionService {
     });
   }
 
-  /**
-   * Get the current initial version
-   */
   getInitialVersion(): string | null {
     return this.initialVersion;
   }
 
-  /**
-   * Reset the version detection (useful for testing)
-   */
   reset() {
     this.initialVersion = null;
     this.isInitialized = false;

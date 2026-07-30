@@ -54,21 +54,20 @@ export const useVersionStatus = (): UseVersionStatusReturn => {
   useEffect(() => {
     const handleVersionChange = (oldVersion: string, newVersion: string) => {
       console.log(`🔔 Version change detected: ${oldVersion} → ${newVersion}`);
-      
-      // Check if we've already dismissed this specific version
-      // Use localStorage to persist dismissal across page navigations and browser sessions
+
       const dismissedVersion = localStorage.getItem('dismissedVersion');
-      
-      // If the dismissed version is different from the new version, clear it
-      // This ensures that when a new version is deployed, users see the banner
-      if (dismissedVersion && dismissedVersion !== newVersion) {
-        console.log(`🧹 Clearing old dismissed version ${dismissedVersion} (new version: ${newVersion})`);
-        localStorage.removeItem('dismissedVersion');
+
+      // Only clear dismissal when a *different* version is a genuine upgrade path.
+      // Do NOT clear when an older pod answers mid-rollout (that caused 2nd/3rd banners).
+      if (dismissedVersion === newVersion) {
+        console.log(`🔕 Version ${newVersion} was already dismissed, not showing banner`);
+        setVersionInfo({
+          currentVersion: oldVersion === 'unknown' ? newVersion : oldVersion,
+          newVersion,
+        });
+        return;
       }
-      
-      // Determine the current version to display
-      // If oldVersion is 'unknown' (from WebSocket on fresh session), try to get the initial version
-      // from versionDetection which was set from API headers
+
       let displayCurrentVersion = oldVersion;
       if (oldVersion === 'unknown') {
         const initialVersion = versionDetection.getInitialVersion();
@@ -76,38 +75,18 @@ export const useVersionStatus = (): UseVersionStatusReturn => {
           displayCurrentVersion = initialVersion;
           console.log(`📝 Using initial version from API headers: ${initialVersion}`);
         } else {
-          // Fallback: if we don't have an initial version, use the new version (will hide comparison)
           displayCurrentVersion = newVersion;
         }
       }
-      
-      // Only skip showing banner if this exact version was already dismissed
-      if (dismissedVersion === newVersion) {
-        console.log(`🔕 Version ${newVersion} was already dismissed, not showing banner`);
-        // Don't update versionDetection.setInitialVersion() here because:
-        // - We want to keep detecting NEWER versions (after this dismissed one)
-        // - The lastNotifiedVersion tracking prevents duplicate notifications
-        // - localStorage dismissal is per-version, so new versions will show again
-        setVersionInfo({ 
-          currentVersion: displayCurrentVersion, 
-          newVersion 
-        });
-        return;
-      }
-      
-      // New version detected (different from dismissed version)
-      // Update version info and show banner
-      setVersionInfo({ 
-        currentVersion: displayCurrentVersion, 
-        newVersion 
+
+      setVersionInfo({
+        currentVersion: displayCurrentVersion,
+        newVersion,
       });
       setShowVersionBanner(true);
     };
 
-    // Register version change listener
     versionDetection.onVersionChange(handleVersionChange);
-
-    // Clean up listener on unmount
     return () => {
       versionDetection.offVersionChange(handleVersionChange);
     };
@@ -115,14 +94,9 @@ export const useVersionStatus = (): UseVersionStatusReturn => {
 
   // Handlers for version banner
   const handleRefreshVersion = () => {
-    // When refreshing, we're updating to the new version
-    // Store dismissed version in localStorage to persist across page navigations and sessions
-    // Note: We DON'T update versionDetection.setInitialVersion() here because:
-    // - After refresh, the app will load with the new version from the server
-    // - versionDetection will be initialized with the new version automatically
-    // - This ensures future version changes (v3, v4, etc.) will still be detected
-    if (versionInfo.newVersion) {
-      localStorage.setItem('dismissedVersion', versionInfo.newVersion);
+    const targetVersion = versionInfo.newVersion;
+    if (targetVersion) {
+      localStorage.setItem('dismissedVersion', targetVersion);
     }
     sessionStorage.setItem('pendingVersionRefresh', 'true');
     setShowVersionBanner(false);
@@ -133,21 +107,27 @@ export const useVersionStatus = (): UseVersionStatusReturn => {
       window.location.href = u.toString();
     };
 
-    // During K8s rollouts, a blind reload can hit a terminating pod or a cached HTML shell.
-    // Try a few lightweight requests to /api/version (public) first, then navigate with _v= cache bust.
+    // Wait until we hit a pod that already serves the target build (avoids reload onto old replica).
     void (async () => {
-      const maxAttempts = 4;
+      const maxAttempts = 12;
       for (let attempt = 0; attempt < maxAttempts; attempt++) {
         try {
           const res = await fetch('/api/version', { cache: 'no-store' });
           if (res.ok) {
-            navigateWithCacheBust();
-            return;
+            const data = (await res.json().catch(() => null)) as { version?: string } | null;
+            const served = data?.version || res.headers.get('x-app-version') || '';
+            if (!targetVersion || served === targetVersion) {
+              navigateWithCacheBust();
+              return;
+            }
+            console.log(
+              `⏳ Waiting for rollout: /api/version is ${served || 'unknown'}, want ${targetVersion} (try ${attempt + 1}/${maxAttempts})`
+            );
           }
         } catch {
           /* network / pod gone — retry */
         }
-        await new Promise((r) => setTimeout(r, 350 + attempt * 150));
+        await new Promise((r) => setTimeout(r, 400 + attempt * 200));
       }
       navigateWithCacheBust();
     })();

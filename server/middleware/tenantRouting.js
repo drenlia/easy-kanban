@@ -103,6 +103,9 @@ const initializeDatabaseForTenant = async (tenantId) => {
 };
 
 // Get or create database connection for tenant
+// In-flight map prevents concurrent first-hit requests from double-running migrations/init
+const dbInitInFlight = new Map();
+
 const getTenantDatabase = async (tenantId) => {
   // Normalize tenantId for cache key (null for single-tenant)
   const cacheKey = tenantId || 'default';
@@ -121,29 +124,40 @@ const getTenantDatabase = async (tenantId) => {
       dbCache.delete(cacheKey);
     }
   }
-  
-  // Initialize database (creates tables, runs migrations, etc.)
-  const dbInfo = await initializeDatabaseForTenant(tenantId);
-  
-  // If version changed, broadcast to this tenant
-  if (dbInfo.versionChanged && dbInfo.appVersion) {
-    notificationService.publish('version-updated', { version: dbInfo.appVersion }, tenantId);
-    console.log(`📦 Broadcasting version update to tenant ${tenantId || 'default'}: ${dbInfo.appVersion}`);
+
+  if (dbInitInFlight.has(cacheKey)) {
+    return dbInitInFlight.get(cacheKey);
   }
-  
-  // Initialize storage usage for this tenant (only on first database creation, not on cache hits)
-  // This ensures STORAGE_USED is accurate from the start
-  // Initialize asynchronously to avoid blocking the request
-  import('../utils/storageUtils.js').then(({ initializeStorageUsage }) => {
-    initializeStorageUsage(dbInfo.db);
-  }).catch(err => {
-    console.warn(`⚠️ Failed to initialize storage usage for tenant ${tenantId || 'default'}:`, err.message);
+
+  const initPromise = (async () => {
+    // Initialize database (creates tables, runs migrations, etc.)
+    const dbInfo = await initializeDatabaseForTenant(tenantId);
+
+    // If version changed, broadcast to this tenant
+    if (dbInfo.versionChanged && dbInfo.appVersion) {
+      notificationService.publish('version-updated', { version: dbInfo.appVersion }, tenantId);
+      console.log(`📦 Broadcasting version update to tenant ${tenantId || 'default'}: ${dbInfo.appVersion}`);
+    }
+
+    // Initialize storage usage for this tenant (only on first database creation, not on cache hits)
+    // This ensures STORAGE_USED is accurate from the start
+    // Initialize asynchronously to avoid blocking the request
+    import('../utils/storageUtils.js').then(({ initializeStorageUsage }) => {
+      initializeStorageUsage(dbInfo.db);
+    }).catch(err => {
+      console.warn(`⚠️ Failed to initialize storage usage for tenant ${tenantId || 'default'}:`, err.message);
+    });
+
+    // Cache the connection
+    dbCache.set(cacheKey, dbInfo);
+
+    return dbInfo;
+  })().finally(() => {
+    dbInitInFlight.delete(cacheKey);
   });
-  
-  // Cache the connection
-  dbCache.set(cacheKey, dbInfo);
-  
-  return dbInfo;
+
+  dbInitInFlight.set(cacheKey, initPromise);
+  return initPromise;
 };
 
 // Tenant routing middleware
