@@ -287,7 +287,7 @@ const AdminFileUploadsTab: React.FC<AdminFileUploadsTabProps> = ({
   };
 
   return (
-    <div className="p-6">
+    <div className="p-6" data-setting-key="UPLOADS_SECTION">
       <div className="mb-6">
         <h2 className="text-lg font-medium text-gray-900 dark:text-gray-100">{t('fileUploads.title')}</h2>
         <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">

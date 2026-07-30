@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { createPortal } from 'react-dom';
 import api from '../../api';
 import { toast } from '../../utils/toast';
+import { isMaskedApiKeyDisplay } from '../../utils/maskSecret';
 
 interface Settings {
   MAIL_ENABLED?: string;
@@ -11,6 +12,7 @@ interface Settings {
   SMTP_PORT?: string;
   SMTP_USERNAME?: string;
   SMTP_PASSWORD?: string;
+  SMTP_PASSWORD_SET?: string;
   SMTP_FROM_EMAIL?: string;
   SMTP_FROM_NAME?: string;
   SMTP_SECURE?: string;
@@ -72,12 +74,20 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
     onSettingsChange({ ...editingSettings, [key]: value });
   };
   
+  const smtpPasswordSet =
+    editingSettings.SMTP_PASSWORD_SET === 'true' ||
+    Boolean(editingSettings.SMTP_PASSWORD && isMaskedApiKeyDisplay(editingSettings.SMTP_PASSWORD));
+  const smtpPasswordDraft = editingSettings.SMTP_PASSWORD || '';
+  const smtpPasswordReady =
+    smtpPasswordSet ||
+    (Boolean(smtpPasswordDraft.trim()) && !isMaskedApiKeyDisplay(smtpPasswordDraft));
+
   // Check if all required fields for testing are filled
   const canTestEmail = () => {
     return editingSettings.SMTP_HOST && 
            editingSettings.SMTP_PORT && 
            editingSettings.SMTP_USERNAME && 
-           editingSettings.SMTP_PASSWORD && 
+           smtpPasswordReady && 
            editingSettings.SMTP_FROM_EMAIL;
   };
 
@@ -212,7 +222,7 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
             {/* Left Column */}
             <div className="space-y-4">
               {/* SMTP Host */}
-              <div>
+              <div data-setting-key="SMTP_HOST">
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   {t('mail.smtpHost')}
                 </label>
@@ -240,7 +250,7 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
               </div>
 
               {/* SMTP Port */}
-              <div>
+              <div data-setting-key="SMTP_PORT">
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   {t('mail.smtpPort')}
                 </label>
@@ -268,7 +278,7 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
               </div>
 
               {/* SMTP Username */}
-              <div>
+              <div data-setting-key="SMTP_USERNAME">
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   {t('mail.smtpUsername')}
                 </label>
@@ -289,22 +299,37 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
                 </p>
               </div>
 
-              {/* SMTP Password */}
-              <div>
+              {/* SMTP Password (write-only; server returns mask + SMTP_PASSWORD_SET) */}
+              <div data-setting-key="SMTP_PASSWORD">
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   {t('mail.smtpPassword')}
+                  {smtpPasswordSet && !isManagedEmail && (
+                    <span className="ml-2 text-xs font-normal text-green-600 dark:text-green-400">
+                      {t('mail.smtpPasswordSet')}
+                    </span>
+                  )}
                 </label>
                 <input
                   type="password"
-                  value={editingSettings.SMTP_PASSWORD || ''}
+                  value={smtpPasswordDraft}
                   onChange={(e) => handleInputChange('SMTP_PASSWORD', e.target.value)}
+                  onFocus={() => {
+                    if (isMaskedApiKeyDisplay(smtpPasswordDraft)) {
+                      handleInputChange('SMTP_PASSWORD', '');
+                    }
+                  }}
                   disabled={isManagedEmail}
+                  autoComplete="new-password"
                   className={`w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-gray-900 dark:text-gray-100 ${
                     isManagedEmail 
                       ? 'bg-gray-100 dark:bg-gray-800 cursor-not-allowed' 
                       : 'bg-white dark:bg-gray-700'
                   }`}
-                  placeholder={t('mail.enterSmtpPassword')}
+                  placeholder={
+                    smtpPasswordSet
+                      ? t('mail.smtpPasswordLeaveBlank')
+                      : t('mail.enterSmtpPassword')
+                  }
                 />
                 <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
                   {t('mail.smtpPasswordDescription')}
@@ -315,7 +340,7 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
             {/* Right Column */}
             <div className="space-y-4">
               {/* From Email */}
-              <div>
+              <div data-setting-key="SMTP_FROM_EMAIL">
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   {t('mail.fromEmail')}
                 </label>
@@ -337,7 +362,7 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
               </div>
 
               {/* From Name */}
-              <div>
+              <div data-setting-key="SMTP_FROM_NAME">
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   {t('mail.fromName')}
                 </label>
@@ -359,7 +384,7 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
               </div>
 
               {/* SMTP Security */}
-              <div>
+              <div data-setting-key="SMTP_SECURE">
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   {t('mail.smtpSecurity')}
                 </label>

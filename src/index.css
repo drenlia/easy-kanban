@@ -321,3 +321,11 @@ body {
   word-break: break-word !important;
   overflow-wrap: break-word !important;
 }
+
+/* Brief highlight when jumping from Admin settings search */
+.admin-setting-search-highlight {
+  outline: 2px solid rgb(59 130 246);
+  outline-offset: 4px;
+  border-radius: 0.375rem;
+  transition: outline-color 0.3s ease;
+}

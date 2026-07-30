@@ -1,9 +1,11 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
+import { isMaskedApiKeyDisplay } from '../../utils/maskSecret';
 
 interface Settings {
   GOOGLE_CLIENT_ID?: string;
   GOOGLE_CLIENT_SECRET?: string;
+  GOOGLE_CLIENT_SECRET_SET?: string;
   GOOGLE_CALLBACK_URL?: string;
   GOOGLE_SSO_DEBUG?: string;
   [key: string]: string | undefined;
@@ -29,6 +31,14 @@ const AdminSSOTab: React.FC<AdminSSOTabProps> = ({
     onSettingsChange({ ...editingSettings, [key]: value });
   };
 
+  const clientSecretSet =
+    editingSettings.GOOGLE_CLIENT_SECRET_SET === 'true' ||
+    Boolean(
+      editingSettings.GOOGLE_CLIENT_SECRET &&
+        isMaskedApiKeyDisplay(editingSettings.GOOGLE_CLIENT_SECRET)
+    );
+  const clientSecretDraft = editingSettings.GOOGLE_CLIENT_SECRET || '';
+
   return (
     <div className="p-6">
       <div className="mb-6">
@@ -39,7 +49,7 @@ const AdminSSOTab: React.FC<AdminSSOTabProps> = ({
       </div>
       
       <div className="space-y-6">
-        <div>
+        <div data-setting-key="GOOGLE_CLIENT_ID">
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
             {t('sso.googleClientId')}
           </label>
@@ -55,23 +65,38 @@ const AdminSSOTab: React.FC<AdminSSOTabProps> = ({
           </p>
         </div>
         
-        <div>
+        <div data-setting-key="GOOGLE_CLIENT_SECRET">
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
             {t('sso.googleClientSecret')}
+            {clientSecretSet && (
+              <span className="ml-2 text-xs font-normal text-green-600 dark:text-green-400">
+                {t('sso.googleClientSecretSet')}
+              </span>
+            )}
           </label>
           <input
             type="password"
-            value={editingSettings.GOOGLE_CLIENT_SECRET || ''}
+            value={clientSecretDraft}
             onChange={(e) => handleInputChange('GOOGLE_CLIENT_SECRET', e.target.value)}
+            onFocus={() => {
+              if (isMaskedApiKeyDisplay(clientSecretDraft)) {
+                handleInputChange('GOOGLE_CLIENT_SECRET', '');
+              }
+            }}
+            autoComplete="new-password"
             className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-            placeholder={t('sso.enterGoogleClientSecret')}
+            placeholder={
+              clientSecretSet
+                ? t('sso.googleClientSecretLeaveBlank')
+                : t('sso.enterGoogleClientSecret')
+            }
           />
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
             {t('sso.googleClientSecretDescription')}
           </p>
         </div>
         
-        <div>
+        <div data-setting-key="GOOGLE_CALLBACK_URL">
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
             {t('sso.googleCallbackUrl')}
           </label>

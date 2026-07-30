@@ -32,6 +32,11 @@ import {
 import { wrapQuery } from '../utils/queryLogger.js';
 
 async function getSetting(db, key) {
+  const { getDecryptedSetting } = await import('../utils/settingsSecrets.js');
+  const { isSecretSettingKey } = await import('../constants/secretSettings.js');
+  if (isSecretSettingKey(key)) {
+    return getDecryptedSetting(db, key);
+  }
   const row = await settingsQueries.getSettingByKey(db, key);
   return row?.value ?? '';
 }

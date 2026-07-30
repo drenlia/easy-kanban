@@ -33,6 +33,11 @@ kanban-backup*.db
 server/attachments/
 server/avatars/
 
+# Optional local demo profile photos (keep folder + README; do not commit images)
+server/demo-assets/avatars/*
+!server/demo-assets/avatars/.gitkeep
+!server/demo-assets/avatars/README.md
+
 # Logs
 logs/
 *.log

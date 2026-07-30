@@ -730,8 +730,9 @@
   },
   "searchInterface": {
     "title": "SEARCH & FILTER",
-    "searchPlaceholder": "Search title, description, comments, requester...",
+    "searchPlaceholder": "Search title, description, comments, ticket, assignee…",
     "clearSearch": "Clear search",
+    "headerSearchPlaceholder": "Search tasks…",
     "projectId": "Project",
     "projectIdPlaceholder": "PROJ-00001",
     "clearProjectId": "Clear project id",

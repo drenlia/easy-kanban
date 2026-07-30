@@ -17,9 +17,10 @@ services:
       - POSTGRES_PORT=5432
       - POSTGRES_DB=kanban
       - POSTGRES_USER=kanban_user
-      - POSTGRES_PASSWORD=kanban_password
-      # JWT Secret for authentication (will be replaced by scripts/build.sh with random value)
-      - JWT_SECRET=your-super-secret-jwt-key-change-in-production
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-kanban_password}
+      # JWT / settings encryption (from project-root .env — Compose substitutes ${VAR})
+      - JWT_SECRET=${JWT_SECRET:-your-super-secret-jwt-key-change-in-production}
+      - SETTINGS_ENCRYPTION_KEY=${SETTINGS_ENCRYPTION_KEY:-}
       # Allowed origins for CORS
       - ALLOWED_ORIGINS=localhost,127.0.0.1,kanban.drenlia.dev,admin.ezkan.cloud
       # Enable demo mode to show countdown timer for hourly resets (demo environments only)
@@ -33,7 +34,7 @@ services:
       - SUPPORT_TYPE=basic
       # Instance configuration for admin portal access
       - INSTANCE_NAME=basic-instance
-      - INSTANCE_TOKEN=kanban-basic-token-12345
+      - INSTANCE_TOKEN=${INSTANCE_TOKEN:-kanban-basic-token-12345}
       - ADMIN_SERVICE_URL=https://admin.ezkan.cloud
       # Multi-tenant configuration (set to false for single-tenant Docker deployments)
       - MULTI_TENANT=false
@@ -61,7 +62,7 @@ services:
     environment:
       - POSTGRES_DB=kanban
       - POSTGRES_USER=kanban_user
-      - POSTGRES_PASSWORD=kanban_password
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-kanban_password}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:

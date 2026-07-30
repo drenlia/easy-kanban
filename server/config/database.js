@@ -13,7 +13,7 @@ import {
   AGENT_DEFAULT_NAME,
   AGENT_DEFAULT_COLOR
 } from '../constants/agentIdentity.js';
-import { initializeDemoData } from './demoData.js';
+import { initializeDemoData, installDemoSeedAvatar } from './demoData.js';
 import { wrapQuery } from '../utils/queryLogger.js';
 import { dbExec, dbGet, dbAll, dbRun } from '../utils/dbAsync.js';
 
@@ -833,8 +833,14 @@ const initializeDefaultData = async (db, tenantId = null) => {
     const adminId = crypto.randomUUID();
     const adminPasswordHash = bcrypt.hashSync(adminPassword, 10);
     
-    // Create admin avatar (with tenant-specific path if in multi-tenant mode)
-    const adminAvatarPath = createLetterAvatar('A', adminId, 'admin', tenantId);
+    // Create admin avatar (optional demo photo, else letter SVG)
+    let adminAvatarPath = null;
+    if (process.env.DEMO_ENABLED === 'true') {
+      adminAvatarPath = installDemoSeedAvatar('admin', adminId, tenantId);
+    }
+    if (!adminAvatarPath) {
+      adminAvatarPath = createLetterAvatar('A', adminId, 'admin', tenantId);
+    }
     
     await wrapQuery(db.prepare(`
       INSERT INTO users (id, email, password_hash, first_name, last_name, avatar_path) 
@@ -1009,12 +1015,18 @@ const initializeDefaultData = async (db, tenantId = null) => {
           .run('MAIL_MANAGED', 'true');
         console.log('✅ Set MAIL_MANAGED=true for licensed instance');
         
-        // Configure managed SMTP settings
+        // Configure managed SMTP settings (encrypt password at rest when non-empty)
+        const { encryptSettingValue } = await import('../utils/secretCrypto.js');
+        const managedSmtpPasswordPlain =
+          process.env.MANAGED_SMTP_PASSWORD || 'managed-password';
+        const managedSmtpPasswordStored = managedSmtpPasswordPlain
+          ? encryptSettingValue(managedSmtpPasswordPlain)
+          : '';
         const managedSmtpSettings = [
           ['SMTP_HOST', 'smtp.ezkan.cloud'],
           ['SMTP_PORT', '587'],
           ['SMTP_USERNAME', 'noreply@ezkan.cloud'],
-          ['SMTP_PASSWORD', process.env.MANAGED_SMTP_PASSWORD || 'managed-password'],
+          ['SMTP_PASSWORD', managedSmtpPasswordStored],
           ['SMTP_FROM_EMAIL', 'noreply@ezkan.cloud'],
           ['SMTP_FROM_NAME', 'Easy Kanban'],
           ['SMTP_SECURE', 'tls'],

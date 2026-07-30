@@ -119,7 +119,7 @@ const AdminTroubleshootingTab: React.FC<AdminTroubleshootingTabProps> = ({
   };
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-8" data-setting-key="TROUBLESHOOTING_SECTION">
       <div>
         <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">
           {t('appSettings.troubleshootingTitle')}

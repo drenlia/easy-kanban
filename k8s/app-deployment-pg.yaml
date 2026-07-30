@@ -129,6 +129,13 @@ spec:
             secretKeyRef:
               name: kanban-runner-secret
               key: RUNNER_TOKEN
+        # Prefer dedicated crypto Secret; falls back to ConfigMap JWT_SECRET in app code if unset
+        - name: SETTINGS_ENCRYPTION_KEY
+          valueFrom:
+            secretKeyRef:
+              name: easy-kanban-settings-crypto
+              key: SETTINGS_ENCRYPTION_KEY
+              optional: true
         resources:
           requests:
             memory: "256Mi"

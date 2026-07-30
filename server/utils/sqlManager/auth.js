@@ -416,6 +416,16 @@ export async function getOAuthSettings(db) {
   results.forEach(setting => {
     settingsObj[setting.key] = setting.value;
   });
+
+  if (settingsObj.GOOGLE_CLIENT_SECRET) {
+    try {
+      const { decryptSettingValue } = await import('../../utils/secretCrypto.js');
+      settingsObj.GOOGLE_CLIENT_SECRET = decryptSettingValue(settingsObj.GOOGLE_CLIENT_SECRET);
+    } catch (err) {
+      console.error('Failed to decrypt GOOGLE_CLIENT_SECRET:', err.message);
+      settingsObj.GOOGLE_CLIENT_SECRET = '';
+    }
+  }
   
   return settingsObj;
 }

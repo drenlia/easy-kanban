@@ -16,8 +16,10 @@ import AdminReportingTab from './admin/AdminReportingTab';
 import AdminLifecycleTab from './admin/AdminLifecycleTab';
 import AdminLicensingTab from './admin/AdminLicensingTab';
 import AdminNotificationQueueTab from './admin/AdminNotificationQueueTab';
+import AdminSettingsSearch from './admin/AdminSettingsSearch';
 import websocketClient from '../services/websocketClient';
 import { useSettings } from '../contexts/SettingsContext';
+import { isMaskedApiKeyDisplay } from '../utils/maskSecret';
 
 interface AdminProps {
   currentUser: any;
@@ -699,6 +701,11 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
         if (key === 'APP_URL') {
           continue;
         }
+
+        // Client-only flags from admin GET (e.g. SMTP_PASSWORD_SET) — not DB keys
+        if (key.endsWith('_SET')) {
+          continue;
+        }
         
         // Normalize values for comparison (treat undefined and empty string as the same)
         const normalizedValue = (value || '').trim();
@@ -709,14 +716,28 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
         if (key === 'SMTP_SECURE' && !valueToSave) {
           valueToSave = 'tls'; // Default value
         }
+
+        // Write-only secrets: empty/mask means keep existing value (do not PUT)
+        if (
+          ['SMTP_PASSWORD', 'GOOGLE_CLIENT_SECRET', 'AI_API_KEY', 'AI_RUNNER_TOKEN'].includes(key) &&
+          isMaskedApiKeyDisplay(valueToSave)
+        ) {
+          continue;
+        }
         
         // Save if value is different from current (handles undefined vs empty string)
         if (valueToSave !== normalizedCurrent) {
           // Skip console log for NOTIFICATION_* settings to reduce noise
           if (!key.startsWith('NOTIFICATION_')) {
+            const secretKeys = [
+              'SMTP_PASSWORD',
+              'GOOGLE_CLIENT_SECRET',
+              'AI_API_KEY',
+              'AI_RUNNER_TOKEN',
+            ];
             console.log(`Saving setting: ${key}`, {
-              oldValue: settings[key] || '(empty)',
-              newValue: valueToSave
+              oldValue: secretKeys.includes(key) ? '(redacted)' : settings[key] || '(empty)',
+              newValue: secretKeys.includes(key) ? '(redacted)' : valueToSave
             });
           }
           await api.put('/admin/settings', { key, value: valueToSave });
@@ -941,6 +962,13 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
         
         // Normalize values: treat undefined and empty string as the same
         let normalizedValue = (value || '').trim();
+
+        // Write-only secret: empty or display mask means keep existing stored password
+        if (key === 'SMTP_PASSWORD') {
+          if (!normalizedValue || isMaskedApiKeyDisplay(normalizedValue)) {
+            continue;
+          }
+        }
         
         // For SMTP_SECURE, always ensure it has a default value of 'tls' if empty
         // This is critical because the dropdown shows 'tls' as default, so we must save it
@@ -959,7 +987,10 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
         );
         
         if (shouldSave) {
-          console.log(`Saving SMTP setting: ${key}`, { oldValue: currentValue || '(empty)', newValue: normalizedValue });
+          console.log(`Saving SMTP setting: ${key}`, {
+            oldValue: key === 'SMTP_PASSWORD' ? '(redacted)' : currentValue || '(empty)',
+            newValue: key === 'SMTP_PASSWORD' ? '(redacted)' : normalizedValue
+          });
           await api.put('/admin/settings', { key, value: normalizedValue });
           hasChanges = true;
         }
@@ -1029,6 +1060,22 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
     window.location.hash = `admin#${tab}`;
   };
 
+  /** Navigate from settings search (supports app-settings sub-hashes). */
+  const handleSearchNavigate = (tab: string, hash: string) => {
+    const stickyOffset = 56;
+    const tabsEl = tabsRef.current;
+    if (tab !== activeTab && tabsEl) {
+      const pinY = tabsEl.getBoundingClientRect().top + window.scrollY - stickyOffset;
+      pinTabsOnNextTabChangeRef.current = window.scrollY > pinY + 1;
+      setActiveTab(tab);
+    }
+    window.location.hash = hash.startsWith('#') ? hash : `#${hash}`;
+    // Ensure hashchange fires for same-tab sub-navigation (e.g. AI → troubleshooting)
+    if (tab === activeTab) {
+      window.dispatchEvent(new HashChangeEvent('hashchange'));
+    }
+  };
+
   useLayoutEffect(() => {
     if (!pinTabsOnNextTabChangeRef.current) return;
     pinTabsOnNextTabChangeRef.current = false;
@@ -1088,53 +1135,59 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
           </div>
         )}
 
-        {/* Title card — scrolls away */}
-        <div className="admin-header bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-100 dark:border-gray-700 px-4 py-4">
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{t('adminPanel')}</h1>
-          <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
-            {t('adminPanelDescription')}
-          </p>
+        {/* Sticky header: title + search on top row, tabs below (no overlap) */}
+        <div
+          ref={tabsRef}
+          className="sticky top-14 z-40 bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-100 dark:border-gray-700"
+          data-tour-id="admin-tabs"
+        >
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4 px-4 pt-4 pb-3 border-b border-gray-100 dark:border-gray-700">
+            <div className="admin-header min-w-0 flex-1">
+              <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{t('adminPanel')}</h1>
+              <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
+                {t('adminPanelDescription')}
+              </p>
+            </div>
+            <div className="flex-shrink-0 w-full sm:w-auto sm:pt-0.5 sm:max-w-xs">
+              <AdminSettingsSearch
+                activeTab={activeTab}
+                onNavigate={handleSearchNavigate}
+              />
+            </div>
+          </div>
+          <nav className="flex space-x-8 overflow-x-auto px-4 max-w-full">
+            {['users', 'site-settings', 'sso', 'mail-server', 'tags', 'priorities', 'app-settings', 'project-settings', 'sprint-settings', 'reporting', 'lifecycle', 'licensing'].map((tab) => (
+              <button
+                key={tab}
+                onClick={() => handleTabChange(tab)}
+                className={`py-3 px-1 border-b-2 font-medium text-sm whitespace-nowrap ${
+                  activeTab === tab
+                    ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                    : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600'
+                }`}
+                data-tour-id={`admin-${tab}`}
+              >
+                {tab === 'users' && t('tabs.users')}
+                {tab === 'site-settings' && t('tabs.siteSettings')}
+                {tab === 'sso' && t('tabs.sso')}
+                {tab === 'mail-server' && t('tabs.mailServer')}
+                {tab === 'tags' && t('tabs.tags')}
+                {tab === 'priorities' && t('tabs.priorities')}
+                {tab === 'app-settings' && t('tabs.appSettings')}
+                {tab === 'project-settings' && t('tabs.projectSettings')}
+                {tab === 'sprint-settings' && t('tabs.sprintSettings')}
+                {tab === 'reporting' && t('tabs.reporting')}
+                {tab === 'lifecycle' && t('tabs.lifecycle')}
+                {tab === 'licensing' && t('tabs.licensing')}
+                {tab === 'notification-queue' && t('tabs.notificationQueue')}
+              </button>
+            ))}
+          </nav>
         </div>
 
-        {/* Tabs + content share a tall parent so sticky tabs work while scrolling content.
-            Negative margin pulls tabs closer to the title card. */}
-        <div className="flex flex-col gap-4 -mt-3">
-          <div
-            ref={tabsRef}
-            className="sticky top-14 z-40 bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-100 dark:border-gray-700"
-            data-tour-id="admin-tabs"
-          >
-            <nav className="flex space-x-8 overflow-x-auto px-4 max-w-full">
-              {['users', 'site-settings', 'sso', 'mail-server', 'tags', 'priorities', 'app-settings', 'project-settings', 'sprint-settings', 'reporting', 'lifecycle', 'licensing'].map((tab) => (
-                <button
-                  key={tab}
-                  onClick={() => handleTabChange(tab)}
-                  className={`py-3 px-1 border-b-2 font-medium text-sm whitespace-nowrap ${
-                    activeTab === tab
-                      ? 'border-blue-500 text-blue-600 dark:text-blue-400'
-                      : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600'
-                  }`}
-                  data-tour-id={`admin-${tab}`}
-                >
-                  {tab === 'users' && t('tabs.users')}
-                  {tab === 'site-settings' && t('tabs.siteSettings')}
-                  {tab === 'sso' && t('tabs.sso')}
-                  {tab === 'mail-server' && t('tabs.mailServer')}
-                  {tab === 'tags' && t('tabs.tags')}
-                  {tab === 'priorities' && t('tabs.priorities')}
-                  {tab === 'app-settings' && t('tabs.appSettings')}
-                  {tab === 'project-settings' && t('tabs.projectSettings')}
-                  {tab === 'sprint-settings' && t('tabs.sprintSettings')}
-                  {tab === 'reporting' && t('tabs.reporting')}
-                  {tab === 'lifecycle' && t('tabs.lifecycle')}
-                  {tab === 'licensing' && t('tabs.licensing')}
-                  {tab === 'notification-queue' && t('tabs.notificationQueue')}
-                </button>
-              ))}
-            </nav>
-          </div>
-
-          {/* Tab Content — min-height keeps short tabs from collapsing scroll and revealing the title */}
+        {/* Tabs + content share a tall parent so sticky header works while scrolling content. */}
+        <div className="flex flex-col gap-4">
+          {/* Tab Content — min-height keeps short tabs from collapsing scroll */}
           <div className="bg-white dark:bg-gray-800 shadow-sm rounded-lg border border-gray-100 dark:border-gray-700 min-h-[calc(100vh-8.5rem)]">
           {/* Users Tab */}
           {activeTab === 'users' && (

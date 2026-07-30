@@ -8,6 +8,11 @@ import { clampAiMaxConcurrent } from '../constants/aiSettings.js';
 import { isMaskedOrEmptyApiKey } from '../utils/maskSecret.js';
 
 async function getSetting(db, key) {
+  const { getDecryptedSetting } = await import('../utils/settingsSecrets.js');
+  const { isSecretSettingKey } = await import('../constants/secretSettings.js');
+  if (isSecretSettingKey(key)) {
+    return getDecryptedSetting(db, key);
+  }
   const row = await settingsQueries.getSettingByKey(db, key);
   return row?.value ?? '';
 }

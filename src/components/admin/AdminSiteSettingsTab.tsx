@@ -124,7 +124,7 @@ const AdminSiteSettingsTab: React.FC<AdminSiteSettingsTabProps> = ({
     const isDefaultPreview = !value.trim() && (variant === 'light' || !(editingSettings.SITE_LOGO || '').trim());
 
     return (
-      <div>
+      <div data-setting-key={settingKey}>
         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
           {label}
         </label>
@@ -201,7 +201,7 @@ const AdminSiteSettingsTab: React.FC<AdminSiteSettingsTabProps> = ({
       </div>
       
       <div className="space-y-6">
-        <div>
+        <div data-setting-key="SITE_NAME">
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
             {t('siteSettings.siteName')}
           </label>
@@ -217,7 +217,7 @@ const AdminSiteSettingsTab: React.FC<AdminSiteSettingsTabProps> = ({
           </p>
         </div>
         
-        <div>
+        <div data-setting-key="SITE_URL">
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
             {t('siteSettings.siteUrl')}
           </label>

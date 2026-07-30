@@ -3959,6 +3959,13 @@ function AppContent() {
         onInviteUser={handleInviteUser}
         selectedSprintId={taskFilters.selectedSprintId}
         onSprintChange={taskFilters.handleSprintChange}
+        taskSearchText={taskFilters.searchFilters.text || ''}
+        onTaskSearchTextChange={(text) =>
+          taskFilters.handleSearchFiltersChange({
+            ...taskFilters.searchFilters,
+            text,
+          })
+        }
         boards={boards}
         sprints={availableSprints}
       />

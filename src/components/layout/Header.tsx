@@ -6,6 +6,7 @@ import ThemeToggle from '../ThemeToggle';
 import { useTheme } from '../../contexts/ThemeContext';
 import { getSystemInfo } from '../../api';
 import SprintSelector from '../SprintSelector';
+import HeaderTaskSearch from './HeaderTaskSearch';
 import { loadUserPreferences, loadUserPreferencesAsync, updateUserPreference, updateAppSettingsPreference } from '../../utils/userPreferences';
 import { feDebug } from '../../utils/clientDebug';
 import ResetCountdown from '../ResetCountdown';
@@ -54,6 +55,9 @@ interface HeaderProps {
   selectedSprintId?: string | null;
   onSprintChange?: (sprint: { id: string; name: string; start_date: string; end_date: string } | null) => void;
   hideSprintSelector?: boolean; // Hide sprint selector (e.g., on TaskPage)
+  /** Bound to searchFilters.text — Kanban quick search */
+  taskSearchText?: string;
+  onTaskSearchTextChange?: (text: string) => void;
   boards?: Array<{
     id: string;
     columns?: {
@@ -84,6 +88,8 @@ const Header: React.FC<HeaderProps> = ({
   selectedSprintId,
   onSprintChange,
   hideSprintSelector = false,
+  taskSearchText = '',
+  onTaskSearchTextChange,
   boards = [],
   sprints: propSprints,
 }) => {
@@ -550,6 +556,20 @@ const Header: React.FC<HeaderProps> = ({
         <div className="flex items-center gap-2">
           {currentUser && (
             <>
+              {/* Quick task search (Kanban) — same text filter as Tools panel */}
+              {currentPage === 'kanban' && !hideSprintSelector && onTaskSearchTextChange && (
+                <>
+                  <HeaderTaskSearch
+                    value={taskSearchText}
+                    onChange={onTaskSearchTextChange}
+                  />
+                  <div
+                    className="hidden sm:block h-6 w-px bg-gray-300 dark:bg-gray-600 flex-shrink-0"
+                    aria-hidden
+                  />
+                </>
+              )}
+
               {/* 1. App navigation */}
               <div className="flex items-center gap-1">
                 <button

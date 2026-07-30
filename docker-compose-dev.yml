@@ -17,9 +17,10 @@ services:
       - POSTGRES_PORT=5432
       - POSTGRES_DB=kanban
       - POSTGRES_USER=kanban_user
-      - POSTGRES_PASSWORD=kanban_password
-      # JWT Secret for authentication (will be replaced by scripts/build.sh with random value)
-      - JWT_SECRET=your-super-secret-jwt-key-change-in-production
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-kanban_password}
+      # JWT / settings encryption (from project-root .env — Compose substitutes ${VAR})
+      - JWT_SECRET=${JWT_SECRET:-your-super-secret-jwt-key-change-in-production}
+      - SETTINGS_ENCRYPTION_KEY=${SETTINGS_ENCRYPTION_KEY:-}
       # Allowed origins for CORS
       - ALLOWED_ORIGINS=
       # Enable demo mode to show countdown timer for hourly resets (demo environments only)
@@ -35,7 +36,7 @@ services:
       # Push agent runner (optional — enable AI in Admin → App Settings)
       - AI_RUNNER_URL=http://kanban-runner:8080
       - AI_CALLBACK_BASE_URL=http://kanban-app:3222
-      - RUNNER_TOKEN=kanban-runner-dev-token-change-me
+      - RUNNER_TOKEN=${RUNNER_TOKEN:-kanban-runner-dev-token-change-me}
     volumes:
       - .:/app
       - /app/node_modules
@@ -57,7 +58,7 @@ services:
     environment:
       - PORT=8080
       - MAX_CONCURRENT=1
-      - RUNNER_TOKEN=kanban-runner-dev-token-change-me
+      - RUNNER_TOKEN=${RUNNER_TOKEN:-kanban-runner-dev-token-change-me}
     # Internal only — no host ports
     restart: unless-stopped
 
@@ -67,7 +68,7 @@ services:
     environment:
       - POSTGRES_DB=kanban
       - POSTGRES_USER=kanban_user
-      - POSTGRES_PASSWORD=kanban_password
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-kanban_password}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:

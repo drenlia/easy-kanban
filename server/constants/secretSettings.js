@@ -1,0 +1,21 @@
+/**
+ * Admin-entered settings secrets encrypted at rest.
+ */
+
+export const SECRET_SETTING_KEYS = Object.freeze([
+  'SMTP_PASSWORD',
+  'GOOGLE_CLIENT_SECRET',
+  'AI_API_KEY',
+  'AI_RUNNER_TOKEN'
+]);
+
+/** Placeholder returned on admin GET — never the raw secret */
+export const SECRET_SETTING_PLACEHOLDER = '••••••••';
+
+/**
+ * @param {string} key
+ * @returns {boolean}
+ */
+export function isSecretSettingKey(key) {
+  return SECRET_SETTING_KEYS.includes(key);
+}

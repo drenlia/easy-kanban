@@ -6,13 +6,19 @@ import notificationService from '../services/notificationService.js';
 import { getTenantId, getRequestDatabase } from '../middleware/tenantRouting.js';
 import { settings as settingsQueries, users as userQueries, members as memberQueries } from '../utils/sqlManager/index.js';
 import { FE_PUBLIC_DEBUG_FLAG_KEYS } from '../constants/debugSettings.js';
-import { AI_PUBLIC_SETTING_KEYS, AI_SECRET_SETTING_KEYS } from '../constants/aiSettings.js';
+import { AI_PUBLIC_SETTING_KEYS } from '../constants/aiSettings.js';
+import { isSecretSettingKey, SECRET_SETTING_PLACEHOLDER } from '../constants/secretSettings.js';
 import { AGENT_MEMBER_ID } from '../constants/agentIdentity.js';
 import { clearSqlDebugSettingsCache } from '../utils/sqlDebugSettingsCache.js';
 import { serverDebug } from '../utils/serverDebug.js';
 import { validateAiConnectivity, listAiModels } from '../utils/aiConnectivity.js';
 import { AI_PROVIDER_PRESETS } from '../constants/aiProviders.js';
-import { maskApiKey, isMaskedOrEmptyApiKey } from '../utils/maskSecret.js';
+import { isMaskedOrEmptyApiKey } from '../utils/maskSecret.js';
+import {
+  getDecryptedSetting,
+  projectSecretForAdminApi,
+  upsertSecretSetting
+} from '../utils/settingsSecrets.js';
 import { avatarUpload } from '../config/multer.js';
 import path from 'path';
 import fs from 'fs';
@@ -20,6 +26,9 @@ import fs from 'fs';
 const router = express.Router();
 
 async function getSettingValue(db, key) {
+  if (isSecretSettingKey(key)) {
+    return getDecryptedSetting(db, key);
+  }
   const row = await settingsQueries.getSettingByKey(db, key);
   return row?.value ?? '';
 }
@@ -64,11 +73,13 @@ async function resolveAiCredentials(db, overrides = {}) {
       ? String(overrides.model)
       : await getSettingValue(db, 'AI_MODEL');
   let apiKey =
-    overrides.apiKey !== undefined && String(overrides.apiKey).trim() !== ''
+    overrides.apiKey !== undefined &&
+    String(overrides.apiKey).trim() !== '' &&
+    !isMaskedOrEmptyApiKey(overrides.apiKey)
       ? String(overrides.apiKey).trim()
       : '';
   if (!apiKey) {
-    apiKey = await getSettingValue(db, 'AI_API_KEY');
+    apiKey = await getDecryptedSetting(db, 'AI_API_KEY');
   }
   return { provider, baseUrl, apiKey, model };
 }
@@ -135,10 +146,11 @@ router.get('/', authenticateToken, requireRole(['admin']), async (req, res, next
       // But allow SMTP_FROM_EMAIL and SMTP_FROM_NAME to be visible/editable
       if (mailManaged && ['SMTP_HOST', 'SMTP_PORT', 'SMTP_USERNAME', 'SMTP_PASSWORD', 'SMTP_SECURE'].includes(setting.key)) {
         settingsObj[setting.key] = '';
-      } else if (AI_SECRET_SETTING_KEYS.includes(setting.key) && setting.value) {
-        // Return Anthropic-style partial mask only — never the raw secret
-        settingsObj[setting.key] = maskApiKey(setting.value);
-        settingsObj[`${setting.key}_SET`] = 'true';
+        if (setting.key === 'SMTP_PASSWORD') {
+          settingsObj.SMTP_PASSWORD_SET = 'false';
+        }
+      } else if (isSecretSettingKey(setting.key)) {
+        projectSecretForAdminApi(setting.key, setting.value, settingsObj);
       } else {
         settingsObj[setting.key] = setting.value;
       }
@@ -155,7 +167,7 @@ router.get('/', authenticateToken, requireRole(['admin']), async (req, res, next
         process.env.RUNNER_TOKEN || process.env.AI_RUNNER_TOKEN || ''
       ).trim();
       if (platformToken) {
-        settingsObj.AI_RUNNER_TOKEN = maskApiKey(platformToken);
+        settingsObj.AI_RUNNER_TOKEN = SECRET_SETTING_PLACEHOLDER;
         settingsObj.AI_RUNNER_TOKEN_SET = 'true';
       } else {
         settingsObj.AI_RUNNER_TOKEN = '';
@@ -298,6 +310,16 @@ router.put('/', authenticateToken, requireRole(['admin']), async (req, res, next
           'AI_RUNNER_URL and AI_RUNNER_TOKEN are managed by the platform in multi-tenant mode and cannot be updated'
       });
     }
+
+    // Managed mail: tenant cannot overwrite platform SMTP credentials
+    if (['SMTP_HOST', 'SMTP_PORT', 'SMTP_USERNAME', 'SMTP_PASSWORD', 'SMTP_SECURE'].includes(key)) {
+      const mailManaged = (await getSettingValue(db, 'MAIL_MANAGED')) === 'true';
+      if (mailManaged) {
+        return res.status(403).json({
+          error: 'SMTP server settings are managed by the platform and cannot be updated'
+        });
+      }
+    }
     
     // Prevent updates to APP_URL through general settings endpoint - it's owner-only
     // Use the dedicated /api/settings/app-url endpoint which enforces owner check
@@ -317,17 +339,43 @@ router.put('/', authenticateToken, requireRole(['admin']), async (req, res, next
       safeValue = JSON.stringify(value);
     }
     
-    // Do not clear / overwrite masked AI secrets when admin leaves the display value
-    if (AI_SECRET_SETTING_KEYS.includes(key)) {
-      const existing = await getSettingValue(db, key);
-      if (isMaskedOrEmptyApiKey(safeValue, existing)) {
+    // Do not clear / overwrite masked secrets when admin leaves the display value
+    if (isSecretSettingKey(key)) {
+      const upsert = await upsertSecretSetting(db, key, safeValue);
+      if (upsert.unchanged) {
         return res.json({
           message: 'Setting unchanged',
           key,
-          value: existing ? maskApiKey(existing) : '',
-          [`${key}_SET`]: Boolean(existing)
+          value: upsert.hasValue ? SECRET_SETTING_PLACEHOLDER : '',
+          [`${key}_SET`]: upsert.hasValue
         });
       }
+      safeValue = upsert.hasValue ? SECRET_SETTING_PLACEHOLDER : '';
+      // Already stored encrypted — skip generic upsert below
+      const dbgSettingsEarly = await serverDebug(db, 'SERVER_DEBUG_SETTINGS');
+      if (key === 'GOOGLE_CLIENT_SECRET' && global.oauthConfigCache) {
+        global.oauthConfigCache.invalidated = true;
+        if (dbgSettingsEarly) {
+          console.log('✅ OAuth configuration cache invalidated after secret update');
+        }
+      }
+      const tenantIdEarly = getTenantId(req);
+      await notificationService.publish(
+        'settings-updated',
+        {
+          key,
+          value: upsert.hasValue ? SECRET_SETTING_PLACEHOLDER : '',
+          [`${key}_SET`]: upsert.hasValue ? 'true' : 'false',
+          timestamp: new Date().toISOString()
+        },
+        tenantIdEarly
+      );
+      return res.json({
+        message: 'Setting updated successfully',
+        key,
+        value: upsert.hasValue ? SECRET_SETTING_PLACEHOLDER : '',
+        [`${key}_SET`]: upsert.hasValue
+      });
     }
 
     if (key === 'AI_MAX_CONCURRENT') {
@@ -383,9 +431,8 @@ router.put('/', authenticateToken, requireRole(['admin']), async (req, res, next
     const dbgSettings = await serverDebug(db, 'SERVER_DEBUG_SETTINGS');
 
     // If this is a Google OAuth setting, reload the OAuth configuration
-    if (key === 'GOOGLE_CLIENT_ID' || key === 'GOOGLE_CLIENT_SECRET' || key === 'GOOGLE_CALLBACK_URL') {
+    if (key === 'GOOGLE_CLIENT_ID' || key === 'GOOGLE_CALLBACK_URL') {
       if (dbgSettings) console.log(`Google OAuth setting updated: ${key} - Hot reloading OAuth config...`);
-      // Invalidate OAuth configuration cache
       if (global.oauthConfigCache) {
         global.oauthConfigCache.invalidated = true;
         if (dbgSettings) console.log('✅ OAuth configuration cache invalidated - new settings will be loaded on next OAuth request');
@@ -396,11 +443,11 @@ router.put('/', authenticateToken, requireRole(['admin']), async (req, res, next
     const tenantId = getTenantId(req);
     if (dbgSettings) {
       console.log('📤 Publishing settings-updated to Redis');
-      console.log('📤 Broadcasting value:', { key, value });
+      console.log('📤 Broadcasting key:', key);
     }
     await notificationService.publish('settings-updated', {
       key: key,
-      value: AI_SECRET_SETTING_KEYS.includes(key) ? maskApiKey(String(safeValue)) : value,
+      value: safeValue,
       timestamp: new Date().toISOString()
     }, tenantId);
     if (dbgSettings) console.log('✅ Settings-updated published to Redis');
@@ -423,8 +470,7 @@ router.put('/', authenticateToken, requireRole(['admin']), async (req, res, next
     res.json({
       message: 'Setting updated successfully',
       key,
-      value: AI_SECRET_SETTING_KEYS.includes(key) ? maskApiKey(String(safeValue)) : safeValue,
-      ...(AI_SECRET_SETTING_KEYS.includes(key) ? { [`${key}_SET`]: true } : {})
+      value: safeValue
     });
   } catch (error) {
     console.error('❌ Error updating settings:', error);

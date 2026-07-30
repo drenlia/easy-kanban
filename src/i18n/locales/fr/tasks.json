@@ -206,7 +206,7 @@
     "unknownColumn": "Colonne inconnue",
     "loading": "Chargement de la corbeille…",
     "emptyTitle": "La corbeille est vide",
-    "emptyHint": "Les tâches en suppression réversible de ce tableau apparaissent ici.",
+    "emptyHint": "Les tâches en suppression récupérable de ce tableau apparaissent ici.",
     "loadFailed": "Échec du chargement de la corbeille",
     "restored": "Tâche restaurée",
     "purged": "Tâche définitivement supprimée",

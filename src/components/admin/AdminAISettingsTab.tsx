@@ -314,13 +314,25 @@ const AdminAISettingsTab: React.FC<AdminAISettingsTabProps> = ({
         toast.error(result.error || t('appSettings.aiValidationFailed'), '');
         return;
       }
-      const detail = result.detail || t('appSettings.aiValidationOk');
+      const modelList = Array.isArray(result.models) ? result.models : [];
+      const sample = modelList
+        .slice(0, 5)
+        .map((m) => m.id)
+        .filter(Boolean)
+        .join(', ');
+      const detail =
+        modelList.length > 0
+          ? t('appSettings.aiValidationOkWithModels', {
+              count: modelList.length,
+              sample: sample ? `: ${sample}${modelList.length > 5 ? '…' : ''}` : '',
+            })
+          : t('appSettings.aiValidationOk');
       setValidationOk(detail);
       toast.success(detail, '');
-      if (Array.isArray(result.models) && result.models.length > 0) {
-        setModels(result.models);
-        if (!model && result.models[0]?.id) {
-          setModel(result.models[0].id);
+      if (modelList.length > 0) {
+        setModels(modelList);
+        if (!model && modelList[0]?.id) {
+          setModel(modelList[0].id);
           setModelMode('list');
         }
       } else {
@@ -355,8 +367,14 @@ const AdminAISettingsTab: React.FC<AdminAISettingsTabProps> = ({
         toast.error(data?.error || t('appSettings.aiRunnerProbeFailed'), '');
         return;
       }
-      setValidationOk(data.detail || t('appSettings.aiRunnerProbeOk'));
-      toast.success(data.detail || t('appSettings.aiRunnerProbeOk'), '');
+      const running = data.status?.running ?? data.status?.runningJobs ?? '?';
+      const maxConcurrent = data.status?.maxConcurrent ?? '?';
+      const detail = t('appSettings.aiRunnerProbeOkDetail', {
+        running,
+        max: maxConcurrent,
+      });
+      setValidationOk(detail);
+      toast.success(detail, '');
     } catch (error: any) {
       const msg =
         error?.response?.data?.error ||
@@ -461,7 +479,7 @@ const AdminAISettingsTab: React.FC<AdminAISettingsTabProps> = ({
         )}
 
         {/* 1. Enable */}
-        <section className={sectionClass} aria-labelledby="ai-section-enable">
+        <section className={sectionClass} aria-labelledby="ai-section-enable" data-setting-key="AI_ENABLED">
           <div className="flex items-start justify-between gap-4">
             <div className="min-w-0 flex-1">
               <h4
@@ -562,7 +580,7 @@ const AdminAISettingsTab: React.FC<AdminAISettingsTabProps> = ({
             </p>
           </div>
 
-          <div>
+          <div data-setting-key="AI_PROVIDER">
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               {t('appSettings.aiProvider')}
             </label>
@@ -587,7 +605,7 @@ const AdminAISettingsTab: React.FC<AdminAISettingsTabProps> = ({
             )}
           </div>
 
-          <div>
+          <div data-setting-key="AI_API_BASE_URL">
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               {t('appSettings.aiApiBaseUrl')}
             </label>
@@ -620,39 +638,38 @@ const AdminAISettingsTab: React.FC<AdminAISettingsTabProps> = ({
             )}
           </div>
 
-          <div>
+          <div data-setting-key="AI_API_KEY">
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               {t('appSettings.aiApiKey')}
             </label>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">
-              {selectedPreset && !selectedPreset.apiKeyRequired
-                ? t('appSettings.aiApiKeyOptional')
-                : t('appSettings.aiApiKeyDescription')}
-              {keySet ? ` ${t('appSettings.aiApiKeyConfigured')}` : ''}
-            </p>
+            {selectedPreset && !selectedPreset.apiKeyRequired && (
+              <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">
+                {t('appSettings.aiApiKeyOptional')}
+              </p>
+            )}
             <input
-              type="text"
+              type="password"
               autoComplete="off"
               spellCheck={false}
               value={apiKeyDraft}
               onChange={(e) => setApiKeyDraft(e.target.value)}
+              onFocus={() => {
+                if (isMaskedApiKeyDisplay(apiKeyDraft)) {
+                  setApiKeyDraft('');
+                }
+              }}
               placeholder={
                 keySet
                   ? t('appSettings.aiApiKeyReplacePlaceholder')
                   : selectedPreset && !selectedPreset.apiKeyRequired
                     ? t('appSettings.aiApiKeyOptionalPlaceholder')
-                    : ''
+                    : t('appSettings.aiApiKeyPlaceholder')
               }
               className="block w-full max-w-xl px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm font-mono bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
             />
-            {keySet && isMaskedApiKeyDisplay(apiKeyDraft) && (
-              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                {t('appSettings.aiApiKeyMaskHint')}
-              </p>
-            )}
           </div>
 
-          <div>
+          <div data-setting-key="AI_MODEL">
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               {t('appSettings.aiModel')}
             </label>
@@ -729,7 +746,7 @@ const AdminAISettingsTab: React.FC<AdminAISettingsTabProps> = ({
               {t('appSettings.aiSectionJobsHint')}
             </p>
           </div>
-          <div>
+          <div data-setting-key="AI_MAX_CONCURRENT">
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               {t('appSettings.aiMaxConcurrent')}
             </label>
@@ -761,7 +778,7 @@ const AdminAISettingsTab: React.FC<AdminAISettingsTabProps> = ({
             </p>
           </div>
 
-          <div>
+          <div data-setting-key="AI_RUNNER_URL">
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               {t('appSettings.aiRunnerUrl')}
             </label>
@@ -798,13 +815,12 @@ const AdminAISettingsTab: React.FC<AdminAISettingsTabProps> = ({
           </div>
 
           {!platformRunnerManaged && (
-            <div>
+            <div data-setting-key="AI_RUNNER_TOKEN">
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 {t('appSettings.aiRunnerToken')}
               </label>
               <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">
                 {t('appSettings.aiRunnerTokenDescription')}
-                {runnerTokenSet ? ` ${t('appSettings.aiApiKeyConfigured')}` : ''}
               </p>
               <input
                 type="text"

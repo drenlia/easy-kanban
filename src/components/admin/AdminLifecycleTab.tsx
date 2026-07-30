@@ -335,7 +335,10 @@ const AdminLifecycleTab: React.FC = () => {
   return (
     <div className="space-y-8" data-tour-id="admin-lifecycle-content">
       {/* Retention settings */}
-      <section className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-800">
+      <section
+        className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-800"
+        data-setting-key="LIFECYCLE_DELETED_RETENTION_DAYS"
+      >
         <h3 className="mb-1 text-lg font-semibold text-gray-900 dark:text-gray-100">{t('retentionTitle')}</h3>
         <p className="mb-4 text-sm text-gray-500 dark:text-gray-400">{t('retentionDescription')}</p>
         <div className="grid gap-4 sm:grid-cols-2">
@@ -364,7 +367,7 @@ const AdminLifecycleTab: React.FC = () => {
               </button>
             </div>
           </label>
-          <label className="block text-sm">
+          <label className="block text-sm" data-setting-key="LIFECYCLE_ARCHIVED_RETENTION_DAYS">
             <span className="mb-1 block font-medium text-gray-700 dark:text-gray-200">
               {t('archivedRetention')}
             </span>

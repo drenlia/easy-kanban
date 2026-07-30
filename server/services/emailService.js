@@ -33,6 +33,16 @@ class EmailService {
       if (key === 'SMTP_SECURE' && !value) {
         value = 'tls'; // Default to TLS
       }
+
+      if (key === 'SMTP_PASSWORD' && value) {
+        try {
+          const { decryptSettingValue } = await import('../utils/secretCrypto.js');
+          value = decryptSettingValue(value);
+        } catch (err) {
+          console.error('Failed to decrypt SMTP_PASSWORD:', err.message);
+          value = '';
+        }
+      }
       
       return { key, value };
     });

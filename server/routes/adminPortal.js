@@ -13,6 +13,11 @@ import { getTenantId, getRequestDatabase } from '../middleware/tenantRouting.js'
 import { clearSqlDebugSettingsCache } from '../utils/sqlDebugSettingsCache.js';
 // MIGRATED: Import sqlManager modules
 import { users as userQueries, settings as settingsQueries, licenseSettings as licenseSettingsQueries, auth as authQueries, adminUsers as adminUserQueries, helpers } from '../utils/sqlManager/index.js';
+import { isSecretSettingKey, SECRET_SETTING_PLACEHOLDER } from '../constants/secretSettings.js';
+import {
+  projectSecretForAdminApi,
+  upsertSecretSetting
+} from '../utils/settingsSecrets.js';
 
 const router = express.Router();
 
@@ -165,7 +170,11 @@ router.get('/settings', authenticateAdminPortal, async (req, res) => {
     const settings = await settingsQueries.getAllSettings(db);
     const settingsObj = {};
     settings.forEach(setting => {
-      settingsObj[setting.key] = setting.value;
+      if (isSecretSettingKey(setting.key)) {
+        projectSecretForAdminApi(setting.key, setting.value, settingsObj);
+      } else {
+        settingsObj[setting.key] = setting.value;
+      }
     });
     
     res.json({
@@ -199,25 +208,38 @@ router.put('/settings/:key', authenticateAdminPortal, async (req, res) => {
       });
     }
     
-    // MIGRATED: Upsert setting using sqlManager
-    const result = await settingsQueries.upsertSetting(db, key, value);
+    // MIGRATED: Upsert setting using sqlManager (encrypt secrets at rest)
+    let responseValue = value;
+    let responseExtra = {};
+    if (isSecretSettingKey(key)) {
+      const upsert = await upsertSecretSetting(db, key, value);
+      responseValue = upsert.hasValue ? SECRET_SETTING_PLACEHOLDER : '';
+      responseExtra[`${key}_SET`] = upsert.hasValue;
+    } else {
+      await settingsQueries.upsertSetting(db, key, value);
+    }
     if (key === 'SERVER_DEBUG_SQL') {
       clearSqlDebugSettingsCache();
     }
 
-    console.log(`✅ Admin portal updated setting: ${key} = ${value}`);
+    console.log(`✅ Admin portal updated setting: ${key}`);
 
     const tenantIdSetting = getTenantId(req);
     await notificationService.publish(
       'settings-updated',
-      { key, value, timestamp: new Date().toISOString() },
+      {
+        key,
+        value: responseValue,
+        ...responseExtra,
+        timestamp: new Date().toISOString()
+      },
       tenantIdSetting
     ).catch((err) => console.error('Failed to publish settings-updated:', err));
     
     res.json({
       success: true,
       message: t('success.settingUpdatedSuccessfully'),
-      data: { key, value }
+      data: { key, value: responseValue, ...responseExtra }
     });
   } catch (error) {
     console.error('Error updating setting:', error);
@@ -249,24 +271,31 @@ router.put('/settings', authenticateAdminPortal, async (req, res) => {
     
     for (const [key, value] of Object.entries(settings)) {
       if (value !== undefined && value !== null) {
-        // MIGRATED: Upsert setting using sqlManager
-        await settingsQueries.upsertSetting(db, key, value);
+        let publishValue = value;
+        const publishExtra = {};
+        if (isSecretSettingKey(key)) {
+          const upsert = await upsertSecretSetting(db, key, value);
+          publishValue = upsert.hasValue ? SECRET_SETTING_PLACEHOLDER : '';
+          publishExtra[`${key}_SET`] = upsert.hasValue;
+        } else {
+          await settingsQueries.upsertSetting(db, key, value);
+        }
         if (key === 'SERVER_DEBUG_SQL') {
           clearSqlDebugSettingsCache();
         }
 
-        results.push({ key, value });
-        console.log(`✅ Admin portal updated setting: ${key} = ${value}`);
+        results.push({ key, value: publishValue, ...publishExtra });
+        console.log(`✅ Admin portal updated setting: ${key}`);
       }
     }
 
     const tenantIdBulk = getTenantId(req);
-    for (const { key, value } of results) {
+    for (const row of results) {
       await notificationService.publish(
         'settings-updated',
-        { key, value, timestamp: new Date().toISOString() },
+        { ...row, timestamp: new Date().toISOString() },
         tenantIdBulk
-      ).catch((err) => console.error(`Failed to publish settings-updated (${key}):`, err));
+      ).catch((err) => console.error(`Failed to publish settings-updated (${row.key}):`, err));
     }
     
     res.json({

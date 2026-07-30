@@ -707,7 +707,7 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
         <AdminNotificationQueueTab />
       ) : activeSubTab === 'notifications' ? (
         <>
-          <div className="space-y-6">
+          <div className="space-y-6" data-setting-key="NOTIFICATIONS_SECTION">
             {/* Notification Delay Setting */}
             <div className="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
               <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">{t('appSettings.emailThrottling')}</h3>

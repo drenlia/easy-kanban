@@ -73,7 +73,7 @@ export const filterTasks = (tasks: Task[], searchFilters: SearchFilters, _isSear
   if (!hasConfiguredSearchFilters(searchFilters)) return tasks;
 
   return tasks.filter(task => {
-    // Enhanced text search (title, description, comments, requester name)
+    // Enhanced text search (title, description, comments, ticket, assignee, requester)
     if (searchFilters.text) {
       const searchText = searchFilters.text.toLowerCase();
       const titleMatch = task.title.toLowerCase().includes(searchText);
@@ -86,17 +86,39 @@ export const filterTasks = (tasks: Task[], searchFilters: SearchFilters, _isSear
         const commentText = stripHtmlTags(comment.text || '');
         return commentText.toLowerCase().includes(searchText);
       }) || false;
+
+      const ticketMatch = Boolean(
+        task.ticket && task.ticket.toLowerCase().includes(searchText)
+      );
       
-      // Search in requester name
+      // Search in requester / assignee names
       let requesterMatch = false;
-      if (task.requesterId && members) {
-        const requester = members.find(m => m.id === task.requesterId);
-        if (requester) {
-          requesterMatch = requester.name.toLowerCase().includes(searchText);
+      let assigneeMatch = false;
+      if (members) {
+        if (task.requesterId) {
+          const requester = members.find(m => m.id === task.requesterId);
+          if (requester) {
+            requesterMatch = requester.name.toLowerCase().includes(searchText);
+          }
+        }
+        if (task.memberId) {
+          const assignee = members.find(m => m.id === task.memberId);
+          if (assignee) {
+            assigneeMatch = assignee.name.toLowerCase().includes(searchText);
+          }
         }
       }
       
-      if (!titleMatch && !descriptionMatch && !commentsMatch && !requesterMatch) return false;
+      if (
+        !titleMatch &&
+        !descriptionMatch &&
+        !commentsMatch &&
+        !ticketMatch &&
+        !requesterMatch &&
+        !assigneeMatch
+      ) {
+        return false;
+      }
     }
 
     // Date range filter (start date)

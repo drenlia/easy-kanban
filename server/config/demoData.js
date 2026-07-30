@@ -6,6 +6,76 @@ import { fileURLToPath } from 'url';
 import { wrapQuery } from '../utils/queryLogger.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+const SERVER_ROOT = dirname(__dirname);
+
+const DEMO_AVATAR_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.webp'];
+
+/**
+ * Directory of optional local demo photos (not committed).
+ * Override with DEMO_AVATAR_DIR.
+ */
+function getDemoAvatarSeedDir() {
+  const fromEnv = String(process.env.DEMO_AVATAR_DIR || '').trim();
+  if (fromEnv) return fromEnv;
+  return join(SERVER_ROOT, 'demo-assets', 'avatars');
+}
+
+function getAvatarsOutputDir(tenantId = null) {
+  if (tenantId && process.env.MULTI_TENANT === 'true') {
+    const basePath =
+      process.env.DOCKER_ENV === 'true' ? '/app/server' : join(SERVER_ROOT, '..');
+    return join(basePath, 'avatars', 'tenants', tenantId);
+  }
+  return join(SERVER_ROOT, 'avatars');
+}
+
+/**
+ * If a seed image exists for `slug` (e.g. john.jpg), copy into runtime avatars dir.
+ * @returns {string|null} Public path `/avatars/...` or null if no seed file
+ */
+export function installDemoSeedAvatar(slug, userId, tenantId = null) {
+  const safeSlug = String(slug || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]/g, '');
+  if (!safeSlug) return null;
+
+  const seedDir = getDemoAvatarSeedDir();
+  let sourcePath = null;
+  let ext = null;
+  for (const candidateExt of DEMO_AVATAR_EXTENSIONS) {
+    const candidate = join(seedDir, `${safeSlug}${candidateExt}`);
+    if (fs.existsSync(candidate)) {
+      sourcePath = candidate;
+      ext = candidateExt;
+      break;
+    }
+  }
+  if (!sourcePath) return null;
+
+  try {
+    const avatarsDir = getAvatarsOutputDir(tenantId);
+    if (!fs.existsSync(avatarsDir)) {
+      fs.mkdirSync(avatarsDir, { recursive: true });
+    }
+    const filename = `demo-${safeSlug}-${userId}${ext}`;
+    const destPath = join(avatarsDir, filename);
+    fs.copyFileSync(sourcePath, destPath);
+    console.log(`✅ Installed demo photo avatar: ${safeSlug}${ext} → ${filename}`);
+    return `/avatars/${filename}`;
+  } catch (error) {
+    console.error(`Failed to install demo seed avatar for ${safeSlug}:`, error.message);
+    return null;
+  }
+}
+
+/**
+ * Prefer optional seed photo; fall back to generated letter SVG.
+ */
+function resolveDemoUserAvatar(slug, letter, userId, color) {
+  const fromSeed = installDemoSeedAvatar(slug, userId);
+  if (fromSeed) return fromSeed;
+  return createLetterAvatar(letter, userId, color);
+}
 
 /**
  * Utility function to create letter avatars
@@ -21,7 +91,7 @@ function createLetterAvatar(letter, userId, color) {
     </svg>`;
     
     const filename = `demo-${letter.toLowerCase()}-${Date.now()}.svg`;
-    const avatarsDir = join(dirname(__dirname), 'avatars');
+    const avatarsDir = join(SERVER_ROOT, 'avatars');
     
     // Ensure avatars directory exists
     if (!fs.existsSync(avatarsDir)) {
@@ -31,7 +101,7 @@ function createLetterAvatar(letter, userId, color) {
     const filePath = join(avatarsDir, filename);
     fs.writeFileSync(filePath, svg);
     
-    console.log(`✅ Created demo avatar: ${filename}`);
+    console.log(`✅ Created demo letter avatar: ${filename}`);
     return `/avatars/${filename}`;
   } catch (error) {
     console.error('Error creating demo avatar:', error);
@@ -69,21 +139,24 @@ export async function createDemoUsers(db) {
       lastName: 'Smith',
       email: 'john.smith@demo.local',
       color: '#3B82F6', // Blue - distinctive and professional
-      letter: 'J'
+      letter: 'J',
+      avatarSlug: 'john'
     },
     {
       firstName: 'Sarah',
       lastName: 'Johnson',
       email: 'sarah.johnson@demo.local',
       color: '#10B981', // Green - fresh and vibrant
-      letter: 'S'
+      letter: 'S',
+      avatarSlug: 'sarah'
     },
     {
       firstName: 'Mike',
       lastName: 'Davis',
       email: 'mike.davis@demo.local',
       color: '#F59E0B', // Amber/Orange - warm and energetic
-      letter: 'M'
+      letter: 'M',
+      avatarSlug: 'mike'
     }
   ];
 
@@ -95,7 +168,12 @@ export async function createDemoUsers(db) {
     const userId = crypto.randomUUID();
     const password = generateRandomPassword(12);
     const passwordHash = bcrypt.hashSync(password, 10);
-    const avatarPath = createLetterAvatar(user.letter, userId, user.color);
+    const avatarPath = resolveDemoUserAvatar(
+      user.avatarSlug,
+      user.letter,
+      userId,
+      user.color
+    );
 
     // Create user
     await wrapQuery(db.prepare(`

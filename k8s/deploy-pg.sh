@@ -88,6 +88,8 @@ fi
 JWT_SECRET=$(openssl rand -base64 32 | tr -d "=+/" | cut -c1-32)
 # Shared app ↔ runner bearer (preserved if secret already exists — see ensure block)
 RUNNER_TOKEN=$(openssl rand -hex 32)
+# Dedicated settings-at-rest key (preserved if Secret already exists)
+SETTINGS_ENCRYPTION_KEY=$(openssl rand -hex 32)
 
 # Initialize RECOVERED_TOKEN variable
 RECOVERED_TOKEN=""
@@ -185,6 +187,34 @@ generate_manifests() {
         -e "s/RUNNER_TOKEN_PLACEHOLDER/${RUNNER_TOKEN}/g" \
         "${SCRIPT_DIR}/runner-secret-pg.yaml" > "${TEMP_DIR}/runner-secret.yaml"
     kubectl apply -f "${TEMP_DIR}/runner-secret.yaml"
+
+    # Settings encryption key (preserve across redeploys)
+    echo "   🔐 Ensuring easy-kanban-settings-crypto Secret..."
+    if kubectl get secret easy-kanban-settings-crypto -n "${NAMESPACE}" &>/dev/null; then
+        EXISTING_SETTINGS_KEY=$(kubectl get secret easy-kanban-settings-crypto -n "${NAMESPACE}" -o jsonpath='{.data.SETTINGS_ENCRYPTION_KEY}' 2>/dev/null | base64 -d 2>/dev/null || true)
+        if [ -n "${EXISTING_SETTINGS_KEY}" ] && [ "${EXISTING_SETTINGS_KEY}" != "SETTINGS_ENCRYPTION_KEY_PLACEHOLDER" ]; then
+            SETTINGS_ENCRYPTION_KEY="${EXISTING_SETTINGS_KEY}"
+            echo "   ✅ Reusing existing SETTINGS_ENCRYPTION_KEY"
+        else
+            # Prefer ConfigMap JWT_SECRET so existing ciphertext (if any used JWT fallback) stays decryptable
+            CM_JWT=$(kubectl get configmap easy-kanban-config-pg -n "${NAMESPACE}" -o jsonpath='{.data.JWT_SECRET}' 2>/dev/null || true)
+            if [ -n "${CM_JWT}" ]; then
+                SETTINGS_ENCRYPTION_KEY="${CM_JWT}"
+                echo "   ✅ Seeding SETTINGS_ENCRYPTION_KEY from ConfigMap JWT_SECRET"
+            fi
+        fi
+    else
+        CM_JWT=$(kubectl get configmap easy-kanban-config-pg -n "${NAMESPACE}" -o jsonpath='{.data.JWT_SECRET}' 2>/dev/null || true)
+        if [ -n "${CM_JWT}" ]; then
+            SETTINGS_ENCRYPTION_KEY="${CM_JWT}"
+            echo "   ✅ Creating SETTINGS_ENCRYPTION_KEY from existing JWT_SECRET (compat)"
+        fi
+    fi
+    sed -e "s/easy-kanban-pg/${NAMESPACE}/g" \
+        -e "s/SETTINGS_ENCRYPTION_KEY_PLACEHOLDER/${SETTINGS_ENCRYPTION_KEY}/g" \
+        "${SCRIPT_DIR}/settings-crypto-secret-pg.yaml" > "${TEMP_DIR}/settings-crypto-secret.yaml"
+    kubectl apply -f "${TEMP_DIR}/settings-crypto-secret.yaml"
+
     if ! kubectl get deployment kanban-runner -n "${NAMESPACE}" &>/dev/null; then
         echo "   🤖 Deploying kanban-runner..."
         sed -e "s/easy-kanban-pg/${NAMESPACE}/g" \
