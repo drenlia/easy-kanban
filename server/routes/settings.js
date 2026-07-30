@@ -5,7 +5,7 @@ import { getStorageUsage, getStorageLimit, formatBytes } from '../utils/storageU
 import notificationService from '../services/notificationService.js';
 import { getTenantId, getRequestDatabase } from '../middleware/tenantRouting.js';
 import { settings as settingsQueries, users as userQueries, members as memberQueries } from '../utils/sqlManager/index.js';
-import { FE_PUBLIC_DEBUG_FLAG_KEYS } from '../constants/debugSettings.js';
+import { FE_PUBLIC_DEBUG_FLAG_KEYS, BULK_DEBUG_SETTING_KEYS } from '../constants/debugSettings.js';
 import { AI_PUBLIC_SETTING_KEYS } from '../constants/aiSettings.js';
 import { isSecretSettingKey, SECRET_SETTING_PLACEHOLDER } from '../constants/secretSettings.js';
 import { AGENT_MEMBER_ID } from '../constants/agentIdentity.js';
@@ -278,6 +278,64 @@ router.post('/ai/runner/probe', authenticateToken, requireRole(['admin']), async
   } catch (error) {
     console.error('AI runner probe error:', error);
     return res.status(500).json({ ok: false, error: 'Failed to probe agent runner' });
+  }
+});
+
+// Bulk-update debug/troubleshooting flags in one transaction + one WS event
+router.put('/bulk', authenticateToken, requireRole(['admin']), async (req, res, next) => {
+  if (req.baseUrl !== '/api/admin/settings') {
+    return next();
+  }
+  try {
+    const db = getRequestDatabase(req);
+    const incoming = req.body?.settings;
+    if (!incoming || typeof incoming !== 'object' || Array.isArray(incoming)) {
+      return res.status(400).json({ error: 'settings object is required' });
+    }
+
+    const allowed = new Set(BULK_DEBUG_SETTING_KEYS);
+    const entries = [];
+    const applied = {};
+
+    for (const [key, value] of Object.entries(incoming)) {
+      if (!allowed.has(key)) {
+        return res.status(400).json({
+          error: `Setting key is not allowed for bulk update: ${key}`
+        });
+      }
+      const safeValue =
+        typeof value === 'boolean' ? String(value) : value == null ? '' : String(value);
+      entries.push([key, safeValue]);
+      applied[key] = safeValue;
+    }
+
+    if (entries.length === 0) {
+      return res.status(400).json({ error: 'No settings provided' });
+    }
+
+    await settingsQueries.upsertSettings(db, entries);
+
+    if (Object.prototype.hasOwnProperty.call(applied, 'SERVER_DEBUG_SQL')) {
+      clearSqlDebugSettingsCache();
+    }
+
+    const tenantId = getTenantId(req);
+    await notificationService.publish(
+      'settings-updated',
+      {
+        settings: applied,
+        timestamp: new Date().toISOString()
+      },
+      tenantId
+    );
+
+    res.json({
+      message: 'Settings updated successfully',
+      settings: applied
+    });
+  } catch (error) {
+    console.error('❌ Error bulk-updating settings:', error);
+    res.status(500).json({ error: 'Failed to update settings', details: error.message });
   }
 });
 

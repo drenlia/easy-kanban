@@ -14,6 +14,8 @@ interface SettingsContextType {
   refreshSettings: () => Promise<void>;
   /** Optimistic single-key update (e.g. after admin auto-save) so the header reacts before refetch. */
   updateSiteSetting: (key: string, value: string) => void;
+  /** Optimistic multi-key update (one render) after bulk admin save. */
+  updateSiteSettings: (patch: SiteSettings) => void;
 }
 
 const SettingsContext = createContext<SettingsContextType | undefined>(undefined);
@@ -212,6 +214,18 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) 
     }));
   }, []);
 
+  const updateSiteSettings = useCallback((patch: SiteSettings) => {
+    setSiteSettings(prev => {
+      const next = { ...prev, ...patch };
+      syncClientDebugFromSettings(next);
+      return next;
+    });
+    setSystemSettings(prev => ({
+      ...prev,
+      ...patch
+    }));
+  }, []);
+
   // Listen for WebSocket settings updates (only when authenticated)
   useEffect(() => {
     if (!hasInitialized) return;
@@ -225,6 +239,23 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) 
 
     const handleSettingsUpdate = (data: any) => {
       if (feDebug('FE_DEBUG_SETTINGS_CONTEXT')) console.log('📨 [SettingsContext] Settings updated via WebSocket:', data);
+
+      if (data.settings && typeof data.settings === 'object' && !Array.isArray(data.settings)) {
+        const patch: SiteSettings = {};
+        for (const [key, value] of Object.entries(data.settings)) {
+          patch[key] = value == null ? '' : String(value);
+        }
+        setSiteSettings(prev => {
+          const next = { ...prev, ...patch };
+          syncClientDebugFromSettings(next);
+          return next;
+        });
+        setSystemSettings(prev => ({
+          ...prev,
+          ...patch
+        }));
+        return;
+      }
 
       // Update the specific setting directly from WebSocket data (including empty string clears)
       if (data.key && Object.prototype.hasOwnProperty.call(data, 'value')) {
@@ -258,6 +289,7 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) 
     isLoading,
     refreshSettings,
     updateSiteSetting,
+    updateSiteSettings,
   };
 
   return (

@@ -1,10 +1,13 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Sparkles } from 'lucide-react';
 import AdminFileUploadsTab from './AdminFileUploadsTab';
 import AdminNotificationQueueTab from './AdminNotificationQueueTab';
 import AdminTroubleshootingTab from './AdminTroubleshootingTab';
 import AdminAISettingsTab from './AdminAISettingsTab';
+import api from '../../api';
+import { ALL_TROUBLESHOOTING_SETTING_KEYS } from '../../constants/clientDebugKeys';
+import { useSettings } from '../../contexts/SettingsContext';
 import { toast } from '../../utils/toast';
 
 interface AdminAppSettingsTabProps {
@@ -18,18 +21,29 @@ interface AdminAppSettingsTabProps {
 
 type AppSettingsSubTab = 'ui' | 'uploads' | 'notifications' | 'notification-queue' | 'troubleshooting' | 'ai';
 
-/** sessionStorage key: troubleshooting tab visible after secret chord on gated deployments */
+/** sessionStorage key: troubleshooting tab visible after secret sequence on gated deployments */
 const TROUBLESHOOTING_UNLOCK_KEY = 'adminTroubleshootingUnlocked';
+
+/** Type this in ALL CAPS while Admin → App Settings is focused (not in an input). */
+const TROUBLESHOOTING_UNLOCK_SEQUENCE = 'TROUBLE';
 
 /**
  * Hidden unlock for Troubleshooting when MULTI_TENANT or DEMO_ENABLED:
- * Ctrl+Alt+Shift+T (Control key — not Cmd/Meta — so Mac/Linux/Windows browsers match).
- * Toggle while Admin → App Settings is open. Session-only (sessionStorage).
+ * Type TROUBLE (all caps) while on Admin → App Settings. Works on any OS/keyboard.
+ * Ignored while focus is in an input/textarea. Session-only (sessionStorage).
  */
 function isTroubleshootingGatedDeployment(): boolean {
   return (
     process.env.MULTI_TENANT === 'true' || process.env.DEMO_ENABLED === 'true'
   );
+}
+
+function isEditableKeyTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  const tag = target.tagName;
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
+  if (target.isContentEditable) return true;
+  return Boolean(target.closest('input, textarea, select, [contenteditable="true"]'));
 }
 
 function readTroubleshootingUnlocked(): boolean {
@@ -49,6 +63,7 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
   onAutoSave,
 }) => {
   const { t } = useTranslation('admin');
+  const { updateSiteSettings } = useSettings();
   const [isSaving, setIsSaving] = useState(false);
   const [activeSubTab, setActiveSubTab] = useState<AppSettingsSubTab>('ui');
   const [notificationDefaults, setNotificationDefaults] = useState<{ [key: string]: boolean }>({});
@@ -58,6 +73,20 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
     () => !troubleshootingGated || readTroubleshootingUnlocked()
   );
   const showTroubleshootingTab = !troubleshootingGated || troubleshootingUnlocked;
+  const troubleshootingUnlockedRef = useRef(troubleshootingUnlocked);
+  troubleshootingUnlockedRef.current = troubleshootingUnlocked;
+  const editingSettingsRef = useRef(editingSettings);
+  editingSettingsRef.current = editingSettings;
+  const lockInProgressRef = useRef(false);
+
+  const disableAllTroubleshootingSettings = useCallback(async () => {
+    const settings: Record<string, string> = {};
+    for (const key of ALL_TROUBLESHOOTING_SETTING_KEYS) {
+      settings[key] = 'false';
+    }
+    await api.put('/admin/settings/bulk', { settings });
+    return settings;
+  }, []);
 
   // Initialize notification defaults from settings
   useEffect(() => {
@@ -114,45 +143,89 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
     setActiveSubTab(tab);
   }, [showTroubleshootingTab]);
 
-  // Hidden chord: Ctrl+Alt+Shift+T toggles Troubleshooting on MULTI_TENANT / DEMO
+  // Hidden sequence: type TROUBLE (caps) to toggle Troubleshooting on MULTI_TENANT / DEMO
   useEffect(() => {
     if (!troubleshootingGated) return;
 
-    const onKeyDown = (e: KeyboardEvent) => {
-      // Use e.ctrlKey (not metaKey) so Mac matches Windows/Linux with the Control key.
-      if (!(e.ctrlKey && e.altKey && e.shiftKey && !e.metaKey)) return;
-      if (e.key !== 't' && e.key !== 'T') return;
-      e.preventDefault();
-      setTroubleshootingUnlocked((prev) => {
-        const next = !prev;
-        try {
-          if (next) {
-            sessionStorage.setItem(TROUBLESHOOTING_UNLOCK_KEY, 'true');
-          } else {
-            sessionStorage.removeItem(TROUBLESHOOTING_UNLOCK_KEY);
-          }
-        } catch {
-          /* ignore */
-        }
+    let buffer = '';
+    let lastKeyAt = 0;
+    const RESET_MS = 2500;
+
+    const applyUnlocked = (next: boolean) => {
+      troubleshootingUnlockedRef.current = next;
+      try {
         if (next) {
-          toast.success(t('appSettings.troubleshootingUnlocked'), '');
+          sessionStorage.setItem(TROUBLESHOOTING_UNLOCK_KEY, 'true');
         } else {
-          toast.success(t('appSettings.troubleshootingLocked'), '');
-          setActiveSubTab((cur) => {
-            if (cur === 'troubleshooting') {
-              window.location.hash = '#admin#app-settings#user-interface';
-              return 'ui';
-            }
-            return cur;
-          });
+          sessionStorage.removeItem(TROUBLESHOOTING_UNLOCK_KEY);
         }
-        return next;
-      });
+      } catch {
+        /* ignore */
+      }
+      setTroubleshootingUnlocked(next);
+      if (next) {
+        toast.success(t('appSettings.troubleshootingUnlocked'), '');
+      } else {
+        toast.success(t('appSettings.troubleshootingLocked'), '');
+        setActiveSubTab((cur) => {
+          if (cur === 'troubleshooting') {
+            window.location.hash = '#admin#app-settings#user-interface';
+            return 'ui';
+          }
+          return cur;
+        });
+      }
+    };
+
+    const toggleTroubleshooting = async () => {
+      if (lockInProgressRef.current) return;
+
+      if (!troubleshootingUnlockedRef.current) {
+        applyUnlocked(true);
+        return;
+      }
+
+      // Locking: one bulk save, then hide — no per-toggle UI updates.
+      lockInProgressRef.current = true;
+      try {
+        const cleared = await disableAllTroubleshootingSettings();
+        applyUnlocked(false);
+        updateSiteSettings(cleared);
+        onSettingsChange({ ...editingSettingsRef.current, ...cleared });
+      } catch {
+        toast.error(t('failedToSaveSettings'), '');
+      } finally {
+        lockInProgressRef.current = false;
+      }
+    };
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      // Don't steal browser shortcuts or interfere with form fields (AI URL, etc.).
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      if (isEditableKeyTarget(e.target)) return;
+      if (e.key.length !== 1) return;
+
+      const now = Date.now();
+      if (now - lastKeyAt > RESET_MS) buffer = '';
+      lastKeyAt = now;
+
+      // All caps only — lowercase or other characters reset the sequence.
+      if (e.key < 'A' || e.key > 'Z') {
+        buffer = '';
+        return;
+      }
+
+      buffer = (buffer + e.key).slice(-TROUBLESHOOTING_UNLOCK_SEQUENCE.length);
+      if (buffer === TROUBLESHOOTING_UNLOCK_SEQUENCE) {
+        buffer = '';
+        e.preventDefault();
+        void toggleTroubleshooting();
+      }
     };
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [troubleshootingGated, t]);
+  }, [troubleshootingGated, t, disableAllTroubleshootingSettings, updateSiteSettings, onSettingsChange]);
 
   // Update URL hash when activeSubTab changes
   const handleSubTabChange = (tab: AppSettingsSubTab) => {

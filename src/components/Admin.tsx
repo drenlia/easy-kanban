@@ -304,6 +304,12 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
     // Settings event handlers
     const handleSettingsUpdated = async (data: any) => {
       try {
+        // Bulk patch from PUT /admin/settings/bulk
+        if (data.settings && typeof data.settings === 'object' && !Array.isArray(data.settings)) {
+          setSettings(prev => ({ ...prev, ...data.settings }));
+          setEditingSettings(prev => ({ ...prev, ...data.settings }));
+          return;
+        }
         // Update the specific setting directly from WebSocket data instead of fetching all settings
         if (data.key && data.value === null) {
           setSettings(prev => {

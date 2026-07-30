@@ -1,17 +1,15 @@
 import React, { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import api from '../../api';
-import { FE_CLIENT_DEBUG_KEYS, type FeClientDebugKey } from '../../constants/clientDebugKeys';
+import {
+  FE_CLIENT_DEBUG_KEYS,
+  SERVER_DEBUG_KEYS,
+  type FeClientDebugKey,
+  type ServerDebugKey,
+} from '../../constants/clientDebugKeys';
 import { useSettings } from '../../contexts/SettingsContext';
 import { toast } from '../../utils/toast';
 
-const SERVER_DEBUG_KEYS = [
-  'SERVER_DEBUG_HTTP',
-  'SERVER_DEBUG_SQL',
-  'SERVER_DEBUG_SETTINGS',
-] as const;
-
-type ServerDebugKey = (typeof SERVER_DEBUG_KEYS)[number];
 type TroubleshootKey = FeClientDebugKey | ServerDebugKey | 'FE_PERF_TESTS';
 
 interface AdminTroubleshootingTabProps {
@@ -30,7 +28,7 @@ const AdminTroubleshootingTab: React.FC<AdminTroubleshootingTabProps> = ({
   onAutoSave,
 }) => {
   const { t } = useTranslation('admin');
-  const { updateSiteSetting } = useSettings();
+  const { updateSiteSettings } = useSettings();
   const [savingKey, setSavingKey] = useState<string | null>(null);
 
   const toggle = useCallback(
@@ -54,17 +52,15 @@ const AdminTroubleshootingTab: React.FC<AdminTroubleshootingTabProps> = ({
   const setMany = useCallback(
     async (keys: readonly string[], value: 'true' | 'false') => {
       const snapshot = { ...editingSettings };
-      const next = { ...editingSettings };
+      const settings: Record<string, string> = {};
       for (const key of keys) {
-        next[key] = value;
+        settings[key] = value;
       }
-      onSettingsChange(next);
+      onSettingsChange({ ...editingSettings, ...settings });
       setSavingKey('bulk');
       try {
-        for (const key of keys) {
-          await api.put('/admin/settings', { key, value });
-          updateSiteSetting(key, value);
-        }
+        await api.put('/admin/settings/bulk', { settings });
+        updateSiteSettings(settings);
         toast.success(t('appSettings.settingSaved'), '');
       } catch (error) {
         console.error('Failed to bulk-update debug flags:', error);
@@ -74,7 +70,7 @@ const AdminTroubleshootingTab: React.FC<AdminTroubleshootingTabProps> = ({
         setSavingKey(null);
       }
     },
-    [editingSettings, onSettingsChange, t, updateSiteSetting]
+    [editingSettings, onSettingsChange, t, updateSiteSettings]
   );
 
   const renderToggle = (key: TroubleshootKey, label: string, description: string, warn?: boolean) => {

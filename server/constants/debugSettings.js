@@ -33,3 +33,8 @@ export const DEBUG_SETTING_DEFAULTS = Object.freeze([
   ['SERVER_DEBUG_HTTP', 'false'],
   ['SERVER_DEBUG_SQL', 'false']
 ]);
+
+/** Keys allowed on PUT /api/admin/settings/bulk (troubleshooting / debug flags only). */
+export const BULK_DEBUG_SETTING_KEYS = Object.freeze(
+  DEBUG_SETTING_DEFAULTS.map(([key]) => key)
+);

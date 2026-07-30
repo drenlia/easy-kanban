@@ -103,6 +103,34 @@ export async function upsertSetting(db, key, value) {
 }
 
 /**
+ * Upsert many settings in one transaction.
+ *
+ * @param {Database} db - Database connection
+ * @param {Array<[string, string]>} entries - [key, value] pairs
+ * @returns {Promise<Array>} Batch results
+ */
+export async function upsertSettings(db, entries) {
+  if (!Array.isArray(entries) || entries.length === 0) {
+    return [];
+  }
+
+  const table = settingsTableRef(db);
+  const query = `
+    INSERT INTO ${table} (key, value, updated_at)
+    VALUES ($1, $2, CURRENT_TIMESTAMP)
+    ON CONFLICT (key)
+    DO UPDATE SET value = $2, updated_at = CURRENT_TIMESTAMP
+  `;
+
+  return db.executeBatchTransaction(
+    entries.map(([key, value]) => ({
+      query,
+      params: [key, value == null ? '' : String(value)]
+    }))
+  );
+}
+
+/**
  * Upsert setting with custom timestamp
  * 
  * @param {Database} db - Database connection

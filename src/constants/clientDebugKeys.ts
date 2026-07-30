@@ -18,3 +18,19 @@ export const FE_CLIENT_DEBUG_KEYS = [
 ] as const;
 
 export type FeClientDebugKey = (typeof FE_CLIENT_DEBUG_KEYS)[number];
+
+/** Server stdout debug flags (admin settings only). Sync with server/constants/debugSettings.js. */
+export const SERVER_DEBUG_KEYS = [
+  'SERVER_DEBUG_HTTP',
+  'SERVER_DEBUG_SQL',
+  'SERVER_DEBUG_SETTINGS',
+] as const;
+
+export type ServerDebugKey = (typeof SERVER_DEBUG_KEYS)[number];
+
+/** Every setting controlled by Admin → App Settings → Troubleshooting. */
+export const ALL_TROUBLESHOOTING_SETTING_KEYS = [
+  ...FE_CLIENT_DEBUG_KEYS,
+  'FE_PERF_TESTS',
+  ...SERVER_DEBUG_KEYS,
+] as const;
