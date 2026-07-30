@@ -38,6 +38,8 @@ export default function Login({ onLogin, siteSettings, hasDefaultAdmin = true, i
     email: string;
     password: string;
   } | null>(null);
+  const [credentialsReady, setCredentialsReady] = useState(false);
+  const [waitingForCredentials, setWaitingForCredentials] = useState(false);
   const [refreshingCredentials, setRefreshingCredentials] = useState(false);
   const [backendAvailable, setBackendAvailable] = useState<boolean>(true);
   const [checkingBackend, setCheckingBackend] = useState<boolean>(true);
@@ -46,23 +48,35 @@ export default function Login({ onLogin, siteSettings, hasDefaultAdmin = true, i
   const isDemoMode =
     import.meta.env.DEMO_ENABLED === 'true' || process.env.DEMO_ENABLED === 'true';
 
-  const fetchAdminCredentials = useCallback(async () => {
+  /** Fetch once. Returns credentials only when the real seeded password is available. */
+  const fetchAdminCredentials = useCallback(async (): Promise<{
+    email: string;
+    password: string;
+  } | null> => {
     try {
       const response = await fetch('/api/auth/demo-credentials', { cache: 'no-store' });
-      if (response.ok) {
-        const credentials = await response.json();
-        setAdminCredentials(credentials.admin);
-        return credentials.admin as { email: string; password: string };
+      const contentType = response.headers.get('content-type') || '';
+      if (!contentType.includes('application/json')) {
+        // Maintenance HTML / proxy noise — not ready
+        return null;
       }
-      throw new Error('Failed to fetch demo credentials');
+      const credentials = await response.json();
+      if (
+        response.ok &&
+        credentials?.ready !== false &&
+        credentials?.admin?.email &&
+        typeof credentials.admin.password === 'string' &&
+        credentials.admin.password.length > 0
+      ) {
+        return {
+          email: credentials.admin.email,
+          password: credentials.admin.password
+        };
+      }
+      return null;
     } catch (error) {
       console.error('Failed to fetch admin credentials:', error);
-      const fallback = {
-        email: 'admin@kanban.local',
-        password: 'admin'
-      };
-      setAdminCredentials(fallback);
-      return fallback;
+      return null;
     }
   }, []);
 
@@ -73,14 +87,23 @@ export default function Login({ onLogin, siteSettings, hasDefaultAdmin = true, i
     // Clear typed password so testers don't submit the pre-reset value
     setPassword('');
     try {
-      await fetchAdminCredentials();
+      const creds = await fetchAdminCredentials();
+      if (creds) {
+        setAdminCredentials(creds);
+        setCredentialsReady(true);
+        setWaitingForCredentials(false);
+      } else {
+        setAdminCredentials(null);
+        setCredentialsReady(false);
+        setWaitingForCredentials(true);
+      }
     } finally {
       setRefreshingCredentials(false);
     }
   };
 
   const handleFillCredentials = () => {
-    if (!adminCredentials) return;
+    if (!adminCredentials || !credentialsReady) return;
     setEmail(adminCredentials.email);
     setPassword(adminCredentials.password);
     setError('');
@@ -136,15 +159,42 @@ export default function Login({ onLogin, siteSettings, hasDefaultAdmin = true, i
     };
   }, []);
 
-  // Fetch admin credentials only if demo mode is enabled
+  // Poll for real admin credentials in demo mode (no fake "admin" fallback).
   useEffect(() => {
-    if (!isDemoMode || !backendAvailable) {
+    if (!isDemoMode) {
       setAdminCredentials(null);
+      setCredentialsReady(false);
+      setWaitingForCredentials(false);
       return;
     }
 
-    fetchAdminCredentials();
-  }, [isDemoMode, backendAvailable, fetchAdminCredentials]);
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    const poll = async () => {
+      const creds = await fetchAdminCredentials();
+      if (cancelled) return;
+
+      if (creds) {
+        setAdminCredentials(creds);
+        setCredentialsReady(true);
+        setWaitingForCredentials(false);
+        return;
+      }
+
+      setAdminCredentials(null);
+      setCredentialsReady(false);
+      setWaitingForCredentials(true);
+      timer = setTimeout(poll, 2000);
+    };
+
+    void poll();
+
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [isDemoMode, fetchAdminCredentials]);
 
   // Check for token expiration redirect
   useEffect(() => {
@@ -439,43 +489,68 @@ export default function Login({ onLogin, siteSettings, hasDefaultAdmin = true, i
             </div>
           )}
 
-          {isDemoMode && hasDefaultAdmin && adminCredentials && (
+          {isDemoMode && (
             <div className="text-center text-sm text-gray-600 dark:text-gray-400">
               <p className="font-semibold mb-2">{t('login.demoCredentials')}</p>
               <div className="space-y-2">
                 <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-md p-3">
                   <p className="text-xs font-medium text-blue-800 dark:text-blue-200 mb-2">Admin Account</p>
-                  <div className="space-y-1 text-left">
-                    <div className="font-mono text-xs text-blue-700 dark:text-blue-300 break-all">
-                      {adminCredentials.email}
+                  {credentialsReady && adminCredentials ? (
+                    <>
+                      <div className="space-y-1 text-left">
+                        <div className="font-mono text-xs text-blue-700 dark:text-blue-300 break-all">
+                          {adminCredentials.email}
+                        </div>
+                        <div className="font-mono text-xs text-blue-700 dark:text-blue-300 break-all">
+                          {adminCredentials.password}
+                        </div>
+                      </div>
+                      <div className="mt-3 flex items-center justify-center gap-2">
+                        <button
+                          type="button"
+                          onClick={handleRefreshCredentials}
+                          disabled={refreshingCredentials}
+                          className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/40 rounded border border-blue-200 dark:border-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                          title={t('login.refreshCredentials')}
+                          aria-label={t('login.refreshCredentials')}
+                        >
+                          <RefreshCw className={`w-3 h-3 ${refreshingCredentials ? 'animate-spin' : ''}`} />
+                          {refreshingCredentials ? t('login.refreshingCredentials') : t('login.refreshCredentials')}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleFillCredentials}
+                          disabled={refreshingCredentials}
+                          className="inline-flex items-center px-2.5 py-1.5 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                          title={t('login.fillCredentials')}
+                          aria-label={t('login.fillCredentials')}
+                        >
+                          {t('login.fillCredentials')}
+                        </button>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="flex flex-col items-center gap-2 py-2">
+                      <div className="flex items-center gap-2 text-blue-700 dark:text-blue-300">
+                        <RefreshCw className={`w-4 h-4 ${(waitingForCredentials || refreshingCredentials) ? 'animate-spin' : ''}`} />
+                        <span className="text-xs font-medium">{t('login.demoCredentialsWaiting')}</span>
+                      </div>
+                      <p className="text-xs text-blue-600/80 dark:text-blue-400/80">
+                        {t('login.demoCredentialsWaitingHint')}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={handleRefreshCredentials}
+                        disabled={refreshingCredentials}
+                        className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/40 rounded border border-blue-200 dark:border-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        title={t('login.refreshCredentials')}
+                        aria-label={t('login.refreshCredentials')}
+                      >
+                        <RefreshCw className={`w-3 h-3 ${refreshingCredentials ? 'animate-spin' : ''}`} />
+                        {refreshingCredentials ? t('login.refreshingCredentials') : t('login.refreshCredentials')}
+                      </button>
                     </div>
-                    <div className="font-mono text-xs text-blue-700 dark:text-blue-300 break-all">
-                      {adminCredentials.password}
-                    </div>
-                  </div>
-                  <div className="mt-3 flex items-center justify-center gap-2">
-                    <button
-                      type="button"
-                      onClick={handleRefreshCredentials}
-                      disabled={refreshingCredentials}
-                      className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/40 rounded border border-blue-200 dark:border-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                      title={t('login.refreshCredentials')}
-                      aria-label={t('login.refreshCredentials')}
-                    >
-                      <RefreshCw className={`w-3 h-3 ${refreshingCredentials ? 'animate-spin' : ''}`} />
-                      {refreshingCredentials ? t('login.refreshingCredentials') : t('login.refreshCredentials')}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleFillCredentials}
-                      disabled={refreshingCredentials}
-                      className="inline-flex items-center px-2.5 py-1.5 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                      title={t('login.fillCredentials')}
-                      aria-label={t('login.fillCredentials')}
-                    >
-                      {t('login.fillCredentials')}
-                    </button>
-                  </div>
+                  )}
                 </div>
               </div>
             </div>

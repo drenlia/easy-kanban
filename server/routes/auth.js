@@ -347,20 +347,32 @@ router.get('/demo-credentials', async (req, res) => {
     const demoPasswordSetting = await authQueries.getSetting(db, 'DEMO_PASSWORD');
     const adminPassword = adminPasswordSetting?.value;
     const demoPassword = demoPasswordSetting?.value;
+
+    // Do not invent a fake "admin" password — clients wait until seed finished.
+    if (!adminPassword) {
+      return res.status(503).json({
+        ready: false,
+        admin: null,
+        demo: null
+      });
+    }
     
     res.json({
+      ready: true,
       admin: {
         email: 'admin@kanban.local',
-        password: adminPassword || 'admin' // Fallback to default if not found
+        password: adminPassword
       },
-      demo: {
-        email: 'demo@kanban.local',
-        password: demoPassword || 'demo' // Fallback to default if not found
-      }
+      demo: demoPassword
+        ? {
+            email: 'demo@kanban.local',
+            password: demoPassword
+          }
+        : null
     });
   } catch (error) {
     console.error('Error getting demo credentials:', error);
-    res.status(500).json({ error: 'Failed to get demo credentials' });
+    res.status(500).json({ error: 'Failed to get demo credentials', ready: false });
   }
 });
 

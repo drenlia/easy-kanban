@@ -54,6 +54,18 @@ const HeaderTaskSearch: React.FC<HeaderTaskSearchProps> = ({ value, onChange }) 
     emit('');
   };
 
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation();
+      if (draft) {
+        handleClear();
+      } else {
+        e.currentTarget.blur();
+      }
+    }
+  };
+
   return (
     <div className="relative w-40 sm:w-52 md:w-64">
       <Search
@@ -64,6 +76,7 @@ const HeaderTaskSearch: React.FC<HeaderTaskSearchProps> = ({ value, onChange }) 
         type="text"
         value={draft}
         onChange={(e) => handleChange(e.target.value)}
+        onKeyDown={handleKeyDown}
         placeholder={t('searchInterface.headerSearchPlaceholder')}
         aria-label={t('searchInterface.headerSearchPlaceholder')}
         className="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 py-1.5 pl-7 pr-7 text-sm text-gray-900 dark:text-gray-100 placeholder:text-gray-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
