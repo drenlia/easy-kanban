@@ -12,6 +12,7 @@ import {
   canMoveTaskToBoard, 
   getBoardTabDropClasses 
 } from '../utils/crossBoardDragUtils';
+import { KanbanChromeTooltip } from './KanbanChromeTooltip';
 
 /** Inactive tab — sits on the track */
 const tabTrackInactive =
@@ -168,45 +169,50 @@ const DroppableBoardTab: React.FC<{
   const tabClasses = getBoardTabDropClasses(isDropReady && canDrop, isHovering && canDrop, isDragActive);
 
   return (
-    <div
-      onClick={handleClick}
-      style={{
-        userSelect: isDragActive && canDrop ? 'none' : 'auto'
-      }}
-      className={`
-        cursor-pointer flex items-center gap-2 whitespace-nowrap min-w-[5.5rem] justify-center
-        ${isSelected ? tabTrackActive : tabTrackInactive}
-        ${isDragActive && canDrop && (isHovering || isDropReady) ? 'ring-2 ring-blue-500 dark:ring-blue-400 bg-blue-50 dark:bg-blue-950/45 scale-[1.02] shadow-md' : ''}
-        ${tabClasses}
-        transition-all duration-200
-        relative
-      `}
-      title={`${board.title}${isDragActive && canDrop ? ` (${t('boardTabs.dropTaskHere')})` : ''}`}
+    <KanbanChromeTooltip
+      label={`${board.title}${isDragActive && canDrop ? ` (${t('boardTabs.dropTaskHere')})` : ''}`}
+      wrapperClassName="relative inline-flex"
+      delayMs={isDragActive ? 0 : undefined}
     >
-      {/* VERY SMALL droppable area - only the inner content */}
       <div
-        ref={setNodeRef}
-        className="absolute inset-2 pointer-events-none"
-        style={{ pointerEvents: isDragActive && canDrop ? 'auto' : 'none' }}
-      />
-      
-      {/* Always show normal tab content - visual feedback comes from border/glow effects */}
-      <div className={`flex items-center gap-2 ${isDragActive && canDrop ? 'pointer-events-none' : ''}`}>
-        <span className="truncate max-w-[150px] pointer-events-none">{board.title}</span>
-        {taskCount !== undefined && taskCount > 0 && (
-          <span
-            className={`
-            px-1.5 py-0.5 text-[0.65rem] leading-none rounded-full font-medium min-w-[1.25rem] text-center pointer-events-none tabular-nums
-            ${hasActiveFilters
-              ? 'bg-blue-50 text-blue-600 dark:bg-blue-900/35 dark:text-blue-300'
-              : 'bg-blue-50/80 text-blue-500 dark:bg-blue-900/25 dark:text-blue-400'}
-          `}
-          >
-            {taskCount}
-          </span>
-        )}
+        onClick={handleClick}
+        style={{
+          userSelect: isDragActive && canDrop ? 'none' : 'auto'
+        }}
+        className={`
+          cursor-pointer flex items-center gap-2 whitespace-nowrap min-w-[5.5rem] justify-center
+          ${isSelected ? tabTrackActive : tabTrackInactive}
+          ${isDragActive && canDrop && (isHovering || isDropReady) ? 'ring-2 ring-blue-500 dark:ring-blue-400 bg-blue-50 dark:bg-blue-950/45 scale-[1.02] shadow-md' : ''}
+          ${tabClasses}
+          transition-all duration-200
+          relative
+        `}
+      >
+        {/* VERY SMALL droppable area - only the inner content */}
+        <div
+          ref={setNodeRef}
+          className="absolute inset-2 pointer-events-none"
+          style={{ pointerEvents: isDragActive && canDrop ? 'auto' : 'none' }}
+        />
+
+        {/* Always show normal tab content - visual feedback comes from border/glow effects */}
+        <div className={`flex items-center gap-2 ${isDragActive && canDrop ? 'pointer-events-none' : ''}`}>
+          {taskCount !== undefined && taskCount > 0 && (
+            <span
+              className={`
+              px-1.5 py-0.5 text-[0.65rem] leading-none rounded-full font-medium min-w-[1.25rem] text-center pointer-events-none tabular-nums
+              ${hasActiveFilters
+                ? 'bg-blue-50 text-blue-600 dark:bg-blue-900/35 dark:text-blue-300'
+                : 'bg-blue-50/80 text-blue-500 dark:bg-blue-900/25 dark:text-blue-400'}
+            `}
+            >
+              {taskCount}
+            </span>
+          )}
+          <span className="truncate max-w-[150px] pointer-events-none">{board.title}</span>
+        </div>
       </div>
-    </div>
+    </KanbanChromeTooltip>
   );
 };
 
@@ -252,57 +258,68 @@ const SortableBoardTab: React.FC<{
           ${isDragging ? 'opacity-60 shadow-lg ring-2 ring-gray-300/50 dark:ring-gray-500/40' : ''}
         `}
       >
-        {/* Drag handle — dedicated hit target, does not steal tab clicks */}
-        <div
-          className="absolute left-1 top-1/2 z-[2] -translate-y-1/2 flex h-7 w-6 cursor-grab touch-none items-center justify-center rounded-md text-gray-400 opacity-60 transition-opacity hover:bg-gray-200/80 hover:text-gray-600 active:cursor-grabbing dark:hover:bg-gray-600/50 dark:hover:text-gray-300 group-hover:opacity-100"
-          title={t('boardTabs.dragToReorder')}
-          {...attributes}
-          {...listeners}
+        {/* Task count covers the drag handle until hover reveals it. */}
+        <KanbanChromeTooltip
+          label={t('boardTabs.dragToReorder')}
+          wrapperClassName="absolute left-1 top-1/2 z-[2] -translate-y-1/2"
         >
-          <GripVertical className="h-4 w-4" aria-hidden />
-        </div>
+          <div
+            className="group/board-handle flex h-7 w-6 cursor-grab touch-none items-center justify-center rounded-md text-gray-400 transition-colors hover:bg-gray-200/80 hover:text-gray-600 active:cursor-grabbing dark:hover:bg-gray-600/50 dark:hover:text-gray-300"
+            {...attributes}
+            {...listeners}
+          >
+            <GripVertical
+              className={`h-4 w-4 transition-opacity group-hover/board-handle:opacity-100 ${
+                showTaskCount && taskCount !== undefined && taskCount > 0 ? 'opacity-0' : 'opacity-60'
+              }`}
+              aria-hidden
+            />
+            {showTaskCount && taskCount !== undefined && taskCount > 0 && (
+              <span
+                className={`pointer-events-none absolute left-1/2 top-1/2 min-w-[1.25rem] -translate-x-1/2 -translate-y-1/2 rounded-full px-1.5 py-0.5 text-center text-[0.65rem] font-medium leading-none tabular-nums transition-opacity group-hover/board-handle:opacity-0 ${
+                  hasActiveFilters
+                    ? 'bg-blue-50 text-blue-600 dark:bg-blue-900/35 dark:text-blue-300'
+                    : 'bg-blue-50/80 text-blue-500 dark:bg-blue-900/25 dark:text-blue-400'
+                }`}
+              >
+                {taskCount}
+              </span>
+            )}
+          </div>
+        </KanbanChromeTooltip>
 
         <div className="flex items-center pl-8">
-          <button
-            type="button"
-            onClick={onSelect}
-            onDoubleClick={onEdit}
-            className="cursor-pointer border-0 bg-transparent text-left text-inherit transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-1 dark:focus-visible:ring-offset-gray-900 rounded-sm"
-            title={t('boardTabs.clickToSelectDoubleClickToRename')}
-          >
-            <div className="flex items-center gap-2">
-              <span className="truncate max-w-[10rem]">{board.title}</span>
-              {showTaskCount && taskCount !== undefined && taskCount > 0 && (
-                <span
-                  className={`shrink-0 px-1.5 py-0.5 text-[0.65rem] font-medium leading-none rounded-full tabular-nums ${
-                    hasActiveFilters
-                      ? 'bg-blue-50 text-blue-600 dark:bg-blue-900/35 dark:text-blue-300'
-                      : 'bg-blue-50/80 text-blue-500 dark:bg-blue-900/25 dark:text-blue-400'
-                  }`}
-                >
-                  {taskCount}
-                </span>
-              )}
-            </div>
-          </button>
+          <KanbanChromeTooltip label={t('boardTabs.clickToSelectDoubleClickToRename')}>
+            <button
+              type="button"
+              onClick={onSelect}
+              onDoubleClick={onEdit}
+              className="cursor-pointer border-0 bg-transparent text-left text-inherit transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-1 dark:focus-visible:ring-offset-gray-900 rounded-sm"
+            >
+              <div className="flex items-center gap-2">
+                <span className="truncate max-w-[10rem]">{board.title}</span>
+              </div>
+            </button>
+          </KanbanChromeTooltip>
 
           {/* Zero width until this tab is hovered — only the active tab grows to reveal trash after the pill */}
           {canDelete && (
             <div
               className="flex max-w-0 shrink-0 items-center justify-end overflow-hidden opacity-0 transition-[max-width,opacity] duration-200 ease-out group-hover:max-w-[2.25rem] group-hover:opacity-100 group-focus-within:max-w-[2.25rem] group-focus-within:opacity-100"
             >
-              <button
-                type="button"
-                ref={setDeleteButtonRef}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onRemove();
-                }}
-                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md p-0 text-gray-400 transition-colors hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/50 dark:hover:text-red-400"
-                title={t('boardTabs.deleteBoard')}
-              >
-                <Trash2 size={14} strokeWidth={2} />
-              </button>
+              <KanbanChromeTooltip label={t('boardTabs.deleteBoard')}>
+                <button
+                  type="button"
+                  ref={setDeleteButtonRef}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onRemove();
+                  }}
+                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md p-0 text-gray-400 transition-colors hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/50 dark:hover:text-red-400"
+                >
+                  <Trash2 size={14} strokeWidth={2} />
+                </button>
+              </KanbanChromeTooltip>
             </div>
           )}
         </div>
@@ -361,27 +378,28 @@ const RegularBoardTab: React.FC<{
   const { t } = useTranslation('common');
   return (
     <div className="relative group">
-      <button
-        type="button"
-        onClick={onSelect}
-        className={`${isSelected ? tabTrackActive : tabTrackInactive} w-full text-left`}
-        title={t('boardTabs.clickToSelectBoard')}
-      >
-        <div className="flex items-center gap-2">
-          <span className="truncate max-w-[11rem]">{board.title}</span>
-          {showTaskCount && taskCount !== undefined && taskCount > 0 && (
-            <span
-              className={`shrink-0 px-1.5 py-0.5 text-[0.65rem] font-medium leading-none rounded-full tabular-nums ${
-                hasActiveFilters
-                  ? 'bg-blue-50 text-blue-600 dark:bg-blue-900/35 dark:text-blue-300'
-                  : 'bg-blue-50/80 text-blue-500 dark:bg-blue-900/25 dark:text-blue-400'
-              }`}
-            >
-              {taskCount}
-            </span>
-          )}
-        </div>
-      </button>
+      <KanbanChromeTooltip label={t('boardTabs.clickToSelectBoard')}>
+        <button
+          type="button"
+          onClick={onSelect}
+          className={`${isSelected ? tabTrackActive : tabTrackInactive} w-full text-left`}
+        >
+          <div className="flex items-center gap-2">
+            {showTaskCount && taskCount !== undefined && taskCount > 0 && (
+              <span
+                className={`shrink-0 px-1.5 py-0.5 text-[0.65rem] font-medium leading-none rounded-full tabular-nums ${
+                  hasActiveFilters
+                    ? 'bg-blue-50 text-blue-600 dark:bg-blue-900/35 dark:text-blue-300'
+                    : 'bg-blue-50/80 text-blue-500 dark:bg-blue-900/25 dark:text-blue-400'
+                }`}
+              >
+                {taskCount}
+              </span>
+            )}
+            <span className="truncate max-w-[11rem]">{board.title}</span>
+          </div>
+        </button>
+      </KanbanChromeTooltip>
       
       {/* Delete Button - Admin Only */}
       {/* Regular users cannot delete boards */}
@@ -527,16 +545,17 @@ export default function BoardTabs({
       <div className="mb-6 flex flex-wrap items-center gap-3 rounded-xl border border-dashed border-gray-300 bg-gray-50/80 px-4 py-3 dark:border-gray-600 dark:bg-gray-800/40">
         <h2 className="text-sm font-medium text-gray-600 dark:text-gray-400">{t('boardTabs.noBoards')}</h2>
         {isAdmin && (
-          <button
-            type="button"
-            onClick={onAddBoard}
-            className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 text-sm font-medium text-gray-700 shadow-sm transition-colors hover:border-blue-500 hover:text-blue-600 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200 dark:hover:border-blue-400 dark:hover:text-blue-300"
-            title={t('boardTabs.addBoard')}
-            data-tour-id="add-board-button"
-          >
-            <Plus size={16} strokeWidth={2} />
-            <span className="hidden sm:inline">{t('boardTabs.newBoard')}</span>
-          </button>
+          <KanbanChromeTooltip label={t('boardTabs.addBoard')}>
+            <button
+              type="button"
+              onClick={onAddBoard}
+              className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 text-sm font-medium text-gray-700 shadow-sm transition-colors hover:border-blue-500 hover:text-blue-600 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200 dark:hover:border-blue-400 dark:hover:text-blue-300"
+              data-tour-id="add-board-button"
+            >
+              <Plus size={16} strokeWidth={2} />
+              <span className="hidden sm:inline">{t('boardTabs.newBoard')}</span>
+            </button>
+          </KanbanChromeTooltip>
         )}
       </div>
     );
@@ -637,19 +656,20 @@ export default function BoardTabs({
         <div className="flex min-w-0 flex-1 items-center gap-1" data-tour-id="board-tabs">
           {/* Reserve both chevron slots whenever tabs overflow — toggling arrows must not change track width */}
           {tabsOverflow && (
-            <button
-              type="button"
-              onClick={scrollLeft}
-              disabled={!canScrollLeft}
-              aria-hidden={!canScrollLeft}
-              tabIndex={canScrollLeft ? 0 : -1}
-              className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg border border-transparent text-gray-500 transition-opacity hover:border-gray-200 hover:bg-white hover:text-gray-800 dark:text-gray-400 dark:hover:border-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-100 ${
-                canScrollLeft ? 'opacity-100' : 'pointer-events-none opacity-0'
-              }`}
-              title={t('boardTabs.scrollLeft')}
-            >
-              <ChevronLeft size={18} strokeWidth={2} />
-            </button>
+            <KanbanChromeTooltip label={t('boardTabs.scrollLeft')}>
+              <button
+                type="button"
+                onClick={scrollLeft}
+                disabled={!canScrollLeft}
+                aria-hidden={!canScrollLeft}
+                tabIndex={canScrollLeft ? 0 : -1}
+                className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg border border-transparent text-gray-500 transition-opacity hover:border-gray-200 hover:bg-white hover:text-gray-800 dark:text-gray-400 dark:hover:border-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-100 ${
+                  canScrollLeft ? 'opacity-100' : 'pointer-events-none opacity-0'
+                }`}
+              >
+                <ChevronLeft size={18} strokeWidth={2} />
+              </button>
+            </KanbanChromeTooltip>
           )}
 
           <div
@@ -845,56 +865,59 @@ export default function BoardTabs({
           </div>
 
           {tabsOverflow && (
-            <button
-              type="button"
-              onClick={scrollRight}
-              disabled={!canScrollRight}
-              aria-hidden={!canScrollRight}
-              tabIndex={canScrollRight ? 0 : -1}
-              className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg border border-transparent text-gray-500 transition-opacity hover:border-gray-200 hover:bg-white hover:text-gray-800 dark:text-gray-400 dark:hover:border-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-100 ${
-                canScrollRight ? 'opacity-100' : 'pointer-events-none opacity-0'
-              }`}
-              title={t('boardTabs.scrollRight')}
-            >
-              <ChevronRight size={18} strokeWidth={2} />
-            </button>
+            <KanbanChromeTooltip label={t('boardTabs.scrollRight')}>
+              <button
+                type="button"
+                onClick={scrollRight}
+                disabled={!canScrollRight}
+                aria-hidden={!canScrollRight}
+                tabIndex={canScrollRight ? 0 : -1}
+                className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg border border-transparent text-gray-500 transition-opacity hover:border-gray-200 hover:bg-white hover:text-gray-800 dark:text-gray-400 dark:hover:border-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-100 ${
+                  canScrollRight ? 'opacity-100' : 'pointer-events-none opacity-0'
+                }`}
+              >
+                <ChevronRight size={18} strokeWidth={2} />
+              </button>
+            </KanbanChromeTooltip>
           )}
         </div>
 
         {trashCount > 0 && onToggleTrash && (
-          <button
-            type="button"
-            onClick={onToggleTrash}
-            className={`relative flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg border transition-colors ${
-              trashOpen
-                ? 'border-blue-500 bg-blue-50 text-blue-700 dark:border-blue-400 dark:bg-blue-950/50 dark:text-blue-300'
-                : 'border-transparent text-gray-500 hover:border-gray-200 hover:bg-white hover:text-gray-800 dark:text-gray-400 dark:hover:border-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-100'
-            }`}
-            title={trashOpen ? t('boardTabs.hideTrash') : t('boardTabs.showTrash')}
-            aria-label={trashOpen ? t('boardTabs.hideTrash') : t('boardTabs.showTrash')}
-            aria-pressed={trashOpen}
-            data-tour-id="board-trash-toggle"
-          >
-            <Trash2 size={18} strokeWidth={2} />
-            <span
-              className="absolute -right-1 -top-1 flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-semibold text-white ring-1 ring-white dark:ring-gray-900"
-              aria-hidden="true"
+          <KanbanChromeTooltip label={trashOpen ? t('boardTabs.hideTrash') : t('boardTabs.showTrash')}>
+            <button
+              type="button"
+              onClick={onToggleTrash}
+              className={`relative flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg border transition-colors ${
+                trashOpen
+                  ? 'border-blue-500 bg-blue-50 text-blue-700 dark:border-blue-400 dark:bg-blue-950/50 dark:text-blue-300'
+                  : 'border-transparent text-gray-500 hover:border-gray-200 hover:bg-white hover:text-gray-800 dark:text-gray-400 dark:hover:border-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-100'
+              }`}
+              aria-label={trashOpen ? t('boardTabs.hideTrash') : t('boardTabs.showTrash')}
+              aria-pressed={trashOpen}
+              data-tour-id="board-trash-toggle"
             >
-              {trashCount > 99 ? '99+' : trashCount}
-            </span>
-          </button>
+              <Trash2 size={18} strokeWidth={2} />
+              <span
+                className="absolute -right-1 -top-1 flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-semibold text-white ring-1 ring-white dark:ring-gray-900"
+                aria-hidden="true"
+              >
+                {trashCount > 99 ? '99+' : trashCount}
+              </span>
+            </button>
+          </KanbanChromeTooltip>
         )}
 
         {isAdmin && (
-          <button
-            type="button"
-            onClick={onAddBoard}
-            className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg border border-dashed border-gray-300 text-gray-500 transition-colors hover:border-blue-500 hover:bg-blue-50 hover:text-blue-600 dark:border-gray-600 dark:text-gray-400 dark:hover:border-blue-400 dark:hover:bg-blue-950/50 dark:hover:text-blue-300"
-            title={t('boardTabs.addNewBoard')}
-            data-tour-id="add-board-button"
-          >
-            <Plus size={18} strokeWidth={2} />
-          </button>
+          <KanbanChromeTooltip label={t('boardTabs.addNewBoard')}>
+            <button
+              type="button"
+              onClick={onAddBoard}
+              className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg border border-dashed border-gray-300 text-gray-500 transition-colors hover:border-blue-500 hover:bg-blue-50 hover:text-blue-600 dark:border-gray-600 dark:text-gray-400 dark:hover:border-blue-400 dark:hover:bg-blue-950/50 dark:hover:text-blue-300"
+              data-tour-id="add-board-button"
+            >
+              <Plus size={18} strokeWidth={2} />
+            </button>
+          </KanbanChromeTooltip>
         )}
       </div>
     </div>

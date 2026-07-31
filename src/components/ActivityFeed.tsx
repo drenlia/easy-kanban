@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom';
 import { X, Activity, Clock, ChevronDown, ChevronUp, GripVertical, Search } from 'lucide-react';
 import { updateActivityFeedPreference } from '../utils/userPreferences';
 import DOMPurify from 'dompurify';
+import { CHROME_TOOLTIP_RICH_SURFACE_CLASS, KanbanChromeTooltip } from './KanbanChromeTooltip';
 
 interface ActivityItem {
   id: number;
@@ -702,20 +703,22 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
 
           {/* Right side - Simple action buttons */}
           <div className="flex items-center space-x-0.5">
-            <button
-              onClick={() => handleMinimizedChange(false)}
-              className="p-0.5 hover:bg-gray-200 dark:hover:bg-gray-600 rounded transition-colors"
-              title={t('activityFeed.expand')}
-            >
-              <ChevronUp className="w-2.5 h-2.5 text-gray-500 dark:text-gray-400" />
-            </button>
-            <button
-              onClick={onClose}
-              className="p-0.5 hover:bg-gray-200 dark:hover:bg-gray-600 rounded transition-colors"
-              title={t('activityFeed.close')}
-            >
-              <X className="w-2.5 h-2.5 text-gray-500 dark:text-gray-400" />
-            </button>
+            <KanbanChromeTooltip label={t('activityFeed.expand')}>
+              <button
+                onClick={() => handleMinimizedChange(false)}
+                className="p-0.5 hover:bg-gray-200 dark:hover:bg-gray-600 rounded transition-colors"
+              >
+                <ChevronUp className="w-2.5 h-2.5 text-gray-500 dark:text-gray-400" />
+              </button>
+            </KanbanChromeTooltip>
+            <KanbanChromeTooltip label={t('activityFeed.close')}>
+              <button
+                onClick={onClose}
+                className="p-0.5 hover:bg-gray-200 dark:hover:bg-gray-600 rounded transition-colors"
+              >
+                <X className="w-2.5 h-2.5 text-gray-500 dark:text-gray-400" />
+              </button>
+            </KanbanChromeTooltip>
           </div>
         </div>
         
@@ -747,7 +750,7 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
         {showTooltip && latestActivity && tooltipPosition && createPortal(
           <div
             ref={tooltipRef}
-            className="fixed z-[10000] max-w-sm p-3 bg-gray-900 text-white text-xs rounded-lg shadow-lg pointer-events-none"
+            className={`fixed z-[10000] ${CHROME_TOOLTIP_RICH_SURFACE_CLASS}`}
             style={{
               top: tooltipPosition.top,
               left: tooltipPosition.left
@@ -818,24 +821,26 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
         <div className="flex items-center space-x-0.5">
           {/* Minimize Dropdown */}
           <div className="relative minimize-dropdown">
-            <button
-              onClick={handleMinimizeDropdownToggle}
-              className="p-0.5 hover:bg-gray-200 dark:hover:bg-gray-600 rounded transition-colors flex items-center"
-              title={t('activityFeed.minimizeOptions')}
-            >
-              <ChevronDown className="w-2.5 h-2.5 text-gray-500 dark:text-gray-400" />
-            </button>
+            <KanbanChromeTooltip label={t('activityFeed.minimizeOptions')}>
+              <button
+                onClick={handleMinimizeDropdownToggle}
+                className="p-0.5 hover:bg-gray-200 dark:hover:bg-gray-600 rounded transition-colors flex items-center"
+              >
+                <ChevronDown className="w-2.5 h-2.5 text-gray-500 dark:text-gray-400" />
+              </button>
+            </KanbanChromeTooltip>
             
             {/* Dropdown rendered here for positioning context, but content is in portal */}
           </div>
           
-          <button
-            onClick={onClose}
-            className="p-0.5 hover:bg-gray-200 dark:hover:bg-gray-600 rounded transition-colors"
-            title={t('activityFeed.close')}
-          >
-            <X className="w-2.5 h-2.5 text-gray-500 dark:text-gray-400" />
-          </button>
+          <KanbanChromeTooltip label={t('activityFeed.close')}>
+            <button
+              onClick={onClose}
+              className="p-0.5 hover:bg-gray-200 dark:hover:bg-gray-600 rounded transition-colors"
+            >
+              <X className="w-2.5 h-2.5 text-gray-500 dark:text-gray-400" />
+            </button>
+          </KanbanChromeTooltip>
         </div>
       </div>
 
@@ -857,13 +862,14 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
             }`}
           />
           {filterText && (
-            <button
-              onClick={clearFilter}
-              className="absolute inset-y-0 right-0 pr-2 flex items-center"
-              title={t('activityFeed.clearFilter')}
-            >
-              <X className="h-3 w-3 text-gray-400 hover:text-gray-600" />
-            </button>
+            <KanbanChromeTooltip label={t('activityFeed.clearFilter')} wrapperClassName="absolute inset-y-0 right-0 pr-2 flex items-center">
+              <button
+                onClick={clearFilter}
+                className="flex items-center"
+              >
+                <X className="h-3 w-3 text-gray-400 hover:text-gray-600" />
+              </button>
+            </KanbanChromeTooltip>
           )}
         </div>
         {filterText && !isNarrowMode && (

@@ -110,29 +110,29 @@ export default function Tools({
     tooltip: string,
     onSelect: () => void
   ) => (
-    <button
-      key={key}
-      type="button"
-      role="menuitem"
-      title={tooltip}
-      onClick={onSelect}
-      className={`w-full flex items-center gap-0 text-left text-sm transition-colors ${
-        selected
-          ? 'bg-blue-50 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300'
-          : 'text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700'
-      }`}
-    >
-      {/* Same footprint as the toolbar button so icons line up under the trigger */}
-      <span
-        className={`${buttonBaseClass} border-transparent bg-transparent rounded-none ${
-          selected ? 'text-blue-700 dark:text-blue-300' : 'text-gray-600 dark:text-gray-300'
+    <KanbanChromeTooltip key={key} label={tooltip} wrapperClassName="block w-full">
+      <button
+        type="button"
+        role="menuitem"
+        onClick={onSelect}
+        className={`w-full flex items-center gap-0 text-left text-sm transition-colors ${
+          selected
+            ? 'bg-blue-50 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300'
+            : 'text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700'
         }`}
-        aria-hidden="true"
       >
-        <ToolIcon icon={icon} />
-      </span>
-      <span className="pr-3 py-2 whitespace-nowrap">{label}</span>
-    </button>
+        {/* Same footprint as the toolbar button so icons line up under the trigger */}
+        <span
+          className={`${buttonBaseClass} border-transparent bg-transparent rounded-none ${
+            selected ? 'text-blue-700 dark:text-blue-300' : 'text-gray-600 dark:text-gray-300'
+          }`}
+          aria-hidden="true"
+        >
+          <ToolIcon icon={icon} />
+        </span>
+        <span className="pr-3 py-2 whitespace-nowrap">{label}</span>
+      </button>
+    </KanbanChromeTooltip>
   );
 
   return (
@@ -144,35 +144,37 @@ export default function Tools({
       <div className="flex items-center justify-between mb-3 gap-1 min-h-5 shrink-0">
         <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-200 uppercase tracking-wide leading-5">{t('tools.title')}</h2>
         {onHideToolbar && (
-          <button
-            type="button"
-            onClick={onHideToolbar}
-            className="-mr-1 p-0.5 rounded text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-            title={t('tools.hideBoardToolbar')}
-            aria-label={t('tools.hideBoardToolbar')}
-            aria-expanded={true}
-          >
-            <ChevronUp size={16} />
-          </button>
+          <KanbanChromeTooltip label={t('tools.hideBoardToolbar')}>
+            <button
+              type="button"
+              onClick={onHideToolbar}
+              className="-mr-1 p-0.5 rounded text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+              aria-label={t('tools.hideBoardToolbar')}
+              aria-expanded={true}
+            >
+              <ChevronUp size={16} />
+            </button>
+          </KanbanChromeTooltip>
         )}
       </div>
 
       <div className="flex gap-2 justify-center items-center flex-1 min-h-[2.5rem]">
         {/* Board view dropdown */}
         <div className="relative shrink-0">
-          <button
-            type="button"
-            onClick={() => setOpenMenu(openMenu === 'view' ? null : 'view')}
-            className={`${buttonBaseClass} ${
-              viewMode !== 'kanban' ? buttonActiveClass : buttonIdleClass
-            }`}
-            title={viewTooltip}
-            aria-haspopup="menu"
-            aria-expanded={openMenu === 'view'}
-            data-tour-id="view-mode-toggle"
-          >
-            <ToolIcon icon={currentViewOption.icon} />
-          </button>
+          <KanbanChromeTooltip label={viewTooltip}>
+            <button
+              type="button"
+              onClick={() => setOpenMenu(openMenu === 'view' ? null : 'view')}
+              className={`${buttonBaseClass} ${
+                viewMode !== 'kanban' ? buttonActiveClass : buttonIdleClass
+              }`}
+              aria-haspopup="menu"
+              aria-expanded={openMenu === 'view'}
+              data-tour-id="view-mode-toggle"
+            >
+              <ToolIcon icon={currentViewOption.icon} />
+            </button>
+          </KanbanChromeTooltip>
           {openMenu === 'view' && (
             <div
               role="menu"
@@ -197,6 +199,12 @@ export default function Tools({
 
         {/* Search Toggle */}
         {(() => {
+          const searchLabel =
+            hasActiveFilters && activeFilterTooltip
+              ? activeFilterTooltip
+              : isSearchActive
+                ? t('tools.hideSearchFilters')
+                : t('tools.showSearchFilters');
           const searchButton = (
             <button
               type="button"
@@ -204,13 +212,6 @@ export default function Tools({
               className={`${buttonBaseClass} ${
                 isSearchActive ? buttonActiveClass : buttonIdleClass
               }`}
-              title={
-                hasActiveFilters && activeFilterTooltip
-                  ? undefined
-                  : isSearchActive
-                    ? t('tools.hideSearchFilters')
-                    : t('tools.showSearchFilters')
-              }
               aria-label={
                 hasActiveFilters && activeFilterTooltip
                   ? activeFilterTooltip.replace(/\n/g, '. ')
@@ -234,44 +235,41 @@ export default function Tools({
             </button>
           );
 
-          if (hasActiveFilters && activeFilterTooltip) {
-            return (
-              <KanbanChromeTooltip
-                label={activeFilterTooltip}
-                delayMs={0}
-                placement="bottom"
-                wrapperClassName="relative shrink-0 inline-flex"
-              >
-                {searchButton}
-              </KanbanChromeTooltip>
-            );
-          }
-
-          return searchButton;
+          return (
+            <KanbanChromeTooltip
+              label={searchLabel}
+              delayMs={hasActiveFilters && activeFilterTooltip ? 0 : undefined}
+              placement="bottom"
+              wrapperClassName="relative shrink-0 inline-flex"
+            >
+              {searchButton}
+            </KanbanChromeTooltip>
+          );
         })()}
 
         {/* Task density dropdown */}
         {(viewMode === 'kanban' || viewMode === 'list' || viewMode === 'gantt') && (
           <div className="relative shrink-0">
-            <button
-              type="button"
-              onClick={() => setOpenMenu(openMenu === 'density' ? null : 'density')}
-              className={`${buttonBaseClass} ${
-                taskViewMode !== 'expand' ? buttonActiveClass : buttonIdleClass
-              }`}
-              title={densityTooltip}
-              aria-haspopup="menu"
-              aria-expanded={openMenu === 'density'}
-              data-tour-id="task-view-mode-toggle"
-            >
-              <ToolIcon icon={currentDensityOption.icon} />
-              {isCompact && (
-                <span
-                  className="absolute top-1 right-1 w-2 h-2 rounded-full bg-red-500 ring-1 ring-white dark:ring-gray-800"
-                  aria-hidden="true"
-                />
-              )}
-            </button>
+            <KanbanChromeTooltip label={densityTooltip}>
+              <button
+                type="button"
+                onClick={() => setOpenMenu(openMenu === 'density' ? null : 'density')}
+                className={`${buttonBaseClass} ${
+                  taskViewMode !== 'expand' ? buttonActiveClass : buttonIdleClass
+                }`}
+                aria-haspopup="menu"
+                aria-expanded={openMenu === 'density'}
+                data-tour-id="task-view-mode-toggle"
+              >
+                <ToolIcon icon={currentDensityOption.icon} />
+                {isCompact && (
+                  <span
+                    className="absolute top-1 right-1 w-2 h-2 rounded-full bg-red-500 ring-1 ring-white dark:ring-gray-800"
+                    aria-hidden="true"
+                  />
+                )}
+              </button>
+            </KanbanChromeTooltip>
             {openMenu === 'density' && (
               <div
                 role="menu"

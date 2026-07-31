@@ -96,9 +96,9 @@ body {
 
 /* CSS Variables for Recharts Tooltips */
 :root {
-  --tooltip-bg: #ffffff;
-  --tooltip-border: #e5e7eb;
-  --tooltip-text: #111827;
+  --tooltip-bg: #111827; /* gray-900 — inverted chrome */
+  --tooltip-border: rgba(255, 255, 255, 0.1);
+  --tooltip-text: #ffffff;
   --scrollbar-thumb: rgb(203, 213, 225); /* gray-300 */
   --scrollbar-track: rgb(241, 245, 249); /* gray-100 */
   --task-card-bg: rgb(255, 255, 255); /* white */
@@ -109,9 +109,9 @@ body {
 }
 
 .dark {
-  --tooltip-bg: #1f2937;
-  --tooltip-border: #374151;
-  --tooltip-text: #f9fafb;
+  --tooltip-bg: #f3f4f6; /* gray-100 — inverted chrome */
+  --tooltip-border: rgba(0, 0, 0, 0.1);
+  --tooltip-text: #111827;
   --scrollbar-thumb: rgb(55, 65, 81); /* gray-700 - darker to blend better */
   --scrollbar-track: rgb(17, 24, 39); /* gray-900 - matches main background */
   --task-card-bg: rgb(31, 41, 55); /* gray-800 - matches dark mode */

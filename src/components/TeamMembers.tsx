@@ -7,6 +7,7 @@ import {
   isAgentMemberId,
   sortMembersAgentLast,
 } from '../utils/agentMemberUi';
+import { KanbanChromeTooltip } from './KanbanChromeTooltip';
 
 export const PRESET_COLORS = [
   '#FF3B30', // Bright Red
@@ -228,88 +229,98 @@ export default function TeamMembers({
           </h2>
 
           {onClearSelections && (
-            <button
-              type="button"
-              onClick={handleClearSelections}
-              disabled={selectedMembers.length === 0}
-              aria-disabled={selectedMembers.length === 0}
-              className="px-2 py-1 text-xs font-medium text-gray-600 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-gray-600 dark:disabled:hover:text-gray-300 disabled:hover:border-gray-300 dark:disabled:hover:border-gray-600 enabled:hover:text-red-600 dark:enabled:hover:text-red-400 enabled:hover:border-red-400 dark:enabled:hover:border-red-500"
-              title={t('teamMembers.clearSelectionsTooltip')}
-            >
-              {t('teamMembers.clear')}
-            </button>
+            <KanbanChromeTooltip label={t('teamMembers.clearSelectionsTooltip')}>
+              <button
+                type="button"
+                onClick={handleClearSelections}
+                disabled={selectedMembers.length === 0}
+                aria-disabled={selectedMembers.length === 0}
+                className="px-2 py-1 text-xs font-medium text-gray-600 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-gray-600 dark:disabled:hover:text-gray-300 disabled:hover:border-gray-300 dark:disabled:hover:border-gray-600 enabled:hover:text-red-600 dark:enabled:hover:text-red-400 enabled:hover:border-red-400 dark:enabled:hover:border-red-500"
+              >
+                {t('teamMembers.clear')}
+              </button>
+            </KanbanChromeTooltip>
           )}
 
           {onSelectAll && (
-            <button
-              onClick={onSelectAll}
-              className="px-2 py-1 text-xs font-medium text-gray-600 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 border border-gray-300 dark:border-gray-600 hover:border-blue-400 dark:hover:border-blue-500 rounded transition-colors"
-              title={isAllModeActive
-                ? t('teamMembers.showOnlyAssignees')
-                : t('teamMembers.showAllRoles')
+            <KanbanChromeTooltip
+              label={
+                isAllModeActive
+                  ? t('teamMembers.showOnlyAssignees')
+                  : t('teamMembers.showAllRoles')
               }
             >
-              {isAllModeActive ? t('teamMembers.assigneesOnly') : t('teamMembers.allRoles')}
-            </button>
+              <button
+                onClick={onSelectAll}
+                className="px-2 py-1 text-xs font-medium text-gray-600 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 border border-gray-300 dark:border-gray-600 hover:border-blue-400 dark:hover:border-blue-500 rounded transition-colors"
+              >
+                {isAllModeActive ? t('teamMembers.assigneesOnly') : t('teamMembers.allRoles')}
+              </button>
+            </KanbanChromeTooltip>
           )}
 
           {!hideRoleChips && (
             <div className="flex items-center gap-2 overflow-visible">
               {onToggleAssignees && (
-                <button
-                  onClick={() => onToggleAssignees(!includeAssignees)}
-                  className={roleChipClass(includeAssignees)}
-                  title={t('teamMembers.assigneesTooltip')}
-                >
-                  <span>{t('teamMembers.assignees')}</span>
-                </button>
+                <KanbanChromeTooltip label={t('teamMembers.assigneesTooltip')}>
+                  <button
+                    onClick={() => onToggleAssignees(!includeAssignees)}
+                    className={roleChipClass(includeAssignees)}
+                  >
+                    <span>{t('teamMembers.assignees')}</span>
+                  </button>
+                </KanbanChromeTooltip>
               )}
 
               {onToggleWatchers && (
-                <button
-                  type="button"
-                  onClick={() => onToggleWatchers(!includeWatchers)}
-                  className={roleChipClass(includeWatchers)}
-                  title={t('teamMembers.watchersTooltip')}
-                >
-                  <span>{t('teamMembers.watchers')}</span>
-                </button>
+                <KanbanChromeTooltip label={t('teamMembers.watchersTooltip')}>
+                  <button
+                    type="button"
+                    onClick={() => onToggleWatchers(!includeWatchers)}
+                    className={roleChipClass(includeWatchers)}
+                  >
+                    <span>{t('teamMembers.watchers')}</span>
+                  </button>
+                </KanbanChromeTooltip>
               )}
 
               {onToggleCollaborators && (
-                <button
-                  type="button"
-                  onClick={() => onToggleCollaborators(!includeCollaborators)}
-                  className={roleChipClass(includeCollaborators)}
-                  title={t('teamMembers.collaboratorsTooltip')}
-                >
-                  <span>{t('teamMembers.collaborators')}</span>
-                </button>
+                <KanbanChromeTooltip label={t('teamMembers.collaboratorsTooltip')}>
+                  <button
+                    type="button"
+                    onClick={() => onToggleCollaborators(!includeCollaborators)}
+                    className={roleChipClass(includeCollaborators)}
+                  >
+                    <span>{t('teamMembers.collaborators')}</span>
+                  </button>
+                </KanbanChromeTooltip>
               )}
 
               {onToggleRequesters && (
-                <button
-                  onClick={() => onToggleRequesters(!includeRequesters)}
-                  className={roleChipClass(includeRequesters)}
-                  title={t('teamMembers.requestersTooltip')}
-                >
-                  <span>{t('teamMembers.requesters')}</span>
-                </button>
+                <KanbanChromeTooltip label={t('teamMembers.requestersTooltip')}>
+                  <button
+                    onClick={() => onToggleRequesters(!includeRequesters)}
+                    className={roleChipClass(includeRequesters)}
+                  >
+                    <span>{t('teamMembers.requesters')}</span>
+                  </button>
+                </KanbanChromeTooltip>
               )}
 
               {onToggleSystem && currentUser?.roles?.includes('admin') && (
-                <button
-                  onClick={() => onToggleSystem(!includeSystem)}
-                  className={roleChipClass(includeSystem)}
-                  title={t('teamMembers.systemTooltip')}
-                >
-                  <span>{t('teamMembers.system')}</span>
-                  {systemTaskCount > 0 && (
-                    <span className="ml-0.5 px-1.5 py-0.5 bg-blue-200 dark:bg-blue-800 text-blue-800 dark:text-blue-200 rounded-full text-xs font-semibold">
-                      {systemTaskCount}
-                    </span>
-                  )}
-                </button>
+                <KanbanChromeTooltip label={t('teamMembers.systemTooltip')}>
+                  <button
+                    onClick={() => onToggleSystem(!includeSystem)}
+                    className={roleChipClass(includeSystem)}
+                  >
+                    <span>{t('teamMembers.system')}</span>
+                    {systemTaskCount > 0 && (
+                      <span className="ml-0.5 px-1.5 py-0.5 bg-blue-200 dark:bg-blue-800 text-blue-800 dark:text-blue-200 rounded-full text-xs font-semibold">
+                        {systemTaskCount}
+                      </span>
+                    )}
+                  </button>
+                </KanbanChromeTooltip>
               )}
             </div>
           )}
@@ -333,45 +344,53 @@ export default function TeamMembers({
           const isSelected = selectedMembers.includes(member.id);
           if (avatarOnly) {
             return (
-              <button
+              <KanbanChromeTooltip
                 key={member.id}
-                type="button"
-                className={`shrink-0 rounded-full transition-shadow duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
-                  isSelected ? 'ring-2 shadow-sm' : 'hover:opacity-90'
-                }`}
-                style={
-                  isSelected
-                    ? { ['--tw-ring-color' as string]: member.color }
-                    : undefined
-                }
-                onClick={() => onSelectMember(member.id)}
-                title={`${member.name} ${isSelected ? t('teamMembers.selected') : t('teamMembers.clickToSelect')}`}
+                label={`${member.name} ${isSelected ? t('teamMembers.selected') : t('teamMembers.clickToSelect')}`}
+                wrapperClassName="relative inline-flex shrink-0"
               >
-                {getMemberAvatar(member)}
-              </button>
+                <button
+                  type="button"
+                  className={`shrink-0 rounded-full transition-shadow duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
+                    isSelected ? 'ring-2 shadow-sm' : 'hover:opacity-90'
+                  }`}
+                  style={
+                    isSelected
+                      ? { ['--tw-ring-color' as string]: member.color }
+                      : undefined
+                  }
+                  onClick={() => onSelectMember(member.id)}
+                >
+                  {getMemberAvatar(member)}
+                </button>
+              </KanbanChromeTooltip>
             );
           }
           return (
-            <div
+            <KanbanChromeTooltip
               key={member.id}
-              className={`flex items-center gap-1 px-2 py-1 rounded-full cursor-pointer transition-all duration-200 shrink-0 ${
-                isSelected
-                  ? 'ring-2 ring-inset shadow-sm'
-                  : 'hover:shadow-sm hover:scale-101'
-              }`}
-              style={{
-                backgroundColor: isSelected ? `${member.color}25` : `${member.color}15`,
-                color: member.color,
-                ['--tw-ring-color' as string]: member.color,
-              }}
-              onClick={() => onSelectMember(member.id)}
-              title={`${member.name} ${isSelected ? t('teamMembers.selected') : t('teamMembers.clickToSelect')}`}
+              label={`${member.name} ${isSelected ? t('teamMembers.selected') : t('teamMembers.clickToSelect')}`}
+              wrapperClassName="relative inline-flex shrink-0"
             >
-              {getMemberAvatar(member)}
-              <span className={`text-xs font-medium ${isSelected ? 'font-semibold' : ''}`}>
-                {truncateDisplayName(member.name)}
-              </span>
-            </div>
+              <div
+                className={`flex items-center gap-1 px-2 py-1 rounded-full cursor-pointer transition-all duration-200 shrink-0 ${
+                  isSelected
+                    ? 'ring-2 ring-inset shadow-sm'
+                    : 'hover:shadow-sm hover:scale-101'
+                }`}
+                style={{
+                  backgroundColor: isSelected ? `${member.color}25` : `${member.color}15`,
+                  color: member.color,
+                  ['--tw-ring-color' as string]: member.color,
+                }}
+                onClick={() => onSelectMember(member.id)}
+              >
+                {getMemberAvatar(member)}
+                <span className={`text-xs font-medium ${isSelected ? 'font-semibold' : ''}`}>
+                  {truncateDisplayName(member.name)}
+                </span>
+              </div>
+            </KanbanChromeTooltip>
           );
         })}
       </div>

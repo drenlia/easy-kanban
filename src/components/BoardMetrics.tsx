@@ -2,6 +2,7 @@ import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { Columns } from '../types';
 import { formatEffortDisplay, parseEffortUnit, sumTaskEffort } from '../utils/taskUtils';
+import { KanbanChromeTooltip } from './KanbanChromeTooltip';
 
 interface BoardMetricsProps {
   columns: Columns;
@@ -25,6 +26,7 @@ const BoardMetrics: React.FC<BoardMetricsProps> = ({ columns, filteredColumns = 
     .length;
   
   const completionPercentage = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
+  const effortTooltip = t('boardMetrics.totalEffortTooltip', { display: effortDisplay });
 
   return (
         <div className="p-3 bg-white dark:bg-gray-800 shadow-sm rounded-lg border border-gray-100 dark:border-gray-700 w-full flex-1 flex flex-col box-border">
@@ -54,13 +56,14 @@ const BoardMetrics: React.FC<BoardMetricsProps> = ({ columns, filteredColumns = 
             </div>
           </div>
           {totalEffort > 0 && (
-            <span
-              className="shrink-0 text-[0.65rem] leading-none tabular-nums text-gray-400 dark:text-gray-500"
-              title={t('boardMetrics.totalEffortTooltip', { display: effortDisplay })}
-              aria-label={t('boardMetrics.totalEffortTooltip', { display: effortDisplay })}
-            >
-              {effortDisplay}
-            </span>
+            <KanbanChromeTooltip label={effortTooltip} wrapperClassName="relative inline-flex shrink-0 items-center">
+              <span
+                className="inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-violet-100 px-1.5 py-0.5 text-center text-[0.65rem] font-medium leading-none tabular-nums text-violet-700 dark:bg-violet-900/50 dark:text-violet-200"
+                aria-label={effortTooltip}
+              >
+                {effortDisplay}
+              </span>
+            </KanbanChromeTooltip>
           )}
         </div>
       </div>

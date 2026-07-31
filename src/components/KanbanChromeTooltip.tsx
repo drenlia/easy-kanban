@@ -1,13 +1,43 @@
 import React, { useEffect, useLayoutEffect, useRef, useState, ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 
+/**
+ * Shared inverted chrome surface — high contrast in both themes:
+ * light UI → dark bubble; dark UI → light bubble.
+ */
+export const CHROME_TOOLTIP_COLORS =
+  'bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900';
+
+/** Subtle edge so the bubble stays crisp on matching backgrounds. */
+export const CHROME_TOOLTIP_RING =
+  'ring-1 ring-white/10 dark:ring-black/10';
+
 /** Visual chrome only (positioning applied separately: absolute in-list or fixed + portal). */
 export const CHROME_TOOLTIP_SURFACE_CLASS =
-  'px-2 py-1 text-xs font-normal normal-case tracking-normal whitespace-nowrap rounded shadow-lg bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900 pointer-events-none';
+  `px-2 py-1 text-xs font-normal normal-case tracking-normal whitespace-nowrap rounded shadow-lg ${CHROME_TOOLTIP_COLORS} ${CHROME_TOOLTIP_RING} pointer-events-none`;
 
 /** Same surface as {@link CHROME_TOOLTIP_SURFACE_CLASS} but vertical list / wrapped text (e.g. watchers & collaborators). */
 export const CHROME_TOOLTIP_MULTILINE_SURFACE_CLASS =
-  'px-2 py-1.5 text-xs font-normal normal-case tracking-normal whitespace-pre-line text-left max-w-[min(18rem,calc(100vw-2rem))] break-words leading-snug rounded shadow-lg bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900 pointer-events-none';
+  `px-2 py-1.5 text-xs font-normal normal-case tracking-normal whitespace-pre-line text-left max-w-[min(18rem,calc(100vw-2rem))] break-words leading-snug rounded shadow-lg ${CHROME_TOOLTIP_COLORS} ${CHROME_TOOLTIP_RING} pointer-events-none`;
+
+/** Rich / multi-block hover content (Gantt bars, activity details). */
+export const CHROME_TOOLTIP_RICH_SURFACE_CLASS =
+  `px-3 py-2 text-xs font-normal normal-case tracking-normal text-left max-w-sm rounded-lg shadow-lg ${CHROME_TOOLTIP_COLORS} ${CHROME_TOOLTIP_RING} pointer-events-none`;
+
+/**
+ * Interactive preview panels (comment hover). Keep pointer events so users can scroll/click inside.
+ * Pair with `.comment-tooltip` / `.comment-tooltip-active` DnD lock in index.css when needed.
+ */
+export const CHROME_TOOLTIP_PANEL_SURFACE_CLASS =
+  `w-80 max-h-64 flex flex-col text-xs rounded-md shadow-lg border border-gray-700 dark:border-gray-300 ${CHROME_TOOLTIP_COLORS}`;
+
+/** Muted secondary text inside rich/panel tooltips. */
+export const CHROME_TOOLTIP_MUTED_TEXT_CLASS =
+  'text-gray-300 dark:text-gray-600';
+
+/** Divider inside rich/panel tooltips. */
+export const CHROME_TOOLTIP_DIVIDER_CLASS =
+  'border-gray-700 dark:border-gray-300';
 
 /** In-flow / list-view: positioned under anchor */
 export const CHROME_TOOLTIP_POPOVER_CLASS =
@@ -31,8 +61,8 @@ type KanbanChromeTooltipProps = {
 };
 
 /**
- * Kanban/task card tooltips: chrome styling; optional delay (default matches native title ~feel).
- * Bubble is portaled to `document.body` so it is not trapped under sibling z-index (badges, overlays, avatar row).
+ * App-wide chrome tooltips: inverted light/dark surface; optional delay (default ~native title).
+ * Bubble is portaled to `document.body` so it is not trapped under sibling z-index.
  */
 export function KanbanChromeTooltip({
   label,

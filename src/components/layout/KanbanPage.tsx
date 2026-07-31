@@ -370,27 +370,34 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
     }
   }, []);
 
-  const loadTrashTasks = useCallback(async (boardId: string | null) => {
-    if (!boardId) {
-      setTrashTasks([]);
-      return;
-    }
-    setTrashLoading(true);
-    try {
-      const tasks = await getBoardTrash(boardId);
-      setTrashTasks(tasks);
-      setTrashCount(tasks.length);
-      if (tasks.length === 0) {
-        setTrashOpen(false);
-        writeTrashOpenPreference(boardId, false);
+  /**
+   * `silent` keeps the panel mounted while refetching — the loading placeholder
+   * would otherwise collapse the Trash grid and shift the whole board.
+   */
+  const loadTrashTasks = useCallback(
+    async (boardId: string | null, options?: { silent?: boolean }) => {
+      if (!boardId) {
+        setTrashTasks([]);
+        return;
       }
-    } catch (error) {
-      console.error('Failed to load trash:', error);
-      toast.error(t('trash.loadFailed'));
-    } finally {
-      setTrashLoading(false);
-    }
-  }, [t]);
+      if (!options?.silent) setTrashLoading(true);
+      try {
+        const tasks = await getBoardTrash(boardId);
+        setTrashTasks(tasks);
+        setTrashCount(tasks.length);
+        if (tasks.length === 0) {
+          setTrashOpen(false);
+          writeTrashOpenPreference(boardId, false);
+        }
+      } catch (error) {
+        console.error('Failed to load trash:', error);
+        toast.error(t('trash.loadFailed'));
+      } finally {
+        if (!options?.silent) setTrashLoading(false);
+      }
+    },
+    [t]
+  );
 
   useEffect(() => {
     setTrashTasks([]);
@@ -410,7 +417,7 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
     const onDeleted = (data: any) => {
       if (!data?.boardId || data.boardId !== selectedBoard) return;
       if (trashOpen) {
-        void loadTrashTasks(selectedBoard);
+        void loadTrashTasks(selectedBoard, { silent: true });
       } else {
         void refreshTrashCount(selectedBoard);
       }
@@ -418,7 +425,7 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
     const onRestoredOrPurged = (data: any) => {
       if (!data?.boardId || data.boardId !== selectedBoard) return;
       if (trashOpen) {
-        void loadTrashTasks(selectedBoard);
+        void loadTrashTasks(selectedBoard, { silent: true });
       } else {
         void refreshTrashCount(selectedBoard);
       }
@@ -718,6 +725,9 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
     scrollRight: () => void;
   } | null>(null);
   const columnsContainerRef = useRef<HTMLDivElement>(null);
+  const trashScrollContainerRef = useRef<HTMLDivElement>(null);
+  const syncingHorizontalScrollRef = useRef(false);
+  const scrollSyncFrameRef = useRef<number | null>(null);
   const scrollIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const isScrollingRef = useRef(false);
 
@@ -837,6 +847,53 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
       return () => clearTimeout(timeoutId);
     }
   }, [viewMode]);
+
+  // Keep the trash grid and live Kanban grid on the same horizontal position.
+  useEffect(() => {
+    if (!trashOpen || viewMode !== 'kanban' || trashLoading) return;
+
+    const boardScroller = columnsContainerRef.current;
+    const trashScroller = trashScrollContainerRef.current;
+    if (!boardScroller || !trashScroller) return;
+
+    const syncScroll = (source: HTMLDivElement, target: HTMLDivElement) => {
+      if (syncingHorizontalScrollRef.current) return;
+      if (Math.abs(target.scrollLeft - source.scrollLeft) < 1) return;
+
+      syncingHorizontalScrollRef.current = true;
+      target.scrollLeft = source.scrollLeft;
+      if (scrollSyncFrameRef.current !== null) {
+        cancelAnimationFrame(scrollSyncFrameRef.current);
+      }
+      scrollSyncFrameRef.current = requestAnimationFrame(() => {
+        syncingHorizontalScrollRef.current = false;
+        scrollSyncFrameRef.current = null;
+      });
+    };
+
+    const syncFromBoard = () => syncScroll(boardScroller, trashScroller);
+    const syncFromTrash = () => syncScroll(trashScroller, boardScroller);
+
+    // Opening Trash adopts the board's current position.
+    trashScroller.scrollLeft = boardScroller.scrollLeft;
+    boardScroller.addEventListener('scroll', syncFromBoard, { passive: true });
+    trashScroller.addEventListener('scroll', syncFromTrash, { passive: true });
+
+    const resizeObserver = new ResizeObserver(syncFromBoard);
+    resizeObserver.observe(boardScroller);
+    resizeObserver.observe(trashScroller);
+
+    return () => {
+      boardScroller.removeEventListener('scroll', syncFromBoard);
+      trashScroller.removeEventListener('scroll', syncFromTrash);
+      resizeObserver.disconnect();
+      if (scrollSyncFrameRef.current !== null) {
+        cancelAnimationFrame(scrollSyncFrameRef.current);
+        scrollSyncFrameRef.current = null;
+      }
+      syncingHorizontalScrollRef.current = false;
+    };
+  }, [trashOpen, trashLoading, viewMode, selectedBoard, gridStyle]);
 
   // Keyboard navigation
   useEffect(() => {
@@ -1008,13 +1065,14 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
             .filter((column) => column && column.id)
             .sort((a, b) => (a.position || 0) - (b.position || 0))}
           columns={columns}
-          members={members}
           isAdmin={isAdmin}
           gridStyle={gridStyle}
+          scrollContainerRef={trashScrollContainerRef}
           loading={trashLoading}
           onSelectTask={(task) => void handleSelectTrashedTask(task)}
           onRestore={handleRestoreTrashTask}
           onPurge={handlePurgeTrashTask}
+          onClose={() => setTrashOpenPersisted(false)}
         />
       )}
 
@@ -1145,6 +1203,7 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
                 // Background handled by CSS class to prevent flash
               }}
               data-tour-id="kanban-columns"
+              data-kanban-scroll="board"
             >
                              {/* DndContext handled at App level for global cross-board functionality */}
             {/* Admin view with column drag and drop */}

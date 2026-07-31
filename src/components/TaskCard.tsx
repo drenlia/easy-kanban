@@ -30,7 +30,7 @@ import { CSS } from '@dnd-kit/utilities';
 import { setDndGloballyDisabled, isDndGloballyDisabled } from '../utils/globalDndState';
 import DOMPurify from 'dompurify';
 import TextEditor from './TextEditor';
-import { KanbanChromeTooltip } from './KanbanChromeTooltip';
+import { KanbanChromeTooltip, CHROME_TOOLTIP_PANEL_SURFACE_CLASS, CHROME_TOOLTIP_SURFACE_CLASS } from './KanbanChromeTooltip';
 import { getLinkTarget, shouldOpenLinkInNewTab } from '../utils/linkUtils';
 import { feDebug } from '../utils/clientDebug';
 import { commentTextToHtml } from '../utils/commentContent';
@@ -1836,12 +1836,18 @@ const TaskCard = React.memo(function TaskCard({
           }
         } : undefined}
       >
-        {/* Task Identifier Overlay - Top Right Corner */}
+        {/* Task Identifier Overlay - Top Right Corner.
+            leading-none keeps the overlay box flush with the badge; extra line-box leading
+            would hang over the toolbar row and steal hover/clicks from the trash. */}
         {task.ticket && (
-          <div className="absolute right-0 z-10" style={{ top: '-8px' }}>
+          <div
+            className="absolute right-0 z-10 leading-none"
+            style={{ top: '-8px' }}
+            data-stop-propagation
+          >
             <KanbanChromeTooltip
               label={t('taskCard.directLinkTo', { ticket: task.ticket })}
-              wrapperClassName="relative inline-block align-top"
+              wrapperClassName="relative inline-flex align-top leading-none"
             >
               <a
                 href={generateTaskUrl(task.ticket, getProjectIdentifier())}
@@ -2773,7 +2779,7 @@ const TaskCard = React.memo(function TaskCard({
       {showCommentTooltip && createPortal(
         <div
           ref={commentTooltipRef}
-          className="comment-tooltip fixed w-80 text-xs rounded-md shadow-lg z-[9999] max-h-64 flex flex-col border border-gray-700 dark:border-gray-600 bg-gray-900 text-gray-100 dark:bg-gray-100 dark:text-gray-900 dark:border-gray-300"
+          className={`comment-tooltip fixed z-[9999] ${CHROME_TOOLTIP_PANEL_SURFACE_CLASS}`}
           style={{
             left: `${tooltipPosition.left}px`,
             top: `${tooltipPosition.top}px`
@@ -3129,7 +3135,7 @@ const TaskCard = React.memo(function TaskCard({
       {(showStartDateTooltip || showDueDateTooltip) && dateTooltipPosition && createPortal(
         <div
           ref={dateTooltipRef}
-          className="fixed z-[10000] pointer-events-none whitespace-nowrap px-2 py-1 text-xs font-normal normal-case tracking-normal rounded shadow-lg bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900 transform -translate-x-1/2 -translate-y-full"
+          className={`fixed z-[10000] ${CHROME_TOOLTIP_SURFACE_CLASS} transform -translate-x-1/2 -translate-y-full`}
           style={{
             left: `${dateTooltipPosition.left}px`,
             top: `${dateTooltipPosition.top}px`,

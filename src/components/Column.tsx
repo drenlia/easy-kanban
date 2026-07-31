@@ -716,6 +716,37 @@ export default function KanbanColumn({
     setColumnDroppableRef(node);
   };
 
+  const unfilteredTaskCount = column.tasks?.length || 0;
+  const displayedTaskCount = hasActiveFilters ? filteredTasks.length : unfilteredTaskCount;
+  const columnWipStatus = getWipStatus(unfilteredTaskCount, column.wip_limit);
+  const showWipMeter = hasWipLimit(column.wip_limit);
+  const showTaskCount = displayedTaskCount > 0 || showWipMeter;
+  const taskCountPillClass =
+    columnWipStatus === 'over'
+      ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-200'
+      : columnWipStatus === 'at'
+        ? 'bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300'
+        : hasActiveFilters
+          ? 'bg-blue-50 text-blue-600 dark:bg-blue-900/35 dark:text-blue-300'
+          : 'bg-blue-50/80 text-blue-500 dark:bg-blue-900/25 dark:text-blue-400';
+  const taskCountLabel = showWipMeter
+    ? t('column.wipMeterTooltip', {
+        count: unfilteredTaskCount,
+        limit: column.wip_limit,
+      })
+    : t('column.taskCount');
+  const taskCountDisplay = showWipMeter
+    ? `${unfilteredTaskCount} / ${column.wip_limit}`
+    : displayedTaskCount;
+  const taskCountBadge = showTaskCount ? (
+    <span
+      className={`inline-flex items-center justify-center px-1.5 py-0.5 text-[0.65rem] leading-none rounded-full font-medium min-w-[1.25rem] text-center tabular-nums whitespace-nowrap ${taskCountPillClass}`}
+      aria-label={taskCountLabel}
+    >
+      {taskCountDisplay}
+    </span>
+  ) : null;
+
   return (
     <div 
       ref={setColumnRef}
@@ -851,18 +882,42 @@ export default function KanbanColumn({
         data-column-header
       >
         <div className={`flex gap-2 flex-1 min-w-0 ${isEditing ? 'items-start' : 'items-center'}`}>
-          {/* Tiny drag handle for admins only — top-aligned when editing */}
-          {isAdmin && (
-            <KanbanChromeTooltip label={t('column.clickToEditDragToReorder')}>
-              <div
-                {...listeners}
-                className={`cursor-grab active:cursor-grabbing p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors opacity-50 hover:opacity-100 shrink-0 ${
-                  isEditing ? 'mt-2' : ''
-                }`}
-              >
-                <GripVertical size={12} className="text-gray-400" />
+          {/* Task count covers the admin drag handle until hover reveals it. */}
+          {isAdmin ? (
+            <KanbanChromeTooltip
+              label={t('column.clickToEditDragToReorder')}
+              wrapperClassName={`relative inline-flex shrink-0 items-center ${isEditing ? 'mt-2' : ''}`}
+            >
+              <div className="group/column-handle relative h-5 w-5">
+                <div
+                  {...listeners}
+                  className="h-5 w-5 cursor-grab active:cursor-grabbing p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors opacity-50 hover:opacity-100"
+                >
+                  <GripVertical
+                    size={12}
+                    className={`text-gray-400 transition-opacity group-hover/column-handle:opacity-100 ${
+                      !isEditing && taskCountBadge ? 'opacity-0' : 'opacity-100'
+                    }`}
+                  />
+                </div>
+                {!isEditing && taskCountBadge && (
+                  <div className="pointer-events-none absolute inset-0 flex items-center justify-center transition-opacity group-hover/column-handle:opacity-0">
+                    {taskCountBadge}
+                  </div>
+                )}
               </div>
             </KanbanChromeTooltip>
+          ) : (
+            !isEditing && taskCountBadge && (
+              <KanbanChromeTooltip
+                label={taskCountLabel}
+                wrapperClassName="relative inline-flex shrink-0 items-center"
+              >
+                <div className="flex h-5 min-w-5 items-center justify-center pointer-events-none">
+                  {taskCountBadge}
+                </div>
+              </KanbanChromeTooltip>
+            )
           )}
           {isEditing ? (
             <form onSubmit={handleTitleSubmit} className="flex-1 space-y-3" onClick={(e) => e.stopPropagation()}>
@@ -1053,35 +1108,39 @@ export default function KanbanColumn({
             </form>
           ) : (
             <>
-              <KanbanChromeTooltip
-                label={
-                  isAdmin && showColumnDeleteConfirm === null
-                    ? t('column.clickToEditDragToReorder')
-                    : isAdmin && showColumnDeleteConfirm !== null
-                      ? t('column.draggingDisabledDuringConfirmation')
-                      : draggedTask
-                        ? t('column.hoverToEnterCrossBoard')
-                        : t('column.columnTitle')
-                }
-                wrapperClassName="min-w-0"
-              >
-                <h3
-                  data-column-title
-                  className={`text-lg font-semibold text-gray-700 dark:text-gray-100 select-none truncate ${
-                    isAdmin && showColumnDeleteConfirm === null
-                      ? 'cursor-pointer hover:text-gray-900 dark:hover:text-white'
-                      : 'cursor-default'
-                  }`}
-                  onClick={() => {
-                    if (isAdmin) {
-                      setShouldSelectAll(true);
-                      setIsEditing(true);
+              {(() => {
+                const titleEl = (
+                  <h3
+                    data-column-title
+                    className={`text-lg font-semibold text-gray-700 dark:text-gray-100 select-none truncate ${
+                      isAdmin && showColumnDeleteConfirm === null
+                        ? 'cursor-pointer hover:text-gray-900 dark:hover:text-white'
+                        : 'cursor-default'
+                    }`}
+                    onClick={() => {
+                      if (isAdmin) {
+                        setShouldSelectAll(true);
+                        setIsEditing(true);
+                      }
+                    }}
+                  >
+                    {column.title}
+                  </h3>
+                );
+                if (!isAdmin) return <div className="min-w-0">{titleEl}</div>;
+                return (
+                  <KanbanChromeTooltip
+                    label={
+                      showColumnDeleteConfirm !== null
+                        ? t('column.draggingDisabledDuringConfirmation')
+                        : t('column.clickToEditDragToReorder')
                     }
-                  }}
-                >
-                  {column.title}
-                </h3>
-              </KanbanChromeTooltip>
+                    wrapperClassName="min-w-0"
+                  >
+                    {titleEl}
+                  </KanbanChromeTooltip>
+                );
+              })()}
               {(['at', 'over'] as const).includes(
                 getWipStatus(column.tasks?.length || 0, column.wip_limit) as 'at' | 'over'
               ) && (
@@ -1091,60 +1150,19 @@ export default function KanbanColumn({
                   </span>
                 </KanbanChromeTooltip>
               )}
-              {(() => {
-                const unfilteredCount = column.tasks?.length || 0;
-                const displayCount = hasActiveFilters ? filteredTasks.length : unfilteredCount;
-                const wipStatus = getWipStatus(unfilteredCount, column.wip_limit);
-                const showMeter = hasWipLimit(column.wip_limit);
-                if (displayCount === 0 && !showMeter) return null;
-                // Soft light-blue pills by default; slightly stronger when filters active.
-                // (Gray was accidental after activeFilters stopped being always-true.)
-                const pillClass =
-                  wipStatus === 'over'
-                    ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-200'
-                    : wipStatus === 'at'
-                      ? 'bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300'
-                      : hasActiveFilters
-                        ? 'bg-blue-50 text-blue-600 dark:bg-blue-900/35 dark:text-blue-300'
-                        : 'bg-blue-50/80 text-blue-500 dark:bg-blue-900/25 dark:text-blue-400';
-                const label = showMeter
-                  ? t('column.wipMeterTooltip', {
-                      count: unfilteredCount,
-                      limit: column.wip_limit,
-                    })
-                  : undefined;
-                const tooltipParts = [
-                  label || t('column.taskCount'),
-                  columnEffort > 0
-                    ? t('column.totalEffortTooltip', { display: effortDisplay })
-                    : null,
-                ].filter(Boolean);
-                return (
-                  <KanbanChromeTooltip
-                    label={tooltipParts.join(' · ')}
-                    wrapperClassName="shrink-0"
+              {columnEffort > 0 && (
+                <KanbanChromeTooltip
+                  label={t('column.totalEffortTooltip', { display: effortDisplay })}
+                  wrapperClassName="relative inline-flex shrink-0 items-center"
+                >
+                  <span
+                    className="inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-violet-100 px-1.5 py-0.5 text-center text-[0.65rem] font-medium leading-none tabular-nums text-violet-700 select-none pointer-events-none dark:bg-violet-900/50 dark:text-violet-200"
+                    aria-label={t('column.totalEffortTooltip', { display: effortDisplay })}
                   >
-                    <div className="flex flex-col items-center gap-0.5 shrink-0 pointer-events-none">
-                      {columnEffort > 0 && (
-                        <span
-                          className="text-[0.6rem] leading-none tabular-nums text-gray-400 dark:text-gray-500 select-none"
-                          aria-label={t('column.totalEffortTooltip', { display: effortDisplay })}
-                        >
-                          {effortDisplay}
-                        </span>
-                      )}
-                      <span
-                        className={`
-                          px-1.5 py-0.5 text-[0.65rem] leading-none rounded-full font-medium min-w-[1.25rem] text-center tabular-nums
-                          ${pillClass}
-                        `}
-                      >
-                        {showMeter ? `${unfilteredCount} / ${column.wip_limit}` : displayCount}
-                      </span>
-                    </div>
-                  </KanbanChromeTooltip>
-                );
-              })()}
+                    {effortDisplay}
+                  </span>
+                </KanbanChromeTooltip>
+              )}
               <KanbanChromeTooltip label={!isOnline ? t('column.networkOffline') : t('column.addTask')}>
                 <button
                   data-column-header

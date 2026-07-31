@@ -10,6 +10,7 @@ import HeaderTaskSearch from './HeaderTaskSearch';
 import { loadUserPreferences, loadUserPreferencesAsync, updateUserPreference, updateAppSettingsPreference } from '../../utils/userPreferences';
 import { feDebug } from '../../utils/clientDebug';
 import ResetCountdown from '../ResetCountdown';
+import { KanbanChromeTooltip } from '../KanbanChromeTooltip';
 
 interface SystemInfo {
   memory: {
@@ -627,32 +628,33 @@ const Header: React.FC<HeaderProps> = ({
 
               {/* Compact app nav: Kanban / Reports / Admin / Invite */}
               <div className="relative lg:hidden" ref={appNavMenuRef}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowAppNavMenu((open) => !open);
-                    setShowMoreMenu(false);
-                  }}
-                  className={`flex items-center gap-1 px-2 py-1.5 text-sm font-medium rounded-md transition-colors border ${
-                    showAppNavMenu
-                      ? 'border-blue-400 bg-blue-50 dark:bg-blue-900 text-blue-700 dark:text-blue-300'
-                      : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:border-blue-400'
-                  }`}
-                  title={t('navigation.menu')}
-                  aria-label={t('navigation.menu')}
-                  aria-expanded={showAppNavMenu}
-                  aria-haspopup="menu"
-                  data-tour-id="app-nav-menu"
-                >
-                  <Menu size={16} />
-                  <span className="hidden sm:inline max-w-[4.5rem] truncate">
-                    {currentPage === 'admin'
-                      ? t('navigation.admin')
-                      : currentPage === 'reports'
-                        ? t('navigation.reports')
-                        : t('navigation.kanban')}
-                  </span>
-                </button>
+                <KanbanChromeTooltip label={t('navigation.menu')}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowAppNavMenu((open) => !open);
+                      setShowMoreMenu(false);
+                    }}
+                    className={`flex items-center gap-1 px-2 py-1.5 text-sm font-medium rounded-md transition-colors border ${
+                      showAppNavMenu
+                        ? 'border-blue-400 bg-blue-50 dark:bg-blue-900 text-blue-700 dark:text-blue-300'
+                        : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:border-blue-400'
+                    }`}
+                    aria-label={t('navigation.menu')}
+                    aria-expanded={showAppNavMenu}
+                    aria-haspopup="menu"
+                    data-tour-id="app-nav-menu"
+                  >
+                    <Menu size={16} />
+                    <span className="hidden sm:inline max-w-[4.5rem] truncate">
+                      {currentPage === 'admin'
+                        ? t('navigation.admin')
+                        : currentPage === 'reports'
+                          ? t('navigation.reports')
+                          : t('navigation.kanban')}
+                    </span>
+                  </button>
+                </KanbanChromeTooltip>
                 {showAppNavMenu && (
                   <div
                     role="menu"
@@ -725,15 +727,16 @@ const Header: React.FC<HeaderProps> = ({
               {/* Invite — desktop button; dropdown host for both breakpoints */}
               {currentUser.roles?.includes('admin') && onInviteUser && (
                 <div className="relative" ref={inviteDropdownRef}>
-                  <button
-                    onClick={handleInviteClick}
-                    className="hidden lg:flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-200 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900 rounded-md transition-colors border border-gray-300 dark:border-gray-600 hover:border-blue-400 dark:hover:border-blue-500"
-                    title={t('navigation.inviteUser')}
-                    data-tour-id="invite-user-button"
-                  >
-                    <UserPlus className="h-4 w-4" />
-                    {t('navigation.invite')}
-                  </button>
+                  <KanbanChromeTooltip label={t('navigation.inviteUser')} wrapperClassName="relative hidden lg:inline-flex">
+                    <button
+                      onClick={handleInviteClick}
+                      className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-200 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900 rounded-md transition-colors border border-gray-300 dark:border-gray-600 hover:border-blue-400 dark:hover:border-blue-500"
+                      data-tour-id="invite-user-button"
+                    >
+                      <UserPlus className="h-4 w-4" />
+                      {t('navigation.invite')}
+                    </button>
+                  </KanbanChromeTooltip>
 
                   {showInviteDropdown && (
                     <div className="absolute right-0 top-full mt-2 w-[min(20rem,calc(100vw-1.5rem))] bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 z-50">
@@ -811,15 +814,18 @@ const Header: React.FC<HeaderProps> = ({
           <div className="flex items-center gap-1">
             <ThemeToggle />
             {currentUser && (
-              <button
-                type="button"
-                onClick={handleLanguageToggle}
-                className="px-2 py-1 text-sm font-medium text-gray-700 dark:text-gray-200 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-md transition-colors border border-gray-300 dark:border-gray-600 hover:border-blue-400 dark:hover:border-blue-500"
-                title={currentLanguage === 'en' ? 'Switch to French' : 'Passer en anglais'}
-                aria-label={currentLanguage === 'en' ? 'Switch to French' : 'Passer en anglais'}
+              <KanbanChromeTooltip
+                label={currentLanguage === 'en' ? 'Switch to French' : 'Passer en anglais'}
               >
-                {currentLanguage === 'en' ? 'FR' : 'EN'}
-              </button>
+                <button
+                  type="button"
+                  onClick={handleLanguageToggle}
+                  className="px-2 py-1 text-sm font-medium text-gray-700 dark:text-gray-200 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-md transition-colors border border-gray-300 dark:border-gray-600 hover:border-blue-400 dark:hover:border-blue-500"
+                  aria-label={currentLanguage === 'en' ? 'Switch to French' : 'Passer en anglais'}
+                >
+                  {currentLanguage === 'en' ? 'FR' : 'EN'}
+                </button>
+              </KanbanChromeTooltip>
             )}
           </div>
 
@@ -829,71 +835,78 @@ const Header: React.FC<HeaderProps> = ({
           <div className="flex items-center gap-0.5">
             {/* Desktop (lg+): refresh + system panel */}
             <div className="hidden lg:contents">
-              <button
-                type="button"
-                onClick={handleRefresh}
-                className="p-1.5 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-full transition-colors text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
-                title={t('navigation.refreshDataNow')}
-                aria-label={t('navigation.refreshDataNow')}
-              >
-                <RefreshCw size={16} />
-              </button>
-
-              {isSystemPanelAvailable && currentUser?.roles?.includes('admin') && (
+              <KanbanChromeTooltip label={t('navigation.refreshDataNow')}>
                 <button
                   type="button"
-                  onClick={handleSystemPanelToggle}
+                  onClick={handleRefresh}
                   className="p-1.5 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-full transition-colors text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
-                  title={showSystemPanel ? t('navigation.hideSystemPanel') : t('navigation.showSystemPanel')}
-                  aria-label={showSystemPanel ? t('navigation.hideSystemPanel') : t('navigation.showSystemPanel')}
-                  data-tour-id="system-panel-toggle"
+                  aria-label={t('navigation.refreshDataNow')}
                 >
-                  {showSystemPanel ? (
-                    <Monitor size={16} />
-                  ) : (
-                    <MonitorOff size={16} />
-                  )}
+                  <RefreshCw size={16} />
                 </button>
+              </KanbanChromeTooltip>
+
+              {isSystemPanelAvailable && currentUser?.roles?.includes('admin') && (
+                <KanbanChromeTooltip
+                  label={showSystemPanel ? t('navigation.hideSystemPanel') : t('navigation.showSystemPanel')}
+                >
+                  <button
+                    type="button"
+                    onClick={handleSystemPanelToggle}
+                    className="p-1.5 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-full transition-colors text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                    aria-label={showSystemPanel ? t('navigation.hideSystemPanel') : t('navigation.showSystemPanel')}
+                    data-tour-id="system-panel-toggle"
+                  >
+                    {showSystemPanel ? (
+                      <Monitor size={16} />
+                    ) : (
+                      <MonitorOff size={16} />
+                    )}
+                  </button>
+                </KanbanChromeTooltip>
               )}
             </div>
 
-            <button
-              type="button"
-              onClick={onHelpClick}
-              className="p-1.5 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-full transition-colors text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
-              title={t('navigation.help')}
-              aria-label={t('navigation.help')}
-              data-tour-id="help-button"
-            >
-              <HelpCircle size={20} />
-            </button>
+            <KanbanChromeTooltip label={t('navigation.help')}>
+              <button
+                type="button"
+                onClick={onHelpClick}
+                className="p-1.5 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-full transition-colors text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                aria-label={t('navigation.help')}
+                data-tour-id="help-button"
+              >
+                <HelpCircle size={20} />
+              </button>
+            </KanbanChromeTooltip>
 
             {siteSettings.HIDE_GITHUB_LINK !== 'true' && (
-              <a
-                href="https://github.com/drenlia/easy-kanban"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="hidden lg:inline-flex p-1.5 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 transition-colors"
-                title={t('navigation.github')}
-                aria-label={t('navigation.github')}
-              >
-                <Github size={20} />
-              </a>
+              <KanbanChromeTooltip label={t('navigation.github')} wrapperClassName="relative hidden lg:inline-flex">
+                <a
+                  href="https://github.com/drenlia/easy-kanban"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex p-1.5 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 transition-colors"
+                  aria-label={t('navigation.github')}
+                >
+                  <Github size={20} />
+                </a>
+              </KanbanChromeTooltip>
             )}
 
             {/* Mid-width overflow menu */}
             <div className="relative lg:hidden" ref={moreMenuRef}>
-              <button
-                type="button"
-                onClick={() => setShowMoreMenu((open) => !open)}
-                className="p-1.5 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-full transition-colors text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
-                title={t('navigation.more')}
-                aria-label={t('navigation.more')}
-                aria-expanded={showMoreMenu}
-                aria-haspopup="menu"
-              >
-                <MoreHorizontal size={20} />
-              </button>
+              <KanbanChromeTooltip label={t('navigation.more')}>
+                <button
+                  type="button"
+                  onClick={() => setShowMoreMenu((open) => !open)}
+                  className="p-1.5 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-full transition-colors text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                  aria-label={t('navigation.more')}
+                  aria-expanded={showMoreMenu}
+                  aria-haspopup="menu"
+                >
+                  <MoreHorizontal size={20} />
+                </button>
+              </KanbanChromeTooltip>
               {showMoreMenu && (
                 <div
                   role="menu"

@@ -1,6 +1,11 @@
 import React, { useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import DOMPurify from 'dompurify';
+import {
+  CHROME_TOOLTIP_DIVIDER_CLASS,
+  CHROME_TOOLTIP_MUTED_TEXT_CLASS,
+  CHROME_TOOLTIP_RICH_SURFACE_CLASS,
+} from '../KanbanChromeTooltip';
 
 interface TaskBarTooltipProps {
   task: any;
@@ -43,7 +48,7 @@ export const TaskBarTooltip: React.FC<TaskBarTooltipProps> = ({ task, formatDate
   const tooltipContent = (
     <div
       ref={tooltipRef}
-      className="fixed z-[9999] bg-gray-900 text-white text-xs rounded-lg shadow-xl px-3 py-2 max-w-sm pointer-events-none"
+      className={`fixed z-[9999] ${CHROME_TOOLTIP_RICH_SURFACE_CLASS}`}
       style={{
         left: `${position.x}px`,
         top: `${position.y}px`,
@@ -54,12 +59,12 @@ export const TaskBarTooltip: React.FC<TaskBarTooltipProps> = ({ task, formatDate
       <div className="font-semibold mb-1">
         {task.ticket}: {task.title}
       </div>
-      <div className="text-gray-300 mb-1">
+      <div className={`${CHROME_TOOLTIP_MUTED_TEXT_CLASS} mb-1`}>
         {formatDate(task.startDate)} - {formatDate(task.endDate)}
       </div>
       {task.description && (
         <div 
-          className="text-gray-300 mt-2 border-t border-gray-700 pt-2 max-h-32 overflow-y-auto prose prose-sm prose-invert max-w-none"
+          className={`${CHROME_TOOLTIP_MUTED_TEXT_CLASS} mt-2 border-t ${CHROME_TOOLTIP_DIVIDER_CLASS} pt-2 max-h-32 overflow-y-auto prose prose-sm prose-invert dark:prose-neutral max-w-none`}
           dangerouslySetInnerHTML={{
             __html: DOMPurify.sanitize(task.description)
           }}

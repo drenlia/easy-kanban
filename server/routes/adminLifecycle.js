@@ -102,9 +102,14 @@ router.post('/tasks/restore-batch', async (req, res) => {
           requesterId: fullRaw.requesterId || fullRaw.requesterid,
           startDate: fullRaw.startDate || fullRaw.startdate,
           dueDate: fullRaw.dueDate || fullRaw.duedate,
+          columnEnteredAt: fullRaw.columnEnteredAt || fullRaw.column_entered_at || null,
+          isBlocked: Boolean(fullRaw.isBlocked ?? fullRaw.is_blocked),
+          blockedReason: fullRaw.blockedReason || fullRaw.blocked_reason || null,
           position,
           deletedAt: null,
           deletedBy: null,
+          deleted_at: null,
+          deleted_by: null,
         };
         const tenantId = getTenantId(req);
         if (shifted.length > 0) {

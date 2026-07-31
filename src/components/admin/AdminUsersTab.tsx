@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom';
 import { Edit, Trash2, Crown, User as UserIcon } from 'lucide-react';
 import { getAuthenticatedAvatarUrl } from '../../utils/authImageUrl';
 import { toast } from '../../utils/toast';
+import { CHROME_TOOLTIP_SURFACE_CLASS } from '../KanbanChromeTooltip';
 
 interface User {
   id: string;
@@ -1072,7 +1073,7 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
       {/* Portal-based Tooltips */}
       {hoveredButton && createPortal(
         <div
-          className="fixed px-2 py-1 text-xs text-white bg-gray-900 dark:bg-gray-800 rounded whitespace-nowrap z-[9999] pointer-events-none transition-opacity duration-200"
+          className={`fixed z-[9999] ${CHROME_TOOLTIP_SURFACE_CLASS} transition-opacity duration-200`}
           style={{
             top: `${hoveredButton.position.top}px`,
             left: `${hoveredButton.position.left}px`,

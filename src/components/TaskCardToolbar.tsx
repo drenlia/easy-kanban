@@ -374,18 +374,23 @@ export default function TaskCardToolbar({
     ? 'pointer-events-auto opacity-100'
     : 'pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100';
 
-  // Fixed slots: [AI or grip][grip if AI][actions] …… [watchers][trash][avatar]
+  // Fixed slots: [AI or grip][grip if AI][actions] …… [trash][watchers][avatar]
   // When no agent, grip occupies the AI activity button slot (no empty spacer).
-  // Trash stays at a constant X so bulk-delete muscle memory works across cards.
-  const trashRightClass = 'right-12';
-  const watchersRightClass = 'right-[72px]';
+  // The indicators retain their original 46px maximum width, but now sit between
+  // trash and avatar. Trash remains pinned regardless of indicators or agent state.
+  const trashRightClass = 'right-24';
+  const watchersRightClass = 'right-12 w-[46px]';
+  // Preserve each 22px toolbar slot. The pseudo-element extends its hit area by
+  // 2px per side, while transform enlarges only the hovered control (no reflow).
+  const toolbarReachClass =
+    "relative after:absolute after:-inset-0.5 after:rounded-full after:content-[''] hover:scale-110 transition-[transform,background-color,color,opacity] disabled:hover:scale-100";
 
   const gripHandle = !agentBlocking && !isDragDisabled ? (
     <KanbanChromeTooltip label={t('toolbar.dragToMove')} wrapperClassName="">
       <div
         {...listeners}
         {...attributes}
-        className="p-1 rounded cursor-grab active:cursor-grabbing hover:bg-gray-200 dark:hover:bg-gray-700 opacity-60 hover:opacity-100 transition-opacity"
+        className={`p-1 rounded cursor-grab active:cursor-grabbing hover:bg-gray-200 dark:hover:bg-gray-700 opacity-60 hover:opacity-100 ${toolbarReachClass}`}
       >
         <GripVertical size={14} className="text-gray-400" />
       </div>
@@ -402,6 +407,7 @@ export default function TaskCardToolbar({
           <>
             <AgentStatusButton
               status={agentWorkStatus}
+              className={`p-1 rounded hover:bg-teal-100 dark:hover:bg-teal-900/40 ${toolbarReachClass}`}
               onClick={(e) => {
                 e.stopPropagation();
                 onOpenAgentActivity?.();
@@ -423,7 +429,7 @@ export default function TaskCardToolbar({
                 <button
                   ref={quickTagButtonRef}
                   disabled={agentBlocking}
-                  className={`p-1 rounded-full transition-colors ${
+                  className={`p-1 rounded-full ${toolbarReachClass} ${
                     agentBlocking
                       ? 'opacity-40 cursor-not-allowed'
                       : 'hover:bg-gray-100 dark:hover:bg-gray-700'
@@ -441,7 +447,7 @@ export default function TaskCardToolbar({
             <KanbanChromeTooltip label={t('toolbar.copyTask')}>
               <button
                 onClick={handleCopy}
-                className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-colors"
+                className={`p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full ${toolbarReachClass}`}
               >
                 <Copy size={14} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors" />
               </button>
@@ -490,7 +496,7 @@ export default function TaskCardToolbar({
                     e.stopPropagation();
                     onLinkToolHoverEnd?.();
                   }}
-                  className={`p-1 rounded-full transition-colors ${
+                  className={`p-1 rounded-full ${toolbarReachClass} ${
                     agentBlocking
                       ? 'opacity-40 cursor-not-allowed text-gray-400'
                       : isLinkingMode && linkingSourceTask?.id === task.id
@@ -523,7 +529,7 @@ export default function TaskCardToolbar({
                       e.stopPropagation();
                       onEdit({ ...task, columnId: archiveColumn.id });
                     }}
-                    className={`p-1 rounded-full transition-colors ${
+                    className={`p-1 rounded-full ${toolbarReachClass} ${
                       agentBlocking
                         ? 'opacity-40 cursor-not-allowed'
                         : 'hover:bg-yellow-100 dark:hover:bg-yellow-900/40'
@@ -537,9 +543,9 @@ export default function TaskCardToolbar({
         </div>
       </div>
 
-      {/* Watchers & Collaborators — fixed slot left of trash (grows leftward; does not move trash) */}
+      {/* Watchers & Collaborators — original-width fixed slot between trash and avatar */}
       <div
-        className={`absolute top-[7px] ${watchersRightClass} z-30 flex items-center justify-end gap-1.5`}
+        className={`absolute top-[7px] ${watchersRightClass} z-30 flex items-center justify-start gap-1.5`}
       >
           {task.watchers && task.watchers.length > 0 && (
             <KanbanChromeTooltip label={formatMembersTooltip(task.watchers, 'watcher')} delayMs={0} wrapperClassName="flex items-center">
@@ -559,7 +565,7 @@ export default function TaskCardToolbar({
           )}
       </div>
 
-      {/* Delete — pinned right slot (constant X on every card) */}
+      {/* Delete — pinned left of indicators (constant X on every card) */}
       <div
         className={`absolute top-0 ${trashRightClass} z-[5] py-1 transition-opacity duration-200 ${toolbarHoverVisibility}`}
         data-tour-id="task-card-delete"
@@ -571,7 +577,7 @@ export default function TaskCardToolbar({
               if (agentBlocking) return;
               onRemove(task.id, e);
             }}
-            className={`p-1 rounded-full transition-colors ${
+            className={`p-1 rounded-full ${toolbarReachClass} ${
               agentBlocking
                 ? 'opacity-40 cursor-not-allowed'
                 : 'hover:bg-red-100 dark:hover:bg-red-900/40'

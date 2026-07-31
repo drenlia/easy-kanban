@@ -1,97 +1,29 @@
 import React, { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { RotateCcw, Trash2 } from 'lucide-react';
-import DOMPurify from 'dompurify';
-import { Column, Columns, Task, TeamMember } from '../types';
+import { Column, Columns, Task } from '../types';
 import { formatToYYYYMMDDHHmm } from '../utils/dateUtils';
-import { getAuthenticatedAvatarUrl } from '../utils/authImageUrl';
-import { getAgentAvatarSrc, isAgentMemberId } from '../utils/agentMemberUi';
-import { SYSTEM_MEMBER_ID } from '../constants/appConstants';
 
 interface BoardTrashViewProps {
   tasks: Task[];
   /** Same visible columns (ordered) as the live board beneath. */
   displayColumns: Column[];
   columns: Columns;
-  members: TeamMember[];
   isAdmin: boolean;
   /** Same grid style as the live Kanban board for width/alignment. */
   gridStyle: React.CSSProperties;
+  /** Paired with the live Kanban scroller by KanbanPage. */
+  scrollContainerRef?: React.Ref<HTMLDivElement>;
   loading?: boolean;
   onSelectTask: (task: Task) => void;
   onRestore: (taskId: string) => Promise<void>;
   onPurge: (taskId: string) => Promise<void>;
-}
-
-function MemberAvatar({ member }: { member?: TeamMember }) {
-  if (!member) {
-    return (
-      <div className="flex h-6 w-6 items-center justify-center rounded-full bg-gray-200 text-[9px] font-semibold text-gray-600 dark:bg-gray-600 dark:text-gray-200">
-        ?
-      </div>
-    );
-  }
-
-  if (isAgentMemberId(member.id)) {
-    return (
-      <img
-        src={getAgentAvatarSrc(member)}
-        alt={member.name}
-        className="h-6 w-6 rounded-full object-cover"
-        title={member.name}
-      />
-    );
-  }
-
-  if (member.googleAvatarUrl) {
-    return (
-      <img
-        src={getAuthenticatedAvatarUrl(member.googleAvatarUrl) || ''}
-        alt={member.name}
-        className="h-6 w-6 rounded-full object-cover"
-        title={member.name}
-      />
-    );
-  }
-
-  if (member.avatarUrl) {
-    return (
-      <img
-        src={getAuthenticatedAvatarUrl(member.avatarUrl) || ''}
-        alt={member.name}
-        className="h-6 w-6 rounded-full object-cover"
-        title={member.name}
-      />
-    );
-  }
-
-  const initials = (member.name || '?')
-    .split(/\s+/)
-    .map((part) => part[0])
-    .join('')
-    .slice(0, 2)
-    .toUpperCase();
-
-  return (
-    <div
-      className="flex h-6 w-6 items-center justify-center rounded-full text-[9px] font-semibold text-white"
-      style={{ backgroundColor: member.color || '#6b7280' }}
-      title={member.name}
-    >
-      {initials}
-    </div>
-  );
-}
-
-function stripHtml(html?: string) {
-  if (!html) return '';
-  const cleaned = DOMPurify.sanitize(html, { ALLOWED_TAGS: [] });
-  return cleaned.replace(/\s+/g, ' ').trim();
+  /** Hide the trash panel (same as toggling trash off in BoardTabs). */
+  onClose?: () => void;
 }
 
 function TrashedTaskCard({
   task,
-  member,
   isAdmin,
   restoring,
   purging,
@@ -100,7 +32,6 @@ function TrashedTaskCard({
   onPurge,
 }: {
   task: Task;
-  member?: TeamMember;
   isAdmin: boolean;
   restoring: boolean;
   purging: boolean;
@@ -111,12 +42,6 @@ function TrashedTaskCard({
   const { t } = useTranslation(['tasks', 'common']);
   const deletedLabel = task.deletedAt ? formatToYYYYMMDDHHmm(task.deletedAt) : '';
   const deletedByName = (task as any).deletedByName || t('trash.unknownUser');
-  const descriptionPreview = stripHtml(task.description);
-  const borderColor = member?.color || '#9ca3af';
-  const bgClass =
-    member?.id === SYSTEM_MEMBER_ID
-      ? 'bg-yellow-50 dark:bg-yellow-900/40'
-      : 'bg-[var(--task-card-bg,#fff)] dark:bg-gray-800';
 
   return (
     <div
@@ -129,50 +54,44 @@ function TrashedTaskCard({
           onSelect();
         }
       }}
-      style={{ borderLeft: `4px solid ${borderColor}` }}
-      className={`group relative rounded-lg p-2.5 shadow-sm transition-shadow hover:shadow-md ${bgClass}`}
+      className="group relative rounded-lg bg-[var(--task-card-bg,#fff)] p-2.5 shadow-sm transition-shadow hover:shadow-md dark:bg-gray-800"
       data-tour-id={`trash-task-${task.id}`}
     >
-      <div className="mb-1 flex items-start justify-between gap-2">
-        <div className="min-w-0 flex-1">
-          {task.ticket && (
-            <div className="mb-0.5 font-mono text-xs text-blue-600 dark:text-blue-400">
-              {task.ticket}
-            </div>
-          )}
-          <h3 className="line-clamp-2 text-sm font-medium text-gray-800 dark:text-gray-100">
-            {task.title || t('trash.untitled')}
-          </h3>
-        </div>
-        <MemberAvatar member={member} />
-      </div>
-
-      {descriptionPreview && (
-        <p className="mb-1.5 line-clamp-2 text-xs text-gray-600 dark:text-gray-300">
-          {descriptionPreview}
-        </p>
-      )}
-
-      <div className="mb-1.5 space-y-0.5 text-[11px] leading-snug text-gray-500 dark:text-gray-400">
-        <div>
-          {t('trash.deletedBy')}:{' '}
-          <span className="font-medium text-gray-700 dark:text-gray-200">{deletedByName}</span>
-        </div>
-        {deletedLabel && (
-          <div>
-            {t('trash.deletedOn')}:{' '}
-            <span className="font-medium text-gray-700 dark:text-gray-200">{deletedLabel}</span>
+      <div className="min-w-0">
+        {task.ticket && (
+          <div className="mb-0.5 font-mono text-xs text-blue-600 dark:text-blue-400">
+            {task.ticket}
           </div>
         )}
+        <h3 className="line-clamp-2 text-sm font-medium text-gray-800 dark:text-gray-100">
+          {task.title || t('trash.untitled')}
+        </h3>
       </div>
 
-      <div className="flex flex-wrap items-center gap-1" onClick={(e) => e.stopPropagation()}>
+      <div className="grid grid-rows-[0fr] opacity-0 transition-[grid-template-rows,opacity] duration-200 group-hover:grid-rows-[1fr] group-hover:opacity-100 group-focus:grid-rows-[1fr] group-focus:opacity-100 group-focus-within:grid-rows-[1fr] group-focus-within:opacity-100">
+        <div className="overflow-hidden">
+          <div className="space-y-0.5 pt-2 text-[11px] leading-snug text-gray-500 dark:text-gray-400">
+            <div>
+              {t('trash.deletedBy')}:{' '}
+              <span className="font-medium text-gray-700 dark:text-gray-200">{deletedByName}</span>
+            </div>
+            {deletedLabel && (
+              <div>
+                {t('trash.deletedOn')}:{' '}
+                <span className="font-medium text-gray-700 dark:text-gray-200">{deletedLabel}</span>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-2 flex flex-wrap items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
         <button
           type="button"
           disabled={restoring || purging}
           onClick={() => void onRestore()}
-          className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-medium text-blue-700 hover:bg-blue-100 disabled:opacity-50 dark:text-blue-300 dark:hover:bg-blue-900/40"
-          title={t('trash.restore')}
+          className="inline-flex items-center gap-1 rounded-md bg-blue-700 px-2 py-1 text-xs font-medium text-white transition-colors hover:bg-blue-800 disabled:opacity-50 dark:bg-blue-700 dark:hover:bg-blue-600"
+          aria-label={t('trash.restore')}
         >
           <RotateCcw size={12} className={restoring ? 'animate-spin' : ''} />
           {t('trash.restore')}
@@ -182,8 +101,8 @@ function TrashedTaskCard({
             type="button"
             disabled={restoring || purging}
             onClick={() => void onPurge()}
-            className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-medium text-red-700 hover:bg-red-100 disabled:opacity-50 dark:text-red-300 dark:hover:bg-red-900/40"
-            title={t('trash.purge')}
+            className="inline-flex items-center gap-1 rounded-md bg-red-600 px-2 py-1 text-xs font-medium text-white transition-colors hover:bg-red-700 disabled:opacity-50 dark:bg-red-600 dark:hover:bg-red-500"
+            aria-label={t('trash.purge')}
           >
             <Trash2 size={12} />
             {t('trash.purge')}
@@ -198,24 +117,31 @@ export default function BoardTrashView({
   tasks,
   displayColumns,
   columns,
-  members,
   isAdmin,
   gridStyle,
+  scrollContainerRef,
   loading,
   onSelectTask,
   onRestore,
   onPurge,
+  onClose,
 }: BoardTrashViewProps) {
   const { t } = useTranslation(['tasks', 'common']);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [busyAction, setBusyAction] = useState<'restore' | 'purge' | null>(null);
   const [purgeConfirmId, setPurgeConfirmId] = useState<string | null>(null);
 
-  const memberById = useMemo(() => {
-    const map = new Map<string, TeamMember>();
-    members.forEach((m) => map.set(m.id, m));
-    return map;
-  }, [members]);
+  const closeButton = onClose ? (
+    <button
+      type="button"
+      onClick={onClose}
+      className="inline-flex items-center rounded-full border border-amber-400 px-3 py-1 text-xs font-semibold text-gray-700 transition-colors hover:border-amber-500 hover:bg-amber-100/80 hover:text-gray-900 dark:border-amber-600 dark:text-gray-200 dark:hover:border-amber-500 dark:hover:bg-amber-900/40 dark:hover:text-white"
+      aria-label={t('buttons.close', { ns: 'common' })}
+      data-tour-id="board-trash-close"
+    >
+      {t('buttons.close', { ns: 'common' })}
+    </button>
+  ) : null;
 
   const tasksByColumn = useMemo(() => {
     const map = new Map<string, Task[]>();
@@ -280,18 +206,28 @@ export default function BoardTrashView({
 
   if (loading) {
     return (
-      <div className="mb-3 rounded-xl border border-dashed border-gray-300 bg-gray-50/80 px-4 py-4 text-center text-sm text-gray-500 dark:border-gray-600 dark:bg-gray-800/40 dark:text-gray-400">
-        {t('trash.loading')}
+      <div className="mb-3 rounded-xl border border-dashed border-gray-300 bg-gray-50/80 px-4 py-4 dark:border-gray-600 dark:bg-gray-800/40">
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100">{t('trash.title')}</h3>
+          {closeButton}
+        </div>
+        <p className="text-center text-sm text-gray-500 dark:text-gray-400">{t('trash.loading')}</p>
       </div>
     );
   }
 
   if (tasks.length === 0) {
     return (
-      <div className="mb-3 rounded-xl border border-dashed border-gray-300 bg-gray-50/80 px-4 py-4 text-center dark:border-gray-600 dark:bg-gray-800/40">
-        <Trash2 className="mx-auto mb-2 text-gray-400" size={22} />
-        <p className="text-sm font-medium text-gray-700 dark:text-gray-200">{t('trash.emptyTitle')}</p>
-        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{t('trash.emptyHint')}</p>
+      <div className="mb-3 rounded-xl border border-dashed border-gray-300 bg-gray-50/80 px-4 py-4 dark:border-gray-600 dark:bg-gray-800/40">
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100">{t('trash.title')}</h3>
+          {closeButton}
+        </div>
+        <div className="text-center">
+          <Trash2 className="mx-auto mb-2 text-gray-400" size={22} />
+          <p className="text-sm font-medium text-gray-700 dark:text-gray-200">{t('trash.emptyTitle')}</p>
+          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{t('trash.emptyHint')}</p>
+        </div>
       </div>
     );
   }
@@ -302,7 +238,6 @@ export default function BoardTrashView({
         <div key={task.id} className="relative">
           <TrashedTaskCard
             task={task}
-            member={memberById.get(task.memberId || '')}
             isAdmin={isAdmin}
             restoring={busyId === task.id && busyAction === 'restore'}
             purging={busyId === task.id && busyAction === 'purge'}
@@ -350,16 +285,23 @@ export default function BoardTrashView({
             {tasks.length}
           </span>
         </h3>
-        <p className="pointer-events-none absolute inset-x-0 text-center text-sm font-semibold text-gray-800 dark:text-gray-100 truncate px-24">
+        <p className="pointer-events-none absolute inset-x-0 text-center text-sm font-semibold text-gray-800 dark:text-gray-100 truncate px-28">
           {t('trash.instruction')}
         </p>
-        <p className="relative z-10 text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap text-right bg-amber-50/90 dark:bg-amber-950/40 pl-2">
-          {t('trash.subtitle')}
-        </p>
+        <div className="relative z-10 flex items-center gap-2 whitespace-nowrap bg-amber-50/90 dark:bg-amber-950/40 pl-2">
+          <p className="text-xs text-gray-500 dark:text-gray-400 text-right">
+            {t('trash.subtitle')}
+          </p>
+          {closeButton}
+        </div>
       </div>
 
       {/* Same grid as live board — no horizontal padding so columns line up */}
-      <div className="overflow-x-auto w-full">
+      <div
+        ref={scrollContainerRef}
+        className="overflow-x-auto w-full"
+        data-kanban-scroll="trash"
+      >
         <div style={trashGridStyle}>
           {displayColumns.map((column) => {
             const columnTasks = tasksByColumn.get(column.id) || [];

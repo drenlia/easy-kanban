@@ -42,7 +42,7 @@ const PerfTestOverlay: React.FC<PerfTestOverlayProps> = ({
 }) => {
   const [collapsed, setCollapsed] = useState(false);
   const [memberId, setMemberId] = useState(members[0]?.id || '');
-  const [count, setCount] = useState(20);
+  const [countInput, setCountInput] = useState('20');
   const [active, setActive] = useState<ActiveScenario>(null);
   const [status, setStatus] = useState('');
   const [reportKind, setReportKind] = useState<ReportKind>(null);
@@ -74,6 +74,9 @@ const PerfTestOverlay: React.FC<PerfTestOverlayProps> = ({
     () => members.find((m) => m.id === memberId) || members[0],
     [members, memberId]
   );
+
+  // Field stays free-form (empty while typing); clamp only when a run starts
+  const count = Math.max(1, Math.min(500, Number(countInput) || 1));
 
   const stopActive = useCallback(() => {
     abortRef.current?.abort();
@@ -226,13 +229,12 @@ const PerfTestOverlay: React.FC<PerfTestOverlayProps> = ({
               <div className="flex-1">
                 <label className="block font-medium mb-1">Task count</label>
                 <input
-                  type="number"
-                  min={1}
-                  max={500}
+                  type="text"
+                  inputMode="numeric"
                   className="w-full rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-2 py-1.5"
-                  value={count}
+                  value={countInput}
                   disabled={busy}
-                  onChange={(e) => setCount(Math.max(1, Math.min(500, Number(e.target.value) || 1)))}
+                  onChange={(e) => setCountInput(e.target.value.replace(/[^0-9]/g, ''))}
                 />
               </div>
               <button

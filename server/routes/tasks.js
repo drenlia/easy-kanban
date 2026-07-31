@@ -1804,21 +1804,18 @@ router.post('/:id/restore', authenticateToken, async (req, res) => {
 
     await taskQueries.restoreTask(db, id, columnId, boardId, position);
 
-    const restoredRaw = await taskQueries.getTaskWithRelationships(db, id);
-    const restored = {
-      ...restoredRaw,
-      columnId: restoredRaw.columnId || restoredRaw.columnid || columnId,
-      boardId: restoredRaw.boardId || restoredRaw.boardid || boardId,
-      memberId: restoredRaw.memberId || restoredRaw.memberid,
-      requesterId: restoredRaw.requesterId || restoredRaw.requesterid,
-      startDate: restoredRaw.startDate || restoredRaw.startdate,
-      dueDate: restoredRaw.dueDate || restoredRaw.duedate,
-      position,
-      deletedAt: null,
-      deletedBy: null,
-      deleted_at: null,
-      deleted_by: null,
-    };
+    // Use the same normalizer as GET/POST task responses (isBlocked, blockedReason, columnEnteredAt, …)
+    const restored = await fetchTaskWithRelationships(db, id);
+    if (!restored) {
+      return res.status(500).json({ error: tTranslator('errors.failedToUpdateTask') || 'Failed to restore task' });
+    }
+    restored.deletedAt = null;
+    restored.deletedBy = null;
+    restored.deleted_at = null;
+    restored.deleted_by = null;
+    restored.position = position;
+    restored.columnId = columnId;
+    restored.boardId = boardId;
 
     const tenantId = getTenantId(req);
     if (shifted.length > 0) {

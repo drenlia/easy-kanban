@@ -18,7 +18,7 @@ import ExportMenu from './ExportMenu';
 import TextEditor from './TextEditor';
 import AddTagModal from './AddTagModal';
 import DateRangePicker from './DateRangePicker';
-import { CHROME_TOOLTIP_POPOVER_CLASS, KanbanChromeTooltip } from './KanbanChromeTooltip';
+import { CHROME_TOOLTIP_POPOVER_CLASS, CHROME_TOOLTIP_PANEL_SURFACE_CLASS, KanbanChromeTooltip } from './KanbanChromeTooltip';
 import AgentPanel from './AgentPanel';
 import type { AgentPanelView } from './AgentPanel';
 import { putTaskWork, getTaskWork, setTaskWorkControl, type TaskWorkMap } from '../api';
@@ -2295,7 +2295,7 @@ export default function ListView({
       {/* Portal-rendered comment tooltip */}
       {showCommentTooltip && createPortal(
         <div 
-          className="comment-tooltip fixed w-80 bg-gray-800 text-white text-xs rounded-md shadow-lg z-[9999] max-h-64 flex flex-col"
+          className={`comment-tooltip fixed z-[9999] ${CHROME_TOOLTIP_PANEL_SURFACE_CLASS}`}
           style={{
             left: `${tooltipPosition.left}px`,
             top: `${tooltipPosition.top}px`
