@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { login } from '../api';
-import { RefreshCw } from 'lucide-react';
+import { RefreshCw, Github } from 'lucide-react';
 import { useSettings } from '../contexts/SettingsContext';
 
 interface LoginProps {
@@ -14,6 +14,7 @@ interface LoginProps {
 
 export default function Login({ onLogin, siteSettings, hasDefaultAdmin = true, intendedDestination, onForgotPassword }: LoginProps) {
   const { t, i18n } = useTranslation('auth');
+  const { t: tCommon } = useTranslation('common');
   const { siteSettings: contextSiteSettings, isLoading: settingsLoading } = useSettings();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -304,10 +305,25 @@ export default function Login({ onLogin, siteSettings, hasDefaultAdmin = true, i
     }
   };
 
+  const hideGithubLink =
+    (contextSiteSettings?.HIDE_GITHUB_LINK ?? siteSettings?.HIDE_GITHUB_LINK) === 'true';
+
   return (
     <div className="min-h-screen bg-gray-100 dark:bg-gray-900 flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8 relative">
-      {/* Language Toggle - Top Right */}
-      <div className="absolute top-4 right-4">
+      {/* Utilities — top right (matches app header: GitHub + language) */}
+      <div className="absolute top-4 right-4 flex items-center gap-2">
+        {!hideGithubLink && (
+          <a
+            href="https://github.com/drenlia/easy-kanban"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="p-1.5 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-full transition-colors border border-transparent hover:border-gray-300 dark:hover:border-gray-600"
+            title={tCommon('navigation.github')}
+            aria-label={tCommon('navigation.github')}
+          >
+            <Github size={20} />
+          </a>
+        )}
         <button
           onClick={handleLanguageToggle}
           className="px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-200 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-md transition-colors border border-gray-300 dark:border-gray-600 hover:border-blue-400 dark:hover:border-blue-500"
@@ -482,8 +498,8 @@ export default function Login({ onLogin, siteSettings, hasDefaultAdmin = true, i
             )}
           </div>
 
-          {/* Forgot Password Link */}
-          {onForgotPassword && (
+          {/* Forgot Password Link — hidden in demo (no outbound email) */}
+          {onForgotPassword && !isDemoMode && (
             <div className="text-center">
               <button
                 type="button"
