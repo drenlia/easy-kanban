@@ -32,6 +32,7 @@ import {
   getTaskById,
   restoreTask,
   purgeTask,
+  purgeTasksBatch,
 } from '../../api';
 import { toast } from '../../utils/toast';
 import websocketClient from '../../services/websocketClient';
@@ -525,8 +526,127 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
     [selectedTask?.id, onSelectTask, t, selectedBoard]
   );
 
+  const removeTasksFromTrashList = useCallback(
+    (removedIds: string[], options?: { clearSelectedIfRemoved?: boolean }) => {
+      if (removedIds.length === 0) return;
+      const removed = new Set(removedIds);
+      const clearSelectedIfRemoved = options?.clearSelectedIfRemoved ?? false;
+      setTrashTasks((prev) => {
+        const next = prev.filter((task) => !removed.has(task.id));
+        if (next.length === 0) {
+          setTrashOpen(false);
+          writeTrashOpenPreference(selectedBoard, false);
+          setTrashCount(0);
+        } else {
+          setTrashCount(next.length);
+        }
+        return next;
+      });
+      if (
+        clearSelectedIfRemoved &&
+        selectedTask?.id &&
+        removed.has(selectedTask.id)
+      ) {
+        onSelectTask(null);
+      }
+    },
+    [selectedBoard, selectedTask?.id, onSelectTask]
+  );
+
+  const handleRestoreTrashSelected = useCallback(
+    async (taskIds: string[]) => {
+      if (taskIds.length === 0) return;
+      let restoredCount = 0;
+      let failedCount = 0;
+      let sawBoardSoftDeleted = false;
+      const restoredIds: string[] = [];
+
+      for (const taskId of taskIds) {
+        try {
+          const restored = await restoreTask(taskId);
+          const normalized = clearTaskSoftDelete({
+            ...restored,
+            columnId: restored.columnId || (restored as any).columnid,
+            boardId: restored.boardId || (restored as any).boardid,
+            memberId: restored.memberId || (restored as any).memberid,
+            requesterId: restored.requesterId || (restored as any).requesterid,
+          } as Task);
+          onTaskRestoredLocally?.(normalized);
+          if (selectedTask?.id === taskId) {
+            onSelectTask(normalized);
+          }
+          restoredIds.push(taskId);
+          restoredCount += 1;
+        } catch (error: any) {
+          failedCount += 1;
+          if (error?.response?.data?.code === 'board_soft_deleted') {
+            sawBoardSoftDeleted = true;
+          }
+        }
+      }
+
+      removeTasksFromTrashList(restoredIds);
+
+      if (restoredCount > 0 && failedCount === 0) {
+        toast.success(t('trash.restoredCount', { count: restoredCount }));
+      } else if (restoredCount > 0 && failedCount > 0) {
+        toast.error(
+          t('trash.restorePartialFailed', {
+            restored: restoredCount,
+            failed: failedCount,
+          })
+        );
+      } else if (sawBoardSoftDeleted) {
+        toast.error(t('trash.restoreBoardFirst'));
+      } else {
+        toast.error(t('trash.restoreFailed'));
+      }
+    },
+    [
+      onTaskRestoredLocally,
+      onSelectTask,
+      selectedTask?.id,
+      removeTasksFromTrashList,
+      t,
+    ]
+  );
+
+  const handlePurgeTrashSelected = useCallback(
+    async (taskIds: string[]) => {
+      if (taskIds.length === 0) return;
+      try {
+        const result = await purgeTasksBatch(taskIds);
+        const purged = Array.isArray(result?.purged) ? result.purged : [];
+        const purgedCount = purged.length;
+        const failedCount = Math.max(0, taskIds.length - purgedCount);
+        removeTasksFromTrashList(purged, { clearSelectedIfRemoved: true });
+        if (purgedCount > 0 && failedCount === 0) {
+          toast.success(t('trash.purgedCount', { count: purgedCount }));
+        } else if (purgedCount > 0 && failedCount > 0) {
+          toast.error(
+            t('trash.purgePartialFailed', {
+              purged: purgedCount,
+              failed: failedCount,
+            })
+          );
+        } else {
+          toast.error(t('trash.purgeFailed'));
+        }
+      } catch (error: any) {
+        toast.error(error?.response?.data?.error || t('trash.purgeFailed'));
+        throw error;
+      }
+    },
+    [removeTasksFromTrashList, t]
+  );
+
   const handleSelectTrashedTask = useCallback(
     async (task: Task) => {
+      // Same as live board: click again closes TaskDetails
+      if (selectedTask?.id === task.id) {
+        onSelectTask(null);
+        return;
+      }
       try {
         const full = await getTaskById(task.id);
         const normalized: Task = {
@@ -546,7 +666,7 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
         });
       }
     },
-    [onSelectTask]
+    [onSelectTask, selectedTask?.id]
   );
   useEffect(() => {
     let cancelled = false;
@@ -1066,12 +1186,15 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
             .sort((a, b) => (a.position || 0) - (b.position || 0))}
           columns={columns}
           isAdmin={isAdmin}
+          detailsTaskId={selectedTask?.id ?? null}
           gridStyle={gridStyle}
           scrollContainerRef={trashScrollContainerRef}
           loading={trashLoading}
           onSelectTask={(task) => void handleSelectTrashedTask(task)}
           onRestore={handleRestoreTrashTask}
           onPurge={handlePurgeTrashTask}
+          onRestoreSelected={handleRestoreTrashSelected}
+          onPurgeSelected={handlePurgeTrashSelected}
           onClose={() => setTrashOpenPersisted(false)}
         />
       )}

@@ -1,8 +1,9 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { RotateCcw, Trash2 } from 'lucide-react';
+import { CheckSquare2, ChevronDown, ChevronUp, RotateCcw, Square, Trash2 } from 'lucide-react';
 import { Column, Columns, Task } from '../types';
 import { formatToYYYYMMDDHHmm } from '../utils/dateUtils';
+import { KanbanChromeTooltip } from './KanbanChromeTooltip';
 
 interface BoardTrashViewProps {
   tasks: Task[];
@@ -10,6 +11,8 @@ interface BoardTrashViewProps {
   displayColumns: Column[];
   columns: Columns;
   isAdmin: boolean;
+  /** Currently open in TaskDetails (amber ring). Distinct from bulk checkboxes. */
+  detailsTaskId?: string | null;
   /** Same grid style as the live Kanban board for width/alignment. */
   gridStyle: React.CSSProperties;
   /** Paired with the live Kanban scroller by KanbanPage. */
@@ -18,6 +21,8 @@ interface BoardTrashViewProps {
   onSelectTask: (task: Task) => void;
   onRestore: (taskId: string) => Promise<void>;
   onPurge: (taskId: string) => Promise<void>;
+  onRestoreSelected: (taskIds: string[]) => Promise<void>;
+  onPurgeSelected: (taskIds: string[]) => Promise<void>;
   /** Hide the trash panel (same as toggling trash off in BoardTabs). */
   onClose?: () => void;
 }
@@ -25,17 +30,29 @@ interface BoardTrashViewProps {
 function TrashedTaskCard({
   task,
   isAdmin,
+  checked,
+  isDetailsOpen,
+  expanded,
   restoring,
   purging,
-  onSelect,
+  bulkBusy,
+  onOpen,
+  onToggleCheck,
+  onToggleExpanded,
   onRestore,
   onPurge,
 }: {
   task: Task;
   isAdmin: boolean;
+  checked: boolean;
+  isDetailsOpen: boolean;
+  expanded: boolean;
   restoring: boolean;
   purging: boolean;
-  onSelect: () => void;
+  bulkBusy: boolean;
+  onOpen: () => void;
+  onToggleCheck: () => void;
+  onToggleExpanded: () => void;
   onRestore: () => void;
   onPurge: () => void;
 }) {
@@ -47,68 +64,109 @@ function TrashedTaskCard({
     <div
       role="button"
       tabIndex={0}
-      onClick={onSelect}
+      onClick={onOpen}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();
-          onSelect();
+          onOpen();
         }
       }}
-      className="group relative rounded-lg bg-[var(--task-card-bg,#fff)] p-2.5 shadow-sm transition-shadow hover:shadow-md dark:bg-gray-800"
+      className={`group relative rounded-lg bg-[var(--task-card-bg,#fff)] p-2.5 shadow-sm transition-shadow hover:shadow-md dark:bg-gray-800 ${
+        isDetailsOpen
+          ? 'ring-2 ring-amber-400 dark:ring-amber-500'
+          : ''
+      }`}
       data-tour-id={`trash-task-${task.id}`}
     >
-      <div className="min-w-0">
-        {task.ticket && (
-          <div className="mb-0.5 font-mono text-xs text-blue-600 dark:text-blue-400">
-            {task.ticket}
-          </div>
-        )}
-        <h3 className="line-clamp-2 text-sm font-medium text-gray-800 dark:text-gray-100">
-          {task.title || t('trash.untitled')}
-        </h3>
-      </div>
-
-      <div className="grid grid-rows-[0fr] opacity-0 transition-[grid-template-rows,opacity] duration-200 group-hover:grid-rows-[1fr] group-hover:opacity-100 group-focus:grid-rows-[1fr] group-focus:opacity-100 group-focus-within:grid-rows-[1fr] group-focus-within:opacity-100">
-        <div className="overflow-hidden">
-          <div className="space-y-0.5 pt-2 text-[11px] leading-snug text-gray-500 dark:text-gray-400">
-            <div>
-              {t('trash.deletedBy')}:{' '}
-              <span className="font-medium text-gray-700 dark:text-gray-200">{deletedByName}</span>
-            </div>
-            {deletedLabel && (
-              <div>
-                {t('trash.deletedOn')}:{' '}
-                <span className="font-medium text-gray-700 dark:text-gray-200">{deletedLabel}</span>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-
-      <div className="mt-2 flex flex-wrap items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
-        <button
-          type="button"
-          disabled={restoring || purging}
-          onClick={() => void onRestore()}
-          className="inline-flex items-center gap-1 rounded-md bg-blue-700 px-2 py-1 text-xs font-medium text-white transition-colors hover:bg-blue-800 disabled:opacity-50 dark:bg-blue-700 dark:hover:bg-blue-600"
-          aria-label={t('trash.restore')}
+      <div className="flex items-start gap-2">
+        {/* Invisible padding enlarges the hit target; checkbox visual size stays 14px. */}
+        <label
+          className="relative -m-2 flex shrink-0 cursor-pointer items-start p-2"
+          onClick={(e) => e.stopPropagation()}
+          onKeyDown={(e) => e.stopPropagation()}
         >
-          <RotateCcw size={12} className={restoring ? 'animate-spin' : ''} />
-          {t('trash.restore')}
-        </button>
-        {isAdmin && (
+          <input
+            type="checkbox"
+            checked={checked}
+            disabled={bulkBusy}
+            onChange={onToggleCheck}
+            className="h-3.5 w-3.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700"
+            aria-label={t('trash.selectTask')}
+            data-tour-id={`trash-task-select-${task.id}`}
+          />
+        </label>
+        <div className="min-w-0 flex-1">
+          {task.ticket && (
+            <div className="mb-0.5 font-mono text-xs text-blue-600 dark:text-blue-400">
+              {task.ticket}
+            </div>
+          )}
+          <h3 className="line-clamp-2 text-sm font-medium text-gray-800 dark:text-gray-100">
+            {task.title || t('trash.untitled')}
+          </h3>
+        </div>
+        <KanbanChromeTooltip
+          label={expanded ? t('trash.collapseTask') : t('trash.expandTask')}
+          delayMs={0}
+        >
           <button
             type="button"
-            disabled={restoring || purging}
-            onClick={() => void onPurge()}
-            className="inline-flex items-center gap-1 rounded-md bg-red-600 px-2 py-1 text-xs font-medium text-white transition-colors hover:bg-red-700 disabled:opacity-50 dark:bg-red-600 dark:hover:bg-red-500"
-            aria-label={t('trash.purge')}
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleExpanded();
+            }}
+            className="-m-1 shrink-0 rounded p-1 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-gray-700 dark:hover:text-gray-200"
+            aria-label={expanded ? t('trash.collapseTask') : t('trash.expandTask')}
+            aria-expanded={expanded}
           >
-            <Trash2 size={12} />
-            {t('trash.purge')}
+            {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
           </button>
-        )}
+        </KanbanChromeTooltip>
       </div>
+
+      {expanded && (
+        <div className="space-y-0.5 pt-2 text-[11px] leading-snug text-gray-500 dark:text-gray-400">
+          <div>
+            {t('trash.deletedBy')}:{' '}
+            <span className="font-medium text-gray-700 dark:text-gray-200">{deletedByName}</span>
+          </div>
+          {deletedLabel && (
+            <div>
+              {t('trash.deletedOn')}:{' '}
+              <span className="font-medium text-gray-700 dark:text-gray-200">{deletedLabel}</span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {(!bulkBusy || restoring || purging) && (
+        <div className="mt-2 flex flex-wrap items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+          {!bulkBusy && !purging && (
+            <button
+              type="button"
+              disabled={restoring}
+              onClick={() => void onRestore()}
+              className="inline-flex items-center gap-1 rounded-md bg-blue-700 px-2 py-1 text-xs font-medium text-white transition-colors hover:bg-blue-800 disabled:opacity-50 dark:bg-blue-700 dark:hover:bg-blue-600"
+              aria-label={t('trash.restore')}
+            >
+              <RotateCcw size={12} className={restoring ? 'animate-spin' : ''} />
+              {t('trash.restore')}
+            </button>
+          )}
+          {isAdmin && !bulkBusy && !restoring && (
+            <button
+              type="button"
+              disabled={purging}
+              onClick={() => void onPurge()}
+              className="inline-flex items-center gap-1 rounded-md bg-red-600 px-2 py-1 text-xs font-medium text-white transition-colors hover:bg-red-700 disabled:opacity-50 dark:bg-red-600 dark:hover:bg-red-500"
+              aria-label={t('trash.purge')}
+            >
+              <Trash2 size={12} />
+              {t('trash.purge')}
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -118,18 +176,89 @@ export default function BoardTrashView({
   displayColumns,
   columns,
   isAdmin,
+  detailsTaskId = null,
   gridStyle,
   scrollContainerRef,
   loading,
   onSelectTask,
   onRestore,
   onPurge,
+  onRestoreSelected,
+  onPurgeSelected,
   onClose,
 }: BoardTrashViewProps) {
   const { t } = useTranslation(['tasks', 'common']);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [busyAction, setBusyAction] = useState<'restore' | 'purge' | null>(null);
   const [purgeConfirmId, setPurgeConfirmId] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkConfirm, setBulkConfirm] = useState<'purgeSelected' | 'emptyTrash' | null>(null);
+  const bulkConfirmRef = useRef<HTMLDivElement>(null);
+  const cardPurgeConfirmRef = useRef<HTMLDivElement>(null);
+
+  const dismissConfirms = () => {
+    setBulkConfirm(null);
+    setPurgeConfirmId(null);
+  };
+
+  // ESC / click-outside dismiss confirmation overlays (same as Cancel).
+  useEffect(() => {
+    if (!bulkConfirm && !purgeConfirmId) return;
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        dismissConfirms();
+      }
+    };
+
+    const onPointerDown = (event: MouseEvent) => {
+      const target = event.target as Node | null;
+      if (!target) return;
+      if (bulkConfirmRef.current?.contains(target)) return;
+      if (cardPurgeConfirmRef.current?.contains(target)) return;
+      dismissConfirms();
+    };
+
+    document.addEventListener('keydown', onKeyDown);
+    // Defer so the click that opened the confirm does not immediately close it.
+    const timer = window.setTimeout(() => {
+      document.addEventListener('mousedown', onPointerDown);
+    }, 0);
+
+    return () => {
+      window.clearTimeout(timer);
+      document.removeEventListener('keydown', onKeyDown);
+      document.removeEventListener('mousedown', onPointerDown);
+    };
+  }, [bulkConfirm, purgeConfirmId]);
+
+  const taskIds = useMemo(() => tasks.map((task) => task.id), [tasks]);
+
+  // Drop selection for tasks that left trash; never keep stale ids.
+  useEffect(() => {
+    setSelectedIds((prev) => {
+      if (prev.size === 0) return prev;
+      const next = new Set<string>();
+      taskIds.forEach((id) => {
+        if (prev.has(id)) next.add(id);
+      });
+      return next.size === prev.size ? prev : next;
+    });
+    setExpandedIds((prev) => {
+      if (prev.size === 0) return prev;
+      const next = new Set<string>();
+      taskIds.forEach((id) => {
+        if (prev.has(id)) next.add(id);
+      });
+      return next.size === prev.size ? prev : next;
+    });
+  }, [taskIds]);
+
+  const allSelected = tasks.length > 0 && selectedIds.size === tasks.length;
+  const selectionCount = selectedIds.size;
 
   const closeButton = onClose ? (
     <button
@@ -142,6 +271,12 @@ export default function BoardTrashView({
       {t('buttons.close', { ns: 'common' })}
     </button>
   ) : null;
+
+  const headerActionClass =
+    'inline-flex items-center rounded-md border border-amber-300/80 bg-white/80 px-2 py-1 text-xs font-medium text-gray-700 transition-colors hover:bg-amber-100/80 disabled:cursor-not-allowed disabled:opacity-50 dark:border-amber-800 dark:bg-gray-900/40 dark:text-gray-200 dark:hover:bg-amber-900/40';
+
+  const dangerActionClass =
+    'inline-flex items-center rounded-md border border-red-300 bg-white/80 px-2 py-1 text-xs font-medium text-red-700 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-red-800 dark:bg-gray-900/40 dark:text-red-300 dark:hover:bg-red-950/40';
 
   const tasksByColumn = useMemo(() => {
     const map = new Map<string, Task[]>();
@@ -181,11 +316,67 @@ export default function BoardTrashView({
     [gridStyle]
   );
 
+  const toggleSelect = (taskId: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(taskId)) next.delete(taskId);
+      else next.add(taskId);
+      return next;
+    });
+  };
+
+  const toggleExpanded = (taskId: string) => {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(taskId)) next.delete(taskId);
+      else next.add(taskId);
+      return next;
+    });
+  };
+
+  const setColumnExpanded = (columnTasks: Task[], expanded: boolean) => {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      columnTasks.forEach((task) => {
+        if (expanded) next.add(task.id);
+        else next.delete(task.id);
+      });
+      return next;
+    });
+  };
+
+  const toggleColumnSelected = (columnTasks: Task[]) => {
+    const columnAllSelected =
+      columnTasks.length > 0 && columnTasks.every((task) => selectedIds.has(task.id));
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      columnTasks.forEach((task) => {
+        if (columnAllSelected) next.delete(task.id);
+        else next.add(task.id);
+      });
+      return next;
+    });
+  };
+
+  const handleSelectAllToggle = () => {
+    if (allSelected) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(taskIds));
+    }
+  };
+
   const handleRestore = async (taskId: string) => {
     setBusyId(taskId);
     setBusyAction('restore');
     try {
       await onRestore(taskId);
+      setSelectedIds((prev) => {
+        if (!prev.has(taskId)) return prev;
+        const next = new Set(prev);
+        next.delete(taskId);
+        return next;
+      });
     } finally {
       setBusyId(null);
       setBusyAction(null);
@@ -198,9 +389,42 @@ export default function BoardTrashView({
     setBusyAction('purge');
     try {
       await onPurge(taskId);
+      setSelectedIds((prev) => {
+        if (!prev.has(taskId)) return prev;
+        const next = new Set(prev);
+        next.delete(taskId);
+        return next;
+      });
     } finally {
       setBusyId(null);
       setBusyAction(null);
+    }
+  };
+
+  const runRestoreSelected = async () => {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0 || bulkBusy) return;
+    setBulkBusy(true);
+    try {
+      await onRestoreSelected(ids);
+      setSelectedIds(new Set());
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+
+  const runConfirmedBulkPurge = async () => {
+    if (!bulkConfirm || bulkBusy) return;
+    const ids =
+      bulkConfirm === 'emptyTrash' ? [...taskIds] : Array.from(selectedIds);
+    setBulkConfirm(null);
+    if (ids.length === 0) return;
+    setBulkBusy(true);
+    try {
+      await onPurgeSelected(ids);
+      setSelectedIds(new Set());
+    } finally {
+      setBulkBusy(false);
     }
   };
 
@@ -239,14 +463,28 @@ export default function BoardTrashView({
           <TrashedTaskCard
             task={task}
             isAdmin={isAdmin}
+            checked={selectedIds.has(task.id)}
+            isDetailsOpen={detailsTaskId === task.id}
+            expanded={expandedIds.has(task.id)}
             restoring={busyId === task.id && busyAction === 'restore'}
             purging={busyId === task.id && busyAction === 'purge'}
-            onSelect={() => onSelectTask(task)}
+            bulkBusy={bulkBusy}
+            onOpen={() => onSelectTask(task)}
+            onToggleCheck={() => toggleSelect(task.id)}
+            onToggleExpanded={() => toggleExpanded(task.id)}
             onRestore={() => handleRestore(task.id)}
-            onPurge={() => setPurgeConfirmId(task.id)}
+            onPurge={() => {
+              setBulkConfirm(null);
+              setPurgeConfirmId(task.id);
+            }}
           />
           {purgeConfirmId === task.id && (
-            <div className="absolute inset-x-1 top-1 z-10 rounded-lg border border-red-200 bg-white p-3 shadow-lg dark:border-red-800 dark:bg-gray-900">
+            <div
+              ref={cardPurgeConfirmRef}
+              role="dialog"
+              aria-modal="true"
+              className="absolute inset-x-1 top-1 z-10 rounded-lg border border-red-200 bg-white p-3 shadow-lg dark:border-red-800 dark:bg-gray-900"
+            >
               <p className="mb-2 text-xs text-gray-700 dark:text-gray-200">
                 {t('trash.purgeConfirm')}
               </p>
@@ -254,7 +492,7 @@ export default function BoardTrashView({
                 <button
                   type="button"
                   className="rounded px-2 py-1 text-xs text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"
-                  onClick={() => setPurgeConfirmId(null)}
+                  onClick={dismissConfirms}
                 >
                   {t('buttons.cancel', { ns: 'common' })}
                 </button>
@@ -273,28 +511,160 @@ export default function BoardTrashView({
     </div>
   );
 
+  const renderColumnHeader = (title: string, columnTasks: Task[]) => {
+    const allExpanded =
+      columnTasks.length > 0 && columnTasks.every((task) => expandedIds.has(task.id));
+    const columnAllSelected =
+      columnTasks.length > 0 && columnTasks.every((task) => selectedIds.has(task.id));
+    const expandLabel = allExpanded ? t('trash.collapseColumn') : t('trash.expandColumn');
+    const selectLabel = columnAllSelected ? t('trash.unselectColumn') : t('trash.selectColumn');
+
+    return (
+      <div className="mb-1.5 flex min-h-4 items-center gap-1 px-0.5 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+        <div className="min-w-0 flex-1 truncate">
+          {title}
+          <span className="ml-1 font-normal normal-case text-gray-400">
+            ({columnTasks.length})
+          </span>
+        </div>
+        <div className="flex shrink-0 items-center gap-0.5">
+          {columnTasks.length > 0 && (
+            <>
+              <KanbanChromeTooltip label={expandLabel} delayMs={0} placement="top">
+                <button
+                  type="button"
+                  onClick={() => setColumnExpanded(columnTasks, !allExpanded)}
+                  className="rounded p-0.5 text-gray-400 transition-colors hover:bg-gray-200 hover:text-gray-700 dark:hover:bg-gray-700 dark:hover:text-gray-200"
+                  aria-label={expandLabel}
+                >
+                  {allExpanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+                </button>
+              </KanbanChromeTooltip>
+              {!bulkBusy && (
+                <KanbanChromeTooltip label={selectLabel} delayMs={0} placement="top">
+                  <button
+                    type="button"
+                    onClick={() => toggleColumnSelected(columnTasks)}
+                    className="rounded p-0.5 text-gray-400 transition-colors hover:bg-gray-200 hover:text-blue-600 dark:hover:bg-gray-700 dark:hover:text-blue-400"
+                    aria-label={selectLabel}
+                  >
+                    {columnAllSelected ? <CheckSquare2 size={13} /> : <Square size={13} />}
+                  </button>
+                </KanbanChromeTooltip>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div
-      className="mb-3 rounded-xl border border-amber-200/80 bg-amber-50/40 py-2 dark:border-amber-900/50 dark:bg-amber-950/20"
+      className="relative mb-3 rounded-xl border border-amber-200/80 bg-amber-50/40 py-2 dark:border-amber-900/50 dark:bg-amber-950/20"
       data-tour-id="board-trash-view"
     >
-      <div className="relative mb-2 flex items-center justify-between gap-2 px-1 min-h-[1.5rem]">
-        <h3 className="relative z-10 text-sm font-semibold text-gray-800 dark:text-gray-100 whitespace-nowrap bg-amber-50/90 dark:bg-amber-950/40 pr-2">
+      <div className="relative z-10 mb-2 flex min-h-[1.75rem] items-center gap-1.5 overflow-x-auto px-1 pb-0.5">
+        <h3 className="shrink-0 whitespace-nowrap text-sm font-semibold text-gray-800 dark:text-gray-100">
           {t('trash.title')}
           <span className="ml-2 rounded-full bg-amber-200/80 px-2 py-0.5 text-xs font-medium text-amber-900 dark:bg-amber-900/60 dark:text-amber-100">
             {tasks.length}
           </span>
         </h3>
-        <p className="pointer-events-none absolute inset-x-0 text-center text-sm font-semibold text-gray-800 dark:text-gray-100 truncate px-28">
+        <div className="flex shrink-0 items-center gap-1.5">
+          {!bulkBusy && (
+            <button
+              type="button"
+              onClick={handleSelectAllToggle}
+              className={headerActionClass}
+              data-tour-id="board-trash-select-all"
+            >
+              {allSelected ? t('trash.unselectAll') : t('trash.selectAll')}
+            </button>
+          )}
+          {!bulkBusy && selectionCount > 0 && (
+            <button
+              type="button"
+              onClick={() => void runRestoreSelected()}
+              className={headerActionClass}
+              data-tour-id="board-trash-restore-selected"
+            >
+              {t('trash.restoreSelected')}
+            </button>
+          )}
+          {isAdmin && !bulkBusy && selectionCount > 0 && (
+            <button
+              type="button"
+              onClick={() => {
+                setPurgeConfirmId(null);
+                setBulkConfirm('purgeSelected');
+              }}
+              className={dangerActionClass}
+              data-tour-id="board-trash-delete-selected"
+            >
+              {t('trash.deleteSelected')}
+            </button>
+          )}
+          {isAdmin && !bulkBusy && (
+            <button
+              type="button"
+              onClick={() => {
+                setPurgeConfirmId(null);
+                setBulkConfirm('emptyTrash');
+              }}
+              className={dangerActionClass}
+              data-tour-id="board-trash-empty"
+            >
+              {t('trash.emptyTrash')}
+            </button>
+          )}
+          {selectionCount > 0 && (
+            <span className="text-xs font-medium text-amber-900 dark:text-amber-100">
+              {t('trash.selectedCount', { count: selectionCount })}
+            </span>
+          )}
+        </div>
+        <p className="min-w-[12rem] flex-1 truncate text-center text-xs font-semibold text-gray-700 dark:text-gray-200">
           {t('trash.instruction')}
         </p>
-        <div className="relative z-10 flex items-center gap-2 whitespace-nowrap bg-amber-50/90 dark:bg-amber-950/40 pl-2">
-          <p className="text-xs text-gray-500 dark:text-gray-400 text-right">
-            {t('trash.subtitle')}
-          </p>
-          {closeButton}
-        </div>
+        <p className="shrink-0 whitespace-nowrap text-right text-xs text-gray-500 dark:text-gray-400">
+          {t('trash.subtitle')}
+        </p>
+        <div className="shrink-0">{closeButton}</div>
       </div>
+
+      {bulkConfirm && (
+        <div
+          ref={bulkConfirmRef}
+          role="dialog"
+          aria-modal="true"
+          className="absolute right-2 top-10 z-20 w-96 rounded-lg border border-red-200 bg-white p-3 shadow-lg dark:border-red-800 dark:bg-gray-900"
+          style={{ maxWidth: 'calc(100% - 1rem)' }}
+        >
+          <p className="mb-2 text-xs text-gray-700 dark:text-gray-200">
+            {bulkConfirm === 'emptyTrash'
+              ? t('trash.emptyTrashConfirm', { count: tasks.length })
+              : t('trash.purgeSelectedConfirm', { count: selectionCount })}
+          </p>
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              className="rounded px-2 py-1 text-xs text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"
+              onClick={dismissConfirms}
+            >
+              {t('buttons.cancel', { ns: 'common' })}
+            </button>
+            <button
+              type="button"
+              className="rounded bg-red-600 px-2 py-1 text-xs text-white hover:bg-red-700"
+              onClick={() => void runConfirmedBulkPurge()}
+              data-tour-id="board-trash-bulk-purge-confirm"
+            >
+              {bulkConfirm === 'emptyTrash' ? t('trash.emptyTrash') : t('trash.deleteSelected')}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Same grid as live board — no horizontal padding so columns line up */}
       <div
@@ -307,12 +677,7 @@ export default function BoardTrashView({
             const columnTasks = tasksByColumn.get(column.id) || [];
             return (
               <div key={column.id} className="relative min-w-0 self-start">
-                <div className="mb-1.5 truncate px-0.5 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
-                  {column.title}
-                  <span className="ml-1 font-normal normal-case text-gray-400">
-                    ({columnTasks.length})
-                  </span>
-                </div>
+                {renderColumnHeader(column.title, columnTasks)}
                 {columnTasks.length > 0 ? (
                   renderColumnCards(columnTasks)
                 ) : (
@@ -327,12 +692,7 @@ export default function BoardTrashView({
 
         {orphanTasks.length > 0 && (
           <div className="mt-2 px-1">
-            <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
-              {t('trash.unknownColumn')}
-              <span className="ml-1 font-normal normal-case text-gray-400">
-                ({orphanTasks.length})
-              </span>
-            </div>
+            {renderColumnHeader(t('trash.unknownColumn'), orphanTasks)}
             <div className="grid gap-2" style={{ gridTemplateColumns: trashGridStyle.gridTemplateColumns }}>
               {renderColumnCards(orphanTasks)}
             </div>

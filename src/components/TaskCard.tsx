@@ -1473,7 +1473,7 @@ const TaskCard = React.memo(function TaskCard({
           position: 'relative'
         }}
         className={`group task-card sortable-item cursor-pointer ${
-          isSelected ? 'bg-gray-100 dark:bg-gray-700' : 
+          isSelected ? 'bg-gray-100 dark:bg-gray-700 ring-2 ring-amber-400 dark:ring-amber-500' : 
           member.id === SYSTEM_MEMBER_ID ? 'bg-yellow-50 dark:bg-yellow-900' :
           isAgentWorkActive ? 'bg-teal-50/90 dark:bg-teal-950/40' :
           '' // Background now handled by CSS variable in style to prevent flash
