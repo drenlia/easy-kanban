@@ -178,7 +178,7 @@ export default function Tools({
           {openMenu === 'view' && (
             <div
               role="menu"
-              className="absolute left-0 top-full z-50 mt-1 rounded-md border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 shadow-lg overflow-hidden"
+              className="absolute left-0 top-full z-[60] mt-1 rounded-md border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 shadow-lg overflow-hidden"
             >
               {viewModeOptions.map((option) =>
                 renderMenuItem(
@@ -273,7 +273,7 @@ export default function Tools({
             {openMenu === 'density' && (
               <div
                 role="menu"
-                className="absolute left-0 top-full z-50 mt-1 rounded-md border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 shadow-lg overflow-hidden"
+                className="absolute left-0 top-full z-[60] mt-1 rounded-md border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 shadow-lg overflow-hidden"
               >
                 {densityOptions.map((option) =>
                   renderMenuItem(

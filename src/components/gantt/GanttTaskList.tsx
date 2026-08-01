@@ -1,23 +1,17 @@
 import React, { memo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useDroppable } from '@dnd-kit/core';
-import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
-import { CSS } from '@dnd-kit/utilities';
 import { Task, Columns } from '../../types';
 import { Copy, Trash2 } from 'lucide-react';
-import { SortableTaskRowItem } from './types';
 
 
 interface GanttTaskListProps {
   columns: Columns;
   groupedTasks: { [columnId: string]: any[] };
-  visibleTasks: any[];
   selectedTask?: Task | null;
   selectedTasks: string[];
   isMultiSelectMode: boolean;
   isRelationshipMode: boolean;
   selectedParentTask: string | null;
-  activeDragItem: any;
   priorities: any[];
   taskColumnWidth: number;
   taskViewMode: string;
@@ -30,66 +24,6 @@ interface GanttTaskListProps {
   siteSettings?: any;
 }
 
-// Drop zone component
-const DropZone = memo(({ columnId, columnName, isVisible }: { 
-  columnId: string; 
-  columnName?: string;
-  isVisible: boolean;
-}) => {
-  const { t } = useTranslation('common');
-  const { setNodeRef, isOver } = useDroppable({
-    id: `drop-zone-${columnId}`,
-    data: {
-      type: 'column-drop-zone',
-      columnId: columnId
-    }
-  });
-  
-  if (!isVisible) return null;
-  
-  return (
-    <div 
-      ref={setNodeRef}
-      className={`px-4 py-2 border-2 border-dashed rounded-lg mx-2 my-1 text-center transition-colors ${
-        isOver 
-          ? 'bg-green-50 dark:bg-green-900 border-green-400 dark:border-green-500' 
-          : 'bg-blue-50 dark:bg-blue-900 border-blue-300 dark:border-blue-600'
-      }`}
-    >
-      <div className="text-blue-600 dark:text-blue-200 text-xs font-medium">
-        📋 {t('gantt.dropHereToMoveTask', { columnName: columnName || t('gantt.thisGroup') })}
-      </div>
-    </div>
-  );
-});
-
-DropZone.displayName = 'DropZone';
-
-// Droppable group wrapper
-const DroppableGroup = memo(({ children, columnId }: { children: React.ReactNode; columnId: string }) => {
-  const { setNodeRef, isOver } = useDroppable({
-    id: `column-${columnId}`,
-    data: {
-      type: 'column-drop',
-      columnId: columnId
-    }
-  });
-
-  return (
-    <div
-      ref={setNodeRef}
-      data-column-id={columnId}
-      className={`transition-colors duration-200 ${
-        isOver ? 'bg-blue-50 dark:bg-blue-900' : ''
-      }`}
-    >
-      {children}
-    </div>
-  );
-});
-
-DroppableGroup.displayName = 'DroppableGroup';
-
 // Individual task row component
 const TaskRow = memo(({ 
   task, 
@@ -97,9 +31,6 @@ const TaskRow = memo(({
   isSelected,
   isMultiSelectMode,
   isRelationshipMode,
-  selectedParentTask,
-  activeDragItem,
-  priorities,
   taskViewMode,
   selectedTask,
   onSelectTask,
@@ -108,74 +39,9 @@ const TaskRow = memo(({
   onCopyTask,
   onRemoveTask,
   highlightedTaskId,
-  columns,
-  siteSettings
 }: any) => {
   const { t } = useTranslation('common');
-  const isThisTaskDragging = activeDragItem && 
-    (activeDragItem as SortableTaskRowItem).type === 'task-row-reorder' && 
-    (activeDragItem as SortableTaskRowItem).task.id === task.id;
-
-  // Helper function to parse date string as local date (avoiding timezone issues)
-  const parseLocalDate = (dateString: string): Date => {
-    if (!dateString) return new Date();
-    
-    // Handle both YYYY-MM-DD and full datetime strings
-    const dateOnly = dateString.split('T')[0]; // Get just the date part
-    const [year, month, day] = dateOnly.split('-').map(Number);
-    
-    // Create date in local timezone
-    return new Date(year, month - 1, day); // month is 0-indexed
-  };
-
-  // Helper function to check if a task is overdue
-  const isTaskOverdue = (task: any) => {
-    if (!task.dueDate) return false;
-    const today = new Date();
-    const dueDate = parseLocalDate(task.dueDate);
-    // Set time to beginning of day for fair comparison
-    today.setHours(0, 0, 0, 0);
-    dueDate.setHours(0, 0, 0, 0);
-    return dueDate < today;
-  };
-
-  // Helper function to check if a column is finished
-  const isColumnFinished = (columnId: string) => {
-    const column = columns[columnId];
-    return column?.is_finished || false;
-  };
-
-  // Helper function to check if a column is archived
-  const isColumnArchived = (columnId: string) => {
-    const column = columns[columnId];
-    return column?.is_archived || false;
-  };
-
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({
-    id: task.id,
-    data: {
-      type: 'task-row-reorder',
-      task: task,
-      taskIndex: taskIndex,
-      columnId: task.columnId,
-    },
-    disabled: false
-  });
-
-  const style = {
-    transform: isThisTaskDragging ? 'none' : (transform ? CSS.Transform.toString(transform) : undefined),
-    transition: isDragging ? 'none' : transition,
-    zIndex: (isDragging || isThisTaskDragging) ? 1000 : 'auto',
-    opacity: isThisTaskDragging ? 0 : (isDragging ? 0.3 : 1),
-  };
-
+  const isTaskDetailsOpen = selectedTask?.id === task.id;
 
   const handleClick = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -202,45 +68,29 @@ const TaskRow = memo(({
 
   return (
     <div 
-      ref={setNodeRef}
       key={`task-info-${task.id}`}
       data-task-id={task.id}
-      style={style}
       className={`relative p-2 border-b border-gray-100 ${
         taskViewMode === 'compact' ? 'h-12' : 
         taskViewMode === 'shrink' ? 'h-14' : 
         'h-20'
       } ${taskIndex % 2 === 0 ? 'bg-white dark:bg-gray-800' : 'bg-gray-50 dark:bg-gray-700'} 
       hover:bg-blue-50 dark:hover:bg-blue-900 transition-all duration-200 ease-out ${
-        (isDragging || isThisTaskDragging) ? '!border-2 !border-blue-500 !shadow-lg !rounded-lg bg-blue-50 dark:bg-blue-900' : ''
-      } ${isSelected ? 'bg-blue-100 dark:bg-blue-800 ring-2 ring-blue-400' : ''} ${
-        highlightedTaskId === task.id ? 'bg-yellow-200 dark:bg-yellow-800 ring-2 ring-yellow-400 dark:ring-yellow-600 ring-inset' : ''
+        isSelected && highlightedTaskId !== task.id
+          ? 'bg-blue-100 dark:bg-blue-800 ring-2 ring-blue-400'
+          : ''
       }`}
       onClick={handleClick}
     >
-      {/* Drag handle - connected to useSortable */}
-      <div 
-        className="absolute left-0 top-1/2 -translate-y-1/2 opacity-0 hover:opacity-100 group-hover:opacity-100 transition-opacity cursor-grab active:cursor-grabbing"
-        {...attributes}
-        {...listeners}
-        onClick={(e) => e.stopPropagation()}
-        title={t('gantt.dragToReorderTask', { taskTitle: task.title })}
-      >
-        <div className="flex items-center justify-center w-6 h-6 text-gray-400 hover:text-gray-600 transition-colors">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M8 6h2v2H8V6zm6 0h2v2h-2V6zM8 10h2v2H8v-2zm6 0h2v2h-2v-2zM8 14h2v2H8v-2zm6 0h2v2h-2v-2z"/>
-          </svg>
-        </div>
-      </div>
-
       {/* Main content area with proper flex layout */}
-      <div className="flex items-center gap-2 ml-6 pr-2">
-        {/* ROW REORDERING ZONE - Only for vertical dragging */}
+      <div className="flex items-center gap-2 pr-2">
         <button
           className={`text-left flex-1 min-w-0 rounded px-1 py-1 transition-all duration-300 ${
-            highlightedTaskId === task.id 
-              ? 'bg-yellow-200 dark:bg-yellow-800 ring-2 ring-yellow-400 dark:ring-yellow-600 ring-inset' 
-              : 'hover:bg-gray-100 dark:hover:bg-gray-700'
+            highlightedTaskId === task.id
+              ? 'bg-yellow-200 dark:bg-yellow-800 ring-2 ring-yellow-400 dark:ring-yellow-600 ring-inset'
+              : isTaskDetailsOpen
+                ? 'bg-gray-100 dark:bg-gray-700 ring-1 ring-amber-400 dark:ring-amber-500 ring-inset'
+                : 'hover:bg-gray-100 dark:hover:bg-gray-700'
           }`}
         >
           <div className="flex items-center gap-2 mb-1">
@@ -315,16 +165,11 @@ const TaskRow = memo(({
 TaskRow.displayName = 'TaskRow';
 
 const GanttTaskList = memo(({
-  columns,
   groupedTasks,
-  visibleTasks,
   selectedTask,
   selectedTasks,
   isMultiSelectMode,
   isRelationshipMode,
-  selectedParentTask,
-  activeDragItem,
-  priorities,
   taskColumnWidth,
   taskViewMode,
   onSelectTask,
@@ -333,7 +178,6 @@ const GanttTaskList = memo(({
   onCopyTask,
   onRemoveTask,
   highlightedTaskId,
-  siteSettings
 }: GanttTaskListProps) => {
   const { t } = useTranslation('common');
   return (
@@ -346,68 +190,48 @@ const GanttTaskList = memo(({
         <span className="text-sm text-blue-700 dark:text-blue-200 font-medium">{t('gantt.addTasksHere')}</span>
       </div>
       
-      {/* Task List with Sortable */}
-      <SortableContext 
-        items={visibleTasks.filter(task => task && task.id).map(task => task.id)} 
-        strategy={verticalListSortingStrategy}
-      >
-          {Object.entries(groupedTasks).map(([columnId, tasks], groupIndex) => {
-            // Always render column separator, even for empty columns
-            if (tasks.length === 0) {
-              return (
-                <React.Fragment key={`empty-${columnId}`}>
-                  {groupIndex > 0 && (
-                    <div className="bg-pink-300 dark:bg-pink-600 h-0.5 w-full"></div>
-                  )}
-                </React.Fragment>
-              );
-            }
+      {/* Task List */}
+      {Object.entries(groupedTasks).map(([columnId, tasks], groupIndex) => {
+        // Always render column separator, even for empty columns
+        if (tasks.length === 0) {
+          return (
+            <React.Fragment key={`empty-${columnId}`}>
+              {groupIndex > 0 && (
+                <div className="bg-pink-300 dark:bg-pink-600 h-0.5 w-full"></div>
+              )}
+            </React.Fragment>
+          );
+        }
+        
+        return (
+          <div key={columnId} data-column-id={columnId}>
+            {/* Column separator */}
+            {groupIndex > 0 && (
+              <div className="bg-pink-300 dark:bg-pink-600 h-0.5 w-full flex-shrink-0"></div>
+            )}
             
-            
-            return (
-              <DroppableGroup key={columnId} columnId={columnId}>
-                {/* Column separator */}
-                {groupIndex > 0 && (
-                  <div className="bg-pink-300 dark:bg-pink-600 h-0.5 w-full flex-shrink-0"></div>
-                )}
-                
-                {/* Drop zone */}
-                <DropZone 
-                  columnId={columnId}
-                  columnName={columns[columnId]?.title || t('gantt.column', { columnId })}
-                  isVisible={((activeDragItem as SortableTaskRowItem)?.type === 'task-row-reorder') && 
-                    activeDragItem && 
-                    (activeDragItem as SortableTaskRowItem).task.columnId !== columnId}
-                />
-                
-                {/* Tasks */}
-                {tasks.map((task, taskIndex) => (
-                  <TaskRow
-                    key={`tasklist-task-${task.id}-${columnId}-${taskIndex}`}
-                    task={task}
-                    taskIndex={taskIndex}
-                    isSelected={selectedTasks.includes(task.id)}
-                    isMultiSelectMode={isMultiSelectMode}
-                    isRelationshipMode={isRelationshipMode}
-                    selectedParentTask={selectedParentTask}
-                    activeDragItem={activeDragItem}
-                    priorities={priorities}
-                    taskViewMode={taskViewMode}
-                    selectedTask={selectedTask}
-                    onSelectTask={onSelectTask}
-                    onTaskSelect={onTaskSelect}
-                    onRelationshipClick={onRelationshipClick}
-                    onCopyTask={onCopyTask}
-                    onRemoveTask={onRemoveTask}
-                    highlightedTaskId={highlightedTaskId}
-                    columns={columns}
-                    siteSettings={siteSettings}
-                  />
-                ))}
-              </DroppableGroup>
-            );
-          })}
-        </SortableContext>
+            {/* Tasks */}
+            {tasks.map((task, taskIndex) => (
+              <TaskRow
+                key={`tasklist-task-${task.id}-${columnId}-${taskIndex}`}
+                task={task}
+                taskIndex={taskIndex}
+                isSelected={selectedTasks.includes(task.id)}
+                isMultiSelectMode={isMultiSelectMode}
+                isRelationshipMode={isRelationshipMode}
+                taskViewMode={taskViewMode}
+                selectedTask={selectedTask}
+                onSelectTask={onSelectTask}
+                onTaskSelect={onTaskSelect}
+                onRelationshipClick={onRelationshipClick}
+                onCopyTask={onCopyTask}
+                onRemoveTask={onRemoveTask}
+                highlightedTaskId={highlightedTaskId}
+              />
+            ))}
+          </div>
+        );
+      })}
     </div>
   );
 });

@@ -7,7 +7,7 @@ import GanttTaskList from './gantt/GanttTaskList';
 import GanttTimeline from './gantt/GanttTimeline';
 import { createPortal } from 'react-dom';
 import TaskDependencyArrows from './gantt/TaskDependencyArrows';
-import { DRAG_TYPES, GanttDragItem, SortableTaskRowItem } from './gantt/types';
+import { DRAG_TYPES, GanttDragItem } from './gantt/types';
 import { GanttHeader } from './gantt/GanttHeader';
 import { getAllPriorities, addTaskRelationship, removeTaskRelationship, getUserSettings, batchUpdateTasks } from '../api';
 import websocketClient from '../services/websocketClient';
@@ -1181,9 +1181,6 @@ const GanttViewV2 = ({
     return groups;
   }, [ganttTasks, columns]);
 
-  // Visible tasks for list
-  const visibleTasks = ganttTasks;
-
 
   // Calculate task positions for dependency arrows
   const calculateTaskPositions = useCallback(() => {
@@ -1504,164 +1501,6 @@ const GanttViewV2 = ({
     setTaskCreationStart(null);
     setTaskCreationEnd(null);
   }, [isCreatingTask, taskCreationStart, taskCreationEnd, columns, onAddTask]);
-
-  // Drag handlers for task list
-  const handleTaskListDragStart = useCallback((event: DragStartEvent) => {
-    const dragData = event.active.data.current;
-    setActiveDragItem(dragData);
-    activeDragItemRef.current = dragData;
-  }, []);
-
-  const handleTaskListDragEnd = useCallback((event: DragEndEvent) => {
-    const { active, over } = event;
-    
-    
-    if (over) {
-      const activeData = active.data.current as SortableTaskRowItem;
-      const overData = over.data.current;
-      
-      // Handle dropping on column drop zone (cross-column move) - check by ID first
-      if (activeData.type === 'task-row-reorder' && over.id && over.id.startsWith('drop-zone-')) {
-        const targetColumnId = over.id.replace('drop-zone-', '');
-        const activeTask = activeData.task;
-        
-        
-        if (activeTask.columnId !== targetColumnId && onUpdateTask) {
-          // Move task to different column
-          const sourceColumn = columns[activeTask.columnId];
-          const targetColumn = columns[targetColumnId];
-          
-          if (sourceColumn && targetColumn) {
-            // Get source tasks sorted by position - filter out invalid tasks
-            const sourceTasks = [...sourceColumn.tasks]
-              .filter(task => task && task.id && typeof task.position === 'number')
-              .sort((a, b) => (a.position || 0) - (b.position || 0));
-            const targetTasks = [...targetColumn.tasks]
-              .filter(task => task && task.id && typeof task.position === 'number')
-              .sort((a, b) => (a.position || 0) - (b.position || 0));
-            
-            // Remove task from source column
-            const filteredSourceTasks = sourceTasks.filter(t => t.id !== activeTask.id);
-            
-            // Add task to target column at position 0
-            const newTargetTasks = [activeTask, ...targetTasks];
-            
-            // Update positions for source column tasks (0 to n-1)
-            filteredSourceTasks.forEach((task, index) => {
-              if (task.position !== index) {
-                // Find the original task data from the source column
-                const originalTask = sourceColumn.tasks.find(t => t.id === task.id);
-                if (originalTask && originalTask.id) {
-                  onUpdateTask({
-                    ...originalTask,
-                    position: index
-                  });
-                }
-              }
-            });
-            
-            // Update positions for target column tasks (including moved task)
-            newTargetTasks.forEach((task, index) => {
-              // Find the original task data from the appropriate column
-              const originalTask = task.id === activeTask.id 
-                ? sourceColumn.tasks.find(t => t.id === task.id)
-                : targetColumn.tasks.find(t => t.id === task.id);
-              
-              if (originalTask && originalTask.id) {
-                onUpdateTask({
-                  ...originalTask,
-                  columnId: targetColumnId,
-                  position: index
-                });
-              }
-            });
-          }
-        }
-        
-        // Clear drag state immediately for cross-column drops to prevent snap-back
-        setActiveDragItem(null);
-        activeDragItemRef.current = null;
-        
-        // Refresh data to show the updated UI immediately
-        if (onRefreshData) {
-          // Add a small delay to ensure backend updates are processed
-          setTimeout(() => {
-            onRefreshData();
-          }, 100);
-        }
-        return;
-      }
-      
-      // Handle task reordering within the same column
-      if (active.id !== over.id && activeData.type === 'task-row-reorder' && overData?.type === 'task-row-reorder') {
-        const activeTask = activeData.task;
-        const overTask = overData.task;
-        
-        if (activeTask.columnId === overTask.columnId) {
-          // Same column reordering - use exact logic from original GanttView
-          const column = columns[activeTask.columnId];
-          if (column && onUpdateTask) {
-            // Get all tasks in the same column, sorted by current order
-            // Filter out tasks with invalid IDs or positions first
-            const columnTasks = [...column.tasks]
-              .filter(task => task && task.id && typeof task.position === 'number')
-              .sort((a, b) => (a.position || 0) - (b.position || 0));
-            
-            // Find indices within the column only
-            const draggedIndex = columnTasks.findIndex(t => t.id === activeTask.id);
-            const targetIndex = columnTasks.findIndex(t => t.id === overTask.id);
-            
-            
-            if (draggedIndex !== -1 && targetIndex !== -1) {
-              // Create new array with reordered tasks
-              const newTasks = [...columnTasks];
-              const [draggedTaskData] = newTasks.splice(draggedIndex, 1);
-              newTasks.splice(targetIndex, 0, draggedTaskData);
-              
-              // Update positions for all affected tasks (0 to n-1)
-              // Use the original task data from columnTasks, not the drag data
-              newTasks.forEach((task, index) => {
-                if (task.position !== index) {
-                  // Find the original task data from the column to ensure we have complete data
-                  const originalTask = column.tasks.find(t => t.id === task.id);
-                  if (originalTask && originalTask.id) {
-                    onUpdateTask({
-                      ...originalTask,
-                      position: index
-                    });
-                  } else {
-                    console.error('❌ Could not find original task or task has no ID:', {
-                      taskId: task.id,
-                      taskTitle: task.title,
-                      originalTask: !!originalTask,
-                      originalTaskId: originalTask?.id
-                    });
-                  }
-                }
-              });
-            }
-          }
-        } else {
-          // Cross-column move - not implemented yet
-        }
-      }
-    }
-    
-    setActiveDragItem(null);
-    activeDragItemRef.current = null;
-  }, [columns, onUpdateTask]);
-
-  const handleTaskListDragOver = useCallback((event: DragOverEvent) => {
-    // Handle drag over for visual feedback
-    const { active, over } = event;
-    
-    if (over) {
-      const overData = over.data.current;
-      if (overData?.type === 'column-drop') {
-        // Visual feedback for column drop zones
-      }
-    }
-  }, []);
 
   // Drag handlers for timeline (task bars)
   const handleTimelineDragStart = useCallback((event: DragStartEvent) => {
@@ -2084,59 +1923,28 @@ const GanttViewV2 = ({
 
       {/* Main content */}
       <div ref={mainContentRef} className="relative flex">
-        {/* Task list with DnD */}
-        <DndContext
-          sensors={sensors}
-          collisionDetection={closestCenter}
-          onDragStart={handleTaskListDragStart}
-          onDragEnd={handleTaskListDragEnd}
-          onDragOver={handleTaskListDragOver}
-        >
-          <GanttTaskList
-            columns={columns}
-            groupedTasks={groupedTasks}
-            visibleTasks={visibleTasks}
-            selectedTask={selectedTask}
-            selectedTasks={selectedTasks}
-            isMultiSelectMode={isMultiSelectMode}
-            isRelationshipMode={isRelationshipMode}
-            selectedParentTask={selectedParentTask}
-            activeDragItem={activeDragItem}
-            priorities={priorities}
-            taskColumnWidth={taskColumnWidth}
-            taskViewMode={taskViewMode}
-            onSelectTask={onSelectTask}
-            onTaskSelect={handleTaskSelect}
-            onRelationshipClick={handleRelationshipClick}
-            onCopyTask={onCopyTask}
-            onRemoveTask={onRemoveTask}
-            highlightedTaskId={highlightedTaskId}
-            siteSettings={siteSettings}
-          />
-          
-          {/* Task drag preview */}
-          <DragOverlay dropAnimation={null}>
-            {activeDragItem && (activeDragItem as SortableTaskRowItem).type === 'task-row-reorder' ? (
-              <div className="bg-white dark:bg-gray-800 border-2 border-blue-500 rounded-lg shadow-2xl p-4 flex items-center gap-3 opacity-95 transform rotate-1 relative min-w-[200px]">
-                <div className="flex items-center justify-center w-6 h-6 text-blue-500">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                    <path d="M8 6h2v2H8V6zm6 0h2v2h-2V6zM8 10h2v2H8v-2zm6 0h2v2h-2v-2zM8 14h2v2H8v-2zm6 0h2v2h-2v-2z"/>
-                  </svg>
-                </div>
-                <div className="flex flex-col">
-                  <span className="font-semibold text-gray-900 dark:text-gray-100 text-sm">
-                    {(activeDragItem as SortableTaskRowItem).task.title}
-                  </span>
-                  <span className="text-xs text-gray-500">
-                    {(activeDragItem as SortableTaskRowItem).task.ticket || `TASK-${(activeDragItem as SortableTaskRowItem).task.id.slice(-8)}`}
-                  </span>
-                </div>
-              </div>
-            ) : null}
-          </DragOverlay>
-        </DndContext>
+        {/* Task list (vertical reorder removed — use Kanban/List to reorder) */}
+        <GanttTaskList
+          columns={columns}
+          groupedTasks={groupedTasks}
+          selectedTask={selectedTask}
+          selectedTasks={selectedTasks}
+          isMultiSelectMode={isMultiSelectMode}
+          isRelationshipMode={isRelationshipMode}
+          selectedParentTask={selectedParentTask}
+          priorities={priorities}
+          taskColumnWidth={taskColumnWidth}
+          taskViewMode={taskViewMode}
+          onSelectTask={onSelectTask}
+          onTaskSelect={handleTaskSelect}
+          onRelationshipClick={handleRelationshipClick}
+          onCopyTask={onCopyTask}
+          onRemoveTask={onRemoveTask}
+          highlightedTaskId={highlightedTaskId}
+          siteSettings={siteSettings}
+        />
 
-        {/* Timeline */}
+        {/* Timeline (horizontal date move / resize only) */}
         <DndContext
           sensors={sensors}
           collisionDetection={closestCenter}

@@ -352,13 +352,10 @@ export default function TeamMembers({
                 <button
                   type="button"
                   className={`shrink-0 rounded-full transition-shadow duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
-                    isSelected ? 'ring-2 shadow-sm' : 'hover:opacity-90'
-                  }`}
-                  style={
                     isSelected
-                      ? { ['--tw-ring-color' as string]: member.color }
-                      : undefined
-                  }
+                      ? 'ring-2 ring-blue-500 dark:ring-blue-400 shadow-sm'
+                      : 'hover:opacity-90'
+                  }`}
                   onClick={() => onSelectMember(member.id)}
                 >
                   {getMemberAvatar(member)}
@@ -375,18 +372,20 @@ export default function TeamMembers({
               <div
                 className={`flex items-center gap-1 px-2 py-1 rounded-full cursor-pointer transition-all duration-200 shrink-0 ${
                   isSelected
-                    ? 'ring-2 ring-inset shadow-sm'
+                    ? 'ring-2 ring-inset ring-blue-500 dark:ring-blue-400 shadow-sm'
                     : 'hover:shadow-sm hover:scale-101'
                 }`}
                 style={{
                   backgroundColor: isSelected ? `${member.color}25` : `${member.color}15`,
-                  color: member.color,
-                  ['--tw-ring-color' as string]: member.color,
                 }}
                 onClick={() => onSelectMember(member.id)}
               >
                 {getMemberAvatar(member)}
-                <span className={`text-xs font-medium ${isSelected ? 'font-semibold' : ''}`}>
+                <span
+                  className={`text-xs text-gray-800 dark:text-gray-100 ${
+                    isSelected ? 'font-semibold' : 'font-medium'
+                  }`}
+                >
                   {truncateDisplayName(member.name)}
                 </span>
               </div>
