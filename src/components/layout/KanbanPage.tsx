@@ -1112,7 +1112,7 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
   return (
     <>
       {showBoardToolbar ? (
-        <div className="flex items-stretch gap-4 mb-4">
+        <div className="flex items-stretch gap-4 mb-1">
           <div className="w-[160px] shrink-0 flex">
             <Tools 
               taskViewMode={taskViewMode}
@@ -1159,7 +1159,7 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
           </div>
         </div>
       ) : (
-        <div className="flex items-center mb-4">
+        <div className="flex items-center mb-1">
           <button
             type="button"
             onClick={() => void handleToggleBoardToolbar()}
@@ -1369,7 +1369,7 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
                   They intentionally live outside each column header/count slot. */}
               <div
                 style={gridStyle}
-                className="h-10 items-end"
+                className="h-5 items-center"
                 data-kanban-selection-strip
               >
                 {Object.values(getFilteredColumnsForDisplay)
@@ -1378,7 +1378,7 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
                   .map((column) => (
                     <div
                       key={`select-${column.id}`}
-                      className="flex h-9 items-center justify-center"
+                      className="flex h-5 items-center justify-center"
                     >
                       <ColumnSelectionControl
                         columnId={column.id}

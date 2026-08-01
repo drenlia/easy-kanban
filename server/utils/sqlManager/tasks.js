@@ -956,9 +956,14 @@ export async function getTasksByIdsBasic(db, taskIds) {
       priority, 
       position, 
       title,
+      description,
+      effort,
+      startdate as "startDate",
+      duedate as "dueDate",
       memberid as "memberId",
       requesterid as "requesterId",
-      ticket
+      ticket,
+      sprint_id as "sprintId"
     FROM tasks 
     WHERE id IN (${placeholders})
   `;

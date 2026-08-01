@@ -458,9 +458,19 @@ export const useTaskWebSocket = ({
               if (!targetColumnId) return;
               if (!data.task.columnId) data.task.columnId = targetColumnId;
 
-              // Strip from every column first (including accidental duplicates)
+              // Preserve full local task BEFORE stripping. Batch position WS payloads are
+              // minimal (no description/priority/comments); looking only in the target
+              // column after a cross-column strip would replace the card with a skeleton.
+              let preservedTask: any = null;
               Object.keys(updatedColumns).forEach(columnId => {
-                if (columnId === targetColumnId) return;
+                const column = updatedColumns[columnId];
+                if (!column || !column.tasks) return;
+                const found = column.tasks.find((t: any) => t && t.id === taskId);
+                if (found) preservedTask = found;
+              });
+
+              // Strip from every column (including target) so we re-insert once, merged
+              Object.keys(updatedColumns).forEach(columnId => {
                 const column = updatedColumns[columnId];
                 if (!column || !column.tasks) return;
                 if (!column.tasks.some((t: any) => t && t.id === taskId)) return;
@@ -473,36 +483,41 @@ export const useTaskWebSocket = ({
               // Add/update task in target column
               const targetColumn = updatedColumns[targetColumnId];
               if (targetColumn) {
-                const existingIndex = targetColumn.tasks.findIndex((t: any) => t && t.id === taskId);
-                const existingTask = targetColumn.tasks[existingIndex];
+                const base = preservedTask || {};
+                const patch = data.task || {};
+                const has = (key: string) => Object.prototype.hasOwnProperty.call(patch, key);
                 const mergedTask = {
-                  ...(existingTask || {}),
-                  ...data.task,
+                  ...base,
+                  ...patch,
                   id: taskId,
                   boardId: boardId,
                   columnId: targetColumnId,
-                  // CRITICAL: Always use position from update if provided (even if 0)
-                  // This ensures position updates are applied correctly
-                  position: data.task.hasOwnProperty('position') 
-                    ? (data.task.position !== null && data.task.position !== undefined ? data.task.position : (existingTask?.position ?? 0))
-                    : (existingTask?.position ?? 0)
+                  title: has('title') ? patch.title : (base.title ?? patch.title),
+                  description: has('description') ? patch.description : base.description,
+                  memberId: has('memberId') ? patch.memberId : base.memberId,
+                  requesterId: has('requesterId') ? patch.requesterId : base.requesterId,
+                  ticket: has('ticket') ? patch.ticket : base.ticket,
+                  effort: has('effort') ? (patch.effort ?? base.effort ?? 0) : base.effort,
+                  priority: has('priority') ? patch.priority : base.priority,
+                  priorityId: has('priorityId') ? patch.priorityId : base.priorityId,
+                  priorityName: has('priorityName') ? patch.priorityName : base.priorityName,
+                  priorityColor: has('priorityColor') ? patch.priorityColor : base.priorityColor,
+                  startDate: has('startDate') ? patch.startDate : base.startDate,
+                  dueDate: has('dueDate') ? patch.dueDate : base.dueDate,
+                  sprintId: has('sprintId') ? patch.sprintId : base.sprintId,
+                  comments: has('comments') && Array.isArray(patch.comments) ? patch.comments : (base.comments || []),
+                  watchers: has('watchers') && Array.isArray(patch.watchers) ? patch.watchers : (base.watchers || []),
+                  collaborators: has('collaborators') && Array.isArray(patch.collaborators) ? patch.collaborators : (base.collaborators || []),
+                  tags: has('tags') && Array.isArray(patch.tags) ? patch.tags : (base.tags || []),
+                  attachmentCount: has('attachmentCount') ? (patch.attachmentCount ?? 0) : base.attachmentCount,
+                  position: has('position')
+                    ? (patch.position !== null && patch.position !== undefined ? patch.position : (base.position ?? 0))
+                    : (base.position ?? 0),
                 };
                 
-                let updatedTasks: any[];
-                if (existingIndex !== -1) {
-                  // Update existing task
-                  updatedTasks = [
-                    ...targetColumn.tasks.slice(0, existingIndex),
-                    mergedTask,
-                    ...targetColumn.tasks.slice(existingIndex + 1)
-                  ];
-                } else {
-                  // Add new task
-                  updatedTasks = [...targetColumn.tasks, mergedTask];
-                }
-                
-                // Sort by position
-                updatedTasks.sort((a, b) => (a.position || 0) - (b.position || 0));
+                const updatedTasks = [...targetColumn.tasks, mergedTask].sort(
+                  (a, b) => (a.position || 0) - (b.position || 0)
+                );
                 
                 updatedColumns[targetColumnId] = {
                   ...targetColumn,

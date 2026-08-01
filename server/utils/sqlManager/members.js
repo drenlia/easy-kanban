@@ -39,6 +39,8 @@ export async function getAllMembers(db, includeSystemOrOpts = false) {
       m.color, 
       m.user_id as "userId", 
       m.created_at as "createdAt",
+      u.email as "email",
+      u.is_active as "isActive",
       u.avatar_path as "avatarPath", 
       u.auth_provider as "authProvider", 
       u.google_avatar_url as "googleAvatarUrl"
@@ -57,6 +59,9 @@ export async function getAllMembers(db, includeSystemOrOpts = false) {
     name: member.name,
     color: member.color,
     user_id: member.userId,
+    email: member.email || undefined,
+    // No linked user (Agent/orphans) → treat as active for UI; inactive only when users.is_active is false
+    isActive: member.isActive === false || member.isActive === 0 ? false : true,
     avatarUrl: member.avatarPath,
     authProvider: member.authProvider,
     googleAvatarUrl: member.googleAvatarUrl
@@ -96,6 +101,8 @@ export async function getMemberById(db, id) {
       m.color, 
       m.user_id as "userId", 
       m.created_at as "createdAt",
+      u.email as "email",
+      u.is_active as "isActive",
       u.avatar_path as "avatarPath", 
       u.auth_provider as "authProvider", 
       u.google_avatar_url as "googleAvatarUrl"
@@ -111,6 +118,8 @@ export async function getMemberById(db, id) {
     name: member.name,
     color: member.color,
     user_id: member.userId,
+    email: member.email || undefined,
+    isActive: member.isActive === false || member.isActive === 0 ? false : true,
     avatarUrl: member.avatarPath,
     authProvider: member.authProvider,
     googleAvatarUrl: member.googleAvatarUrl

@@ -825,7 +825,9 @@
     "systemTooltip": "Afficher les tâches assignées à l'utilisateur système (admin uniquement)",
     "noFiltersSelected": "⚠️ Aucune option de filtre sélectionnée. Sélectionnez au moins une option ci-dessus pour afficher les tâches.",
     "selected": "(sélectionné)",
-    "clickToSelect": "(cliquer pour sélectionner)"
+    "clickToSelect": "(cliquer pour sélectionner)",
+    "copyEmail": "Copier l'adresse e-mail",
+    "emailCopied": "E-mail copié"
   },
   "columnFilterDropdown": {
     "filterColumns": "Filtrer les colonnes",

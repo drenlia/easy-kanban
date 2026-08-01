@@ -1,4 +1,5 @@
-import { useCallback, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useLayoutEffect, useRef, useState, type MouseEvent } from 'react';
+import { Copy, Check } from 'lucide-react';
 import { TeamMember } from '../types';
 import { useTranslation } from 'react-i18next';
 import { getAuthenticatedAvatarUrl } from '../utils/authImageUrl';
@@ -7,7 +8,7 @@ import {
   isAgentMemberId,
   sortMembersAgentLast,
 } from '../utils/agentMemberUi';
-import { KanbanChromeTooltip } from './KanbanChromeTooltip';
+import { KanbanChromeTooltip, CHROME_TOOLTIP_MUTED_TEXT_CLASS } from './KanbanChromeTooltip';
 
 export const PRESET_COLORS = [
   '#FF3B30', // Bright Red
@@ -80,6 +81,75 @@ function truncateDisplayName(name: string, maxLength: number = 12): string {
     return name;
   }
   return name.substring(0, maxLength) + '...';
+}
+
+/** Active accounts with an email get a selectable name/email tooltip (copyable). */
+function canShowMemberContactTooltip(member: TeamMember): boolean {
+  return member.isActive !== false && Boolean(member.email?.trim());
+}
+
+function MemberContactTooltipBody({
+  member,
+  statusLabel,
+}: {
+  member: TeamMember;
+  statusLabel: string;
+}) {
+  const { t } = useTranslation('common');
+  const [copied, setCopied] = useState(false);
+  const email = member.email!.trim();
+
+  const copyEmail = async (e: MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    try {
+      await navigator.clipboard.writeText(email);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // Fallback for older browsers / denied clipboard
+      const range = document.createRange();
+      const el = document.createElement('textarea');
+      el.value = email;
+      el.style.position = 'fixed';
+      el.style.left = '-9999px';
+      document.body.appendChild(el);
+      el.select();
+      try {
+        document.execCommand('copy');
+        setCopied(true);
+        window.setTimeout(() => setCopied(false), 1500);
+      } finally {
+        document.body.removeChild(el);
+      }
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-1.5 min-w-0">
+      <div className="font-semibold leading-snug break-words">{member.name}</div>
+      <div className="flex items-center gap-1.5 min-w-0">
+        <span
+          className={`flex-1 min-w-0 break-all select-text ${CHROME_TOOLTIP_MUTED_TEXT_CLASS}`}
+          title={email}
+        >
+          {email}
+        </span>
+        <button
+          type="button"
+          onClick={copyEmail}
+          className="shrink-0 p-1 rounded hover:bg-white/10 dark:hover:bg-black/10 transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-white/40 dark:focus-visible:ring-black/30"
+          title={copied ? t('teamMembers.emailCopied') : t('teamMembers.copyEmail')}
+          aria-label={copied ? t('teamMembers.emailCopied') : t('teamMembers.copyEmail')}
+        >
+          {copied ? <Check size={13} strokeWidth={2.5} /> : <Copy size={13} strokeWidth={2} />}
+        </button>
+      </div>
+      {statusLabel ? (
+        <div className={`text-[11px] ${CHROME_TOOLTIP_MUTED_TEXT_CLASS}`}>{statusLabel}</div>
+      ) : null}
+    </div>
+  );
 }
 
 export default function TeamMembers({
@@ -342,12 +412,27 @@ export default function TeamMembers({
       >
         {displayMembers.map(member => {
           const isSelected = selectedMembers.includes(member.id);
+          const statusLabel = isSelected
+            ? t('teamMembers.selected')
+            : t('teamMembers.clickToSelect');
+          const showContact = canShowMemberContactTooltip(member);
+          const tooltipProps = showContact
+            ? {
+                interactive: true as const,
+                content: (
+                  <MemberContactTooltipBody member={member} statusLabel={statusLabel} />
+                ),
+              }
+            : {
+                label: `${member.name} ${statusLabel}`,
+              };
+
           if (avatarOnly) {
             return (
               <KanbanChromeTooltip
                 key={member.id}
-                label={`${member.name} ${isSelected ? t('teamMembers.selected') : t('teamMembers.clickToSelect')}`}
                 wrapperClassName="relative inline-flex shrink-0"
+                {...tooltipProps}
               >
                 <button
                   type="button"
@@ -366,8 +451,8 @@ export default function TeamMembers({
           return (
             <KanbanChromeTooltip
               key={member.id}
-              label={`${member.name} ${isSelected ? t('teamMembers.selected') : t('teamMembers.clickToSelect')}`}
               wrapperClassName="relative inline-flex shrink-0"
+              {...tooltipProps}
             >
               <div
                 className={`flex items-center gap-1 px-2 py-1 rounded-full cursor-pointer transition-all duration-200 shrink-0 ${

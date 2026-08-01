@@ -822,7 +822,9 @@
     "systemTooltip": "Show tasks assigned to the system user (admin only)",
     "noFiltersSelected": "⚠️ No filter options selected. Select at least one option above to display tasks.",
     "selected": "(selected)",
-    "clickToSelect": "(click to select)"
+    "clickToSelect": "(click to select)",
+    "copyEmail": "Copy email address",
+    "emailCopied": "Email copied"
   },
   "columnFilterDropdown": {
     "filterColumns": "Filter columns",

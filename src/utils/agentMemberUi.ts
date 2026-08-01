@@ -7,6 +7,7 @@ import {
   AGENT_DEFAULT_COLOR,
   AGENT_DEFAULT_NAME,
   AGENT_MEMBER_ID,
+  SYSTEM_MEMBER_ID,
 } from '../constants/appConstants';
 
 /** Static product asset (served from /public). Prefer this over letter avatars. */
@@ -16,16 +17,26 @@ export function isAgentMemberId(id: string | null | undefined): boolean {
   return Boolean(id && String(id) === AGENT_MEMBER_ID);
 }
 
-/** People first (API order), Agent pinned last. System stays where the API put it. */
+export function isSystemMemberId(id: string | null | undefined): boolean {
+  return Boolean(id && String(id) === SYSTEM_MEMBER_ID);
+}
+
+/**
+ * People first (API order), then System, then Agent.
+ * Keeps special accounts at the end of member pickers / the team strip.
+ */
 export function sortMembersAgentLast<T extends { id: string }>(members: T[]): T[] {
   if (!members?.length) return members || [];
   const people: T[] = [];
+  const systems: T[] = [];
   const agents: T[] = [];
   for (const m of members) {
     if (isAgentMemberId(m.id)) agents.push(m);
+    else if (isSystemMemberId(m.id)) systems.push(m);
     else people.push(m);
   }
-  return agents.length ? [...people, ...agents] : members;
+  if (!systems.length && !agents.length) return members;
+  return [...people, ...systems, ...agents];
 }
 
 /** Always use the shipped bot art in UI (auth-free, consistent). */

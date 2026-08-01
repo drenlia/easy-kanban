@@ -10,10 +10,12 @@ import {
   Trash2,
   Calendar,
   Flag,
+  Plus,
 } from 'lucide-react';
 import { Board, PriorityOption, Tag } from '../types';
 import { KanbanChromeTooltip } from './KanbanChromeTooltip';
 import { getTagDisplayStyle } from '../utils/tagUtils';
+import AddTagModal from './AddTagModal';
 
 export type ColumnBulkActionBarProps = {
   columnId: string;
@@ -69,6 +71,7 @@ export default function ColumnBulkActionBar({
   const rootRef = useRef<HTMLDivElement>(null);
   const [menu, setMenu] = useState<MenuKind>(null);
   const [menuPos, setMenuPos] = useState<{ top: number; left: number } | null>(null);
+  const [showAddTagModal, setShowAddTagModal] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [boardConfirm, setBoardConfirm] = useState<{ id: string; name: string } | null>(null);
   const confirmRef = useRef<HTMLDivElement>(null);
@@ -127,8 +130,8 @@ export default function ColumnBulkActionBar({
       return;
     }
     const rect = el.getBoundingClientRect();
-    const menuWidth = 192;
-    const menuHeight = 256;
+    const menuWidth = kind === 'tag' ? 200 : 192;
+    const menuHeight = kind === 'tag' ? 400 : 256;
     const preferredLeft = rect.right + 6;
     setMenuPos({
       top: Math.max(8, Math.min(rect.top, window.innerHeight - menuHeight - 8)),
@@ -181,33 +184,50 @@ export default function ColumnBulkActionBar({
       ? createPortal(
           <div
             id={`column-bulk-menu-${columnId}`}
-            className="fixed z-[9990] max-h-64 w-48 overflow-y-auto rounded-md border border-gray-200 bg-white py-1 shadow-lg dark:border-gray-600 dark:bg-gray-800"
+            className={`fixed z-[9990] overflow-y-auto rounded-md border border-gray-200 bg-white shadow-lg dark:border-gray-600 dark:bg-gray-800 ${
+              menu === 'tag' ? 'max-h-[400px] w-[200px]' : 'max-h-64 w-48 py-1'
+            }`}
             style={{ top: menuPos.top, left: menuPos.left }}
             role="menu"
           >
-            {menu === 'tag' &&
-              availableTags.map((tag) => (
+            {menu === 'tag' && (
+              <>
                 <button
-                  key={tag.id}
                   type="button"
-                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs hover:bg-gray-100 dark:hover:bg-gray-700"
+                  className="sticky top-0 flex w-full items-center gap-2 border-b border-gray-200 bg-white p-2 text-left text-sm font-medium text-blue-600 hover:bg-blue-50 dark:border-gray-700 dark:bg-gray-800 dark:text-blue-400 dark:hover:bg-blue-900/20"
                   onClick={() => {
-                    onAddTag(String(tag.id));
                     setMenu(null);
+                    setShowAddTagModal(true);
                   }}
                 >
-                  <span
-                    className="inline-block h-2.5 w-2.5 shrink-0 rounded-full ring-1 ring-black/10 dark:ring-white/10"
-                    style={{ backgroundColor: getTagDisplayStyle(tag).backgroundColor }}
-                  />
-                  <span
-                    className="min-w-0 truncate rounded px-1.5 py-0.5 font-medium"
-                    style={getTagDisplayStyle(tag)}
-                  >
-                    {tag.tag}
-                  </span>
+                  <Plus size={14} />
+                  {t('toolbar.addTag')}
                 </button>
-              ))}
+                {availableTags.length === 0 ? (
+                  <div className="p-3 text-sm text-gray-500 dark:text-gray-400">
+                    {t('toolbar.noMoreTagsAvailable')}
+                  </div>
+                ) : (
+                  availableTags.map((tag) => (
+                    <button
+                      key={tag.id}
+                      type="button"
+                      className="flex w-full items-center gap-2 border-b border-gray-100 p-2 text-left text-sm text-gray-700 hover:bg-gray-50 last:border-b-0 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-700"
+                      onClick={() => {
+                        onAddTag(String(tag.id));
+                        setMenu(null);
+                      }}
+                    >
+                      <span
+                        className="h-3 w-3 shrink-0 rounded-full"
+                        style={{ backgroundColor: getTagDisplayStyle(tag).backgroundColor }}
+                      />
+                      <span className="min-w-0 truncate">{tag.tag}</span>
+                    </button>
+                  ))
+                )}
+              </>
+            )}
             {menu === 'sprint' && (
               <>
                 <button
@@ -267,13 +287,21 @@ export default function ColumnBulkActionBar({
                   {b.title || b.id}
                 </button>
               ))}
-            {menu === 'tag' && availableTags.length === 0 && (
-              <div className="px-3 py-2 text-xs text-gray-500">{t('labels.noTagsAvailable')}</div>
-            )}
             {menu === 'board' && otherBoards.length === 0 && (
               <div className="px-3 py-2 text-xs text-gray-500">—</div>
             )}
           </div>,
+          document.body
+        )
+      : null;
+
+  const addTagModalPortal =
+    showAddTagModal && typeof document !== 'undefined'
+      ? createPortal(
+          <AddTagModal
+            onClose={() => setShowAddTagModal(false)}
+            onTagCreated={(newTag) => onAddTag(String(newTag.id))}
+          />,
           document.body
         )
       : null;
@@ -387,56 +415,6 @@ export default function ColumnBulkActionBar({
               <Copy size={14} />
             </button>
           </KanbanChromeTooltip>
-          {hasArchiveColumn && (
-            <KanbanChromeTooltip
-              label={overlayOpen ? '' : t('kanbanSelect.archive')}
-              delayMs={0}
-              placement="top"
-            >
-              <button
-                type="button"
-                disabled={busy}
-                className={btnClass}
-                onClick={onArchive}
-                aria-label={t('kanbanSelect.archive')}
-              >
-                <Archive size={14} />
-              </button>
-            </KanbanChromeTooltip>
-          )}
-          <KanbanChromeTooltip
-            label={overlayOpen ? '' : t('kanbanSelect.delete')}
-            delayMs={0}
-            placement="top"
-          >
-            <button
-              type="button"
-              disabled={busy}
-              className={`${btnClass} text-red-600 hover:text-red-700`}
-              onClick={(e) => {
-                if (deleteConfirm) {
-                  setDeleteConfirm(false);
-                  setMenuPos(null);
-                  return;
-                }
-                const rect = e.currentTarget.getBoundingClientRect();
-                const popupWidth = 288;
-                setMenuPos({
-                  top: Math.max(8, Math.min(rect.top, window.innerHeight - 160)),
-                  left:
-                    rect.right + 6 + popupWidth <= window.innerWidth - 8
-                      ? rect.right + 6
-                      : Math.max(8, rect.left - popupWidth - 6),
-                });
-                setDeleteConfirm(true);
-                setMenu(null);
-                setBoardConfirm(null);
-              }}
-              aria-label={t('kanbanSelect.delete')}
-            >
-              <Trash2 size={14} />
-            </button>
-          </KanbanChromeTooltip>
           <KanbanChromeTooltip
             label={overlayOpen ? '' : t('kanbanSelect.sprint')}
             delayMs={0}
@@ -484,6 +462,56 @@ export default function ColumnBulkActionBar({
               </button>
             </KanbanChromeTooltip>
           )}
+          {hasArchiveColumn && (
+            <KanbanChromeTooltip
+              label={overlayOpen ? '' : t('kanbanSelect.archive')}
+              delayMs={0}
+              placement="top"
+            >
+              <button
+                type="button"
+                disabled={busy}
+                className={btnClass}
+                onClick={onArchive}
+                aria-label={t('kanbanSelect.archive')}
+              >
+                <Archive size={14} className="text-yellow-600" />
+              </button>
+            </KanbanChromeTooltip>
+          )}
+          <KanbanChromeTooltip
+            label={overlayOpen ? '' : t('kanbanSelect.delete')}
+            delayMs={0}
+            placement="top"
+          >
+            <button
+              type="button"
+              disabled={busy}
+              className={`${btnClass} text-red-600 hover:text-red-700`}
+              onClick={(e) => {
+                if (deleteConfirm) {
+                  setDeleteConfirm(false);
+                  setMenuPos(null);
+                  return;
+                }
+                const rect = e.currentTarget.getBoundingClientRect();
+                const popupWidth = 288;
+                setMenuPos({
+                  top: Math.max(8, Math.min(rect.top, window.innerHeight - 160)),
+                  left:
+                    rect.right + 6 + popupWidth <= window.innerWidth - 8
+                      ? rect.right + 6
+                      : Math.max(8, rect.left - popupWidth - 6),
+                });
+                setDeleteConfirm(true);
+                setMenu(null);
+                setBoardConfirm(null);
+              }}
+              aria-label={t('kanbanSelect.delete')}
+            >
+              <Trash2 size={14} />
+            </button>
+          </KanbanChromeTooltip>
         </div>
       </div>,
       document.body
@@ -494,6 +522,7 @@ export default function ColumnBulkActionBar({
     <>
       {actionBarPortal}
       {menuPortal}
+      {addTagModalPortal}
       {confirmPortal}
     </>
   );
