@@ -293,7 +293,8 @@
     "searchSprints": "Rechercher des sprints...",
     "noTasksFound": "Aucune tâche trouvée correspondant à vos filtres",
     "showHideDependencies": "Afficher/Masquer les dépendances",
-    "sprintColumnUnavailableSingleSprint": "La colonne Sprint est masquée pour le backlog ou un seul sprint"
+    "sprintColumnUnavailableSingleSprint": "La colonne Sprint est masquée pour le backlog ou un seul sprint",
+    "resizeColumn": "Glisser pour redimensionner la colonne"
   },
   "columnLabels": {
     "sprint": "Sprint",

@@ -293,7 +293,8 @@
     "searchSprints": "Search sprints...",
     "noTasksFound": "No tasks found matching your filters",
     "showHideDependencies": "Show/Hide dependencies",
-    "sprintColumnUnavailableSingleSprint": "Sprint column is hidden while viewing backlog or a single sprint"
+    "sprintColumnUnavailableSingleSprint": "Sprint column is hidden while viewing backlog or a single sprint",
+    "resizeColumn": "Drag to resize column"
   },
   "columnLabels": {
     "sprint": "Sprint",
