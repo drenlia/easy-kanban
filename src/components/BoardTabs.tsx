@@ -31,6 +31,8 @@ interface BoardTabsProps {
   onReorderBoards: (boardId: string, newPosition: number) => void;
   isAdmin?: boolean;
   getFilteredTaskCount?: (board: Board) => number;
+  /** Unfiltered board total; delete confirmations must not report only visible tasks. */
+  getTotalTaskCount?: (board: Board) => number;
   hasActiveFilters?: boolean;
   // Cross-board drag props
   draggedTask?: Task | null;
@@ -228,9 +230,11 @@ const SortableBoardTab: React.FC<{
   onConfirmDelete: (boardId: string) => void;
   onCancelDelete: () => void;
   taskCount?: number;
+  /** Unfiltered total shown in the delete confirmation. */
+  totalTaskCount?: number;
   showTaskCount?: boolean;
   hasActiveFilters?: boolean;
-}> = ({ board, isSelected, onSelect, onEdit, onRemove, canDelete, showDeleteConfirm, onConfirmDelete, onCancelDelete, taskCount, showTaskCount, hasActiveFilters = false }) => {
+}> = ({ board, isSelected, onSelect, onEdit, onRemove, canDelete, showDeleteConfirm, onConfirmDelete, onCancelDelete, taskCount, totalTaskCount, showTaskCount, hasActiveFilters = false }) => {
   const [deleteButtonRef, setDeleteButtonRef] = useState<HTMLButtonElement | null>(null);
   const {
     attributes,
@@ -255,11 +259,22 @@ const SortableBoardTab: React.FC<{
       <div
         ref={setNodeRef}
         style={style}
+        role="button"
+        tabIndex={0}
+        onClick={onSelect}
+        onDoubleClick={onEdit}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            onSelect();
+          }
+        }}
         className={`
-          relative group inline-flex shrink-0 items-center
+          relative group inline-flex shrink-0 cursor-pointer items-center
           ${isSelected ? tabTrackActive : tabTrackInactive}
           ${isDragging ? 'opacity-60 shadow-lg ring-2 ring-gray-300/50 dark:ring-gray-500/40' : ''}
         `}
+        title={t('boardTabs.clickToSelectDoubleClickToRename')}
       >
         {/* Task count covers the drag handle until hover reveals it. */}
         <KanbanChromeTooltip
@@ -270,6 +285,7 @@ const SortableBoardTab: React.FC<{
             className="group/board-handle flex h-7 w-6 cursor-grab touch-none items-center justify-center rounded-md text-gray-400 transition-colors hover:bg-gray-200/80 hover:text-gray-600 active:cursor-grabbing dark:hover:bg-gray-600/50 dark:hover:text-gray-300"
             {...attributes}
             {...listeners}
+            onClick={(e) => e.stopPropagation()}
           >
             <GripVertical
               className={`h-4 w-4 transition-opacity group-hover/board-handle:opacity-100 ${
@@ -292,23 +308,15 @@ const SortableBoardTab: React.FC<{
         </KanbanChromeTooltip>
 
         <div className="flex items-center pl-8">
-          <KanbanChromeTooltip label={t('boardTabs.clickToSelectDoubleClickToRename')}>
-            <button
-              type="button"
-              onClick={onSelect}
-              onDoubleClick={onEdit}
-              className="cursor-pointer border-0 bg-transparent text-left text-inherit transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-1 dark:focus-visible:ring-offset-gray-900 rounded-sm"
-            >
-              <div className="flex items-center gap-2">
-                <span className="truncate max-w-[10rem]">{board.title}</span>
-              </div>
-            </button>
-          </KanbanChromeTooltip>
+          <div className="flex items-center gap-2">
+            <span className="truncate max-w-[10rem]">{board.title}</span>
+          </div>
 
-          {/* Zero width until this tab is hovered — only the active tab grows to reveal trash after the pill */}
+          {/* Space is always reserved: revealing the trash on hover must not resize the tab,
+              or neighbouring tabs shift under the cursor and the wrong board gets deleted. */}
           {canDelete && (
             <div
-              className="flex max-w-0 shrink-0 items-center justify-end overflow-hidden opacity-0 transition-[max-width,opacity] duration-200 ease-out group-hover:max-w-[2.25rem] group-hover:opacity-100 group-focus-within:max-w-[2.25rem] group-focus-within:opacity-100"
+              className="flex w-[2.25rem] shrink-0 items-center justify-end opacity-0 transition-opacity duration-200 ease-out pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto"
             >
               <KanbanChromeTooltip label={t('boardTabs.deleteBoard')}>
                 <button
@@ -338,10 +346,16 @@ const SortableBoardTab: React.FC<{
           }}
         >
           <div className="mb-2 text-sm text-gray-700 dark:text-gray-200">
-            {(taskCount || 0) > 0 
-              ? t('boardTabs.moveBoardToTrashAndTasks', { count: taskCount })
-              : t('boardTabs.moveBoardToTrash')
-            }
+            <div className="mb-1 truncate font-semibold text-gray-900 dark:text-gray-100">
+              {board.title}
+            </div>
+            {(() => {
+              // Filters hide tasks that deletion still removes, so always report the board total.
+              const deletedTaskCount = totalTaskCount ?? taskCount ?? 0;
+              return deletedTaskCount > 0
+                ? t('boardTabs.moveBoardToTrashAndTasks', { count: deletedTaskCount })
+                : t('boardTabs.moveBoardToTrash');
+            })()}
           </div>
           <div className="flex gap-2">
             <button
@@ -420,6 +434,7 @@ export default function BoardTabs({
   onReorderBoards,
   isAdmin = false,
   getFilteredTaskCount,
+  getTotalTaskCount,
   hasActiveFilters = false,
   draggedTask,
   onTaskDropOnBoard,
@@ -593,11 +608,16 @@ export default function BoardTabs({
 
   const handleRemoveClick = (boardId: string) => {
     if (boards.length > 1) {
-      // Check if board has any tasks
+      // Check if board has any tasks. Use the unfiltered total when available so an active
+      // filter can never make a populated board look empty and skip the confirmation.
       const board = boards.find(b => b.id === boardId);
-      const hasAnyTasks = board && Object.values(board.columns || {}).some(column => 
-        column.tasks && column.tasks.length > 0
-      );
+      const hasAnyTasks = board
+        ? (getTotalTaskCount
+            ? getTotalTaskCount(board) > 0
+            : Object.values(board.columns || {}).some(
+                column => column.tasks && column.tasks.length > 0
+              ))
+        : false;
       
       if (hasAnyTasks) {
         // Board has tasks, show confirmation
@@ -768,6 +788,7 @@ export default function BoardTabs({
                         onConfirmDelete={confirmDeleteBoard}
                         onCancelDelete={cancelDeleteBoard}
                         taskCount={getFilteredTaskCount ? getFilteredTaskCount(board) : undefined}
+                        totalTaskCount={getTotalTaskCount ? getTotalTaskCount(board) : undefined}
                         showTaskCount={true}
                         hasActiveFilters={hasActiveFilters}
                       />

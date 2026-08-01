@@ -692,7 +692,12 @@
     "scrollListRight": "Scroll right",
     "addNewBoard": "Add New Board (Admin only)",
     "dropTaskHere": "Drop task here",
-    "newBoard": "New Board"
+    "newBoard": "New Board",
+    "boardMovedToTrashTitle": "Board moved to trash",
+    "boardMovedToTrashMessage": "\"{{title}}\" was moved to trash. Switched to another board.",
+    "boardPermanentlyDeletedTitle": "Board deleted",
+    "boardPermanentlyDeletedMessage": "\"{{title}}\" was permanently deleted. Switched to another board.",
+    "boardRemovedNoReplacement": "\"{{title}}\" is no longer available."
   },
   "boardLimit": {
     "title": "Board limit reached",

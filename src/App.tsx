@@ -232,6 +232,13 @@ function AppContent() {
     }
   }, []);
 
+  // Board selection with URL hash persistence and user preference saving
+  const handleBoardSelection = useCallback((boardId: string) => {
+    setSelectedBoard(boardId);
+    window.location.hash = boardId;
+    updateCurrentUserPreference('lastSelectedBoard', boardId);
+  }, []);
+
   // Escape: menus/confirms first → close TaskDetails → (multi-check cleared by useKanbanMultiSelect).
   useEffect(() => {
     if (!selectedTask) return;
@@ -1138,6 +1145,9 @@ function AppContent() {
     setSelectedBoard,
     setColumns,
     setBoards,
+    setSelectedTask,
+    onSelectBoard: handleBoardSelection,
+    onClearSelectedTask: () => handleSelectTask(null),
     selectedBoardRef,
     refreshBoardDataRef,
   });
@@ -1332,14 +1342,6 @@ function AppContent() {
       }
     }
   }, [columns, selectedTask]);
-
-  // Handle board selection with URL hash persistence and user preference saving
-  const handleBoardSelection = (boardId: string) => {
-    setSelectedBoard(boardId);
-    window.location.hash = boardId;
-    // Save the selected board to user preferences for future sessions
-    updateCurrentUserPreference('lastSelectedBoard', boardId);
-  };
 
   // Join board when selectedBoard changes
   useEffect(() => {
@@ -3978,6 +3980,19 @@ function AppContent() {
     return totalCount;
   };
 
+  // Every live task on the board, ignoring search/member/sprint filters. Deleting a board
+  // removes tasks that the current filters hide, so confirmations must count all of them.
+  const getTotalTaskCountForBoard = (board: Board) => {
+    const boardColumnsRaw: Columns =
+      board.id === selectedBoard ? columns : (board.columns || {});
+    const boardColumns = dedupeTasksInColumns(boardColumnsRaw);
+
+    return Object.values(boardColumns).reduce(
+      (total, column) => total + (column?.tasks?.length || 0),
+      0
+    );
+  };
+
 
   // Handle password reset pages (accessible without authentication)
   if (currentPage === 'forgot-password') {
@@ -4235,6 +4250,7 @@ function AppContent() {
                     onRemoveBoard={handleRemoveBoard}
                     onReorderBoards={handleBoardReorder}
         getTaskCountForBoard={getTaskCountForBoard}
+        getTotalTaskCountForBoard={getTotalTaskCountForBoard}
                         // NOTE: onDragStart and onDragEnd are handled by SimpleDragDropManager
                         // Pass no-op functions to satisfy interface - SimpleDragDropManager handles all drags
                         onDragStart={() => {}}

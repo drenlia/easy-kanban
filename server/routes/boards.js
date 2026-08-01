@@ -354,6 +354,7 @@ router.delete('/:id', authenticateToken, requireRole(['admin']), async (req, res
     const tenantId = getTenantId(req);
     await notificationService.publish('board-deleted', {
       boardId: id,
+      boardTitle: board.title,
       softDeleted: true,
       timestamp: new Date().toISOString(),
     }, tenantId);
@@ -440,6 +441,7 @@ router.delete('/:id/permanent', authenticateToken, requireRole(['admin']), async
     await purgeBoardCompletely(db, req.params.id, storagePaths);
     await notificationService.publish('board-deleted', {
       boardId: req.params.id,
+      boardTitle: board.title,
       permanent: true,
       timestamp: new Date().toISOString(),
     }, getTenantId(req));

@@ -148,6 +148,8 @@ interface KanbanPageProps {
   onRemoveBoard: (boardId: string) => Promise<void>;
   onReorderBoards: (boardId: string, newPosition: number) => Promise<void>;
   getTaskCountForBoard: (board: Board) => number;
+  /** Unfiltered board task total, used for destructive confirmations. */
+  getTotalTaskCountForBoard?: (board: Board) => number;
   onDragStart: (event: any) => void;
   onDragOver: (event: any) => void;
   onDragEnd: (event: any) => void;
@@ -289,6 +291,7 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
   onRemoveBoard,
   onReorderBoards,
   getTaskCountForBoard,
+  getTotalTaskCountForBoard,
   onDragStart,
   onDragOver,
   onDragEnd,
@@ -1205,6 +1208,7 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
           onReorderBoards={onReorderBoards}
           isAdmin={isAdmin}
           getFilteredTaskCount={getTaskCountForBoard}
+          getTotalTaskCount={getTotalTaskCountForBoard}
           hasActiveFilters={activeFilters}
           draggedTask={draggedTask}
           onTaskDropOnBoard={onTaskDropOnBoard}

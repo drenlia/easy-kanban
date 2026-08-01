@@ -201,7 +201,12 @@ router.post('/boards/purge-batch', async (req, res) => {
         await purgeBoardCompletely(db, boardId, storagePaths);
         await notificationService.publish(
           'board-deleted',
-          { boardId, permanent: true, timestamp: new Date().toISOString() },
+          {
+            boardId,
+            boardTitle: board.title,
+            permanent: true,
+            timestamp: new Date().toISOString(),
+          },
           tenantId
         );
         purged.push(boardId);

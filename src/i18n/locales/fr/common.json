@@ -695,7 +695,12 @@
     "scrollListRight": "Défiler vers la droite",
     "addNewBoard": "Ajouter un nouveau tableau (Admin uniquement)",
     "dropTaskHere": "Déposer la tâche ici",
-    "newBoard": "Nouveau tableau"
+    "newBoard": "Nouveau tableau",
+    "boardMovedToTrashTitle": "Tableau déplacé vers la corbeille",
+    "boardMovedToTrashMessage": "« {{title}} » a été déplacé vers la corbeille. Passage à un autre tableau.",
+    "boardPermanentlyDeletedTitle": "Tableau supprimé",
+    "boardPermanentlyDeletedMessage": "« {{title}} » a été définitivement supprimé. Passage à un autre tableau.",
+    "boardRemovedNoReplacement": "« {{title}} » n'est plus disponible."
   },
   "boardLimit": {
     "title": "Limite de tableaux atteinte",

@@ -1,12 +1,21 @@
 import { useCallback, RefObject } from 'react';
-import { Columns, Board } from '../types';
+import { Columns, Board, Task } from '../types';
+import { toast } from '../utils/toast';
+import i18n from '../i18n/config';
+import { loadUserPreferences } from '../utils/userPreferences';
 
 interface UseBoardWebSocketProps {
   // State setters
   setSelectedBoard: React.Dispatch<React.SetStateAction<string | null>>;
   setColumns: React.Dispatch<React.SetStateAction<Columns>>;
   setBoards: React.Dispatch<React.SetStateAction<Board[]>>;
-  
+  setSelectedTask: React.Dispatch<React.SetStateAction<Task | null>>;
+
+  // Prefer App's selection helper (hash + lastSelectedBoard preference)
+  onSelectBoard: (boardId: string) => void;
+  /** Clears open task details and selectedTaskId preference */
+  onClearSelectedTask: () => void;
+
   // Refs
   selectedBoardRef: RefObject<string | null>;
   refreshBoardDataRef: RefObject<
@@ -18,6 +27,9 @@ export const useBoardWebSocket = ({
   setSelectedBoard,
   setColumns,
   setBoards,
+  setSelectedTask,
+  onSelectBoard,
+  onClearSelectedTask,
   selectedBoardRef,
   refreshBoardDataRef,
 }: UseBoardWebSocketProps) => {
@@ -91,16 +103,113 @@ export const useBoardWebSocket = ({
   }, [refreshBoardDataRef]);
 
   const handleBoardDeleted = useCallback((data: any) => {
-    // If the deleted board was selected, clear selection
-    if (data.boardId === selectedBoardRef.current) {
-      setSelectedBoard(null);
-      setColumns({});
+    const boardId = data?.boardId;
+    if (!boardId) return;
+
+    const wasViewing = selectedBoardRef.current === boardId;
+    const permanent = Boolean(data.permanent);
+    let boardTitle =
+      (typeof data.boardTitle === 'string' && data.boardTitle.trim()) ||
+      (typeof data.title === 'string' && data.title.trim()) ||
+      '';
+
+    let remainingBoards: Board[] = [];
+
+    setBoards((prevBoards) => {
+      if (!boardTitle) {
+        boardTitle = prevBoards.find((b) => b.id === boardId)?.title || '';
+      }
+      remainingBoards = prevBoards.filter((b) => b.id !== boardId);
+      return remainingBoards;
+    });
+
+    if (wasViewing) {
+      onClearSelectedTask();
+    } else {
+      // Rare: details open for a task on a board the user isn't viewing
+      setSelectedTask((prev) => {
+        if (!prev) return prev;
+        const taskBoardId = prev.boardId || (prev as any).boardid;
+        return taskBoardId === boardId ? null : prev;
+      });
     }
-    // Refresh boards list
-    if (refreshBoardDataRef.current) {
-      refreshBoardDataRef.current();
+
+    const displayTitle = boardTitle || i18n.t('boardTabs.newBoard', { ns: 'common' });
+
+    if (!wasViewing) {
+      // Quiet tab-list update; optional refresh keeps counts/snapshots in sync
+      if (refreshBoardDataRef.current) {
+        refreshBoardDataRef.current({ force: true });
+      }
+      return;
     }
-  }, [setSelectedBoard, setColumns, selectedBoardRef, refreshBoardDataRef]);
+
+    // Defer navigation until after React applies the boards filter
+    queueMicrotask(() => {
+      if (remainingBoards.length === 0) {
+        setSelectedBoard(null);
+        setColumns({});
+        toast.warning(
+          permanent
+            ? i18n.t('boardTabs.boardPermanentlyDeletedTitle', { ns: 'common' })
+            : i18n.t('boardTabs.boardMovedToTrashTitle', { ns: 'common' }),
+          i18n.t('boardTabs.boardRemovedNoReplacement', {
+            ns: 'common',
+            title: displayTitle,
+          }),
+          6000
+        );
+        return;
+      }
+
+      const preferredId = loadUserPreferences().lastSelectedBoard;
+      const nextBoard =
+        (preferredId && remainingBoards.find((b) => b.id === preferredId)) ||
+        remainingBoards[0];
+
+      onSelectBoard(nextBoard.id);
+      // Optimistic columns from board snapshot; force refresh fills any gaps
+      setColumns(
+        nextBoard.columns
+          ? Object.fromEntries(
+              Object.entries(nextBoard.columns).map(([columnId, column]) => [
+                columnId,
+                { ...column, tasks: [...(column.tasks || [])] },
+              ])
+            )
+          : {}
+      );
+
+      toast.warning(
+        permanent
+          ? i18n.t('boardTabs.boardPermanentlyDeletedTitle', { ns: 'common' })
+          : i18n.t('boardTabs.boardMovedToTrashTitle', { ns: 'common' }),
+        permanent
+          ? i18n.t('boardTabs.boardPermanentlyDeletedMessage', {
+              ns: 'common',
+              title: displayTitle,
+            })
+          : i18n.t('boardTabs.boardMovedToTrashMessage', {
+              ns: 'common',
+              title: displayTitle,
+            }),
+        6000
+      );
+
+      if (refreshBoardDataRef.current) {
+        refreshBoardDataRef.current({ force: true, forBoardId: nextBoard.id });
+      }
+    });
+  }, [
+    setBoards,
+    setSelectedBoard,
+    setColumns,
+    setSelectedTask,
+    onSelectBoard,
+    onClearSelectedTask,
+    selectedBoardRef,
+    refreshBoardDataRef,
+  ]);
 
   const handleBoardRestored = useCallback((data: any) => {
     if (refreshBoardDataRef.current) {
@@ -123,4 +232,3 @@ export const useBoardWebSocket = ({
     handleBoardReordered,
   };
 };
-
