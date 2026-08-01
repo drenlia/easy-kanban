@@ -59,7 +59,10 @@ export const checkBoardLimit = (req, res, next) => {
       res.status(403).json({
         error: 'License limit exceeded',
         details: error.message,
-        limit: 'BOARD_LIMIT'
+        limit: 'BOARD_LIMIT',
+        liveCount: error.liveCount ?? null,
+        softDeletedCount: error.softDeletedCount ?? null,
+        boardLimit: error.boardLimit ?? null,
       });
     });
 };

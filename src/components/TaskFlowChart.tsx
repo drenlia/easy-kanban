@@ -4,6 +4,7 @@ import { getTaskFlowChart } from '../api';
 import { Maximize2, Minimize2, X, Filter, ZoomIn, ZoomOut, RotateCcw, GitBranch } from 'lucide-react';
 import { feDebug } from '../utils/clientDebug';
 import { useTheme } from '../contexts/ThemeContext';
+import { ModernCheckbox } from './ModernCheckbox';
 
 function flowLog(...args: unknown[]) {
   if (feDebug('FE_DEBUG_FLOWCHART')) console.log(...args);
@@ -824,8 +825,7 @@ export default function TaskFlowChart({ currentTaskId, currentTaskData }: TaskFl
                     <div className="space-y-2 max-h-40 overflow-y-auto">
                       {availableStatuses.map(status => (
                         <label key={status} className="flex items-center">
-                          <input
-                            type="checkbox"
+                          <ModernCheckbox
                             checked={selectedStatuses.includes(status)}
                             onChange={(e) => {
                               if (e.target.checked) {
@@ -834,7 +834,7 @@ export default function TaskFlowChart({ currentTaskId, currentTaskData }: TaskFl
                                 setSelectedStatuses(selectedStatuses.filter(s => s !== status));
                               }
                             }}
-                            className="rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500"
+                            size="sm"
                           />
                           <span className="ml-2 text-sm text-gray-700 dark:text-gray-200 flex items-center">
                             <span 

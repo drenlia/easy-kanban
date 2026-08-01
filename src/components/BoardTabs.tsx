@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { Plus, ChevronLeft, ChevronRight, Trash2, GripVertical } from 'lucide-react';
 import { Board, Task } from '../types';
-import { useSortable, SortableContext, rectSortingStrategy } from '@dnd-kit/sortable';
+import { useSortable, SortableContext, horizontalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { DndContext, DragEndEvent, useDroppable } from '@dnd-kit/core';
 import { 
@@ -242,9 +242,12 @@ const SortableBoardTab: React.FC<{
   } = useSortable({ id: board.id });
 
   const { t } = useTranslation('common');
-  const style = {
-    transform: CSS.Transform.toString(transform),
+  // Translate only: CSS.Transform also applies dnd-kit's scaleX/scaleY, which stretches
+  // the label because board tabs have different widths
+  const style: React.CSSProperties = {
+    transform: CSS.Translate.toString(transform),
     transition,
+    zIndex: isDragging ? 2 : undefined,
   };
 
   return (
@@ -719,7 +722,7 @@ export default function BoardTabs({
               ) : !draggedTask ? (
                 // Normal board management with DndContext (only when not dragging a task)
                 <DndContext onDragEnd={handleDragEnd}>
-                  <SortableContext items={boards.filter(board => board && board.id).map(board => board.id)} strategy={rectSortingStrategy}>
+                  <SortableContext items={boards.filter(board => board && board.id).map(board => board.id)} strategy={horizontalListSortingStrategy}>
                     <div className="flex w-max flex-shrink-0 items-center gap-1">
                   {boards.map(board => (
                   <div key={board.id} className="shrink-0">

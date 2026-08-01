@@ -694,6 +694,13 @@
     "dropTaskHere": "Drop task here",
     "newBoard": "New Board"
   },
+  "boardLimit": {
+    "title": "Board limit reached",
+    "summary": "You have {{live}} active board(s) and {{trash}} board(s) in trash ({{total}} / {{limit}}). Soft-deleted boards still count toward your license until they are permanently purged.",
+    "trashHintAdmin": "Permanently delete boards you no longer need in Admin → Lifecycle to free license slots.",
+    "trashHintUser": "Ask an administrator to permanently purge boards from trash in Admin → Lifecycle.",
+    "openLifecycle": "Open Lifecycle"
+  },
   "activityFeed": {
     "title": "Activity Feed",
     "titleShort": "Activity",

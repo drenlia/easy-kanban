@@ -28,6 +28,15 @@ interface SimpleDragDropManagerProps {
   isOnline?: boolean; // Network status - disable dragging when offline
   onTaskMove: (taskId: string, targetColumnId: string, placement: TaskDropPlacement) => Promise<void>;
   onTaskMoveToDifferentBoard: (taskId: string, targetBoardId: string) => Promise<void>;
+  /** Same-board follower multi-drag commit. */
+  onBulkTaskMove?: (
+    taskIds: string[],
+    targetColumnId: string,
+    placement: TaskDropPlacement
+  ) => Promise<void>;
+  checkedTaskIds?: Set<string>;
+  onClearChecked?: () => void;
+  onDraggedTaskIdsChange?: (taskIds: string[]) => void;
   onColumnReorder: (columnId: string, newPosition: number) => Promise<void>;
   // Callbacks to sync with external state
   onDraggedTaskChange?: (task: Task | null) => void;
@@ -255,12 +264,17 @@ export const SimpleDragDropManager: React.FC<SimpleDragDropManagerProps> = React
   isOnline = true,
   onTaskMove,
   onTaskMoveToDifferentBoard,
+  onBulkTaskMove,
+  checkedTaskIds,
+  onClearChecked,
+  onDraggedTaskIdsChange,
   onColumnReorder,
   onDraggedTaskChange,
   onDraggedColumnChange,
   onBoardTabHover,
   onDragPreviewChange
 }) => {
+  const activeBulkTaskIdsRef = useRef<string[]>([]);
   
   // Y-coordinate based tab area detection
   const [isHoveringBoardTabDelayed, setIsHoveringBoardTabDelayed] = useState(false);
@@ -383,15 +397,42 @@ export const SimpleDragDropManager: React.FC<SimpleDragDropManagerProps> = React
     
     if (activeData?.type === 'task') {
       const task = activeData.task as Task;
-      const sourceColumn = columns[task.columnId];
-      const sourceTaskCount = sourceColumn ? sourceColumn.tasks.length : 0;
-      
-      //   taskId: task.id,
-      //   sourceColumnId: task.columnId,
-      //   sourceTaskCount,
-      //   isSingleTaskColumn: sourceTaskCount === 1
-      // });
-      
+      const checked = checkedTaskIds;
+      const isChecked = !!checked?.has(task.id);
+
+      if (checked && checked.size > 0 && !isChecked) {
+        // Unchecked card drag clears multi-check and runs single-task drag
+        onClearChecked?.();
+        activeBulkTaskIdsRef.current = [];
+        onDraggedTaskIdsChange?.([]);
+      } else if (isChecked && checked && checked.size >= 1) {
+        // Follower multi-drag only when all checked share one column
+        const sourceColumnId = task.columnId;
+        const ordered = (columns[sourceColumnId]?.tasks || [])
+          .slice()
+          .sort((a, b) => parsePos(a.position) - parsePos(b.position))
+          .filter((t) => checked.has(t.id));
+        const allSameColumn = Array.from(checked).every((id) => {
+          for (const col of Object.values(columns)) {
+            if (col.tasks?.some((t) => t.id === id)) {
+              return col.id === sourceColumnId;
+            }
+          }
+          return false;
+        });
+        if (allSameColumn && ordered.length >= 1) {
+          const ids = ordered.map((t) => t.id);
+          activeBulkTaskIdsRef.current = ids;
+          onDraggedTaskIdsChange?.(ids);
+        } else {
+          activeBulkTaskIdsRef.current = [];
+          onDraggedTaskIdsChange?.([]);
+        }
+      } else {
+        activeBulkTaskIdsRef.current = [];
+        onDraggedTaskIdsChange?.([]);
+      }
+
       onDraggedTaskChange?.(task);
     } else if (activeData?.type === 'column') {
       const column = activeData.column as Column;
@@ -560,12 +601,19 @@ export const SimpleDragDropManager: React.FC<SimpleDragDropManagerProps> = React
   };
 
   const handleDragEnd = async (event: DragEndEvent) => {
+    const bulkIds = activeBulkTaskIdsRef.current;
+    const clearBulkDrag = () => {
+      activeBulkTaskIdsRef.current = [];
+      onDraggedTaskIdsChange?.([]);
+    };
+
     // Block drag completion when offline
     if (!isOnline) {
       onDraggedTaskChange?.(null);
       onDraggedColumnChange?.(null);
       onBoardTabHover?.(false);
       onDragPreviewChange?.(null);
+      clearBulkDrag();
       return;
     }
     
@@ -617,12 +665,18 @@ export const SimpleDragDropManager: React.FC<SimpleDragDropManagerProps> = React
             mouseY: currentMouseY,
             inTabArea: isInTabAreaAtDrop
           });
+          // Phase C deferred: multi-select does not drag onto board tabs
+          if (bulkIds.length > 1) {
+            dndLog('🎯 [handleDragEnd] Multi-drag board-tab drop deferred — no-op');
+            return;
+          }
           await onTaskMoveToDifferentBoard(task.id, overData.boardId);
           dndLog('✅ Cross-board move completed');
         } else {
           dndLog('🎯 Same board move - anchor-relative placement');
           let targetColumnId = task.columnId;
           let placement: TaskDropPlacement | null = null;
+          const bulkSet = new Set(bulkIds);
           
           // Check if we're dropping on a task - either via overData.type or by checking if over.id is a task ID
           let targetTask: Task | null = null;
@@ -640,8 +694,8 @@ export const SimpleDragDropManager: React.FC<SimpleDragDropManagerProps> = React
           }
           
           if (targetTask) {
-            // Dropping on yourself = cancel (pointer returned to original slot)
-            if (targetTask.id === task.id) {
+            // Dropping on yourself / another follower in the block = cancel
+            if (targetTask.id === task.id || bulkSet.has(targetTask.id)) {
               dndLog('🎯 [handleDragEnd] Drop on self — no-op');
               return;
             }
@@ -714,9 +768,14 @@ export const SimpleDragDropManager: React.FC<SimpleDragDropManagerProps> = React
             taskId: task.id,
             targetColumnId,
             placement,
-            sourceColumnId: task.columnId
+            sourceColumnId: task.columnId,
+            bulkCount: bulkIds.length,
           });
-          await onTaskMove(task.id, targetColumnId, placement);
+          if (bulkIds.length > 1 && onBulkTaskMove) {
+            await onBulkTaskMove(bulkIds, targetColumnId, placement);
+          } else {
+            await onTaskMove(task.id, targetColumnId, placement);
+          }
         }
       } else if (activeData?.type === 'column') {
         // Handle column reordering
@@ -823,6 +882,7 @@ export const SimpleDragDropManager: React.FC<SimpleDragDropManagerProps> = React
       onBoardTabHover?.(false);
       onDragPreviewChange?.(null);
       setIsHoveringBoardTabDelayed(false);
+      clearBulkDrag();
     }
   };
 
@@ -834,6 +894,8 @@ export const SimpleDragDropManager: React.FC<SimpleDragDropManagerProps> = React
     onBoardTabHover?.(false);
     onDragPreviewChange?.(null);
     setIsHoveringBoardTabDelayed(false);
+    activeBulkTaskIdsRef.current = [];
+    onDraggedTaskIdsChange?.([]);
   };
 
   return (
@@ -885,6 +947,10 @@ export const SimpleDragDropManager: React.FC<SimpleDragDropManagerProps> = React
   // Compare callbacks by reference (they should be stable with useCallback)
   if (prevProps.onTaskMove !== nextProps.onTaskMove) return false; // Re-render
   if (prevProps.onTaskMoveToDifferentBoard !== nextProps.onTaskMoveToDifferentBoard) return false; // Re-render
+  if (prevProps.onBulkTaskMove !== nextProps.onBulkTaskMove) return false; // Re-render
+  if (prevProps.onClearChecked !== nextProps.onClearChecked) return false; // Re-render
+  if (prevProps.onDraggedTaskIdsChange !== nextProps.onDraggedTaskIdsChange) return false; // Re-render
+  if (prevProps.checkedTaskIds !== nextProps.checkedTaskIds) return false; // Re-render
   if (prevProps.onColumnReorder !== nextProps.onColumnReorder) return false; // Re-render
   if (prevProps.onDraggedTaskChange !== nextProps.onDraggedTaskChange) return false; // Re-render
   if (prevProps.onDraggedColumnChange !== nextProps.onDraggedColumnChange) return false; // Re-render

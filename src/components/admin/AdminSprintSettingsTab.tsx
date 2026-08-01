@@ -4,6 +4,7 @@ import { Calendar, Plus, Edit2, Trash2, Save, X, CheckCircle } from 'lucide-reac
 import { createPortal } from 'react-dom';
 import { toast } from '../../utils/toast';
 import { getSprintUsage, deleteSprint } from '../../api';
+import { ModernCheckbox } from '../ModernCheckbox';
 
 interface PlanningPeriod {
   id: string;
@@ -456,11 +457,10 @@ const AdminSprintSettingsTab: React.FC = () => {
 
             <div className="md:col-span-2">
               <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
+                <ModernCheckbox
                   checked={formData.is_active}
                   onChange={(e) => setFormData({ ...formData, is_active: e.target.checked })}
-                  className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                  size="sm"
                 />
                 <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
                   {t('sprintSettings.markAsActiveSprint')}

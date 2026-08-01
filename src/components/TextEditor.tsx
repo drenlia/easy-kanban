@@ -13,6 +13,7 @@ import ListItem from '@tiptap/extension-list-item';
 import Image from '@tiptap/extension-image';
 import Heading from '@tiptap/extension-heading';
 import Strike from '@tiptap/extension-strike';
+import { ModernCheckbox } from './ModernCheckbox';
 import Code from '@tiptap/extension-code';
 import CodeBlock from '@tiptap/extension-code-block';
 import Table from '@tiptap/extension-table';
@@ -2022,11 +2023,10 @@ export default function TextEditor({
               )}
               <div className="mb-4">
                 <label className="flex items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
+                  <ModernCheckbox
                     checked={openInNewWindow}
                     onChange={(e) => setOpenInNewWindow(e.target.checked)}
-                    className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                    size="sm"
                   />
                   <span className="text-gray-700">{t('textEditor.openInNewWindow')}</span>
                 </label>

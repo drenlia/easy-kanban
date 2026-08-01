@@ -12,6 +12,7 @@ import {
   looksLikeNonCodingRequest,
 } from '../utils/agentTaskHints';
 import TextEditor from './TextEditor';
+import { ModernCheckbox } from './ModernCheckbox';
 import DOMPurify from 'dompurify';
 
 export type AssignToAgentModalMode = 'assign' | 'configure';
@@ -756,12 +757,11 @@ const AssignToAgentModal: React.FC<AssignToAgentModalProps> = ({
                       key={board.id}
                       className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 cursor-pointer"
                     >
-                      <input
-                        type="checkbox"
+                      <ModernCheckbox
                         checked={automationBoardIds.includes(board.id)}
                         onChange={() => toggleAutomationBoard(board.id)}
                         disabled={busy}
-                        className="rounded text-teal-600 focus:ring-teal-500"
+                        size="sm"
                       />
                       <span className="truncate">{board.title}</span>
                     </label>

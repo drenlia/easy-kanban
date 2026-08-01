@@ -697,6 +697,13 @@
     "dropTaskHere": "Déposer la tâche ici",
     "newBoard": "Nouveau tableau"
   },
+  "boardLimit": {
+    "title": "Limite de tableaux atteinte",
+    "summary": "Vous avez {{live}} tableau(x) actif(s) et {{trash}} tableau(x) dans la corbeille ({{total}} / {{limit}}). Les tableaux en suppression récupérable comptent toujours dans la licence jusqu'à leur purge définitive.",
+    "trashHintAdmin": "Supprimez définitivement les tableaux dont vous n'avez plus besoin dans Admin → Cycle de vie pour libérer des emplacements.",
+    "trashHintUser": "Demandez à un administrateur de purger définitivement les tableaux de la corbeille dans Admin → Cycle de vie.",
+    "openLifecycle": "Ouvrir le cycle de vie"
+  },
   "activityFeed": {
     "title": "Activité",
     "titleShort": "Activité",

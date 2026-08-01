@@ -31,6 +31,24 @@ export interface PerfTestOverlayProps {
 type ActiveScenario = 'generate' | 'move' | 'cleanup' | null;
 type ReportKind = 'last' | 'history' | null;
 
+const COLLAPSED_KEY = 'perfTests.overlayCollapsed';
+
+function readCollapsedPreference(): boolean {
+  try {
+    return localStorage.getItem(COLLAPSED_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function writeCollapsedPreference(collapsed: boolean) {
+  try {
+    localStorage.setItem(COLLAPSED_KEY, collapsed ? '1' : '0');
+  } catch {
+    // ignore quota / private mode
+  }
+}
+
 const PerfTestOverlay: React.FC<PerfTestOverlayProps> = ({
   boardId,
   columns,
@@ -40,7 +58,7 @@ const PerfTestOverlay: React.FC<PerfTestOverlayProps> = ({
   onMoveTask,
   onRefreshBoard,
 }) => {
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(readCollapsedPreference);
   const [memberId, setMemberId] = useState(members[0]?.id || '');
   const [countInput, setCountInput] = useState('20');
   const [active, setActive] = useState<ActiveScenario>(null);
@@ -200,7 +218,13 @@ const PerfTestOverlay: React.FC<PerfTestOverlayProps> = ({
           </span>
           <button
             type="button"
-            onClick={() => setCollapsed((c) => !c)}
+            onClick={() =>
+              setCollapsed((c) => {
+                const next = !c;
+                writeCollapsedPreference(next);
+                return next;
+              })
+            }
             className="text-xs text-amber-800 dark:text-amber-200 hover:underline"
           >
             {collapsed ? 'Expand' : 'Collapse'}

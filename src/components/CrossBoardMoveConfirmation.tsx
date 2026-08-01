@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 
 export interface CrossBoardMoveConfirmationProps {
@@ -22,6 +22,18 @@ const CrossBoardMoveConfirmation: React.FC<CrossBoardMoveConfirmationProps> = ({
   isBusy = false,
 }) => {
   const { t } = useTranslation(['tasks', 'common']);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || isBusy) return;
+      e.preventDefault();
+      e.stopPropagation();
+      onCancel();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [isOpen, isBusy, onCancel]);
 
   if (!isOpen) return null;
 

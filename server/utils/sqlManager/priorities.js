@@ -90,7 +90,8 @@ export async function getMaxPriorityPosition(db) {
   
   const stmt = wrapQuery(db.prepare(query), 'SELECT');
   const result = await stmt.get();
-  return result?.maxPos ?? -1;
+  const maxPos = Number(result?.maxPos ?? result?.maxpos);
+  return Number.isFinite(maxPos) ? maxPos : -1;
 }
 
 /**

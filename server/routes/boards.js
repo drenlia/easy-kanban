@@ -230,15 +230,8 @@ router.post('/', authenticateToken, checkBoardLimit, async (req, res) => {
     const maxPosition = await boardQueries.getMaxBoardPosition(db);
     // Always add 1 to max position (getMaxBoardPosition returns -1 if no boards exist, so -1 + 1 = 0)
     const position = maxPosition + 1;
-    console.log(`[Board Creation] Creating board "${title}" (${id})`);
-    console.log(`[Board Creation] maxPosition: ${maxPosition}, calculated position: ${position}`);
-    console.log(`[Board Creation] position type: ${typeof position}, value: ${position}`);
     await boardQueries.createBoard(db, id, title, projectIdentifier, position);
-    
-    // Verify the board was created with the correct position
-    const createdBoard = await boardQueries.getBoardById(db, id);
-    console.log(`[Board Creation] Board created. Retrieved position from DB: ${createdBoard?.position} (type: ${typeof createdBoard?.position})`);
-    
+
     // Automatically create default columns based on APP_LANGUAGE
     const defaultColumns = await getDefaultBoardColumns(db);
     const tenantId = getTenantId(req);
@@ -285,8 +278,6 @@ router.post('/', authenticateToken, checkBoardLimit, async (req, res) => {
     }
     
     const newBoard = { id, title, project: projectIdentifier, position };
-    console.log(`[Board Creation] Sending response with board:`, JSON.stringify(newBoard, null, 2));
-    console.log(`[Board Creation] Publishing board-created event with position: ${position}`);
     
     // Publish to Redis for real-time updates
     notificationService.publish('board-created', {
@@ -405,7 +396,15 @@ router.post('/:id/restore', authenticateToken, requireRole(['admin']), async (re
   try {
     const db = getRequestDatabase(req);
     const t = await getTranslator(db);
-    const restored = await boardQueries.restoreBoard(db, req.params.id);
+    const trashed = await boardQueries.getBoardById(db, req.params.id);
+    if (!trashed || !trashed.deletedAt) {
+      return res.status(404).json({ error: t('errors.boardNotFound') });
+    }
+
+    // Restore to the end of the tab bar with a title no live board is using
+    const title = await boardQueries.findAvailableBoardTitle(db, trashed.title);
+    const position = (await boardQueries.getMaxBoardPosition(db)) + 1;
+    const restored = await boardQueries.restoreBoard(db, req.params.id, { title, position });
     if (!restored) {
       return res.status(404).json({ error: t('errors.boardNotFound') });
     }

@@ -1590,6 +1590,7 @@ export async function getMaxLivePositionInColumn(db, columnId) {
   `;
   const stmt = wrapQuery(db.prepare(query), 'SELECT');
   const row = await stmt.get(columnId);
-  return row?.maxPos ?? -1;
+  const maxPos = Number(row?.maxPos ?? row?.maxpos);
+  return Number.isFinite(maxPos) ? maxPos : -1;
 }
 

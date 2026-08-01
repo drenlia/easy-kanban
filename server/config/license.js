@@ -114,17 +114,37 @@ class LicenseManager {
     }
   }
 
-  // Get board count
+  // Get board count (live + soft-deleted — trash still occupies a license slot until purged)
   async getBoardCount() {
     try {
-      const result = await wrapQuery(
-        this.db.prepare('SELECT COUNT(*) as count FROM boards'),
-        'SELECT'
-      ).get();
-      return result.count;
+      const breakdown = await this.getBoardCountBreakdown();
+      return breakdown.total;
     } catch (error) {
       console.error('Error getting board count:', error);
       return 0;
+    }
+  }
+
+  async getBoardCountBreakdown() {
+    try {
+      const result = await wrapQuery(
+        this.db.prepare(`
+          SELECT
+            COUNT(*)::int AS total,
+            COUNT(*) FILTER (WHERE deleted_at IS NULL)::int AS live,
+            COUNT(*) FILTER (WHERE deleted_at IS NOT NULL)::int AS "softDeleted"
+          FROM boards
+        `),
+        'SELECT'
+      ).get();
+      return {
+        total: Number(result?.total) || 0,
+        live: Number(result?.live) || 0,
+        softDeleted: Number(result?.softDeleted ?? result?.softdeleted) || 0,
+      };
+    } catch (error) {
+      console.error('Error getting board count breakdown:', error);
+      return { total: 0, live: 0, softDeleted: 0 };
     }
   }
 
@@ -175,9 +195,16 @@ class LicenseManager {
     const limits = await this.getLimits();
     if (!limits || limits.BOARD_LIMIT === -1) return true; // -1 means unlimited
 
-    const boardCount = await this.getBoardCount();
-    if (boardCount >= limits.BOARD_LIMIT) {
-      throw new Error(`Board limit exceeded. Current: ${boardCount}, Maximum: ${limits.BOARD_LIMIT}`);
+    const breakdown = await this.getBoardCountBreakdown();
+    if (breakdown.total >= limits.BOARD_LIMIT) {
+      const error = new Error(
+        `Board limit exceeded. Current: ${breakdown.total}, Maximum: ${limits.BOARD_LIMIT}`
+      );
+      error.code = 'BOARD_LIMIT';
+      error.liveCount = breakdown.live;
+      error.softDeletedCount = breakdown.softDeleted;
+      error.boardLimit = limits.BOARD_LIMIT;
+      throw error;
     }
     return true;
   }

@@ -2,9 +2,10 @@ import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next';
 import { createPortal } from 'react-dom';
 import { Plus, MoreVertical, X, GripVertical, Archive, AlertTriangle, ScrollText, Trash2, HelpCircle } from 'lucide-react';
-import { Column, Task, TeamMember, PriorityOption, CurrentUser, Tag, ColumnVisibilityWarning } from '../types';
+import { Board, Column, Task, TeamMember, PriorityOption, CurrentUser, Tag, ColumnVisibilityWarning } from '../types';
 import { TaskViewMode } from '../utils/userPreferences';
 import TaskCard from './TaskCard';
+import ColumnBulkActionBar from './ColumnBulkActionBar';
 import { useSortable, SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { useDroppable } from '@dnd-kit/core';
@@ -13,6 +14,9 @@ import { getWipStatus, hasWipLimit } from '../utils/kanbanFlowUtils';
 import { sumTaskEffort, formatEffortDisplay, parseEffortUnit } from '../utils/taskUtils';
 import { KanbanChromeTooltip } from './KanbanChromeTooltip';
 import { resolveTaskMember } from '../utils/agentMemberUi';
+import {
+  shouldShowColumnBulkFab,
+} from '../utils/kanbanMultiSelect';
 
 interface KanbanColumnProps {
   column: Column;
@@ -88,6 +92,24 @@ interface KanbanColumnProps {
 
   /** When true, task count pill uses the blue “filtered” style (same as board tabs). */
   hasActiveFilters?: boolean;
+
+  /** Multi-check set for this board. */
+  checkedTaskIds?: Set<string>;
+  onToggleTaskChecked?: (taskId: string) => void;
+  onToggleColumnChecked?: (columnId: string, taskIds: string[], selectAll: boolean) => void;
+  onClearAllChecked?: () => void;
+  isMultiSelectDragLocked?: boolean;
+  bulkBusy?: boolean;
+  onBulkAddTag?: (taskIds: string[], tagId: string) => void;
+  onBulkCopy?: (taskIds: string[]) => void;
+  onBulkArchive?: (taskIds: string[]) => void;
+  onBulkDelete?: (taskIds: string[]) => void;
+  onBulkSprint?: (taskIds: string[], sprintId: string | null) => void;
+  onBulkPriority?: (taskIds: string[], priorityId: string) => void;
+  onBulkMoveToBoard?: (taskIds: string[], boardId: string) => void;
+  selectedBoardId?: string | null;
+  /** Task ids currently in a follower multi-drag (fade placeholders). */
+  draggedTaskIds?: string[];
 }
 
 export default function KanbanColumn({
@@ -150,7 +172,21 @@ export default function KanbanColumn({
   // Sprint filtering
   selectedSprintId = null,
   availableSprints,
-  hasActiveFilters = false
+  hasActiveFilters = false,
+  checkedTaskIds,
+  onToggleTaskChecked,
+  onClearAllChecked,
+  isMultiSelectDragLocked = false,
+  bulkBusy = false,
+  onBulkAddTag,
+  onBulkCopy,
+  onBulkArchive,
+  onBulkDelete,
+  onBulkSprint,
+  onBulkPriority,
+  onBulkMoveToBoard,
+  selectedBoardId = null,
+  draggedTaskIds,
 }: KanbanColumnProps) {
   const { t, i18n } = useTranslation(['tasks', 'common']);
   const [isEditing, setIsEditing] = useState(false);
@@ -617,7 +653,9 @@ export default function KanbanColumn({
       const member = resolveTaskMember(memberList, task.memberId);
       if (!member) return;
 
-      const isBeingDragged = draggedTask?.id === task.id;
+      const isBeingDragged =
+        draggedTask?.id === task.id ||
+        (!!draggedTaskIds && draggedTaskIds.includes(task.id));
       
       // Show insertion gap BEFORE this task if needed
       if (shouldShowInsertionPreview && dragPreview.insertIndex === index) {
@@ -672,6 +710,11 @@ export default function KanbanColumn({
             columns={columns}
             selectedSprintId={selectedSprintId}
             availableSprints={availableSprints}
+            isChecked={!!checkedTaskIds?.has(task.id)}
+            onToggleChecked={
+              onToggleTaskChecked ? () => onToggleTaskChecked(task.id) : undefined
+            }
+            isMultiSelectDragLocked={isMultiSelectDragLocked}
             
             // Task linking props
             isLinkingMode={isLinkingMode}
@@ -708,7 +751,7 @@ export default function KanbanColumn({
     }
     
     return taskElements;
-  }, [filteredTasks, members, onRemoveTask, onEditTask, onCopyTask, onTaskDragStart, onTaskDragEnd, onSelectTask, draggedTask, dragPreview, column.id, column.title, isDragging, t, taskViewMode, currentUser, siteSettings, column.is_finished, column.is_archived, draggedColumn, availablePriorities, selectedTask, availableTags, onTagAdd, onTagRemove, boards, columns, selectedSprintId, availableSprints, isLinkingMode, linkingSourceTask, onStartLinking, onFinishLinking, hoveredLinkTask, onLinkToolHover, onLinkToolHoverEnd, getTaskRelationshipType]);
+  }, [filteredTasks, members, onRemoveTask, onEditTask, onCopyTask, onTaskDragStart, onTaskDragEnd, onSelectTask, draggedTask, dragPreview, column.id, column.title, isDragging, t, taskViewMode, currentUser, siteSettings, column.is_finished, column.is_archived, draggedColumn, availablePriorities, selectedTask, availableTags, onTagAdd, onTagRemove, boards, columns, selectedSprintId, availableSprints, isLinkingMode, linkingSourceTask, onStartLinking, onFinishLinking, hoveredLinkTask, onLinkToolHover, onLinkToolHoverEnd, getTaskRelationshipType, checkedTaskIds, onToggleTaskChecked, isMultiSelectDragLocked, draggedTaskIds]);
 
   // Combine sortable and column droppable refs for the column container
   const setColumnRef = (node: HTMLElement | null) => {
@@ -882,7 +925,7 @@ export default function KanbanColumn({
         data-column-header
       >
         <div className={`flex gap-2 flex-1 min-w-0 ${isEditing ? 'items-start' : 'items-center'}`}>
-          {/* Task count covers the admin drag handle until hover reveals it. */}
+          {/* Column selection lives in the board-level strip above the columns. */}
           {isAdmin ? (
             <KanbanChromeTooltip
               label={t('column.clickToEditDragToReorder')}
@@ -901,19 +944,20 @@ export default function KanbanColumn({
                   />
                 </div>
                 {!isEditing && taskCountBadge && (
-                  <div className="pointer-events-none absolute inset-0 flex items-center justify-center transition-opacity group-hover/column-handle:opacity-0">
+                  <div className="pointer-events-none absolute inset-0 flex items-center justify-center transition-opacity group-hover/column-handle:opacity-0 group-hover/column-handle:invisible peer-focus:invisible">
                     {taskCountBadge}
                   </div>
                 )}
               </div>
             </KanbanChromeTooltip>
           ) : (
-            !isEditing && taskCountBadge && (
+            !isEditing &&
+            taskCountBadge && (
               <KanbanChromeTooltip
                 label={taskCountLabel}
                 wrapperClassName="relative inline-flex shrink-0 items-center"
               >
-                <div className="flex h-5 min-w-5 items-center justify-center pointer-events-none">
+                <div className="relative flex h-5 w-5 items-center justify-center">
                   {taskCountBadge}
                 </div>
               </KanbanChromeTooltip>
@@ -1357,9 +1401,51 @@ export default function KanbanColumn({
         )}
       </div>
 
+      {checkedTaskIds &&
+        shouldShowColumnBulkFab(checkedTaskIds, filteredTasks) &&
+        onBulkCopy &&
+        onBulkDelete && (
+          <ColumnBulkActionBar
+            columnId={column.id}
+            anchorRef={columnHeaderRef}
+            selectedCount={checkedTaskIds.size}
+            showUnselectAll={checkedTaskIds.size > 1}
+            isAdmin={isAdmin}
+            hasArchiveColumn={
+              !!columns &&
+              Object.values(columns).some(
+                (col) => col.is_archived === true || (col.is_archived as any) === 1
+              ) &&
+              !(column.is_archived === true || (column.is_archived as any) === 1)
+            }
+            availableTags={availableTags}
+            availablePriorities={availablePriorities}
+            availableSprints={availableSprints}
+            boards={(boards as Board[]) || []}
+            currentBoardId={selectedBoardId}
+            busy={bulkBusy}
+            onUnselectAll={() => onClearAllChecked?.()}
+            onAddTag={(tagId) =>
+              onBulkAddTag?.(Array.from(checkedTaskIds), tagId)
+            }
+            onCopy={() => onBulkCopy(Array.from(checkedTaskIds))}
+            onArchive={() => onBulkArchive?.(Array.from(checkedTaskIds))}
+            onDelete={() => onBulkDelete(Array.from(checkedTaskIds))}
+            onSprint={(sprintId) =>
+              onBulkSprint?.(Array.from(checkedTaskIds), sprintId)
+            }
+            onPriority={(priorityId) =>
+              onBulkPriority?.(Array.from(checkedTaskIds), priorityId)
+            }
+            onMoveToBoard={(boardId) =>
+              onBulkMoveToBoard?.(Array.from(checkedTaskIds), boardId)
+            }
+          />
+        )}
+
       {/* Column Delete Confirmation Dialog - Small popup like BoardTabs */}
       {showColumnDeleteConfirm === column.id && deleteButtonPosition && onConfirmColumnDelete && onCancelColumnDelete && getColumnTaskCount && createPortal(
-        <div 
+        <div
           className="delete-confirmation fixed bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg p-3 z-[9999] min-w-[220px]"
           style={{
             top: `${deleteButtonPosition.top}px`,

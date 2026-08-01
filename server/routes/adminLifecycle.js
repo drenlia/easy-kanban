@@ -173,4 +173,49 @@ router.post('/tasks/purge-batch', async (req, res) => {
   }
 });
 
+/** Permanently delete soft-deleted boards (and all their tasks) */
+router.post('/boards/purge-batch', async (req, res) => {
+  try {
+    const db = getRequestDatabase(req);
+    const { boardIds } = req.body || {};
+    if (!Array.isArray(boardIds) || boardIds.length === 0) {
+      return res.status(400).json({ error: 'boardIds required' });
+    }
+    const storagePaths =
+      req.locals?.tenantStoragePaths || req.app.locals?.tenantStoragePaths || null;
+    const purged = [];
+    const errors = [];
+    const tenantId = getTenantId(req);
+
+    for (const boardId of boardIds) {
+      try {
+        const board = await boardQueries.getBoardById(db, boardId);
+        if (!board) {
+          errors.push({ boardId, code: 'not_found' });
+          continue;
+        }
+        if (!board.deletedAt) {
+          errors.push({ boardId, code: 'not_soft_deleted' });
+          continue;
+        }
+        await purgeBoardCompletely(db, boardId, storagePaths);
+        await notificationService.publish(
+          'board-deleted',
+          { boardId, permanent: true, timestamp: new Date().toISOString() },
+          tenantId
+        );
+        purged.push(boardId);
+      } catch (err) {
+        console.error(`Lifecycle board purge failed for ${boardId}:`, err);
+        errors.push({ boardId, code: 'purge_failed' });
+      }
+    }
+
+    res.json({ purged, errors });
+  } catch (error) {
+    console.error('Lifecycle boards purge-batch error:', error);
+    res.status(500).json({ error: 'Failed to purge boards' });
+  }
+});
+
 export default router;

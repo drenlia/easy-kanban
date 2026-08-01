@@ -111,6 +111,10 @@ export interface Board {
   /** Soft-delete timestamp (ISO). Soft-deleted boards are hidden from tabs. */
   deletedAt?: string | null;
   deletedBy?: string | null;
+  /** Total tasks on board (lifecycle deleted-boards list). */
+  taskCount?: number;
+  /** Soft-deleted tasks on board (lifecycle deleted-boards list). */
+  trashTaskCount?: number;
 }
 
 export interface QueryLog {

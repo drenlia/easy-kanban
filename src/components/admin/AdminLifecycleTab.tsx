@@ -4,11 +4,13 @@ import { Trans, useTranslation } from 'react-i18next';
 import { AlertTriangle, RotateCcw, Trash2, RefreshCw } from 'lucide-react';
 import { useSettings } from '../../contexts/SettingsContext';
 import { toast } from '../../utils/toast';
+import { ModernCheckbox } from '../ModernCheckbox';
 import {
   getLifecycleDeletedTasks,
   getLifecycleDeletedBoards,
   restoreTasksBatch,
   purgeLifecycleTasksBatch,
+  purgeLifecycleBoardsBatch,
   restoreBoard,
   purgeBoard,
   restoreTask,
@@ -37,6 +39,7 @@ const AdminLifecycleTab: React.FC = () => {
   const [tasks, setTasks] = useState<(Task & { boardTitle?: string })[]>([]);
   const [boards, setBoards] = useState<Board[]>([]);
   const [selectedBoardIds, setSelectedBoardIds] = useState<string[]>([]);
+  const [selectedDeletedBoardIds, setSelectedDeletedBoardIds] = useState<Set<string>>(new Set());
   const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set());
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(false);
@@ -59,6 +62,14 @@ const AdminLifecycleTab: React.FC = () => {
       ]);
       setTasks(taskList as (Task & { boardTitle?: string })[]);
       setBoards(boardList);
+      setSelectedDeletedBoardIds((prev) => {
+        const next = new Set<string>();
+        const ids = new Set(boardList.map((b) => b.id));
+        prev.forEach((id) => {
+          if (ids.has(id)) next.add(id);
+        });
+        return next;
+      });
     } catch (error) {
       console.error(error);
       toast.error(t('loadFailed'));
@@ -114,6 +125,26 @@ const AdminLifecycleTab: React.FC = () => {
       return next;
     });
   };
+
+  const deletedRetentionDays = useMemo(() => {
+    const raw = systemSettings?.LIFECYCLE_DELETED_RETENTION_DAYS ?? '0';
+    return Math.max(0, parseInt(String(raw), 10) || 0);
+  }, [systemSettings?.LIFECYCLE_DELETED_RETENTION_DAYS]);
+
+  const autoDeleteEnabled = deletedRetentionDays > 0;
+
+  const formatDaysUntilPurge = useCallback(
+    (deletedAt?: string | null) => {
+      if (!autoDeleteEnabled || !deletedAt) return '—';
+      const deletedMs = new Date(deletedAt).getTime();
+      if (!Number.isFinite(deletedMs)) return '—';
+      const purgeAtMs = deletedMs + deletedRetentionDays * 24 * 60 * 60 * 1000;
+      const daysLeft = Math.ceil((purgeAtMs - Date.now()) / (24 * 60 * 60 * 1000));
+      if (daysLeft <= 0) return t('daysUntilPurgeDue');
+      return t('daysUntilPurge', { count: daysLeft });
+    },
+    [autoDeleteEnabled, deletedRetentionDays, t]
+  );
 
   const saveRetention = async (key: string, value: string) => {
     const normalized = String(Math.max(0, parseInt(value, 10) || 0));
@@ -282,11 +313,73 @@ const AdminLifecycleTab: React.FC = () => {
     }
   };
 
+  const toggleDeletedBoard = (boardId: string) => {
+    setSelectedDeletedBoardIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(boardId)) next.delete(boardId);
+      else next.add(boardId);
+      return next;
+    });
+  };
+
+  const toggleAllDeletedBoards = () => {
+    const ids = boards.map((board) => board.id);
+    const allSelected = ids.length > 0 && ids.every((id) => selectedDeletedBoardIds.has(id));
+    setSelectedDeletedBoardIds((prev) => {
+      if (allSelected) return new Set();
+      const next = new Set(prev);
+      ids.forEach((id) => next.add(id));
+      return next;
+    });
+  };
+
+  const handleRestoreSelectedBoards = async () => {
+    const ids = Array.from(selectedDeletedBoardIds);
+    if (ids.length === 0) return;
+    setBusy(true);
+    try {
+      let restored = 0;
+      for (const boardId of ids) {
+        await restoreBoard(boardId);
+        restored += 1;
+      }
+      toast.success(t('boardsRestoredCount', { count: restored }));
+      setSelectedDeletedBoardIds(new Set());
+      await loadData();
+    } catch (error: any) {
+      toast.error(error?.response?.data?.error || t('boardRestoreFailed'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handlePurgeSelectedBoards = () => {
+    const ids = Array.from(selectedDeletedBoardIds);
+    if (ids.length === 0) return;
+    setConfirmDialog({
+      title: t('purgeSelectedBoardsTitle'),
+      message: t('purgeSelectedBoardsConfirm', { count: ids.length }),
+      confirmLabel: t('purge'),
+      danger: true,
+      onConfirm: async () => {
+        const result = await purgeLifecycleBoardsBatch(ids);
+        toast.success(t('boardsPurgedCount', { count: result?.purged?.length || 0 }));
+        setSelectedDeletedBoardIds(new Set());
+        await loadData();
+      },
+    });
+  };
+
   const handleRestoreBoard = async (boardId: string) => {
     setBusy(true);
     try {
       await restoreBoard(boardId);
       toast.success(t('boardRestored'));
+      setSelectedDeletedBoardIds((prev) => {
+        const next = new Set(prev);
+        next.delete(boardId);
+        return next;
+      });
       await loadData();
     } catch (error: any) {
       toast.error(error?.response?.data?.error || t('boardRestoreFailed'));
@@ -296,14 +389,24 @@ const AdminLifecycleTab: React.FC = () => {
   };
 
   const handlePurgeBoard = (boardId: string) => {
+    const board = boards.find((b) => b.id === boardId);
+    const taskCount = board?.taskCount ?? board?.trashTaskCount ?? 0;
     setConfirmDialog({
       title: t('purgeBoardTitle'),
-      message: t('purgeBoardConfirm'),
+      message: t('purgeBoardConfirm', {
+        title: board?.title || boardId,
+        count: taskCount,
+      }),
       confirmLabel: t('purge'),
       danger: true,
       onConfirm: async () => {
         await purgeBoard(boardId);
         toast.success(t('boardPurged'));
+        setSelectedDeletedBoardIds((prev) => {
+          const next = new Set(prev);
+          next.delete(boardId);
+          return next;
+        });
         await loadData();
       },
     });
@@ -313,6 +416,18 @@ const AdminLifecycleTab: React.FC = () => {
     if (confirmBusy) return;
     setConfirmDialog(null);
   };
+
+  useEffect(() => {
+    if (!confirmDialog) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || confirmBusy) return;
+      e.preventDefault();
+      e.stopPropagation();
+      setConfirmDialog(null);
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [confirmDialog, confirmBusy]);
 
   const runConfirmDialog = async () => {
     if (!confirmDialog) return;
@@ -399,7 +514,14 @@ const AdminLifecycleTab: React.FC = () => {
       <section className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-800">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">{t('deletedTasksTitle')}</h3>
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+              {t('deletedTasksTitle')}
+              {!autoDeleteEnabled && (
+                <span className="ml-2 text-sm font-normal text-gray-500 dark:text-gray-400">
+                  {t('noAutoDeleteSet')}
+                </span>
+              )}
+            </h3>
             <p className="text-sm text-gray-500 dark:text-gray-400">{t('deletedTasksDescription')}</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -475,27 +597,39 @@ const AdminLifecycleTab: React.FC = () => {
             <thead className="bg-gray-50 dark:bg-gray-900/50">
               <tr>
                 <th className="px-3 py-2 text-left">
-                  <input
-                    type="checkbox"
+                  <ModernCheckbox
                     checked={
                       filteredTasks.length > 0 &&
                       filteredTasks.every((task) => selectedTaskIds.has(task.id))
                     }
+                    indeterminate={
+                      filteredTasks.some((task) => selectedTaskIds.has(task.id)) &&
+                      !filteredTasks.every((task) => selectedTaskIds.has(task.id))
+                    }
                     onChange={toggleAllVisible}
                     aria-label={t('selectAll')}
+                    size="sm"
                   />
                 </th>
                 <th className="px-3 py-2 text-left font-medium text-gray-600 dark:text-gray-300">{t('colTicket')}</th>
                 <th className="px-3 py-2 text-left font-medium text-gray-600 dark:text-gray-300">{t('colTitle')}</th>
                 <th className="px-3 py-2 text-left font-medium text-gray-600 dark:text-gray-300">{t('colBoard')}</th>
                 <th className="px-3 py-2 text-left font-medium text-gray-600 dark:text-gray-300">{t('colDeleted')}</th>
+                {autoDeleteEnabled && (
+                  <th className="px-3 py-2 text-left font-medium text-gray-600 dark:text-gray-300">
+                    {t('colDaysUntilPurge')}
+                  </th>
+                )}
                 <th className="px-3 py-2 text-right font-medium text-gray-600 dark:text-gray-300">{t('colActions')}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
               {filteredTasks.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-3 py-8 text-center text-gray-500 dark:text-gray-400">
+                  <td
+                    colSpan={autoDeleteEnabled ? 7 : 6}
+                    className="px-3 py-8 text-center text-gray-500 dark:text-gray-400"
+                  >
                     {loading ? t('loading') : t('noDeletedTasks')}
                   </td>
                 </tr>
@@ -503,10 +637,10 @@ const AdminLifecycleTab: React.FC = () => {
                 filteredTasks.map((task) => (
                   <tr key={task.id} className="hover:bg-gray-50 dark:hover:bg-gray-900/40">
                     <td className="px-3 py-2">
-                      <input
-                        type="checkbox"
+                      <ModernCheckbox
                         checked={selectedTaskIds.has(task.id)}
                         onChange={() => toggleTask(task.id)}
+                        size="sm"
                       />
                     </td>
                     <td className="px-3 py-2 font-mono text-xs text-gray-600 dark:text-gray-300">
@@ -519,6 +653,11 @@ const AdminLifecycleTab: React.FC = () => {
                     <td className="px-3 py-2 text-gray-600 dark:text-gray-300">
                       {task.deletedAt ? formatToYYYYMMDDHHmm(task.deletedAt) : '—'}
                     </td>
+                    {autoDeleteEnabled && (
+                      <td className="px-3 py-2 tabular-nums text-gray-600 dark:text-gray-300">
+                        {formatDaysUntilPurge(task.deletedAt)}
+                      </td>
+                    )}
                     <td className="px-3 py-2 text-right">
                       <button
                         type="button"
@@ -540,54 +679,143 @@ const AdminLifecycleTab: React.FC = () => {
 
       {/* Deleted boards */}
       <section className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-800">
-        <h3 className="mb-1 text-lg font-semibold text-gray-900 dark:text-gray-100">{t('deletedBoardsTitle')}</h3>
-        <p className="mb-4 text-sm text-gray-500 dark:text-gray-400">
-          <Trans
-            t={t}
-            i18nKey="deletedBoardsDescription"
-            components={{
-              boldItalic: <strong className="italic font-semibold" />,
-            }}
-          />
-        </p>
+        <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h3 className="mb-1 text-lg font-semibold text-gray-900 dark:text-gray-100">
+              {t('deletedBoardsTitle')}
+              {!autoDeleteEnabled && (
+                <span className="ml-2 text-sm font-normal text-gray-500 dark:text-gray-400">
+                  {t('noAutoDeleteSet')}
+                </span>
+              )}
+            </h3>
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              <Trans
+                t={t}
+                i18nKey="deletedBoardsDescription"
+                components={{
+                  boldItalic: <strong className="italic font-semibold" />,
+                }}
+              />
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              disabled={busy || selectedDeletedBoardIds.size === 0}
+              onClick={() => void handleRestoreSelectedBoards()}
+              className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+            >
+              <RotateCcw size={14} />
+              {t('restoreSelectedBoards')}
+              {selectedDeletedBoardIds.size > 0 ? ` (${selectedDeletedBoardIds.size})` : ''}
+            </button>
+            <button
+              type="button"
+              disabled={busy || selectedDeletedBoardIds.size === 0}
+              onClick={handlePurgeSelectedBoards}
+              className="inline-flex items-center gap-1.5 rounded-md bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
+            >
+              <Trash2 size={14} />
+              {t('purgeSelectedBoards')}
+              {selectedDeletedBoardIds.size > 0 ? ` (${selectedDeletedBoardIds.size})` : ''}
+            </button>
+          </div>
+        </div>
+
         {boards.length === 0 ? (
           <p className="text-sm text-gray-500 dark:text-gray-400">{t('noDeletedBoards')}</p>
         ) : (
-          <ul className="divide-y divide-gray-100 dark:divide-gray-800">
-            {boards.map((board) => (
-              <li
-                key={board.id}
-                className="flex flex-wrap items-center justify-between gap-3 py-3"
-              >
-                <div>
-                  <div className="font-medium text-gray-900 dark:text-gray-100">{board.title}</div>
-                  <div className="text-xs text-gray-500 dark:text-gray-400">
-                    {board.deletedAt ? formatToYYYYMMDDHHmm(board.deletedAt) : ''}
-                  </div>
-                </div>
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => void handleRestoreBoard(board.id)}
-                    className="inline-flex items-center gap-1 rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-                  >
-                    <RotateCcw size={14} />
-                    {t('restore')}
-                  </button>
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => void handlePurgeBoard(board.id)}
-                    className="inline-flex items-center gap-1 rounded-md bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
-                  >
-                    <Trash2 size={14} />
-                    {t('purge')}
-                  </button>
-                </div>
-              </li>
-            ))}
-          </ul>
+          <div className="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700">
+            <table className="min-w-full divide-y divide-gray-200 text-sm dark:divide-gray-700">
+              <thead className="bg-gray-50 dark:bg-gray-900/50">
+                <tr>
+                  <th className="px-3 py-2 text-left">
+                    <ModernCheckbox
+                      checked={
+                        boards.length > 0 &&
+                        boards.every((board) => selectedDeletedBoardIds.has(board.id))
+                      }
+                      indeterminate={
+                        boards.some((board) => selectedDeletedBoardIds.has(board.id)) &&
+                        !boards.every((board) => selectedDeletedBoardIds.has(board.id))
+                      }
+                      onChange={toggleAllDeletedBoards}
+                      aria-label={t('selectAll')}
+                      size="sm"
+                    />
+                  </th>
+                  <th className="px-3 py-2 text-left font-medium text-gray-600 dark:text-gray-300">
+                    {t('colTitle')}
+                  </th>
+                  <th className="px-3 py-2 text-left font-medium text-gray-600 dark:text-gray-300">
+                    {t('colTasks')}
+                  </th>
+                  <th className="px-3 py-2 text-left font-medium text-gray-600 dark:text-gray-300">
+                    {t('colDeleted')}
+                  </th>
+                  {autoDeleteEnabled && (
+                    <th className="px-3 py-2 text-left font-medium text-gray-600 dark:text-gray-300">
+                      {t('colDaysUntilPurge')}
+                    </th>
+                  )}
+                  <th className="px-3 py-2 text-right font-medium text-gray-600 dark:text-gray-300">
+                    {t('colActions')}
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+                {boards.map((board) => {
+                  const taskCount = board.taskCount ?? board.trashTaskCount ?? 0;
+                  return (
+                    <tr key={board.id} className="hover:bg-gray-50 dark:hover:bg-gray-900/40">
+                      <td className="px-3 py-2">
+                        <ModernCheckbox
+                          checked={selectedDeletedBoardIds.has(board.id)}
+                          onChange={() => toggleDeletedBoard(board.id)}
+                          size="sm"
+                        />
+                      </td>
+                      <td className="px-3 py-2 font-medium text-gray-900 dark:text-gray-100">
+                        {board.title}
+                      </td>
+                      <td className="px-3 py-2 tabular-nums text-gray-600 dark:text-gray-300">
+                        {taskCount}
+                      </td>
+                      <td className="px-3 py-2 text-gray-600 dark:text-gray-300">
+                        {board.deletedAt ? formatToYYYYMMDDHHmm(board.deletedAt) : '—'}
+                      </td>
+                      {autoDeleteEnabled && (
+                        <td className="px-3 py-2 tabular-nums text-gray-600 dark:text-gray-300">
+                          {formatDaysUntilPurge(board.deletedAt)}
+                        </td>
+                      )}
+                      <td className="px-3 py-2 text-right">
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() => void handleRestoreBoard(board.id)}
+                          className="mr-2 inline-flex items-center gap-1 text-blue-600 hover:underline disabled:opacity-50 dark:text-blue-400"
+                        >
+                          <RotateCcw size={14} />
+                          {t('restore')}
+                        </button>
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() => handlePurgeBoard(board.id)}
+                          className="inline-flex items-center gap-1 text-red-600 hover:underline disabled:opacity-50 dark:text-red-400"
+                        >
+                          <Trash2 size={14} />
+                          {t('purge')}
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         )}
       </section>
 
