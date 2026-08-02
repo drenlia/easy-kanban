@@ -30,6 +30,10 @@ const EMPTY_ADMIN_DRAFT_GATE: AdminDraftGate = {
 };
 
 import { lazyWithRetry } from './utils/lazyWithRetry';
+import {
+  clearChunkMismatchHardRefreshCount,
+  tryHardRefreshForChunkMismatch,
+} from './utils/chunkMismatchReload';
 
 // Lazy load TaskPage to reduce initial bundle size with retry logic
 const TaskPage = lazyWithRetry(() => import('./components/TaskPage'));
@@ -4628,67 +4632,54 @@ function AppContent() {
 
 // Main App component that wraps everything with SettingsProvider
 export default function App() {
-  // Global error handler for dynamic import failures (version mismatches)
-  // Only handles 404 errors for missing chunk files, not server errors (500, etc.)
+  // Global error handler for dynamic import failures (version mismatches).
+  // Hard-refreshes (cache-bust) up to 3 times per session, then stops.
   useEffect(() => {
     const handleError = (event: ErrorEvent) => {
-      // Only handle dynamic import failures that are 404s (missing chunk files)
-      // Ignore server errors (500, etc.) as those are deployment issues, not version mismatches
-      if (event.error instanceof TypeError && 
-          event.error.message?.includes('Failed to fetch dynamically imported module')) {
-        // Check if this is a 404 (version mismatch) vs a server error
-        const target = event.target as HTMLElement;
-        if (target && 'src' in target) {
-          // This is a script loading error - check if it's a 404
-          const scriptSrc = (target as HTMLScriptElement).src;
-          if (scriptSrc && scriptSrc.includes('/assets/')) {
-            // Only reload for asset loading failures (likely version mismatch)
-            // Don't reload for source file errors (500s, etc.)
-            if (!scriptSrc.includes('/src/')) {
-              console.error('❌ Dynamic import failure detected (likely version mismatch):', event.error);
-              console.error('   Forcing hard reload to get new JavaScript bundles...');
-              
-              // Prevent default error handling
-              event.preventDefault();
-              
-              const u = new URL(window.location.href);
-              u.searchParams.set('_cb', String(Date.now()));
-              window.location.href = u.toString();
-            }
-          }
-        }
+      if (
+        !(event.error instanceof TypeError) ||
+        !event.error.message?.includes('Failed to fetch dynamically imported module')
+      ) {
+        return;
       }
+
+      const target = event.target as HTMLElement | null;
+      if (!target || !('src' in target)) return;
+
+      const scriptSrc = (target as HTMLScriptElement).src;
+      if (!scriptSrc?.includes('/assets/') || scriptSrc.includes('/src/')) return;
+
+      event.preventDefault();
+      tryHardRefreshForChunkMismatch('Dynamic import failure (missing asset chunk)');
     };
 
-    // Listen for unhandled errors
-    window.addEventListener('error', handleError, true);
-    
-    // Also listen for unhandled promise rejections (dynamic imports are promises)
     const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
-      // Only handle actual version mismatch errors, not server errors
-      if (event.reason instanceof TypeError && 
-          event.reason.message?.includes('Failed to fetch dynamically imported module')) {
-        // Check the error message - if it mentions /src/ or 500, it's a server error, not a version mismatch
-        const errorMsg = event.reason.message || '';
-        if (!errorMsg.includes('/src/') && !errorMsg.includes('500')) {
-          console.error('❌ Unhandled dynamic import rejection (likely version mismatch):', event.reason);
-          console.error('   Forcing hard reload to get new JavaScript bundles...');
-          
-          // Prevent default error handling
-          event.preventDefault();
-          
-          const u = new URL(window.location.href);
-          u.searchParams.set('_cb', String(Date.now()));
-          window.location.href = u.toString();
-        }
+      if (
+        !(event.reason instanceof TypeError) ||
+        !event.reason.message?.includes('Failed to fetch dynamically imported module')
+      ) {
+        return;
       }
+
+      const errorMsg = event.reason.message || '';
+      if (errorMsg.includes('/src/') || errorMsg.includes('500')) return;
+
+      event.preventDefault();
+      tryHardRefreshForChunkMismatch('Unhandled dynamic import rejection (missing chunk)');
     };
 
+    window.addEventListener('error', handleError, true);
     window.addEventListener('unhandledrejection', handleUnhandledRejection);
+
+    // If the app stays up, allow future deploys to hard-refresh again.
+    const clearTimer = window.setTimeout(() => {
+      clearChunkMismatchHardRefreshCount();
+    }, 30_000);
 
     return () => {
       window.removeEventListener('error', handleError, true);
       window.removeEventListener('unhandledrejection', handleUnhandledRejection);
+      window.clearTimeout(clearTimer);
     };
   }, []);
 
