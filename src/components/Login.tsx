@@ -308,10 +308,13 @@ export default function Login({ onLogin, siteSettings, hasDefaultAdmin = true, i
   const hideGithubLink =
     (contextSiteSettings?.HIDE_GITHUB_LINK ?? siteSettings?.HIDE_GITHUB_LINK) === 'true';
 
+  // iPad/iOS: avoid min-h-screen + items-center — when the keyboard opens the visual
+  // viewport shrinks, flex re-centers the form, Safari blurs the field, and the keyboard
+  // dismisses. Top-align with padding keeps the focused input stable.
   return (
-    <div className="min-h-screen bg-gray-100 dark:bg-gray-900 flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8 relative">
+    <div className="min-h-[100dvh] bg-gray-100 dark:bg-gray-900 flex items-start justify-center pt-16 pb-12 px-4 sm:px-6 lg:px-8 relative">
       {/* Utilities — top right (matches app header: GitHub + language) */}
-      <div className="absolute top-4 right-4 flex items-center gap-2">
+      <div className="absolute top-4 right-4 flex items-center gap-2 z-10">
         {!hideGithubLink && (
           <a
             href="https://github.com/drenlia/easy-kanban"
@@ -386,9 +389,10 @@ export default function Login({ onLogin, siteSettings, hasDefaultAdmin = true, i
           </div>
         )}
 
-        {/* Loading Spinner while checking backend */}
+        {/* Loading Spinner while checking backend — keep form unmounted until done so
+            removing this banner cannot steal focus / dismiss the iOS keyboard. */}
         {checkingBackend && (
-          <div className="bg-blue-50 dark:bg-blue-900/20 border-l-4 border-blue-400 dark:border-blue-600 p-6 rounded-lg">
+          <div className="mt-8 bg-blue-50 dark:bg-blue-900/20 border-l-4 border-blue-400 dark:border-blue-600 p-6 rounded-lg">
             <div className="flex items-center">
               <div className="flex-shrink-0">
                 <svg className="animate-spin h-6 w-6 text-blue-500" fill="none" viewBox="0 0 24 24">
@@ -405,7 +409,8 @@ export default function Login({ onLogin, siteSettings, hasDefaultAdmin = true, i
           </div>
         )}
         
-        <form className="mt-8 space-y-6" onSubmit={handleSubmit} style={{ display: backendAvailable ? 'block' : 'none' }}>
+        {!checkingBackend && backendAvailable && (
+        <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
           <div className="rounded-md shadow-sm -space-y-px bg-white dark:bg-gray-800 p-6 rounded-lg">
             <div>
               <label htmlFor="email" className="sr-only">
@@ -415,7 +420,11 @@ export default function Login({ onLogin, siteSettings, hasDefaultAdmin = true, i
                 id="email"
                 name="email"
                 type="email"
+                inputMode="email"
                 autoComplete="email"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
                 required
                 className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 placeholder-gray-500 dark:placeholder-gray-400 text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-800 rounded-t-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm"
                 placeholder={t('login.emailAddress')}
@@ -578,6 +587,7 @@ export default function Login({ onLogin, siteSettings, hasDefaultAdmin = true, i
             </div>
           )}
         </form>
+        )}
       </div>
     </div>
   );

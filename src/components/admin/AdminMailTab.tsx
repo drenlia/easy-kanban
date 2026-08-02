@@ -171,7 +171,7 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
                   <p className="text-sm text-blue-700 dark:text-blue-300 mt-1">
                     {t('mail.managedEmailDescription')} <code className="bg-blue-100 dark:bg-blue-800 px-1 rounded">{editingSettings.SMTP_FROM_EMAIL || 'noreply@ezkan.cloud'}</code>.
                   </p>
-                  <div className="mt-3">
+                  <div className="mt-3" data-owner-setup="switch-custom-smtp">
                     <button
                       type="button"
                       onClick={() => setShowFirstConfirm(true)}

@@ -12,13 +12,17 @@ import {
   X,
 } from 'lucide-react';
 import { useOwnerSetup } from '../../contexts/OwnerSetupContext';
+import { useSettings } from '../../contexts/SettingsContext';
 import {
   OWNER_SETUP_STEPS,
   OwnerSetupStepId,
   applyOwnerSetupFieldHighlights,
   constrainOwnerSetupPositionX,
   defaultOwnerSetupPositionX,
+  filterOwnerSetupGuideFields,
   getEffectiveDisplayStatus,
+  isMultiTenantDeploy,
+  ownerSetupGuideSelectors,
 } from '../../utils/ownerSetup';
 
 const EXPANDED_WIDTH = 384; // ~24rem
@@ -44,6 +48,20 @@ const OwnerSetupChecklist: React.FC = () => {
     setPositionX,
     coreComplete,
   } = useOwnerSetup();
+  const { siteSettings, systemSettings } = useSettings();
+
+  const guideFieldContext = useMemo(() => {
+    const raw = (systemSettings?.MAIL_MANAGED ?? siteSettings?.MAIL_MANAGED) as
+      | string
+      | undefined;
+    return {
+      multiTenant: isMultiTenantDeploy(),
+      mailManaged:
+        raw === undefined || raw === ''
+          ? undefined
+          : String(raw).toLowerCase() === 'true',
+    };
+  }, [siteSettings?.MAIL_MANAGED, systemSettings?.MAIL_MANAGED]);
 
   const dragRef = useRef<{
     startClientX: number;
@@ -76,13 +94,17 @@ const OwnerSetupChecklist: React.FC = () => {
   useEffect(() => {
     if (progress.minimized || !guidingStepId) return;
     const def = OWNER_SETUP_STEPS.find((s) => s.id === guidingStepId);
-    const selectors =
-      def?.guideFields?.map((f) => f.selector).filter(Boolean) ??
-      (def?.tourTarget ? [def.tourTarget] : []);
-    if (selectors.length === 0) return;
-    const cancel = applyOwnerSetupFieldHighlights(selectors);
+    const selectors = ownerSetupGuideSelectors(def?.guideFields, guideFieldContext);
+    const targets =
+      selectors.length > 0
+        ? selectors
+        : def?.tourTarget
+          ? [def.tourTarget]
+          : [];
+    if (targets.length === 0) return;
+    const cancel = applyOwnerSetupFieldHighlights(targets);
     return cancel;
-  }, [progress.minimized, guidingStepId]);
+  }, [progress.minimized, guidingStepId, guideFieldContext]);
 
   const panelWidth = progress.minimized ? MINIMIZED_WIDTH : EXPANDED_WIDTH;
 
@@ -300,7 +322,14 @@ const OwnerSetupChecklist: React.FC = () => {
   };
 
   const isGuiding = guidingStepId === activeId;
-  const guideFields = activeStep.guideFields ?? [];
+  const guideFields = filterOwnerSetupGuideFields(
+    activeStep.guideFields,
+    guideFieldContext
+  );
+  const stepDescriptionKey =
+    activeId === 'mail' && guideFieldContext.multiTenant
+      ? 'ownerSetup.steps.mail.descriptionMultiTenant'
+      : `ownerSetup.steps.${activeId}.description`;
 
   return (
     <div
@@ -383,7 +412,7 @@ const OwnerSetupChecklist: React.FC = () => {
                   </span>
                 )}
                 <p className="text-sm text-gray-600 dark:text-gray-300">
-                  {t(`ownerSetup.steps.${activeId}.description`)}
+                  {t(stepDescriptionKey)}
                 </p>
                 {isGuiding && (
                   <div className="rounded-md bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 px-3 py-2 space-y-2">
@@ -496,7 +525,11 @@ const OwnerSetupChecklist: React.FC = () => {
                     </div>
                     {isActive && (
                       <p className="mt-0.5 text-xs text-gray-600 dark:text-gray-300">
-                        {t(`ownerSetup.steps.${step.id}.description`)}
+                        {t(
+                          step.id === 'mail' && guideFieldContext.multiTenant
+                            ? 'ownerSetup.steps.mail.descriptionMultiTenant'
+                            : `ownerSetup.steps.${step.id}.description`
+                        )}
                       </p>
                     )}
                   </div>

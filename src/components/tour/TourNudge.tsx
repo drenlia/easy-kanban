@@ -2,17 +2,25 @@ import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { X } from 'lucide-react';
 import { useTour } from '../../contexts/TourContext';
+import { useOwnerSetupOptional } from '../../contexts/OwnerSetupContext';
 
 const TOUR_NUDGE_DISMISSED_KEY = 'tourNudgeDismissed';
 
 /**
  * One-time dismissible banner inviting new users to take the product tour.
  * Dismissal is persisted in localStorage so it does not reappear.
+ * Hidden while the owner Configuration guide is open so the two do not compete.
  */
 const TourNudge: React.FC = () => {
   const { t } = useTranslation('common');
   const { startTour, isRunning } = useTour();
+  const ownerSetup = useOwnerSetupOptional();
   const [visible, setVisible] = useState(false);
+
+  const ownerGuideBlocking =
+    Boolean(ownerSetup?.isOwner) &&
+    Boolean(ownerSetup?.progress.visible) &&
+    !ownerSetup?.coreComplete;
 
   useEffect(() => {
     try {
@@ -47,7 +55,7 @@ const TourNudge: React.FC = () => {
     startTour();
   };
 
-  if (!visible || isRunning) {
+  if (!visible || isRunning || ownerGuideBlocking) {
     return null;
   }
 

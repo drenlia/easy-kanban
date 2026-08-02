@@ -672,10 +672,12 @@ export default function BoardTabs({
   // Get the current board's project identifier
   const currentBoard = boards.find(board => board.id === selectedBoard);
   const currentProject = currentBoard?.project;
+  const showActionColumn = isAdmin || (trashCount > 0 && Boolean(onToggleTrash));
 
   return (
     <div className="mb-6">
-      <div className="flex items-center justify-between gap-2">
+      {/* Match Kanban toolbar columns: tab strip = Tools + Team Members; actions = Progression width */}
+      <div className="flex items-center gap-4">
         <div className="flex min-w-0 flex-1 items-center gap-1" data-tour-id="board-tabs">
           {/* Reserve both chevron slots whenever tabs overflow — toggling arrows must not change track width */}
           {tabsOverflow && (
@@ -906,42 +908,47 @@ export default function BoardTabs({
           )}
         </div>
 
-        {trashCount > 0 && onToggleTrash && (
-          <KanbanChromeTooltip label={trashOpen ? t('boardTabs.hideTrash') : t('boardTabs.showTrash')}>
-            <button
-              type="button"
-              onClick={onToggleTrash}
-              className={`relative flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg border transition-colors ${
-                trashOpen
-                  ? 'border-blue-500 bg-blue-50 text-blue-700 dark:border-blue-400 dark:bg-blue-950/50 dark:text-blue-300'
-                  : 'border-transparent text-gray-500 hover:border-gray-200 hover:bg-white hover:text-gray-800 dark:text-gray-400 dark:hover:border-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-100'
-              }`}
-              aria-label={trashOpen ? t('boardTabs.hideTrash') : t('boardTabs.showTrash')}
-              aria-pressed={trashOpen}
-              data-tour-id="board-trash-toggle"
-            >
-              <Trash2 size={18} strokeWidth={2} />
-              <span
-                className="absolute -right-1 -top-1 flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-semibold text-white ring-1 ring-white dark:ring-gray-900"
-                aria-hidden="true"
-              >
-                {trashCount > 99 ? '99+' : trashCount}
-              </span>
-            </button>
-          </KanbanChromeTooltip>
-        )}
+        {/* Same width as BoardMetrics (Progression) so + / trash sit under that column */}
+        {showActionColumn && (
+          <div className="flex w-[168px] shrink-0 items-center justify-end gap-2">
+            {isAdmin && (
+              <KanbanChromeTooltip label={t('boardTabs.addNewBoard')}>
+                <button
+                  type="button"
+                  onClick={onAddBoard}
+                  className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg border border-dashed border-gray-300 text-gray-500 transition-colors hover:border-blue-500 hover:bg-blue-50 hover:text-blue-600 dark:border-gray-600 dark:text-gray-400 dark:hover:border-blue-400 dark:hover:bg-blue-950/50 dark:hover:text-blue-300"
+                  data-tour-id="add-board-button"
+                >
+                  <Plus size={18} strokeWidth={2} />
+                </button>
+              </KanbanChromeTooltip>
+            )}
 
-        {isAdmin && (
-          <KanbanChromeTooltip label={t('boardTabs.addNewBoard')}>
-            <button
-              type="button"
-              onClick={onAddBoard}
-              className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg border border-dashed border-gray-300 text-gray-500 transition-colors hover:border-blue-500 hover:bg-blue-50 hover:text-blue-600 dark:border-gray-600 dark:text-gray-400 dark:hover:border-blue-400 dark:hover:bg-blue-950/50 dark:hover:text-blue-300"
-              data-tour-id="add-board-button"
-            >
-              <Plus size={18} strokeWidth={2} />
-            </button>
-          </KanbanChromeTooltip>
+            {trashCount > 0 && onToggleTrash && (
+              <KanbanChromeTooltip label={trashOpen ? t('boardTabs.hideTrash') : t('boardTabs.showTrash')}>
+                <button
+                  type="button"
+                  onClick={onToggleTrash}
+                  className={`relative flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg border transition-colors ${
+                    trashOpen
+                      ? 'border-blue-500 bg-blue-50 text-blue-700 dark:border-blue-400 dark:bg-blue-950/50 dark:text-blue-300'
+                      : 'border-transparent text-gray-500 hover:border-gray-200 hover:bg-white hover:text-gray-800 dark:text-gray-400 dark:hover:border-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-100'
+                  }`}
+                  aria-label={trashOpen ? t('boardTabs.hideTrash') : t('boardTabs.showTrash')}
+                  aria-pressed={trashOpen}
+                  data-tour-id="board-trash-toggle"
+                >
+                  <Trash2 size={18} strokeWidth={2} />
+                  <span
+                    className="absolute -right-1 -top-1 flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-semibold text-white ring-1 ring-white dark:ring-gray-900"
+                    aria-hidden="true"
+                  >
+                    {trashCount > 99 ? '99+' : trashCount}
+                  </span>
+                </button>
+              </KanbanChromeTooltip>
+            )}
+          </div>
         )}
       </div>
     </div>

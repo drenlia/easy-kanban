@@ -1259,8 +1259,10 @@
       "mail": {
         "title": "Serveur de messagerie",
         "description": "Configurez SMTP et envoyez un e-mail de test pour les invitations et réinitialisations. Passez si vous créez les utilisateurs uniquement en local.",
+        "descriptionMultiTenant": "Les locataires démarrent avec l'e-mail géré par la plateforme. Passez d'abord à SMTP personnalisé, puis configurez SMTP et envoyez un e-mail de test pour les invitations et réinitialisations. Passez si vous créez les utilisateurs uniquement en local.",
         "guide": "Remplissez SMTP, testez, puis activez le courrier.",
         "fields": {
+          "switchToCustomSmtp": "Cliquez d'abord sur Passer à SMTP personnalisé (confirmer deux fois) pour modifier vos propres paramètres de messagerie.",
           "SMTP_HOST": "Saisissez l'hôte SMTP (ex. smtp.gmail.com).",
           "SMTP_PORT": "Saisissez le port SMTP (souvent 587 pour TLS).",
           "SMTP_USERNAME": "Saisissez le nom d'utilisateur / compte SMTP.",
@@ -1296,12 +1298,11 @@
       },
       "tagsPriorities": {
         "title": "Étiquettes et priorités",
-        "description": "Vérifiez les étiquettes et niveaux de priorité pour catégoriser les cartes dès le début.",
-        "guide": "Configurez les étiquettes, puis les priorités.",
+        "description": "Ajoutez les étiquettes utilisées sur les cartes. Vous pouvez aussi revoir les priorités sous Admin → Priorités.",
+        "guide": "Configurez les étiquettes sur cet écran.",
         "fields": {
           "addTag": "Ajoutez les étiquettes que l'équipe utilisera sur les cartes.",
-          "prioritiesTab": "Ensuite, ouvrez l'onglet Priorités pour revoir les niveaux.",
-          "addPriority": "Ajoutez ou ajustez les niveaux de priorité et les couleurs."
+          "prioritiesHint": "Facultatif : ouvrez Admin → Priorités à tout moment pour revoir les niveaux et couleurs."
         }
       },
       "sprints": {
@@ -1340,7 +1341,7 @@
       },
       "finish": {
         "title": "Vous êtes prêt",
-        "description": "La configuration essentielle est entre vos mains. Lancez le tutoriel produit depuis l'Aide, et rouvrez cette liste depuis l'Aide si besoin.",
+        "description": "La configuration essentielle est entre vos mains. Lancez le tutoriel et rouvrez cette liste depuis l'Aide au besoin.",
         "guide": "Configuration terminée."
       }
     }

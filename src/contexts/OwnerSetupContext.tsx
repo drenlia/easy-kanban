@@ -24,7 +24,9 @@ import {
   EMPTY_OWNER_SETUP_HINTS,
   firstIncompleteStepId,
   getStepDef,
+  isMultiTenantDeploy,
   loadOwnerSetupProgress,
+  ownerSetupGuideSelectors,
   persistOwnerSetupProgress,
 } from '../utils/ownerSetup';
 import { requestAdminNavigation } from '../utils/adminNavigation';
@@ -119,6 +121,17 @@ export const OwnerSetupProvider: React.FC<OwnerSetupProviderProps> = ({
   );
 
   const coreComplete = useMemo(() => coreStepsComplete(progress), [progress]);
+
+  const guideFieldContext = useMemo(() => {
+    const raw = mergedSettings.MAIL_MANAGED;
+    return {
+      multiTenant: isMultiTenantDeploy(),
+      mailManaged:
+        raw === undefined || raw === ''
+          ? undefined
+          : String(raw).toLowerCase() === 'true',
+    };
+  }, [mergedSettings.MAIL_MANAGED]);
 
   // Detect owner + load progress
   useEffect(() => {
@@ -317,25 +330,29 @@ export const OwnerSetupProvider: React.FC<OwnerSetupProviderProps> = ({
     setGuidingStepId(null);
   }, []);
 
-  // Highlight all related fields at once while Guide me is open (no Joyride)
+  // Highlight related fields at once while Guide me is open (no Joyride)
   useEffect(() => {
     if (!guidingStepId) {
       clearOwnerSetupFieldHighlights();
       return;
     }
     const def = getStepDef(guidingStepId);
-    const selectors =
-      def.guideFields?.map((f) => f.selector).filter(Boolean) ??
-      (def.tourTarget ? [def.tourTarget] : []);
-    if (selectors.length === 0) return;
+    const selectors = ownerSetupGuideSelectors(def.guideFields, guideFieldContext);
+    const targets =
+      selectors.length > 0
+        ? selectors
+        : def.tourTarget
+          ? [def.tourTarget]
+          : [];
+    if (targets.length === 0) return;
 
     // Allow Admin / Kanban to mount after navigation
-    const cancel = applyOwnerSetupFieldHighlights(selectors);
+    const cancel = applyOwnerSetupFieldHighlights(targets);
     return () => {
       cancel();
       clearOwnerSetupFieldHighlights();
     };
-  }, [guidingStepId]);
+  }, [guidingStepId, guideFieldContext]);
 
   const value = useMemo(
     () => ({

@@ -20,9 +20,17 @@ export type OwnerSetupStepId = (typeof OWNER_SETUP_STEP_IDS)[number];
 
 export type OwnerSetupManualStatus = 'todo' | 'done' | 'skipped';
 
+/** When to include a Guide me field (default: always). */
+export type OwnerSetupGuideWhen =
+  | 'always'
+  | 'multiTenant'
+  | 'singleTenant'
+  /** MULTI_TENANT and still on platform-managed mail (Switch to Custom SMTP). */
+  | 'multiTenantManagedMail';
+
 export interface OwnerSetupGuideField {
-  /** CSS selector for the control to highlight during Guide me */
-  selector: string;
+  /** CSS selector for the control to highlight during Guide me (omit for text-only tips) */
+  selector?: string;
   /** i18n key under ownerSetup.steps.<stepId>.fields.<fieldKey> */
   fieldKey: string;
   /** Optional group header: ownerSetup.steps.<stepId>.sections.<sectionKey> */
@@ -31,6 +39,60 @@ export interface OwnerSetupGuideField {
   adminTab?: string;
   /** Switch to kanban for this field */
   goKanban?: boolean;
+  /** Environment / mail-mode gate for this substep */
+  when?: OwnerSetupGuideWhen;
+}
+
+export function isMultiTenantDeploy(): boolean {
+  return process.env.MULTI_TENANT === 'true';
+}
+
+export type OwnerSetupGuideFieldContext = {
+  multiTenant?: boolean;
+  /**
+   * Platform-managed mail (`MAIL_MANAGED === 'true'`).
+   * `undefined` = unknown / not loaded yet (treat as possibly managed on MULTI_TENANT).
+   */
+  mailManaged?: boolean;
+};
+
+/** Whether a guide field applies for the current deployment / mail mode. */
+export function isOwnerSetupGuideFieldApplicable(
+  field: OwnerSetupGuideField,
+  ctx: OwnerSetupGuideFieldContext = {}
+): boolean {
+  const multiTenant = ctx.multiTenant ?? isMultiTenantDeploy();
+  switch (field.when ?? 'always') {
+    case 'multiTenant':
+      return multiTenant;
+    case 'singleTenant':
+      return !multiTenant;
+    case 'multiTenantManagedMail':
+      // Show on tenant installs until we know custom SMTP is already active
+      if (!multiTenant) return false;
+      if (ctx.mailManaged === false) return false;
+      return true;
+    default:
+      return true;
+  }
+}
+
+export function filterOwnerSetupGuideFields(
+  fields: OwnerSetupGuideField[] | undefined,
+  ctx?: OwnerSetupGuideFieldContext
+): OwnerSetupGuideField[] {
+  if (!fields?.length) return [];
+  return fields.filter((f) => isOwnerSetupGuideFieldApplicable(f, ctx));
+}
+
+/** Selectors to spotlight (skips text-only tips). */
+export function ownerSetupGuideSelectors(
+  fields: OwnerSetupGuideField[] | undefined,
+  ctx?: OwnerSetupGuideFieldContext
+): string[] {
+  return filterOwnerSetupGuideFields(fields, ctx)
+    .map((f) => f.selector)
+    .filter((s): s is string => Boolean(s));
 }
 
 export interface OwnerSetupStepDef {
@@ -153,6 +215,11 @@ export const OWNER_SETUP_STEPS: OwnerSetupStepDef[] = [
     adminTab: 'mail-server',
     tourTarget: '[data-tour-id="admin-mail-server"]',
     guideFields: [
+      {
+        selector: '[data-owner-setup="switch-custom-smtp"]',
+        fieldKey: 'switchToCustomSmtp',
+        when: 'multiTenantManagedMail',
+      },
       { selector: '[data-setting-key="SMTP_HOST"]', fieldKey: 'SMTP_HOST' },
       { selector: '[data-setting-key="SMTP_PORT"]', fieldKey: 'SMTP_PORT' },
       { selector: '[data-setting-key="SMTP_USERNAME"]', fieldKey: 'SMTP_USERNAME' },
@@ -212,8 +279,9 @@ export const OWNER_SETUP_STEPS: OwnerSetupStepDef[] = [
     tourTarget: '[data-tour-id="admin-tags"]',
     guideFields: [
       { selector: '[data-owner-setup="add-tag"]', fieldKey: 'addTag', adminTab: 'tags' },
-      { selector: '[data-tour-id="admin-priorities"]', fieldKey: 'prioritiesTab', adminTab: 'tags' },
-      { selector: '[data-owner-setup="add-priority"]', fieldKey: 'addPriority', adminTab: 'priorities' },
+      // Text-only: Priorities tab stays in the Admin nav always, so spotlighting it
+      // while on Tags looked like a bug and Guide me never opens Priorities for you.
+      { fieldKey: 'prioritiesHint', adminTab: 'tags' },
     ],
   },
   {

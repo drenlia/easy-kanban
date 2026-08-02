@@ -1256,8 +1256,10 @@
       "mail": {
         "title": "Mail server",
         "description": "Configure SMTP and send a test email so invitations and password resets work. Skip if you only create users locally.",
+        "descriptionMultiTenant": "Tenants start on platform-managed email. Switch to Custom SMTP first, then configure SMTP and send a test email so invitations and password resets work. Skip if you only create users locally.",
         "guide": "Fill SMTP settings, test, then enable mail.",
         "fields": {
+          "switchToCustomSmtp": "First click Switch to Custom SMTP (confirm twice) so you can edit your own mail server settings.",
           "SMTP_HOST": "Enter your SMTP host (e.g. smtp.gmail.com).",
           "SMTP_PORT": "Enter the SMTP port (often 587 for TLS).",
           "SMTP_USERNAME": "Enter the SMTP username / account.",
@@ -1293,12 +1295,11 @@
       },
       "tagsPriorities": {
         "title": "Tags & priorities",
-        "description": "Review tags and priority levels so cards can be categorized from day one.",
-        "guide": "Set up tags, then priorities.",
+        "description": "Add tags your team will use on cards. Optionally review priority levels under Admin → Priorities.",
+        "guide": "Set up tags on this screen.",
         "fields": {
           "addTag": "Add tags your team will use on cards.",
-          "prioritiesTab": "Next, open the Priorities tab to review priority levels.",
-          "addPriority": "Add or adjust priority levels and colors."
+          "prioritiesHint": "Optional: open Admin → Priorities anytime to review priority levels and colors."
         }
       },
       "sprints": {
