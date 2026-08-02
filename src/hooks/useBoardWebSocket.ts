@@ -3,6 +3,7 @@ import { Columns, Board, Task } from '../types';
 import { toast } from '../utils/toast';
 import i18n from '../i18n/config';
 import { loadUserPreferences } from '../utils/userPreferences';
+import { scheduleSettledBoardRefresh } from '../utils/boardRestoredRefresh';
 
 interface UseBoardWebSocketProps {
   // State setters
@@ -33,7 +34,6 @@ export const useBoardWebSocket = ({
   selectedBoardRef,
   refreshBoardDataRef,
 }: UseBoardWebSocketProps) => {
-  
   const handleBoardCreated = useCallback((data: any) => {
     if (!data.board || !data.boardId) return;
 
@@ -212,10 +212,96 @@ export const useBoardWebSocket = ({
   ]);
 
   const handleBoardRestored = useCallback((data: any) => {
-    if (refreshBoardDataRef.current) {
-      refreshBoardDataRef.current({ force: true });
+    const boardId = data?.boardId || data?.board?.id;
+    if (!boardId) return;
+
+    // Upsert board immediately so task-restored events that follow (lifecycle
+    // "restore board then tasks") have a board to land in — otherwise handleTaskCreated
+    // drops them when the board is still missing from local state.
+    if (data.board) {
+      const incomingColumns: Columns = data.board.columns || {};
+      setBoards((prevBoards) => {
+        const existing = prevBoards.find((b) => b.id === boardId);
+        if (existing) {
+          return prevBoards.map((b) => {
+            if (b.id !== boardId) return b;
+            const mergedColumns: Columns = { ...(incomingColumns || {}) };
+            // Keep any tasks already applied by earlier task-restored events
+            Object.keys(b.columns || {}).forEach((columnId) => {
+              const prevCol = b.columns[columnId];
+              const nextCol = mergedColumns[columnId];
+              if (!prevCol) return;
+              if (!nextCol) {
+                mergedColumns[columnId] = prevCol;
+                return;
+              }
+              const byId = new Map<string, Task>();
+              (nextCol.tasks || []).forEach((t) => byId.set(t.id, t));
+              (prevCol.tasks || []).forEach((t) => {
+                if (!byId.has(t.id)) byId.set(t.id, t);
+              });
+              mergedColumns[columnId] = {
+                ...nextCol,
+                tasks: Array.from(byId.values()).sort(
+                  (a, bTask) => (a.position || 0) - (bTask.position || 0)
+                ),
+              };
+            });
+            return {
+              ...b,
+              ...data.board,
+              id: boardId,
+              deletedAt: null,
+              deletedBy: null,
+              columns: mergedColumns,
+            };
+          });
+        }
+
+        const sorted = [...prevBoards, {
+          ...data.board,
+          id: boardId,
+          deletedAt: null,
+          deletedBy: null,
+          columns: incomingColumns,
+        } as Board];
+        sorted.sort((a, b) => (Number(a.position) || 0) - (Number(b.position) || 0));
+        return sorted;
+      });
+
+      // If user is already viewing this board (switched early), hydrate columns without wiping tasks
+      if (selectedBoardRef.current === boardId) {
+        setColumns((prev) => {
+          if (Object.keys(prev).length > 0) {
+            // Merge column shells onto existing tasks
+            const next: Columns = { ...incomingColumns };
+            Object.keys(prev).forEach((columnId) => {
+              const prevCol = prev[columnId];
+              const shell = next[columnId];
+              if (!shell) {
+                next[columnId] = prevCol;
+                return;
+              }
+              next[columnId] = {
+                ...shell,
+                tasks: prevCol.tasks?.length ? prevCol.tasks : (shell.tasks || []),
+              };
+            });
+            return next;
+          }
+          const seeded: Columns = {};
+          Object.keys(incomingColumns).forEach((columnId) => {
+            const col = incomingColumns[columnId];
+            seeded[columnId] = { ...col, tasks: [...(col.tasks || [])] };
+          });
+          return seeded;
+        });
+      }
     }
-  }, [refreshBoardDataRef]);
+
+    // Debounced authoritative refresh; task-restored events bump the same timer
+    scheduleSettledBoardRefresh(refreshBoardDataRef.current);
+  }, [setBoards, setColumns, selectedBoardRef, refreshBoardDataRef]);
 
   const handleBoardReordered = useCallback((data: any) => {
     // Refresh boards list to show new order

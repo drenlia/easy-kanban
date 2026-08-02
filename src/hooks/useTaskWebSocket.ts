@@ -3,6 +3,7 @@ import { Board, Columns, Task, TeamMember } from '../types';
 import { getBoardTaskRelationships } from '../api';
 import { feDebug } from '../utils/clientDebug';
 import { dedupeTasksInColumns, stripTaskFromAllColumns } from '../utils/taskReorderingUtils';
+import { scheduleSettledBoardRefresh } from '../utils/boardRestoredRefresh';
 
 function wsHookLog(...args: unknown[]) {
   if (feDebug('FE_DEBUG_WEBSOCKET')) console.log(...args);
@@ -660,66 +661,57 @@ export const useTaskWebSocket = ({
     
     // Always update boards state for task count updates (for all boards)
     setBoards(prevBoards => {
-      // Check if board exists in state
+      const targetColumnId = data.task.columnId;
       const boardExists = prevBoards.some(b => b.id === data.boardId);
-      
-      if (!boardExists) {
-        // Board doesn't exist yet - this can happen if board-created event hasn't been processed yet
-        // In this case, we'll let the board-created handler add it, and this task will be added later
-        // via refreshBoardData or when the board is added
-        return prevBoards;
-      }
-      
-      return prevBoards.map(board => {
-        if (board.id === data.boardId) {
-          const updatedBoard = { ...board };
-          const updatedColumns = { ...updatedBoard.columns };
-          const targetColumnId = data.task.columnId;
-          
-          // If column doesn't exist yet, create it (can happen if column-created event hasn't been processed)
-          if (!updatedColumns[targetColumnId]) {
-            updatedColumns[targetColumnId] = {
-              id: targetColumnId,
-              boardId: data.boardId,
-              title: 'Unknown Column', // Will be updated when column-created event arrives
-              tasks: [],
-              position: 0,
-              is_finished: false,
-              is_archived: false
-            };
-          }
-          
-          // Check if task already exists (from optimistic update)
-          const existingTasks = updatedColumns[targetColumnId].tasks;
-          const taskExists = existingTasks.some(t => t.id === data.task.id);
-          
-          if (taskExists) {
-            // Task already exists, update it with server data (includes ticket number)
-            const updatedTasks = existingTasks.map(t => 
-              t.id === data.task.id ? data.task : t
-            );
-            updatedColumns[targetColumnId] = {
-              ...updatedColumns[targetColumnId],
-              tasks: updatedTasks
-            };
-          } else {
-            // Task doesn't exist yet, add it and sort by position (preserve server position)
-            // CRITICAL: Use the position from the server (e.g., 4.50 for copied tasks)
-            // Don't renumber - this would break fractional positions
-            const allTasks = [...existingTasks, data.task];
-            const updatedTasks = allTasks.sort((a, b) => (a.position || 0) - (b.position || 0));
-            
-            updatedColumns[targetColumnId] = {
-              ...updatedColumns[targetColumnId],
-              tasks: updatedTasks
-            };
-          }
-          
-          updatedBoard.columns = updatedColumns;
-          
-          return updatedBoard;
+
+      // Lifecycle "restore board then tasks" can deliver task-restored before board-restored
+      // is applied. Dropping the task here left peers with an empty restored board until refresh.
+      const ensureColumn = (columns: Columns): Columns => {
+        const next = { ...columns };
+        if (!targetColumnId) return next;
+        if (!next[targetColumnId]) {
+          next[targetColumnId] = {
+            id: targetColumnId,
+            boardId: data.boardId,
+            title: 'Unknown Column',
+            tasks: [],
+            position: 0,
+            is_finished: false,
+            is_archived: false,
+          };
         }
-        return board;
+        const existingTasks = next[targetColumnId].tasks || [];
+        const taskExists = existingTasks.some((t) => t.id === data.task.id);
+        next[targetColumnId] = {
+          ...next[targetColumnId],
+          tasks: taskExists
+            ? existingTasks.map((t) => (t.id === data.task.id ? data.task : t))
+            : [...existingTasks, data.task].sort(
+                (a, b) => (a.position || 0) - (b.position || 0)
+              ),
+        };
+        return next;
+      };
+
+      if (!boardExists) {
+        return [
+          ...prevBoards,
+          {
+            id: data.boardId,
+            title: data.boardTitle || data.task?.boardTitle || 'Board',
+            columns: ensureColumn({}),
+            deletedAt: null,
+          } as Board,
+        ];
+      }
+
+      return prevBoards.map((board) => {
+        if (board.id !== data.boardId) return board;
+        return {
+          ...board,
+          deletedAt: null,
+          columns: ensureColumn(board.columns || {}),
+        };
       });
     });
     
@@ -933,6 +925,8 @@ export const useTaskWebSocket = ({
     data.task.deleted_at = null;
     data.task.deleted_by = null;
     handleTaskCreated(data);
+    // Keep the post-board-restore refresh from firing mid-batch
+    scheduleSettledBoardRefresh(refreshBoardDataRef.current);
     // If TaskDetails is open on this task, exit read-only lifecycle mode
     if (selectedTaskRef.current?.id === data.task.id) {
       setSelectedTask({
@@ -944,7 +938,7 @@ export const useTaskWebSocket = ({
         deleted_by: null,
       });
     }
-  }, [handleTaskCreated, recentlyDeletedTasksRef, setSelectedTask]);
+  }, [handleTaskCreated, recentlyDeletedTasksRef, setSelectedTask, refreshBoardDataRef]);
 
   const handleTaskPurged = useCallback((data: any) => {
     if (!data.taskId) return;

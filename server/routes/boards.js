@@ -409,12 +409,40 @@ router.post('/:id/restore', authenticateToken, requireRole(['admin']), async (re
     if (!restored) {
       return res.status(404).json({ error: t('errors.boardNotFound') });
     }
+    // Include column shells (no live tasks yet — they may still be in trash and restored next).
+    // Peers need the board+columns in local state so subsequent task-restored events aren't dropped.
+    const columnRows = await helpers.getColumnsForBoard(db, req.params.id);
+    const columns = {};
+    for (const col of columnRows) {
+      columns[col.id] = {
+        id: col.id,
+        title: col.title,
+        boardId: col.boardId || req.params.id,
+        position: col.position,
+        is_finished: col.is_finished,
+        is_archived: col.is_archived,
+        wip_limit: col.wip_limit,
+        policy_text: col.policy_text,
+        tasks: [],
+      };
+    }
+    const boardPayload = {
+      id: restored.id,
+      title: restored.title,
+      project: restored.project,
+      position: restored.position,
+      createdAt: restored.created_at || restored.createdAt,
+      updatedAt: restored.updated_at || restored.updatedAt,
+      deletedAt: null,
+      deletedBy: null,
+      columns,
+    };
     await notificationService.publish('board-restored', {
       boardId: req.params.id,
-      board: restored,
+      board: boardPayload,
       timestamp: new Date().toISOString(),
     }, getTenantId(req));
-    res.json(restored);
+    res.json(boardPayload);
   } catch (error) {
     console.error('Error restoring board:', error);
     res.status(500).json({ error: 'Failed to restore board' });
