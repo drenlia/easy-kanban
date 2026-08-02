@@ -8,13 +8,23 @@ import {
   isSuggestedOrEmptyBaseUrl,
 } from '../../constants/aiProviders';
 import { isMaskedApiKeyDisplay, maskApiKey } from '../../utils/maskSecret';
+import {
+  ADMIN_NUMERIC_INPUT_CLASS,
+  AI_MAX_CONCURRENT,
+  clampIntToString,
+  parseOptionalInt,
+} from '../../utils/adminFieldLimits';
 import { useSettings } from '../../contexts/SettingsContext';
 import { toast } from '../../utils/toast';
+import { AdminFieldDraftControls } from './AdminFieldDraftControls';
+import { AdminUnsavedHint } from './AdminUnsavedChanges';
 
 interface AdminAISettingsTabProps {
   editingSettings: { [key: string]: string | undefined };
   onSettingsChange: (settings: { [key: string]: string | undefined }) => void;
   onAutoSave: (key: string, value: string) => Promise<void>;
+  onLocalDirtyChange?: (dirty: boolean) => void;
+  discardNonce?: number;
 }
 
 interface AiModelOption {
@@ -37,6 +47,8 @@ function initialBaseUrl(settings: { [key: string]: string | undefined }): string
 const AdminAISettingsTab: React.FC<AdminAISettingsTabProps> = ({
   editingSettings,
   onSettingsChange,
+  onLocalDirtyChange,
+  discardNonce = 0,
 }) => {
   const { t } = useTranslation('admin');
   const { updateSiteSetting } = useSettings();
@@ -69,6 +81,19 @@ const AdminAISettingsTab: React.FC<AdminAISettingsTabProps> = ({
   const savedKeyMask = editingSettings.AI_API_KEY || '';
   const savedRunnerTokenMask = editingSettings.AI_RUNNER_TOKEN || '';
 
+  const hydrateFromEditing = () => {
+    setAgentName(editingSettings.AI_AGENT_NAME || 'Agent');
+    setProvider(editingSettings.AI_PROVIDER || 'openai');
+    setBaseUrl(initialBaseUrl(editingSettings));
+    setModel(editingSettings.AI_MODEL || '');
+    setApiKeyDraft(editingSettings.AI_API_KEY || '');
+    setMaxConcurrent(editingSettings.AI_MAX_CONCURRENT || '1');
+    setRunnerUrl(editingSettings.AI_RUNNER_URL || 'http://kanban-runner:8080');
+    setRunnerTokenDraft(editingSettings.AI_RUNNER_TOKEN || '');
+    setValidationError(null);
+    setValidationOk(null);
+  };
+
   useEffect(() => {
     setAgentName(editingSettings.AI_AGENT_NAME || 'Agent');
   }, [editingSettings.AI_AGENT_NAME]);
@@ -90,6 +115,13 @@ const AdminAISettingsTab: React.FC<AdminAISettingsTabProps> = ({
     editingSettings.AI_RUNNER_URL,
     editingSettings.AI_RUNNER_TOKEN,
   ]);
+
+  // Discard often leaves editingSettings AI keys unchanged (local-only drafts) — force re-hydrate.
+  useEffect(() => {
+    if (discardNonce === 0) return;
+    hydrateFromEditing();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: only on discard
+  }, [discardNonce]);
 
   useEffect(() => {
     if (models.length === 0) {
@@ -135,6 +167,10 @@ const AdminAISettingsTab: React.FC<AdminAISettingsTabProps> = ({
         (editingSettings.AI_RUNNER_URL || 'http://kanban-runner:8080')) ||
     keyReplaced ||
     runnerTokenReplaced;
+
+  useEffect(() => {
+    onLocalDirtyChange?.(configDirty || agentNameDirty);
+  }, [configDirty, agentNameDirty, onLocalDirtyChange]);
 
   const putSetting = async (key: string, value: string) => {
     const { data } = await api.put('/admin/settings', { key, value });
@@ -191,15 +227,39 @@ const AdminAISettingsTab: React.FC<AdminAISettingsTabProps> = ({
   };
 
   const saveConfiguration = async () => {
+    const parsedMax = parseOptionalInt(maxConcurrent);
+    if (
+      parsedMax === null ||
+      parsedMax < AI_MAX_CONCURRENT.min ||
+      parsedMax > AI_MAX_CONCURRENT.max
+    ) {
+      toast.error(
+        t('numberOutOfRange', {
+          label: t('appSettings.aiMaxConcurrent'),
+          min: AI_MAX_CONCURRENT.min,
+          max: AI_MAX_CONCURRENT.max,
+        }),
+        ''
+      );
+      setMaxConcurrent(
+        clampIntToString(
+          maxConcurrent,
+          AI_MAX_CONCURRENT.min,
+          AI_MAX_CONCURRENT.max,
+          1
+        )
+      );
+      return;
+    }
+
     setSavingConfig(true);
     setValidationError(null);
     setValidationOk(null);
     try {
       const url = baseUrl.trim();
       const modelVal = model.trim();
-      const maxVal = String(
-        Math.min(10, Math.max(1, parseInt(maxConcurrent, 10) || 1))
-      );
+      const maxVal = String(parsedMax);
+      setMaxConcurrent(maxVal);
       const runnerUrlVal = runnerUrl.trim();
       const next: { [key: string]: string | undefined } = {
         ...editingSettings,
@@ -444,6 +504,31 @@ const AdminAISettingsTab: React.FC<AdminAISettingsTabProps> = ({
   const sectionClass =
     'rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50/60 dark:bg-gray-900/30 p-4 sm:p-5 space-y-4';
 
+  const savedProvider = editingSettings.AI_PROVIDER || 'openai';
+  const savedBaseUrl = editingSettings.AI_API_BASE_URL || '';
+  const savedModel = editingSettings.AI_MODEL || '';
+  const savedMaxConcurrent = editingSettings.AI_MAX_CONCURRENT || '1';
+  const savedRunnerUrl =
+    editingSettings.AI_RUNNER_URL || 'http://kanban-runner:8080';
+
+  const aiFieldLabel = (
+    label: string,
+    dirty: boolean,
+    savedValue: string,
+    onRevert: () => void,
+    hideWas = false
+  ) => (
+    <label className="flex flex-wrap items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+      <span>{label}</span>
+      <AdminFieldDraftControls
+        dirty={dirty}
+        savedValue={savedValue}
+        onRevert={onRevert}
+        hideWas={hideWas}
+      />
+    </label>
+  );
+
   return (
     <div className="bg-white dark:bg-gray-800 shadow rounded-lg">
       <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
@@ -581,9 +666,12 @@ const AdminAISettingsTab: React.FC<AdminAISettingsTabProps> = ({
           </div>
 
           <div data-setting-key="AI_PROVIDER">
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              {t('appSettings.aiProvider')}
-            </label>
+            {aiFieldLabel(
+              t('appSettings.aiProvider'),
+              provider !== savedProvider,
+              savedProvider,
+              () => applyProviderChange(savedProvider)
+            )}
             <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">
               {t('appSettings.aiProviderDescription')}
             </p>
@@ -606,9 +694,12 @@ const AdminAISettingsTab: React.FC<AdminAISettingsTabProps> = ({
           </div>
 
           <div data-setting-key="AI_API_BASE_URL">
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              {t('appSettings.aiApiBaseUrl')}
-            </label>
+            {aiFieldLabel(
+              t('appSettings.aiApiBaseUrl'),
+              baseUrl.trim() !== savedBaseUrl,
+              savedBaseUrl || initialBaseUrl(editingSettings),
+              () => setBaseUrl(initialBaseUrl(editingSettings))
+            )}
             <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">
               {t('appSettings.aiApiBaseUrlDescription')}
             </p>
@@ -639,9 +730,13 @@ const AdminAISettingsTab: React.FC<AdminAISettingsTabProps> = ({
           </div>
 
           <div data-setting-key="AI_API_KEY">
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              {t('appSettings.aiApiKey')}
-            </label>
+            {aiFieldLabel(
+              t('appSettings.aiApiKey'),
+              keyReplaced,
+              '',
+              () => setApiKeyDraft(savedKeyMask || editingSettings.AI_API_KEY || ''),
+              true
+            )}
             {selectedPreset && !selectedPreset.apiKeyRequired && (
               <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">
                 {t('appSettings.aiApiKeyOptional')}
@@ -670,9 +765,17 @@ const AdminAISettingsTab: React.FC<AdminAISettingsTabProps> = ({
           </div>
 
           <div data-setting-key="AI_MODEL">
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              {t('appSettings.aiModel')}
-            </label>
+            {aiFieldLabel(
+              t('appSettings.aiModel'),
+              model.trim() !== savedModel,
+              savedModel,
+              () => {
+                setModel(savedModel);
+                setModelMode(
+                  models.some((m) => m.id === savedModel) ? 'list' : 'custom'
+                );
+              }
+            )}
             <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">
               {t('appSettings.aiModelDescription')}
             </p>
@@ -747,20 +850,38 @@ const AdminAISettingsTab: React.FC<AdminAISettingsTabProps> = ({
             </p>
           </div>
           <div data-setting-key="AI_MAX_CONCURRENT">
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              {t('appSettings.aiMaxConcurrent')}
-            </label>
+            {aiFieldLabel(
+              t('appSettings.aiMaxConcurrent'),
+              maxConcurrent.trim() !== savedMaxConcurrent,
+              savedMaxConcurrent,
+              () => setMaxConcurrent(savedMaxConcurrent)
+            )}
             <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">
               {t('appSettings.aiMaxConcurrentDescription')}
             </p>
             <input
               type="number"
-              min={1}
-              max={10}
+              inputMode="numeric"
               value={maxConcurrent}
               onChange={(e) => setMaxConcurrent(e.target.value)}
-              className="block w-24 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+              onBlur={() =>
+                setMaxConcurrent(
+                  clampIntToString(
+                    maxConcurrent,
+                    AI_MAX_CONCURRENT.min,
+                    AI_MAX_CONCURRENT.max,
+                    1
+                  )
+                )
+              }
+              className={`block w-24 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 ${ADMIN_NUMERIC_INPUT_CLASS}`}
             />
+            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              {t('numberRangeHint', {
+                min: AI_MAX_CONCURRENT.min,
+                max: AI_MAX_CONCURRENT.max,
+              })}
+            </p>
           </div>
         </section>
 
@@ -779,9 +900,14 @@ const AdminAISettingsTab: React.FC<AdminAISettingsTabProps> = ({
           </div>
 
           <div data-setting-key="AI_RUNNER_URL">
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              {t('appSettings.aiRunnerUrl')}
-            </label>
+            {aiFieldLabel(
+              t('appSettings.aiRunnerUrl'),
+              !platformRunnerManaged &&
+                runnerUrl.trim() !==
+                  (editingSettings.AI_RUNNER_URL || 'http://kanban-runner:8080'),
+              savedRunnerUrl,
+              () => setRunnerUrl(savedRunnerUrl)
+            )}
             <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">
               {platformRunnerManaged
                 ? t('appSettings.aiRunnerPlatformManagedDescription')
@@ -816,9 +942,16 @@ const AdminAISettingsTab: React.FC<AdminAISettingsTabProps> = ({
 
           {!platformRunnerManaged && (
             <div data-setting-key="AI_RUNNER_TOKEN">
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                {t('appSettings.aiRunnerToken')}
-              </label>
+              {aiFieldLabel(
+                t('appSettings.aiRunnerToken'),
+                runnerTokenReplaced,
+                '',
+                () =>
+                  setRunnerTokenDraft(
+                    savedRunnerTokenMask || editingSettings.AI_RUNNER_TOKEN || ''
+                  ),
+                true
+              )}
               <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">
                 {t('appSettings.aiRunnerTokenDescription')}
               </p>
@@ -847,14 +980,19 @@ const AdminAISettingsTab: React.FC<AdminAISettingsTabProps> = ({
 
         {/* Shared save */}
         <div className="rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-900/20 px-4 py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-          <p className="text-sm text-gray-600 dark:text-gray-300">
-            {t('appSettings.aiConfigSaveHint')}
-          </p>
+          <div className="space-y-1 min-w-0">
+            <AdminUnsavedHint show={configDirty} />
+            <p className="text-sm text-gray-600 dark:text-gray-300">
+              {t('appSettings.aiConfigSaveHint')}
+            </p>
+          </div>
           <button
             type="button"
             disabled={!configDirty || savingConfig}
             onClick={() => void saveConfiguration()}
-            className="shrink-0 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:opacity-50"
+            className={`shrink-0 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:opacity-50 ${
+              configDirty ? 'ring-2 ring-amber-400 ring-offset-2' : ''
+            }`}
           >
             {savingConfig ? t('appSettings.saving') : t('appSettings.aiSaveConfiguration')}
           </button>

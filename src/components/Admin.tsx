@@ -18,10 +18,15 @@ import AdminLicensingTab from './admin/AdminLicensingTab';
 import AdminNotificationQueueTab from './admin/AdminNotificationQueueTab';
 import AdminSettingsSearch from './admin/AdminSettingsSearch';
 import { AdminUnsavedChangesBanner } from './admin/AdminUnsavedChanges';
+import type { AdminDraftGate } from './admin/AdminLeaveUnsavedDialog';
 import websocketClient from '../services/websocketClient';
 import { useSettings } from '../contexts/SettingsContext';
 import { isMaskedApiKeyDisplay } from '../utils/maskSecret';
-import { adminSettingsHaveChanges } from '../utils/adminSettingsDirty';
+import {
+  adminSettingsHaveChanges,
+  getDirtyAdminSettingsTabs,
+} from '../utils/adminSettingsDirty';
+import { clampActivityFeedInSettings } from '../utils/adminFieldLimits';
 import {
   ADMIN_NAVIGATE_EVENT,
   AdminNavigateDetail,
@@ -32,6 +37,8 @@ interface AdminProps {
   currentUser: any;
   onUsersChanged?: () => void;
   onSettingsChanged?: () => void;
+  /** Notify App when Admin has unsaved drafts (for leave-Admin prompt). */
+  onDraftGateChange?: (gate: AdminDraftGate | null) => void;
 }
 
 interface User {
@@ -70,7 +77,37 @@ interface Settings {
 
 // SystemInfo interface removed - Header.tsx handles all system info
 
-const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsChanged }) => {
+const ADMIN_NAV_TABS = [
+  'users',
+  'site-settings',
+  'sso',
+  'mail-server',
+  'tags',
+  'priorities',
+  'app-settings',
+  'project-settings',
+  'sprint-settings',
+  'reporting',
+  'lifecycle',
+  'licensing',
+] as const;
+
+/** Keep visited tab panels mounted (hidden) so drafts survive tab switches. */
+const AdminTabPanel: React.FC<{ active: boolean; children: React.ReactNode }> = ({
+  active,
+  children,
+}) => (
+  <div className={active ? undefined : 'hidden'} aria-hidden={!active}>
+    {children}
+  </div>
+);
+
+const Admin: React.FC<AdminProps> = ({
+  currentUser,
+  onUsersChanged,
+  onSettingsChanged,
+  onDraftGateChange,
+}) => {
   const { t } = useTranslation('admin');
   const { systemSettings, refreshSettings, updateSiteSetting } = useSettings(); // Use SettingsContext for admin settings
   const [activeTab, setActiveTab] = useState(() => {
@@ -108,6 +145,17 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
   const [tags, setTags] = useState<any[]>([]);
   const [priorities, setPriorities] = useState<any[]>([]);
   const [ownerEmail, setOwnerEmail] = useState<string | null>(null);
+  /** Tabs mounted at least once — keep mounted to retain local drafts */
+  const [visitedTabs, setVisitedTabs] = useState<Set<string>>(() => new Set([activeTab]));
+
+  useEffect(() => {
+    setVisitedTabs((prev) => {
+      if (prev.has(activeTab)) return prev;
+      const next = new Set(prev);
+      next.add(activeTab);
+      return next;
+    });
+  }, [activeTab]);
 
   useEffect(() => {
     if (currentUser?.roles?.includes('admin')) {
@@ -668,7 +716,10 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
       let hasChanges = false;
       const changedKeys: string[] = [];
       // Use passed settings if available, otherwise use editingSettings
-      const settingsToSave = newSettings || editingSettings;
+      const settingsToSave = clampActivityFeedInSettings(newSettings || editingSettings);
+      if (settingsToSave !== (newSettings || editingSettings)) {
+        setEditingSettings(settingsToSave);
+      }
       
       // Ensure SMTP_SECURE is included if we're saving SMTP settings
       // This handles the case where SMTP_SECURE is not in the database but should be saved with default 'tls'
@@ -757,9 +808,11 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
       } else {
         toast.info(t('noChangesToSave'), '', 3000);
       }
+      return true;
     } catch (err) {
       toast.error(t('failedToSaveSettings'), '');
       console.error(err);
+      return false;
     }
   };
 
@@ -928,14 +981,81 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
     }
   };
 
+  /** Bumped on Discard so tabs with local draft state (AI, uploads, reporting, …) re-hydrate. */
+  const [settingsDiscardNonce, setSettingsDiscardNonce] = useState(0);
+
   const handleCancelSettings = () => {
     setEditingSettings(settings);
+    setSettingsDiscardNonce((n) => n + 1);
   };
+
+  /** Local draft dirty flags for tabs that do not use shared editingSettings. */
+  const [localDirtyTabs, setLocalDirtyTabs] = useState<Record<string, boolean>>({});
+
+  const handleTabLocalDirty = useCallback((tabId: string, dirty: boolean) => {
+    setLocalDirtyTabs((prev) => {
+      if (Boolean(prev[tabId]) === dirty) return prev;
+      return { ...prev, [tabId]: dirty };
+    });
+  }, []);
 
   const hasUnsavedSettings = useMemo(
     () => adminSettingsHaveChanges(settings, editingSettings),
     [settings, editingSettings]
   );
+
+  const hasAnyLocalDirty = useMemo(
+    () => Object.values(localDirtyTabs).some(Boolean),
+    [localDirtyTabs]
+  );
+
+  const hasAnyUnsavedDrafts = hasUnsavedSettings || hasAnyLocalDirty;
+
+  const hasAnyLocalDirtyRef = useRef(hasAnyLocalDirty);
+  hasAnyLocalDirtyRef.current = hasAnyLocalDirty;
+  const handleSaveSettingsRef = useRef(handleSaveSettings);
+  handleSaveSettingsRef.current = handleSaveSettings;
+  const handleCancelSettingsRef = useRef(handleCancelSettings);
+  handleCancelSettingsRef.current = handleCancelSettings;
+
+  // Expose draft gate to App for leave-Admin confirmation
+  useEffect(() => {
+    if (!onDraftGateChange) return;
+    onDraftGateChange({
+      hasSharedDirty: hasUnsavedSettings,
+      hasLocalDirty: hasAnyLocalDirty,
+      saveShared: async () => {
+        const ok = await handleSaveSettingsRef.current();
+        if (!ok) {
+          throw new Error('Failed to save admin settings');
+        }
+        return { hasLocalDirtyStill: hasAnyLocalDirtyRef.current };
+      },
+      discardAll: () => handleCancelSettingsRef.current(),
+    });
+    return () => onDraftGateChange(null);
+  }, [hasUnsavedSettings, hasAnyLocalDirty, onDraftGateChange]);
+
+  const dirtySettingsTabs = useMemo(
+    () => getDirtyAdminSettingsTabs(settings, editingSettings),
+    [settings, editingSettings]
+  );
+
+  const isTabDirty = useCallback(
+    (tabId: string) => dirtySettingsTabs.has(tabId as any) || Boolean(localDirtyTabs[tabId]),
+    [dirtySettingsTabs, localDirtyTabs]
+  );
+
+  // Warn on browser refresh/close when drafts exist (Admin stays mounted across in-app page switches)
+  useEffect(() => {
+    if (!hasAnyUnsavedDrafts) return;
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [hasAnyUnsavedDrafts]);
 
   const handleMailServerDisabled = () => {
     // Clear test result when mail server is disabled to require re-testing
@@ -1146,11 +1266,12 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
             </div>
             <div className="flex flex-col sm:flex-row sm:items-center gap-2 flex-shrink-0 w-full sm:w-auto sm:pt-0.5 sm:max-w-none sm:justify-end">
               <AdminUnsavedChangesBanner
-                visible={hasUnsavedSettings}
+                visible={hasAnyUnsavedDrafts}
                 onSave={() => {
                   void handleSaveSettings();
                 }}
                 onDiscard={handleCancelSettings}
+                saveDisabled={!hasUnsavedSettings}
               />
               <div className="w-full sm:w-auto sm:max-w-xs">
                 <AdminSettingsSearch
@@ -1161,30 +1282,38 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
             </div>
           </div>
           <nav className="flex space-x-8 overflow-x-auto px-4 max-w-full">
-            {['users', 'site-settings', 'sso', 'mail-server', 'tags', 'priorities', 'app-settings', 'project-settings', 'sprint-settings', 'reporting', 'lifecycle', 'licensing'].map((tab) => (
+            {ADMIN_NAV_TABS.map((tab) => (
               <button
                 key={tab}
                 onClick={() => handleTabChange(tab)}
-                className={`py-3 px-1 border-b-2 font-medium text-sm whitespace-nowrap ${
+                className={`relative py-3 px-1 border-b-2 font-medium text-sm whitespace-nowrap ${
                   activeTab === tab
                     ? 'border-blue-500 text-blue-600 dark:text-blue-400'
                     : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600'
                 }`}
                 data-tour-id={`admin-${tab}`}
               >
-                {tab === 'users' && t('tabs.users')}
-                {tab === 'site-settings' && t('tabs.siteSettings')}
-                {tab === 'sso' && t('tabs.sso')}
-                {tab === 'mail-server' && t('tabs.mailServer')}
-                {tab === 'tags' && t('tabs.tags')}
-                {tab === 'priorities' && t('tabs.priorities')}
-                {tab === 'app-settings' && t('tabs.appSettings')}
-                {tab === 'project-settings' && t('tabs.projectSettings')}
-                {tab === 'sprint-settings' && t('tabs.sprintSettings')}
-                {tab === 'reporting' && t('tabs.reporting')}
-                {tab === 'lifecycle' && t('tabs.lifecycle')}
-                {tab === 'licensing' && t('tabs.licensing')}
-                {tab === 'notification-queue' && t('tabs.notificationQueue')}
+                <span className="inline-flex items-center gap-1.5">
+                  {tab === 'users' && t('tabs.users')}
+                  {tab === 'site-settings' && t('tabs.siteSettings')}
+                  {tab === 'sso' && t('tabs.sso')}
+                  {tab === 'mail-server' && t('tabs.mailServer')}
+                  {tab === 'tags' && t('tabs.tags')}
+                  {tab === 'priorities' && t('tabs.priorities')}
+                  {tab === 'app-settings' && t('tabs.appSettings')}
+                  {tab === 'project-settings' && t('tabs.projectSettings')}
+                  {tab === 'sprint-settings' && t('tabs.sprintSettings')}
+                  {tab === 'reporting' && t('tabs.reporting')}
+                  {tab === 'lifecycle' && t('tabs.lifecycle')}
+                  {tab === 'licensing' && t('tabs.licensing')}
+                  {isTabDirty(tab) && (
+                    <span
+                      className="inline-block w-1.5 h-1.5 rounded-full bg-amber-500 flex-shrink-0"
+                      title={t('unsavedChanges')}
+                      aria-label={t('unsavedChanges')}
+                    />
+                  )}
+                </span>
               </button>
             ))}
           </nav>
@@ -1192,158 +1321,179 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
 
         {/* Tabs + content share a tall parent so sticky header works while scrolling content. */}
         <div className="flex flex-col gap-4">
-          {/* Tab Content — min-height keeps short tabs from collapsing scroll */}
+          {/* Tab Content — visited panels stay mounted (hidden) to retain drafts */}
           <div className="bg-white dark:bg-gray-800 shadow-sm rounded-lg border border-gray-100 dark:border-gray-700 min-h-[calc(100vh-8.5rem)]">
-          {/* Users Tab */}
-          {activeTab === 'users' && (
-            <AdminUsersTab
-              users={users}
-              loading={loading}
-              currentUser={currentUser}
-              ownerEmail={ownerEmail}
-              showDeleteConfirm={showDeleteConfirm}
-              userTaskCounts={userTaskCounts}
-              onRoleChange={handleRoleChange}
-              onDeleteUser={handleDeleteUser}
-              onConfirmDeleteUser={confirmDeleteUser}
-              onCancelDeleteUser={cancelDeleteUser}
-              onAddUser={handleAddUser}
-              onEditUser={handleEditUser}
-              onSaveUser={handleSaveUser}
-              onColorChange={handleUserColorChange}
-              onRemoveAvatar={handleUserRemoveAvatar}
-              onResendInvitation={handleResendInvitation}
-            />
+          {visitedTabs.has('users') && (
+            <AdminTabPanel active={activeTab === 'users'}>
+              <AdminUsersTab
+                users={users}
+                loading={loading}
+                currentUser={currentUser}
+                ownerEmail={ownerEmail}
+                showDeleteConfirm={showDeleteConfirm}
+                userTaskCounts={userTaskCounts}
+                onRoleChange={handleRoleChange}
+                onDeleteUser={handleDeleteUser}
+                onConfirmDeleteUser={confirmDeleteUser}
+                onCancelDeleteUser={cancelDeleteUser}
+                onAddUser={handleAddUser}
+                onEditUser={handleEditUser}
+                onSaveUser={handleSaveUser}
+                onColorChange={handleUserColorChange}
+                onRemoveAvatar={handleUserRemoveAvatar}
+                onResendInvitation={handleResendInvitation}
+              />
+            </AdminTabPanel>
           )}
 
-          {/* Site Settings Tab */}
-          {activeTab === 'site-settings' && (
-            <AdminSiteSettingsTab
-              settings={settings}
-              editingSettings={editingSettings}
-              onSettingsChange={setEditingSettings}
-              onSave={handleSaveSettings}
-              onCancel={handleCancelSettings}
-              onAutoSave={handleAutoSaveSetting}
-            />
+          {visitedTabs.has('site-settings') && (
+            <AdminTabPanel active={activeTab === 'site-settings'}>
+              <AdminSiteSettingsTab
+                settings={settings}
+                editingSettings={editingSettings}
+                onSettingsChange={setEditingSettings}
+                onSave={handleSaveSettings}
+                onCancel={handleCancelSettings}
+                onAutoSave={handleAutoSaveSetting}
+              />
+            </AdminTabPanel>
           )}
 
-          {/* Single Sign-On Tab */}
-          {activeTab === 'sso' && (
-            <AdminSSOTab
-              settings={settings}
-              editingSettings={editingSettings}
-              onSettingsChange={setEditingSettings}
-              onSave={handleSaveSettings}
-              onCancel={handleCancelSettings}
-              onReloadOAuth={handleReloadOAuth}
-            />
+          {visitedTabs.has('sso') && (
+            <AdminTabPanel active={activeTab === 'sso'}>
+              <AdminSSOTab
+                settings={settings}
+                editingSettings={editingSettings}
+                onSettingsChange={setEditingSettings}
+                onSave={handleSaveSettings}
+                onCancel={handleCancelSettings}
+                onReloadOAuth={handleReloadOAuth}
+              />
+            </AdminTabPanel>
           )}
 
-          {/* Mail Server Tab */}
-          {activeTab === 'mail-server' && (
-            <AdminMailTab
-              settings={settings}
-              editingSettings={editingSettings}
-              onSettingsChange={setEditingSettings}
-              onSave={handleSaveSettings}
-              onCancel={handleCancelSettings}
-              onTestEmail={handleTestEmail}
-              onMailServerDisabled={handleMailServerDisabled}
-              isTestingEmail={isTestingEmail}
-              showTestEmailModal={showTestEmailModal}
-              testEmailResult={testEmailResult}
-              onCloseTestModal={() => setShowTestEmailModal(false)}
-              showTestEmailErrorModal={showTestEmailErrorModal}
-              testEmailError={testEmailError}
-              onCloseTestErrorModal={() => setShowTestEmailErrorModal(false)}
-              onAutoSave={handleAutoSaveSetting}
-              onSettingsReload={loadData}
-            />
+          {visitedTabs.has('mail-server') && (
+            <AdminTabPanel active={activeTab === 'mail-server'}>
+              <AdminMailTab
+                settings={settings}
+                editingSettings={editingSettings}
+                onSettingsChange={setEditingSettings}
+                onSave={handleSaveSettings}
+                onCancel={handleCancelSettings}
+                onTestEmail={handleTestEmail}
+                onMailServerDisabled={handleMailServerDisabled}
+                isTestingEmail={isTestingEmail}
+                showTestEmailModal={showTestEmailModal}
+                testEmailResult={testEmailResult}
+                onCloseTestModal={() => setShowTestEmailModal(false)}
+                showTestEmailErrorModal={showTestEmailErrorModal}
+                testEmailError={testEmailError}
+                onCloseTestErrorModal={() => setShowTestEmailErrorModal(false)}
+                onAutoSave={handleAutoSaveSetting}
+                onSettingsReload={loadData}
+              />
+            </AdminTabPanel>
           )}
 
-          {/* Tags Tab */}
-          {activeTab === 'tags' && (
-            <AdminTagsTab
-              tags={tags}
-              loading={loading}
-              onAddTag={handleAddTag}
-              onUpdateTag={handleUpdateTag}
-              onDeleteTag={handleDeleteTag}
-              onConfirmDeleteTag={confirmDeleteTag}
-              onCancelDeleteTag={cancelDeleteTag}
-              showDeleteTagConfirm={showDeleteTagConfirm}
-              tagUsageCounts={tagUsageCounts}
-            />
+          {visitedTabs.has('tags') && (
+            <AdminTabPanel active={activeTab === 'tags'}>
+              <AdminTagsTab
+                tags={tags}
+                loading={loading}
+                onAddTag={handleAddTag}
+                onUpdateTag={handleUpdateTag}
+                onDeleteTag={handleDeleteTag}
+                onConfirmDeleteTag={confirmDeleteTag}
+                onCancelDeleteTag={cancelDeleteTag}
+                showDeleteTagConfirm={showDeleteTagConfirm}
+                tagUsageCounts={tagUsageCounts}
+              />
+            </AdminTabPanel>
           )}
 
-          {/* Priorities Tab */}
-          {activeTab === 'priorities' && (
-            <AdminPrioritiesTab
-              priorities={priorities}
-              loading={loading}
-              onAddPriority={handleAddPriority}
-              onUpdatePriority={handleUpdatePriority}
-              onDeletePriority={handleDeletePriority}
-              onConfirmDeletePriority={confirmDeletePriority}
-              onCancelDeletePriority={cancelDeletePriority}
-              onReorderPriorities={handleReorderPriorities}
-              onSetDefaultPriority={handleSetDefaultPriority}
-              showDeletePriorityConfirm={showDeletePriorityConfirm}
-              priorityUsageCounts={priorityUsageCounts}
-            />
+          {visitedTabs.has('priorities') && (
+            <AdminTabPanel active={activeTab === 'priorities'}>
+              <AdminPrioritiesTab
+                priorities={priorities}
+                loading={loading}
+                onAddPriority={handleAddPriority}
+                onUpdatePriority={handleUpdatePriority}
+                onDeletePriority={handleDeletePriority}
+                onConfirmDeletePriority={confirmDeletePriority}
+                onCancelDeletePriority={cancelDeletePriority}
+                onReorderPriorities={handleReorderPriorities}
+                onSetDefaultPriority={handleSetDefaultPriority}
+                showDeletePriorityConfirm={showDeletePriorityConfirm}
+                priorityUsageCounts={priorityUsageCounts}
+              />
+            </AdminTabPanel>
           )}
 
-          {/* App Settings Tab */}
-          {activeTab === 'app-settings' && (
-            <AdminAppSettingsTab
-              settings={settings}
-              editingSettings={editingSettings}
-              onSettingsChange={setEditingSettings}
-              onSave={handleSaveSettings}
-              onCancel={handleCancelSettings}
-              onAutoSave={handleAutoSaveSetting}
-            />
+          {visitedTabs.has('app-settings') && (
+            <AdminTabPanel active={activeTab === 'app-settings'}>
+              <AdminAppSettingsTab
+                settings={settings}
+                editingSettings={editingSettings}
+                onSettingsChange={setEditingSettings}
+                onSave={handleSaveSettings}
+                onCancel={handleCancelSettings}
+                onAutoSave={handleAutoSaveSetting}
+                onLocalDirtyChange={(dirty) => handleTabLocalDirty('app-settings', dirty)}
+                discardNonce={settingsDiscardNonce}
+              />
+            </AdminTabPanel>
           )}
 
-          {/* Project Settings Tab */}
-          {activeTab === 'project-settings' && (
-            <AdminProjectSettingsTab
-              settings={settings}
-              editingSettings={editingSettings}
-              onSettingsChange={setEditingSettings}
-              onSave={handleSaveSettings}
-              onCancel={handleCancelSettings}
-              onAutoSave={handleAutoSaveSetting}
-            />
+          {visitedTabs.has('project-settings') && (
+            <AdminTabPanel active={activeTab === 'project-settings'}>
+              <AdminProjectSettingsTab
+                settings={settings}
+                editingSettings={editingSettings}
+                onSettingsChange={setEditingSettings}
+                onSave={handleSaveSettings}
+                onCancel={handleCancelSettings}
+                onAutoSave={handleAutoSaveSetting}
+              />
+            </AdminTabPanel>
           )}
 
-          {/* Sprint Settings Tab */}
-          {activeTab === 'sprint-settings' && (
-            <AdminSprintSettingsTab />
+          {visitedTabs.has('sprint-settings') && (
+            <AdminTabPanel active={activeTab === 'sprint-settings'}>
+              <AdminSprintSettingsTab />
+            </AdminTabPanel>
           )}
 
-          {/* Reporting Tab */}
-          {activeTab === 'reporting' && (
-            <AdminReportingTab />
+          {visitedTabs.has('reporting') && (
+            <AdminTabPanel active={activeTab === 'reporting'}>
+              <AdminReportingTab
+                onLocalDirtyChange={(dirty) => handleTabLocalDirty('reporting', dirty)}
+                discardNonce={settingsDiscardNonce}
+              />
+            </AdminTabPanel>
           )}
 
-          {/* Lifecycle Tab */}
-          {activeTab === 'lifecycle' && (
-            <AdminLifecycleTab />
+          {visitedTabs.has('lifecycle') && (
+            <AdminTabPanel active={activeTab === 'lifecycle'}>
+              <AdminLifecycleTab
+                onLocalDirtyChange={(dirty) => handleTabLocalDirty('lifecycle', dirty)}
+                discardNonce={settingsDiscardNonce}
+              />
+            </AdminTabPanel>
           )}
 
-          {/* Licensing Tab */}
-          {activeTab === 'licensing' && (
-            <AdminLicensingTab
-              currentUser={currentUser}
-              settings={settings}
-            />
+          {visitedTabs.has('licensing') && (
+            <AdminTabPanel active={activeTab === 'licensing'}>
+              <AdminLicensingTab
+                currentUser={currentUser}
+                settings={settings}
+              />
+            </AdminTabPanel>
           )}
 
-          {/* Notification Queue Tab */}
-          {activeTab === 'notification-queue' && (
-            <AdminNotificationQueueTab />
+          {visitedTabs.has('notification-queue') && (
+            <AdminTabPanel active={activeTab === 'notification-queue'}>
+              <AdminNotificationQueueTab />
+            </AdminTabPanel>
           )}
           </div>
         </div>

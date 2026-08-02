@@ -1,4 +1,4 @@
-import React, { Suspense } from 'react';
+import React, { Suspense, useEffect, useState } from 'react';
 import { 
   CurrentUser, 
   TeamMember, 
@@ -12,6 +12,7 @@ import {
 import { TaskViewMode, ViewMode } from '../../utils/userPreferences';
 import LoadingSpinner from '../LoadingSpinner';
 import { lazyWithRetry } from '../../utils/lazyWithRetry';
+import type { AdminDraftGate } from '../admin/AdminLeaveUnsavedDialog';
 
 // Lazy load heavy pages to reduce initial bundle size with retry logic for network failures
 const Admin = lazyWithRetry(() => import('../Admin'));
@@ -34,6 +35,7 @@ interface MainLayoutProps {
   adminRefreshKey: number;
   onUsersChanged: () => Promise<void>;
   onSettingsChanged: () => Promise<void>;
+  onAdminDraftGateChange?: (gate: AdminDraftGate | null) => void;
   
   // Kanban props
   siteSettings: { [key: string]: string };
@@ -186,22 +188,37 @@ const MainLayout: React.FC<MainLayoutProps> = ({
   adminRefreshKey,
   onUsersChanged,
   onSettingsChanged,
+  onAdminDraftGateChange,
   ...kanbanProps
 }) => {
+  // Keep Admin mounted after first visit so unsaved drafts survive Kanban/Reports switches
+  const [adminEverOpened, setAdminEverOpened] = useState(currentPage === 'admin');
+  useEffect(() => {
+    if (currentPage === 'admin') setAdminEverOpened(true);
+  }, [currentPage]);
+
+  const adminVisible = currentPage === 'admin';
+
   return (
     <div className="flex-1 py-6 app-page-inline-gutter main-layout-container">
       <div className="app-page-shell">
         <Suspense fallback={<PageLoader />}>
-          {currentPage === 'admin' ? (
-            <Admin 
-              key={adminRefreshKey}
-              currentUser={currentUser} 
-              onUsersChanged={onUsersChanged}
-              onSettingsChanged={onSettingsChanged}
-            />
-          ) : currentPage === 'reports' ? (
-            <Reports currentUser={currentUser} />
-          ) : (
+          {(adminVisible || adminEverOpened) && (
+            <div
+              className={adminVisible ? undefined : 'hidden'}
+              aria-hidden={!adminVisible}
+            >
+              <Admin
+                key={adminRefreshKey}
+                currentUser={currentUser}
+                onUsersChanged={onUsersChanged}
+                onSettingsChanged={onSettingsChanged}
+                onDraftGateChange={onAdminDraftGateChange}
+              />
+            </div>
+          )}
+          {currentPage === 'reports' && <Reports currentUser={currentUser} />}
+          {currentPage === 'kanban' && (
             <KanbanPage
               currentUser={currentUser}
               selectedTask={selectedTask}

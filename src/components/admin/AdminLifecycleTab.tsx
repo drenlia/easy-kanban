@@ -18,6 +18,13 @@ import {
 } from '../../api';
 import { Board, Task } from '../../types';
 import { formatToYYYYMMDDHHmm } from '../../utils/dateUtils';
+import {
+  ADMIN_NUMERIC_INPUT_CLASS,
+  LIFECYCLE_RETENTION_DAYS,
+  clampIntToString,
+  parseOptionalInt,
+} from '../../utils/adminFieldLimits';
+import { AdminUnsavedHint } from './AdminUnsavedChanges';
 
 type LifecycleConfirmDialog = {
   title: string;
@@ -27,8 +34,17 @@ type LifecycleConfirmDialog = {
   onConfirm: () => Promise<void>;
 };
 
-const AdminLifecycleTab: React.FC = () => {
+interface AdminLifecycleTabProps {
+  onLocalDirtyChange?: (dirty: boolean) => void;
+  discardNonce?: number;
+}
+
+const AdminLifecycleTab: React.FC<AdminLifecycleTabProps> = ({
+  onLocalDirtyChange,
+  discardNonce = 0,
+}) => {
   const { t } = useTranslation('admin', { keyPrefix: 'lifecycle' });
+  const { t: tAdmin } = useTranslation('admin');
   const { t: tCommon } = useTranslation('common');
   const { systemSettings, refreshSettings } = useSettings();
 
@@ -51,7 +67,7 @@ const AdminLifecycleTab: React.FC = () => {
     if (!systemSettings) return;
     setDeletedDays(systemSettings.LIFECYCLE_DELETED_RETENTION_DAYS || '0');
     setArchivedDays(systemSettings.LIFECYCLE_ARCHIVED_RETENTION_DAYS || '0');
-  }, [systemSettings]);
+  }, [systemSettings, discardNonce]);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -146,8 +162,43 @@ const AdminLifecycleTab: React.FC = () => {
     [autoDeleteEnabled, deletedRetentionDays, t]
   );
 
+  const savedDeletedDays = systemSettings?.LIFECYCLE_DELETED_RETENTION_DAYS || '0';
+  const savedArchivedDays = systemSettings?.LIFECYCLE_ARCHIVED_RETENTION_DAYS || '0';
+  const retentionDirty =
+    deletedDays.trim() !== savedDeletedDays.trim() ||
+    archivedDays.trim() !== savedArchivedDays.trim();
+
+  useEffect(() => {
+    onLocalDirtyChange?.(retentionDirty);
+  }, [retentionDirty, onLocalDirtyChange]);
+
   const saveRetention = async (key: string, value: string) => {
-    const normalized = String(Math.max(0, parseInt(value, 10) || 0));
+    const parsed = parseOptionalInt(value);
+    if (
+      parsed === null ||
+      parsed < LIFECYCLE_RETENTION_DAYS.min ||
+      parsed > LIFECYCLE_RETENTION_DAYS.max
+    ) {
+      toast.error(
+        tAdmin('numberOutOfRange', {
+          label: t(
+            key === 'LIFECYCLE_DELETED_RETENTION_DAYS' ? 'deletedRetention' : 'archivedRetention'
+          ),
+          min: LIFECYCLE_RETENTION_DAYS.min,
+          max: LIFECYCLE_RETENTION_DAYS.max,
+        })
+      );
+      const clamped = clampIntToString(
+        value,
+        LIFECYCLE_RETENTION_DAYS.min,
+        LIFECYCLE_RETENTION_DAYS.max,
+        0
+      );
+      if (key === 'LIFECYCLE_DELETED_RETENTION_DAYS') setDeletedDays(clamped);
+      if (key === 'LIFECYCLE_ARCHIVED_RETENTION_DAYS') setArchivedDays(clamped);
+      return;
+    }
+    const normalized = String(parsed);
     setSavingKey(key);
     try {
       await updateSetting(key, normalized);
@@ -467,10 +518,20 @@ const AdminLifecycleTab: React.FC = () => {
             <div className="flex gap-2">
               <input
                 type="number"
-                min={0}
+                inputMode="numeric"
                 value={deletedDays}
                 onChange={(e) => setDeletedDays(e.target.value)}
-                className="w-28 rounded-md border border-gray-300 px-3 py-2 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+                onBlur={() =>
+                  setDeletedDays(
+                    clampIntToString(
+                      deletedDays,
+                      LIFECYCLE_RETENTION_DAYS.min,
+                      LIFECYCLE_RETENTION_DAYS.max,
+                      0
+                    )
+                  )
+                }
+                className={`w-28 rounded-md border border-gray-300 px-3 py-2 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 ${ADMIN_NUMERIC_INPUT_CLASS}`}
               />
               <button
                 type="button"
@@ -492,10 +553,20 @@ const AdminLifecycleTab: React.FC = () => {
             <div className="flex gap-2">
               <input
                 type="number"
-                min={0}
+                inputMode="numeric"
                 value={archivedDays}
                 onChange={(e) => setArchivedDays(e.target.value)}
-                className="w-28 rounded-md border border-gray-300 px-3 py-2 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+                onBlur={() =>
+                  setArchivedDays(
+                    clampIntToString(
+                      archivedDays,
+                      LIFECYCLE_RETENTION_DAYS.min,
+                      LIFECYCLE_RETENTION_DAYS.max,
+                      0
+                    )
+                  )
+                }
+                className={`w-28 rounded-md border border-gray-300 px-3 py-2 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 ${ADMIN_NUMERIC_INPUT_CLASS}`}
               />
               <button
                 type="button"
@@ -507,6 +578,9 @@ const AdminLifecycleTab: React.FC = () => {
               </button>
             </div>
           </label>
+        </div>
+        <div className="mt-3">
+          <AdminUnsavedHint show={retentionDirty} />
         </div>
       </section>
 

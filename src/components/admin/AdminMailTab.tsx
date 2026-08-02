@@ -4,7 +4,16 @@ import { createPortal } from 'react-dom';
 import api from '../../api';
 import { toast } from '../../utils/toast';
 import { isMaskedApiKeyDisplay } from '../../utils/maskSecret';
-import { adminSettingsHaveChanges } from '../../utils/adminSettingsDirty';
+import {
+  adminSettingsHaveChanges,
+  revertAdminSettingField,
+} from '../../utils/adminSettingsDirty';
+import {
+  ADMIN_NUMERIC_INPUT_CLASS,
+  SMTP_PORT,
+  clampIntToString,
+} from '../../utils/adminFieldLimits';
+import { AdminFieldDraftControls } from './AdminFieldDraftControls';
 import { AdminUnsavedHint } from './AdminUnsavedChanges';
 
 interface Settings {
@@ -81,6 +90,25 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
   const handleInputChange = (key: string, value: string) => {
     onSettingsChange({ ...editingSettings, [key]: value });
   };
+
+  const revertField = (key: string) => {
+    onSettingsChange(revertAdminSettingField(key, settings, editingSettings));
+  };
+
+  const mailFieldLabel = (key: string, label: string, opts?: { hideWas?: boolean }) => (
+    <label className="flex flex-wrap items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+      <span>{label}</span>
+      {!isManagedEmail && (
+        <AdminFieldDraftControls
+          settingKey={key}
+          saved={settings}
+          draft={editingSettings}
+          onRevert={() => revertField(key)}
+          hideWas={opts?.hideWas}
+        />
+      )}
+    </label>
+  );
   
   const smtpPasswordSet =
     editingSettings.SMTP_PASSWORD_SET === 'true' ||
@@ -231,9 +259,7 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
             <div className="space-y-4">
               {/* SMTP Host */}
               <div data-setting-key="SMTP_HOST">
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  {t('mail.smtpHost')}
-                </label>
+                {mailFieldLabel('SMTP_HOST', t('mail.smtpHost'))}
                 <input
                   type="text"
                   value={editingSettings.SMTP_HOST || ''}
@@ -259,11 +285,10 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
 
               {/* SMTP Port */}
               <div data-setting-key="SMTP_PORT">
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  {t('mail.smtpPort')}
-                </label>
+                {mailFieldLabel('SMTP_PORT', t('mail.smtpPort'))}
                 <input
                   type="number"
+                  inputMode="numeric"
                   value={editingSettings.SMTP_PORT || ''}
                   onChange={(e) => handleInputChange('SMTP_PORT', e.target.value)}
                   onFocus={() => {
@@ -272,10 +297,18 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
                       handleInputChange('SMTP_PORT', '587');
                     }
                   }}
+                  onBlur={() => {
+                    const raw = editingSettings.SMTP_PORT;
+                    if (raw === undefined || raw === '') return;
+                    handleInputChange(
+                      'SMTP_PORT',
+                      clampIntToString(raw, SMTP_PORT.min, SMTP_PORT.max, 587)
+                    );
+                  }}
                   disabled={isManagedEmail}
-                  className={`w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-gray-900 dark:text-gray-100 ${
-                    isManagedEmail 
-                      ? 'bg-gray-100 dark:bg-gray-800 cursor-not-allowed' 
+                  className={`w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-gray-900 dark:text-gray-100 ${ADMIN_NUMERIC_INPUT_CLASS} ${
+                    isManagedEmail
+                      ? 'bg-gray-100 dark:bg-gray-800 cursor-not-allowed'
                       : 'bg-white dark:bg-gray-700'
                   }`}
                   placeholder="587"
@@ -287,9 +320,7 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
 
               {/* SMTP Username */}
               <div data-setting-key="SMTP_USERNAME">
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  {t('mail.smtpUsername')}
-                </label>
+                {mailFieldLabel('SMTP_USERNAME', t('mail.smtpUsername'))}
                 <input
                   type="text"
                   value={editingSettings.SMTP_USERNAME || ''}
@@ -309,12 +340,23 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
 
               {/* SMTP Password (write-only; server returns mask + SMTP_PASSWORD_SET) */}
               <div data-setting-key="SMTP_PASSWORD">
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  {t('mail.smtpPassword')}
-                  {smtpPasswordSet && !isManagedEmail && (
-                    <span className="ml-2 text-xs font-normal text-green-600 dark:text-green-400">
-                      {t('mail.smtpPasswordSet')}
-                    </span>
+                <label className="flex flex-wrap items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  <span>
+                    {t('mail.smtpPassword')}
+                    {smtpPasswordSet && !isManagedEmail && (
+                      <span className="ml-2 text-xs font-normal text-green-600 dark:text-green-400">
+                        {t('mail.smtpPasswordSet')}
+                      </span>
+                    )}
+                  </span>
+                  {!isManagedEmail && (
+                    <AdminFieldDraftControls
+                      settingKey="SMTP_PASSWORD"
+                      saved={settings}
+                      draft={editingSettings}
+                      onRevert={() => revertField('SMTP_PASSWORD')}
+                      hideWas
+                    />
                   )}
                 </label>
                 <input
@@ -349,9 +391,7 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
             <div className="space-y-4">
               {/* From Email */}
               <div data-setting-key="SMTP_FROM_EMAIL">
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  {t('mail.fromEmail')}
-                </label>
+                {mailFieldLabel('SMTP_FROM_EMAIL', t('mail.fromEmail'))}
                 <input
                   type="email"
                   value={editingSettings.SMTP_FROM_EMAIL || ''}
@@ -371,9 +411,7 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
 
               {/* From Name */}
               <div data-setting-key="SMTP_FROM_NAME">
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  {t('mail.fromName')}
-                </label>
+                {mailFieldLabel('SMTP_FROM_NAME', t('mail.fromName'))}
                 <input
                   type="text"
                   value={editingSettings.SMTP_FROM_NAME || ''}
@@ -393,9 +431,7 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
 
               {/* SMTP Security */}
               <div data-setting-key="SMTP_SECURE">
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  {t('mail.smtpSecurity')}
-                </label>
+                {mailFieldLabel('SMTP_SECURE', t('mail.smtpSecurity'))}
                 <select
                   value={editingSettings.SMTP_SECURE || 'tls'}
                   onChange={(e) => handleInputChange('SMTP_SECURE', e.target.value)}

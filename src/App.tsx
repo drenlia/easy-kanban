@@ -18,6 +18,16 @@ import ActivateAccount from './components/ActivateAccount';
 import Header from './components/layout/Header';
 import MainLayout from './components/layout/MainLayout';
 import LoadingSpinner from './components/LoadingSpinner';
+import AdminLeaveUnsavedDialog, {
+  type AdminDraftGate,
+} from './components/admin/AdminLeaveUnsavedDialog';
+
+const EMPTY_ADMIN_DRAFT_GATE: AdminDraftGate = {
+  hasSharedDirty: false,
+  hasLocalDirty: false,
+  saveShared: async () => ({ hasLocalDirtyStill: false }),
+  discardAll: () => {},
+};
 
 import { lazyWithRetry } from './utils/lazyWithRetry';
 
@@ -1406,8 +1416,34 @@ function AppContent() {
   // Mock socket object for compatibility with existing UI (removed unused variable)
 
   // Header event handlers
+  const adminDraftGateRef = useRef<AdminDraftGate>(EMPTY_ADMIN_DRAFT_GATE);
+  const [adminDraftGate, setAdminDraftGate] = useState<AdminDraftGate>(EMPTY_ADMIN_DRAFT_GATE);
+  const adminLeaveBypassRef = useRef(false);
+  const adminHashRef = useRef('admin');
+  const [adminLeavePrompt, setAdminLeavePrompt] = useState<{
+    page: 'kanban' | 'admin' | 'reports' | 'test';
+    options?: { hash?: string };
+  } | null>(null);
+
+  const handleAdminDraftGateChange = useCallback((gate: AdminDraftGate | null) => {
+    const next = gate ?? EMPTY_ADMIN_DRAFT_GATE;
+    adminDraftGateRef.current = next;
+    setAdminDraftGate(next);
+  }, []);
+
+  useEffect(() => {
+    if (currentPage !== 'admin') return;
+    const h = window.location.hash.replace(/^#/, '') || 'admin';
+    if (h === 'admin' || h.startsWith('admin#')) {
+      adminHashRef.current = h;
+    }
+  });
+
+  const adminHasUnsavedDrafts = () =>
+    adminDraftGateRef.current.hasSharedDirty || adminDraftGateRef.current.hasLocalDirty;
+
   /** Optional `hash` avoids clobbering Admin tab deep-links (e.g. admin#tags). */
-  const handlePageChange = (
+  const applyPageChange = (
     page: 'kanban' | 'admin' | 'reports' | 'test',
     options?: { hash?: string }
   ) => {
@@ -1432,6 +1468,37 @@ function AppContent() {
       window.location.hash = page;
     }
   };
+
+  const handlePageChange = (
+    page: 'kanban' | 'admin' | 'reports' | 'test',
+    options?: { hash?: string }
+  ) => {
+    if (
+      currentPage === 'admin' &&
+      page !== 'admin' &&
+      adminHasUnsavedDrafts() &&
+      !adminLeaveBypassRef.current
+    ) {
+      setAdminLeavePrompt({ page, options });
+      return;
+    }
+    applyPageChange(page, options);
+  };
+
+  const handleAdminLeaveStay = useCallback(() => {
+    setAdminLeavePrompt(null);
+  }, []);
+
+  const handleAdminLeaveConfirm = useCallback(() => {
+    const pending = adminLeavePrompt;
+    setAdminLeavePrompt(null);
+    if (!pending) return;
+    adminLeaveBypassRef.current = true;
+    applyPageChange(pending.page, pending.options);
+    window.setTimeout(() => {
+      adminLeaveBypassRef.current = false;
+    }, 0);
+  }, [adminLeavePrompt, selectedBoard]);
 
   const handleRefreshData = async () => {
     try {
@@ -1835,7 +1902,33 @@ function AppContent() {
       // 1. Handle page routing
       if (route.isPage) {
         if (route.mainRoute !== currentPage) {
-          setCurrentPage(route.mainRoute as 'kanban' | 'admin' | 'task' | 'test' | 'forgot-password' | 'reset-password' | 'reset-success' | 'activate-account');
+          const nextPage = route.mainRoute as
+            | 'kanban'
+            | 'admin'
+            | 'reports'
+            | 'task'
+            | 'test'
+            | 'forgot-password'
+            | 'reset-password'
+            | 'reset-success'
+            | 'activate-account';
+          // Leaving Admin via hash/back with unsaved drafts → confirm first
+          if (
+            currentPage === 'admin' &&
+            nextPage !== 'admin' &&
+            (nextPage === 'kanban' || nextPage === 'reports' || nextPage === 'test') &&
+            adminHasUnsavedDrafts() &&
+            !adminLeaveBypassRef.current
+          ) {
+            const intendedHash = window.location.hash.replace(/^#/, '');
+            window.history.replaceState(null, '', `#${adminHashRef.current}`);
+            setAdminLeavePrompt({
+              page: nextPage,
+              options: { hash: intendedHash },
+            });
+            return;
+          }
+          setCurrentPage(nextPage);
         }
         
         // Handle password reset token
@@ -1899,6 +1992,19 @@ function AppContent() {
       } else if (route.isBoardId && boards.length > 0) {
         // 2. Handle direct board access (legacy format)
         const board = boards.find(b => b.id === route.mainRoute);
+        if (
+          currentPage === 'admin' &&
+          adminHasUnsavedDrafts() &&
+          !adminLeaveBypassRef.current
+        ) {
+          const intendedHash = window.location.hash.replace(/^#/, '');
+          window.history.replaceState(null, '', `#${adminHashRef.current}`);
+          setAdminLeavePrompt({
+            page: 'kanban',
+            options: { hash: board ? `kanban#${board.id}` : intendedHash || 'kanban' },
+          });
+          return;
+        }
         if (board) {
           setCurrentPage('kanban');
           setSelectedBoard(board.id);
@@ -1910,6 +2016,15 @@ function AppContent() {
         
       } else if (route.mainRoute) {
         // 3. Handle unknown routes
+        if (
+          currentPage === 'admin' &&
+          adminHasUnsavedDrafts() &&
+          !adminLeaveBypassRef.current
+        ) {
+          window.history.replaceState(null, '', `#${adminHashRef.current}`);
+          setAdminLeavePrompt({ page: 'kanban', options: { hash: 'kanban' } });
+          return;
+        }
         setCurrentPage('kanban');
         setSelectedBoard(null);
       }
@@ -4215,6 +4330,7 @@ function AppContent() {
                 }
               }}
               onSettingsChanged={refreshContextSettings} // Use context refresh instead
+              onAdminDraftGateChange={handleAdminDraftGateChange}
         loading={loading}
                     members={members}
         boards={boards}
@@ -4485,6 +4601,13 @@ function AppContent() {
       />
       </div>
       
+      <AdminLeaveUnsavedDialog
+        open={adminLeavePrompt !== null}
+        gate={adminDraftGate}
+        onStay={handleAdminLeaveStay}
+        onLeave={handleAdminLeaveConfirm}
+      />
+
       {/* Toast Notifications */}
       <ToastContainer />
       <OwnerSetupChecklist />

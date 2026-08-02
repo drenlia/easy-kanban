@@ -3,6 +3,15 @@ import { useTranslation } from 'react-i18next';
 import { toast } from '../../utils/toast';
 import { Save, Trophy, TrendingUp, Settings, Database, Eye, EyeOff } from 'lucide-react';
 import { useSettings } from '../../contexts/SettingsContext';
+import {
+  ADMIN_NUMERIC_INPUT_CLASS,
+  REPORTS_ACTION_POINTS,
+  REPORTS_EFFORT_MULTIPLIER,
+  clampIntToString,
+  parseOptionalInt,
+  reportsPointsLimitForKey,
+} from '../../utils/adminFieldLimits';
+import { AdminFieldDraftControls } from './AdminFieldDraftControls';
 import { AdminUnsavedHint } from './AdminUnsavedChanges';
 
 interface ReportingSettings {
@@ -24,7 +33,27 @@ interface ReportingSettings {
   REPORTS_POINTS_EFFORT_MULTIPLIER: string;
 }
 
-const AdminReportingTab: React.FC = () => {
+interface AdminReportingTabProps {
+  onLocalDirtyChange?: (dirty: boolean) => void;
+  discardNonce?: number;
+}
+
+const REPORTS_POINTS_KEYS: Record<string, string> = {
+  REPORTS_POINTS_TASK_CREATED: 'taskCreated',
+  REPORTS_POINTS_TASK_COMPLETED: 'taskCompleted',
+  REPORTS_POINTS_TASK_MOVED: 'taskMoved',
+  REPORTS_POINTS_TASK_UPDATED: 'taskUpdated',
+  REPORTS_POINTS_COMMENT_ADDED: 'commentAdded',
+  REPORTS_POINTS_WATCHER_ADDED: 'watcherAdded',
+  REPORTS_POINTS_COLLABORATOR_ADDED: 'collaboratorAdded',
+  REPORTS_POINTS_TAG_ADDED: 'tagAdded',
+  REPORTS_POINTS_EFFORT_MULTIPLIER: 'effortMultiplier',
+};
+
+const AdminReportingTab: React.FC<AdminReportingTabProps> = ({
+  onLocalDirtyChange,
+  discardNonce = 0,
+}) => {
   const { t } = useTranslation('admin');
   const { systemSettings } = useSettings(); // Use SettingsContext instead of fetching directly
   const [settings, setSettings] = useState<ReportingSettings>({
@@ -86,9 +115,19 @@ const AdminReportingTab: React.FC = () => {
         const mergedSettings = { ...settings, ...reportingSettings };
         setSettings(mergedSettings);
         setOriginalSettings(mergedSettings);
+      } else {
+        setSettings(originalSettings);
       }
+    } else {
+      setSettings(originalSettings);
     }
   };
+
+  useEffect(() => {
+    if (discardNonce === 0) return;
+    handleReset();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- discard only
+  }, [discardNonce]);
 
   const handleVisibilityChange = async (newValue: string) => {
     const oldValue = settings.REPORTS_VISIBLE_TO;
@@ -133,12 +172,39 @@ const AdminReportingTab: React.FC = () => {
 
   const handleSave = async () => {
     try {
+      // Clamp / validate points before save
+      const clamped: ReportingSettings = { ...settings };
+      for (const key of Object.keys(REPORTS_POINTS_KEYS)) {
+        const limit = reportsPointsLimitForKey(key);
+        const parsed = parseOptionalInt(clamped[key as keyof ReportingSettings]);
+        if (parsed === null || parsed < limit.min || parsed > limit.max) {
+          toast.error(
+            t('numberOutOfRange', {
+              label: t(`reporting.points.${REPORTS_POINTS_KEYS[key]}`),
+              min: limit.min,
+              max: limit.max,
+            }),
+            ''
+          );
+          clamped[key as keyof ReportingSettings] = clampIntToString(
+            clamped[key as keyof ReportingSettings],
+            limit.min,
+            limit.max,
+            limit.min
+          );
+          setSettings(clamped);
+          return;
+        }
+        clamped[key as keyof ReportingSettings] = String(parsed);
+      }
+      setSettings(clamped);
+
       setSaving(true);
 
       // Only save changed settings (batch all changes in a single transaction)
       const changedSettings: { [key: string]: string } = {};
-      for (const [key, value] of Object.entries(settings)) {
-        if (settings[key as keyof ReportingSettings] !== originalSettings[key as keyof ReportingSettings]) {
+      for (const [key, value] of Object.entries(clamped)) {
+        if (clamped[key as keyof ReportingSettings] !== originalSettings[key as keyof ReportingSettings]) {
           changedSettings[key] = value;
         }
       }
@@ -163,7 +229,7 @@ const AdminReportingTab: React.FC = () => {
         throw new Error(`Failed to save ${failedResponses.length} setting(s)`);
       }
 
-      setOriginalSettings(settings);
+      setOriginalSettings(clamped);
       toast.success(t('reporting.settingsSavedSuccessfully'), '');
     } catch (error) {
       toast.error(error instanceof Error ? error.message : t('reporting.failedToSaveSettings'), '');
@@ -249,6 +315,10 @@ const AdminReportingTab: React.FC = () => {
   };
 
   const hasChanges = JSON.stringify(settings) !== JSON.stringify(originalSettings);
+
+  useEffect(() => {
+    onLocalDirtyChange?.(hasChanges);
+  }, [hasChanges, onLocalDirtyChange]);
 
   return (
     <div className="p-6">
@@ -489,32 +559,58 @@ const AdminReportingTab: React.FC = () => {
           {t('reporting.pointsConfiguration')}
         </h3>
 
+        <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+          {t('reporting.pointsLimitsHint', {
+            actionMin: REPORTS_ACTION_POINTS.min,
+            actionMax: REPORTS_ACTION_POINTS.max,
+            effortMin: REPORTS_EFFORT_MULTIPLIER.min,
+            effortMax: REPORTS_EFFORT_MULTIPLIER.max,
+          })}
+        </p>
+
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {[
-            { key: 'REPORTS_POINTS_TASK_CREATED', label: t('reporting.points.taskCreated') },
-            { key: 'REPORTS_POINTS_TASK_COMPLETED', label: t('reporting.points.taskCompleted') },
-            { key: 'REPORTS_POINTS_TASK_MOVED', label: t('reporting.points.taskMoved') },
-            { key: 'REPORTS_POINTS_TASK_UPDATED', label: t('reporting.points.taskUpdated') },
-            { key: 'REPORTS_POINTS_COMMENT_ADDED', label: t('reporting.points.commentAdded') },
-            { key: 'REPORTS_POINTS_WATCHER_ADDED', label: t('reporting.points.watcherAdded') },
-            { key: 'REPORTS_POINTS_COLLABORATOR_ADDED', label: t('reporting.points.collaboratorAdded') },
-            { key: 'REPORTS_POINTS_TAG_ADDED', label: t('reporting.points.tagAdded') },
-            { key: 'REPORTS_POINTS_EFFORT_MULTIPLIER', label: t('reporting.points.effortMultiplier') },
-          ].map(({ key, label }) => (
+          {Object.entries(REPORTS_POINTS_KEYS).map(([key, labelKey]) => {
+            const limit = reportsPointsLimitForKey(key);
+            const typedKey = key as keyof ReportingSettings;
+            const fieldDirty =
+              settings[typedKey] !== originalSettings[typedKey];
+            return (
             <div key={key}>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                {label}
+              <label className="flex flex-wrap items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                <span>{t(`reporting.points.${labelKey}`)}</span>
+                <AdminFieldDraftControls
+                  dirty={fieldDirty}
+                  savedValue={originalSettings[typedKey]}
+                  onRevert={() =>
+                    setSettings((prev) => ({
+                      ...prev,
+                      [key]: originalSettings[typedKey],
+                    }))
+                  }
+                />
               </label>
               <input
                 type="number"
-                min="0"
-                value={settings[key as keyof ReportingSettings]}
+                inputMode="numeric"
+                value={settings[typedKey]}
                 onChange={(e) => setSettings(prev => ({ ...prev, [key]: e.target.value }))}
+                onBlur={() =>
+                  setSettings((prev) => ({
+                    ...prev,
+                    [key]: clampIntToString(
+                      prev[typedKey],
+                      limit.min,
+                      limit.max,
+                      limit.min
+                    ),
+                  }))
+                }
                 disabled={settings.REPORTS_ENABLED === 'false' || settings.REPORTS_GAMIFICATION_ENABLED === 'false'}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white disabled:opacity-50 disabled:cursor-not-allowed"
+                className={`w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white disabled:opacity-50 disabled:cursor-not-allowed ${ADMIN_NUMERIC_INPUT_CLASS}`}
               />
             </div>
-          ))}
+            );
+          })}
         </div>
       </div>
       </div>

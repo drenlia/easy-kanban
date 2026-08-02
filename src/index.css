@@ -2,6 +2,16 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Admin numeric fields: type freely, no spinner arrows */
+.admin-numeric-input {
+  -moz-appearance: textfield;
+}
+.admin-numeric-input::-webkit-outer-spin-button,
+.admin-numeric-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
 /*
  * Page shell: keep ~20% side gutters on wide screens (80vw content).
  * As the viewport shrinks, widen toward 100% so margins hit 0 before

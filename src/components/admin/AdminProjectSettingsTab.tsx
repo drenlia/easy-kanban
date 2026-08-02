@@ -1,6 +1,10 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { adminSettingsHaveChanges } from '../../utils/adminSettingsDirty';
+import {
+  adminSettingsHaveChanges,
+  revertAdminSettingField,
+} from '../../utils/adminSettingsDirty';
+import { AdminFieldDraftControls } from './AdminFieldDraftControls';
 import { AdminUnsavedHint } from './AdminUnsavedChanges';
 
 interface AdminProjectSettingsTabProps {
@@ -47,6 +51,12 @@ const AdminProjectSettingsTab: React.FC<AdminProjectSettingsTabProps> = ({
       ...editingSettings,
       [key]: value
     });
+  };
+
+  const revertField = (key: string) => {
+    onSettingsChange(
+      revertAdminSettingField(key, settings, editingSettings) as { [key: string]: string }
+    );
   };
 
   const addFinishedColumnName = async () => {
@@ -212,8 +222,14 @@ const AdminProjectSettingsTab: React.FC<AdminProjectSettingsTabProps> = ({
         {/* Default Project Prefix */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              {t('defaultProjectPrefix')}
+            <label className="flex flex-wrap items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              <span>{t('defaultProjectPrefix')}</span>
+              <AdminFieldDraftControls
+                settingKey="DEFAULT_PROJ_PREFIX"
+                saved={settings}
+                draft={editingSettings}
+                onRevert={() => revertField('DEFAULT_PROJ_PREFIX')}
+              />
             </label>
             <input
               type="text"
@@ -232,8 +248,14 @@ const AdminProjectSettingsTab: React.FC<AdminProjectSettingsTabProps> = ({
 
           {/* Default Task Prefix */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              {t('defaultTaskPrefix')}
+            <label className="flex flex-wrap items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              <span>{t('defaultTaskPrefix')}</span>
+              <AdminFieldDraftControls
+                settingKey="DEFAULT_TASK_PREFIX"
+                saved={settings}
+                draft={editingSettings}
+                onRevert={() => revertField('DEFAULT_TASK_PREFIX')}
+              />
             </label>
             <input
               type="text"

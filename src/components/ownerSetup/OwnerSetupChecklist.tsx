@@ -433,13 +433,24 @@ const OwnerSetupChecklist: React.FC = () => {
                         {t(`ownerSetup.steps.${activeId}.guide`)}
                       </p>
                     )}
-                    <button
-                      type="button"
-                      onClick={handleGuideDone}
-                      className="mt-1 px-2.5 py-1.5 text-xs font-medium rounded-md bg-blue-600 text-white hover:bg-blue-700"
-                    >
-                      {t('ownerSetup.guideDone')}
-                    </button>
+                    <div className="mt-1 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={handleGuideDone}
+                        className="px-2.5 py-1.5 text-xs font-medium rounded-md bg-blue-600 text-white hover:bg-blue-700"
+                      >
+                        {t('ownerSetup.guideDone')}
+                      </button>
+                      {activeId !== 'finish' && (
+                        <button
+                          type="button"
+                          onClick={handleSkip}
+                          className="px-2.5 py-1.5 text-xs font-medium rounded-md text-blue-800 dark:text-blue-200 hover:bg-blue-100 dark:hover:bg-blue-800/50"
+                        >
+                          {t('ownerSetup.skip')}
+                        </button>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>

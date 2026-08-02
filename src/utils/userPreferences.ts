@@ -26,6 +26,17 @@ export const isGloballySavingPreferences = () => isSavingGlobally;
 export type TaskViewMode = 'compact' | 'shrink' | 'expand';
 export type ViewMode = 'kanban' | 'list' | 'gantt';
 
+const TASK_VIEW_MODES: readonly TaskViewMode[] = ['expand', 'shrink', 'compact'];
+
+/** Normalize admin/user density values (legacy `collapse` → `shrink`). */
+export function normalizeTaskViewMode(value: unknown): TaskViewMode {
+  if (value === 'collapse' || value === 'collapsed') return 'shrink';
+  if (typeof value === 'string' && (TASK_VIEW_MODES as readonly string[]).includes(value)) {
+    return value as TaskViewMode;
+  }
+  return 'expand';
+}
+
 export interface ColumnVisibility {
   [columnKey: string]: boolean;
 }
@@ -360,7 +371,9 @@ export const loadAdminDefaults = async (): Promise<void> => {
     
     // Example: Admin can set default task view mode
     if (settings.DEFAULT_TASK_VIEW_MODE) {
-      ADMIN_DEFAULT_PREFERENCES.taskViewMode = settings.DEFAULT_TASK_VIEW_MODE;
+      ADMIN_DEFAULT_PREFERENCES.taskViewMode = normalizeTaskViewMode(
+        settings.DEFAULT_TASK_VIEW_MODE
+      );
     }
     
     // Example: Admin can set default activity feed position
@@ -680,6 +693,7 @@ const readLocalPreferences = (userId: string | null = null): UserPreferences => 
       return {
         ...defaults,
         ...loadedPrefs,
+        taskViewMode: normalizeTaskViewMode(loadedPrefs.taskViewMode ?? defaults.taskViewMode),
         boardColumnVisibility: {
           ...defaults.boardColumnVisibility,
           ...bulkyLocal.boardColumnVisibility
@@ -809,7 +823,9 @@ export const loadUserPreferencesAsync = async (userId: string | null = null): Pr
         ...preferences,
         
         // Core UI Preferences
-        taskViewMode: smartMerge(preferences.taskViewMode, dbSettings.taskViewMode, defaults.taskViewMode),
+        taskViewMode: normalizeTaskViewMode(
+          smartMerge(preferences.taskViewMode, dbSettings.taskViewMode, defaults.taskViewMode)
+        ),
         viewMode: smartMerge(preferences.viewMode, dbSettings.viewMode, defaults.viewMode),
         taskDetailsWidth: smartMerge(preferences.taskDetailsWidth, dbSettings.taskDetailsWidth, defaults.taskDetailsWidth),
         ganttTaskColumnWidth: smartMerge(preferences.ganttTaskColumnWidth, dbSettings.ganttTaskColumnWidth, defaults.ganttTaskColumnWidth),

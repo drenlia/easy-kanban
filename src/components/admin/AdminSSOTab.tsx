@@ -1,7 +1,11 @@
 import React, { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { isMaskedApiKeyDisplay } from '../../utils/maskSecret';
-import { adminSettingsHaveChanges } from '../../utils/adminSettingsDirty';
+import {
+  adminSettingsHaveChanges,
+  revertAdminSettingField,
+} from '../../utils/adminSettingsDirty';
+import { AdminFieldDraftControls } from './AdminFieldDraftControls';
 import { AdminUnsavedHint } from './AdminUnsavedChanges';
 
 interface Settings {
@@ -38,6 +42,10 @@ const AdminSSOTab: React.FC<AdminSSOTabProps> = ({
     onSettingsChange({ ...editingSettings, [key]: value });
   };
 
+  const revertField = (key: string) => {
+    onSettingsChange(revertAdminSettingField(key, settings, editingSettings));
+  };
+
   const clientSecretSet =
     editingSettings.GOOGLE_CLIENT_SECRET_SET === 'true' ||
     Boolean(
@@ -57,8 +65,14 @@ const AdminSSOTab: React.FC<AdminSSOTabProps> = ({
       
       <div className="space-y-6">
         <div data-setting-key="GOOGLE_CLIENT_ID">
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-            {t('sso.googleClientId')}
+          <label className="flex flex-wrap items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+            <span>{t('sso.googleClientId')}</span>
+            <AdminFieldDraftControls
+              settingKey="GOOGLE_CLIENT_ID"
+              saved={settings}
+              draft={editingSettings}
+              onRevert={() => revertField('GOOGLE_CLIENT_ID')}
+            />
           </label>
           <input
             type="text"
@@ -73,13 +87,22 @@ const AdminSSOTab: React.FC<AdminSSOTabProps> = ({
         </div>
         
         <div data-setting-key="GOOGLE_CLIENT_SECRET">
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-            {t('sso.googleClientSecret')}
-            {clientSecretSet && (
-              <span className="ml-2 text-xs font-normal text-green-600 dark:text-green-400">
-                {t('sso.googleClientSecretSet')}
-              </span>
-            )}
+          <label className="flex flex-wrap items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+            <span>
+              {t('sso.googleClientSecret')}
+              {clientSecretSet && (
+                <span className="ml-2 text-xs font-normal text-green-600 dark:text-green-400">
+                  {t('sso.googleClientSecretSet')}
+                </span>
+              )}
+            </span>
+            <AdminFieldDraftControls
+              settingKey="GOOGLE_CLIENT_SECRET"
+              saved={settings}
+              draft={editingSettings}
+              onRevert={() => revertField('GOOGLE_CLIENT_SECRET')}
+              hideWas
+            />
           </label>
           <input
             type="password"
@@ -104,8 +127,14 @@ const AdminSSOTab: React.FC<AdminSSOTabProps> = ({
         </div>
         
         <div data-setting-key="GOOGLE_CALLBACK_URL">
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-            {t('sso.googleCallbackUrl')}
+          <label className="flex flex-wrap items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+            <span>{t('sso.googleCallbackUrl')}</span>
+            <AdminFieldDraftControls
+              settingKey="GOOGLE_CALLBACK_URL"
+              saved={settings}
+              draft={editingSettings}
+              onRevert={() => revertField('GOOGLE_CALLBACK_URL')}
+            />
           </label>
           <input
             type="text"

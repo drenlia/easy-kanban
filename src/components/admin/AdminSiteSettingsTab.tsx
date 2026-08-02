@@ -5,6 +5,8 @@ import api from '../../api';
 import { getAuthenticatedAvatarUrl } from '../../utils/authImageUrl';
 import { useSettings } from '../../contexts/SettingsContext';
 import { adminSettingsHaveChanges } from '../../utils/adminSettingsDirty';
+import { revertAdminSettingField } from '../../utils/adminSettingsDirty';
+import { AdminFieldDraftControls } from './AdminFieldDraftControls';
 import { AdminUnsavedHint } from './AdminUnsavedChanges';
 
 interface Settings {
@@ -51,6 +53,10 @@ const AdminSiteSettingsTab: React.FC<AdminSiteSettingsTabProps> = ({
 
   const handleInputChange = (key: string, value: string) => {
     onSettingsChange({ ...editingSettings, [key]: value });
+  };
+
+  const revertField = (key: string) => {
+    onSettingsChange(revertAdminSettingField(key, settings, editingSettings));
   };
 
   const resolvePreviewSrc = (value: string | undefined, variant: 'light' | 'dark') => {
@@ -133,8 +139,14 @@ const AdminSiteSettingsTab: React.FC<AdminSiteSettingsTabProps> = ({
 
     return (
       <div data-setting-key={settingKey}>
-        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-          {label}
+        <label className="flex flex-wrap items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+          <span>{label}</span>
+          <AdminFieldDraftControls
+            settingKey={settingKey}
+            saved={settings}
+            draft={editingSettings}
+            onRevert={() => revertField(settingKey)}
+          />
         </label>
         <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">{description}</p>
         <div className="flex flex-col sm:flex-row gap-3 sm:items-start">
@@ -210,8 +222,14 @@ const AdminSiteSettingsTab: React.FC<AdminSiteSettingsTabProps> = ({
       
       <div className="space-y-6">
         <div data-setting-key="SITE_NAME">
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-            {t('siteSettings.siteName')}
+          <label className="flex flex-wrap items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+            <span>{t('siteSettings.siteName')}</span>
+            <AdminFieldDraftControls
+              settingKey="SITE_NAME"
+              saved={settings}
+              draft={editingSettings}
+              onRevert={() => revertField('SITE_NAME')}
+            />
           </label>
           <input
             type="text"
@@ -226,8 +244,14 @@ const AdminSiteSettingsTab: React.FC<AdminSiteSettingsTabProps> = ({
         </div>
         
         <div data-setting-key="SITE_URL">
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-            {t('siteSettings.siteUrl')}
+          <label className="flex flex-wrap items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+            <span>{t('siteSettings.siteUrl')}</span>
+            <AdminFieldDraftControls
+              settingKey="SITE_URL"
+              saved={settings}
+              draft={editingSettings}
+              onRevert={() => revertField('SITE_URL')}
+            />
           </label>
           <input
             type="url"

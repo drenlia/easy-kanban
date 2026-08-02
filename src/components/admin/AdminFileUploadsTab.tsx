@@ -3,6 +3,13 @@ import { useTranslation } from 'react-i18next';
 import { Save, RefreshCw } from 'lucide-react';
 import { toast } from '../../utils/toast';
 import { ModernCheckbox } from '../ModernCheckbox';
+import {
+  ADMIN_NUMERIC_INPUT_CLASS,
+  UPLOAD_MAX_MB,
+  clampUploadMaxMb,
+} from '../../utils/adminFieldLimits';
+import { isAdminSettingFieldDirty } from '../../utils/adminSettingsDirty';
+import { AdminFieldDraftControls } from './AdminFieldDraftControls';
 import { AdminUnsavedHint } from './AdminUnsavedChanges';
 
 interface AdminFileUploadsTabProps {
@@ -11,6 +18,7 @@ interface AdminFileUploadsTabProps {
   onSettingsChange: (settings: { [key: string]: string | undefined }) => void;
   onSave: (settings?: { [key: string]: string | undefined }) => Promise<void>;
   onCancel: () => void;
+  discardNonce?: number;
 }
 
 interface FileTypeConfig {
@@ -23,6 +31,7 @@ const AdminFileUploadsTab: React.FC<AdminFileUploadsTabProps> = ({
   onSettingsChange,
   onSave,
   onCancel,
+  discardNonce = 0,
 }) => {
   const { t } = useTranslation('admin');
   const [isSaving, setIsSaving] = useState(false);
@@ -101,84 +110,64 @@ const AdminFileUploadsTab: React.FC<AdminFileUploadsTabProps> = ({
     }
   ];
 
-  // Initialize file types from settings
-  useEffect(() => {
+  const allPossibleMimeTypes = fileTypeCategories.flatMap((category) =>
+    category.types.map((type) => type.mime)
+  );
+
+  /** Expand stored JSON to a full mime→bool map (missing keys default to true). */
+  const completeFileTypeConfig = (rawJson: string | undefined): FileTypeConfig => {
+    let parsed: FileTypeConfig = {};
     try {
-      const fileTypesJson = editingSettings.UPLOAD_FILETYPES || '{}';
-      const parsed = JSON.parse(fileTypesJson);
-      
-      // Get all possible file types and set defaults
-      const allPossibleTypes = fileTypeCategories.flatMap(category => 
-        category.types.map(type => type.mime)
-      );
-      
-      // Create a complete config with all types
-      const completeConfig = allPossibleTypes.reduce((acc, mimeType) => {
-        // If the parsed settings are empty (first time), default all to true
-        // Otherwise, use the parsed value or default to true for new file types
-        if (Object.keys(parsed).length === 0) {
-          acc[mimeType] = true; // First time setup - enable all
-        } else {
-          // Handle migration from old image/jpg to image/jpeg
-          if (mimeType === 'image/jpeg' && parsed['image/jpg'] !== undefined) {
-            acc[mimeType] = parsed['image/jpg']; // Use old image/jpg value for image/jpeg
-          } else {
-            acc[mimeType] = parsed[mimeType] !== undefined ? parsed[mimeType] : true; // Use saved value or default to true
-          }
-        }
-        return acc;
-      }, {} as FileTypeConfig);
-      
-      console.log('File types initialization:', {
-        editingSettingsUPLOAD_FILETYPES: editingSettings.UPLOAD_FILETYPES,
-        parsed: parsed,
-        completeConfig: completeConfig,
-        rarValue: completeConfig['application/x-rar-compressed']
-      });
-      
-      setFileTypes(completeConfig);
-    } catch (error) {
-      console.error('Error parsing UPLOAD_FILETYPES:', error);
-      // If parsing fails, initialize with all types enabled
-      const allPossibleTypes = fileTypeCategories.flatMap(category => 
-        category.types.map(type => type.mime)
-      );
-      const defaultConfig = allPossibleTypes.reduce((acc, mimeType) => {
-        acc[mimeType] = true;
-        return acc;
-      }, {} as FileTypeConfig);
-      setFileTypes(defaultConfig);
+      parsed = JSON.parse(rawJson || '{}');
+    } catch {
+      parsed = {};
     }
-  }, [editingSettings.UPLOAD_FILETYPES]);
+    return allPossibleMimeTypes.reduce((acc, mimeType) => {
+      if (Object.keys(parsed).length === 0) {
+        acc[mimeType] = true;
+      } else if (mimeType === 'image/jpeg' && parsed['image/jpg'] !== undefined) {
+        acc[mimeType] = parsed['image/jpg'];
+      } else {
+        acc[mimeType] = parsed[mimeType] !== undefined ? parsed[mimeType] : true;
+      }
+      return acc;
+    }, {} as FileTypeConfig);
+  };
+
+  // Initialize file types from draft settings (re-run on Discard)
+  useEffect(() => {
+    setFileTypes(completeFileTypeConfig(editingSettings.UPLOAD_FILETYPES));
+    // fileTypeCategories labels change with i18n; mime list is stable enough for this hydrate
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editingSettings.UPLOAD_FILETYPES, discardNonce]);
 
   // Initialize max file size from settings
   useEffect(() => {
     const sizeBytes = parseInt(editingSettings.UPLOAD_MAX_FILESIZE || '10485760');
     const sizeMB = Math.round(sizeBytes / (1024 * 1024));
     setMaxFileSize(sizeMB);
-  }, [editingSettings.UPLOAD_MAX_FILESIZE]);
+  }, [editingSettings.UPLOAD_MAX_FILESIZE, discardNonce]);
 
   // Initialize limits enforced from settings
   useEffect(() => {
     const enforced = editingSettings.UPLOAD_LIMITS_ENFORCED !== 'false'; // Default to true
     setLimitsEnforced(enforced);
-  }, [editingSettings.UPLOAD_LIMITS_ENFORCED]);
+  }, [editingSettings.UPLOAD_LIMITS_ENFORCED, discardNonce]);
 
   const handleSave = async () => {
-    console.log('🔄 handleSave called - checking if save should proceed...');
-    console.log('hasChanges():', hasChanges());
-    
     if (!hasChanges()) {
-      console.log('❌ No changes detected - save aborted');
       return;
     }
-    
-    console.log('✅ Changes detected - proceeding with save');
+
+    const clampedMb = clampUploadMaxMb(maxFileSize);
+    if (clampedMb !== maxFileSize) {
+      setMaxFileSize(clampedMb);
+    }
     
     setIsSaving(true);
     try {
       // Convert max file size from MB to bytes
-      const sizeBytes = maxFileSize * 1024 * 1024;
+      const sizeBytes = clampedMb * 1024 * 1024;
       
       const newSettings = {
         ...editingSettings,
@@ -211,19 +200,32 @@ const AdminFileUploadsTab: React.FC<AdminFileUploadsTabProps> = ({
   };
 
   const handleFileTypeToggle = (mimeType: string) => {
-    console.log(`Toggling ${mimeType}:`, {
-      currentValue: fileTypes[mimeType],
-      newValue: !fileTypes[mimeType]
+    setFileTypes((prev) => {
+      const next = { ...prev, [mimeType]: !prev[mimeType] };
+      syncDraftToEditing(maxFileSize, next);
+      return next;
     });
-    
-    setFileTypes(prev => ({
-      ...prev,
-      [mimeType]: !prev[mimeType]
-    }));
   };
 
-  const handleMaxFileSizeChange = (value: number) => {
-    setMaxFileSize(value);
+  const syncDraftToEditing = (sizeMb: number, types: FileTypeConfig) => {
+    onSettingsChange({
+      ...editingSettings,
+      UPLOAD_MAX_FILESIZE: String(sizeMb * 1024 * 1024),
+      UPLOAD_FILETYPES: JSON.stringify(types),
+    });
+  };
+
+  const handleMaxFileSizeChange = (value: string) => {
+    if (value === '') {
+      setMaxFileSize(0);
+      syncDraftToEditing(0, fileTypes);
+      return;
+    }
+    const n = Number(value);
+    if (!Number.isFinite(n)) return;
+    const sizeMb = Math.trunc(n);
+    setMaxFileSize(sizeMb);
+    syncDraftToEditing(sizeMb, fileTypes);
   };
 
   const toggleAllFileTypes = (enabled: boolean) => {
@@ -239,6 +241,7 @@ const AdminFileUploadsTab: React.FC<AdminFileUploadsTabProps> = ({
     }, {} as FileTypeConfig);
     
     setFileTypes(updatedTypes);
+    syncDraftToEditing(maxFileSize, updatedTypes);
   };
 
   const handleToggleLimitsEnforced = async () => {
@@ -271,20 +274,12 @@ const AdminFileUploadsTab: React.FC<AdminFileUploadsTabProps> = ({
     // Note: UPLOAD_LIMITS_ENFORCED is excluded because it auto-saves
     const originalSizeBytes = parseInt(settings.UPLOAD_MAX_FILESIZE || '10485760');
     const originalSizeMB = Math.round(originalSizeBytes / (1024 * 1024));
-    const originalFileTypes = JSON.parse(settings.UPLOAD_FILETYPES || '{}');
-    
+    // Normalize both sides so partial saved JSON vs full UI map does not look dirty
+    const originalFileTypes = completeFileTypeConfig(settings.UPLOAD_FILETYPES);
+
     const sizeChanged = maxFileSize !== originalSizeMB;
     const fileTypesChanged = JSON.stringify(fileTypes) !== JSON.stringify(originalFileTypes);
-    
-    console.log('hasChanges check:', {
-      maxFileSize,
-      originalSizeMB,
-      fileTypesChanged,
-      sizeChanged,
-      fileTypes: fileTypes,
-      originalFileTypes: originalFileTypes
-    });
-    
+
     return sizeChanged || fileTypesChanged;
   };
 
@@ -342,22 +337,48 @@ const AdminFileUploadsTab: React.FC<AdminFileUploadsTabProps> = ({
           {/* Max File Size Setting */}
           <div className="flex items-start justify-between">
             <div className="flex-1">
-              <label className="text-sm font-medium text-gray-700 dark:text-gray-300 block mb-1">
-                {t('fileUploads.maximumFileSize')}
+              <label className="flex flex-wrap items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                <span>{t('fileUploads.maximumFileSize')}</span>
+                <AdminFieldDraftControls
+                  dirty={isAdminSettingFieldDirty(
+                    'UPLOAD_MAX_FILESIZE',
+                    settings,
+                    editingSettings
+                  )}
+                  savedValue={String(
+                    Math.round(
+                      parseInt(settings.UPLOAD_MAX_FILESIZE || '10485760', 10) / (1024 * 1024)
+                    )
+                  )}
+                  onRevert={() => {
+                    const originalMb = Math.round(
+                      parseInt(settings.UPLOAD_MAX_FILESIZE || '10485760', 10) / (1024 * 1024)
+                    );
+                    setMaxFileSize(originalMb);
+                    syncDraftToEditing(originalMb, fileTypes);
+                  }}
+                />
               </label>
               <p className="text-sm text-gray-500 dark:text-gray-400">
-                {t('fileUploads.maximumFileSizeDescription')}
+                {t('fileUploads.maximumFileSizeDescription', {
+                  min: UPLOAD_MAX_MB.min,
+                  max: UPLOAD_MAX_MB.max,
+                })}
               </p>
             </div>
             <div className="ml-6 flex-shrink-0">
               <div className="flex items-center space-x-2">
                 <input
                   type="number"
-                  min="1"
-                  max="100"
+                  inputMode="numeric"
                   value={maxFileSize}
-                  onChange={(e) => handleMaxFileSizeChange(parseInt(e.target.value) || 1)}
-                  className="w-20 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+                  onChange={(e) => handleMaxFileSizeChange(e.target.value)}
+                  onBlur={() => {
+                    const clamped = clampUploadMaxMb(maxFileSize);
+                    setMaxFileSize(clamped);
+                    syncDraftToEditing(clamped, fileTypes);
+                  }}
+                  className={`w-20 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 ${ADMIN_NUMERIC_INPUT_CLASS}`}
                 />
                 <span className="text-sm text-gray-500 dark:text-gray-400">{t('fileUploads.mb')}</span>
               </div>

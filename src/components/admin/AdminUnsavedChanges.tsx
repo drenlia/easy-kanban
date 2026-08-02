@@ -21,6 +21,8 @@ interface AdminUnsavedChangesBannerProps {
   onSave: () => void;
   onDiscard: () => void;
   isSaving?: boolean;
+  /** When true, Save is disabled (e.g. only local-tab drafts like AI/Reporting). */
+  saveDisabled?: boolean;
 }
 
 /** Compact inline actions for the Admin header (left of settings search). */
@@ -29,6 +31,7 @@ export const AdminUnsavedChangesBanner: React.FC<AdminUnsavedChangesBannerProps>
   onSave,
   onDiscard,
   isSaving = false,
+  saveDisabled = false,
 }) => {
   const { t } = useTranslation('admin');
   if (!visible) return null;
@@ -57,7 +60,7 @@ export const AdminUnsavedChangesBanner: React.FC<AdminUnsavedChangesBannerProps>
       <button
         type="button"
         onClick={onSave}
-        disabled={isSaving}
+        disabled={isSaving || saveDisabled}
         className="px-2 py-1 text-xs font-medium rounded text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 disabled:opacity-50 whitespace-nowrap"
       >
         {isSaving ? t('users.saving') : t('saveChanges')}

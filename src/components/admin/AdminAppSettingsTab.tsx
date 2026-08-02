@@ -9,7 +9,25 @@ import api from '../../api';
 import { ALL_TROUBLESHOOTING_SETTING_KEYS } from '../../constants/clientDebugKeys';
 import { useSettings } from '../../contexts/SettingsContext';
 import { toast } from '../../utils/toast';
-import { adminSettingsHaveChanges } from '../../utils/adminSettingsDirty';
+import {
+  adminSettingsHaveChanges,
+  getDirtyAppSettingsSubTabs,
+  revertAdminSettingField,
+} from '../../utils/adminSettingsDirty';
+import {
+  ACTIVITY_FEED_HEIGHT,
+  ACTIVITY_FEED_POS_X,
+  ACTIVITY_FEED_POS_Y,
+  ACTIVITY_FEED_WIDTH,
+  ADMIN_NUMERIC_INPUT_CLASS,
+  clampActivityFeedInSettings,
+  clampIntToString,
+  parseActivityFeedPosition,
+  readActivityFeedPositionRaw,
+  stringifyActivityFeedPosition,
+} from '../../utils/adminFieldLimits';
+import { normalizeTaskViewMode } from '../../utils/userPreferences';
+import { AdminDirtyDot, AdminFieldDraftControls } from './AdminFieldDraftControls';
 import { AdminUnsavedHint } from './AdminUnsavedChanges';
 
 interface AdminAppSettingsTabProps {
@@ -19,6 +37,10 @@ interface AdminAppSettingsTabProps {
   onSave: (settings?: { [key: string]: string | undefined }) => Promise<void>;
   onCancel: () => void;
   onAutoSave?: (key: string, value: string) => Promise<void>;
+  /** Local drafts (AI / file uploads) that are not yet in shared editingSettings */
+  onLocalDirtyChange?: (dirty: boolean) => void;
+  /** Incremented when admin Discard runs — re-hydrate local subtab drafts */
+  discardNonce?: number;
 }
 
 type AppSettingsSubTab = 'ui' | 'uploads' | 'notifications' | 'notification-queue' | 'troubleshooting' | 'ai';
@@ -56,6 +78,15 @@ function readTroubleshootingUnlocked(): boolean {
   }
 }
 
+function subTabFromHash(hash: string): AppSettingsSubTab {
+  if (hash === '#admin#app-settings#file-uploads') return 'uploads';
+  if (hash === '#admin#app-settings#notifications') return 'notifications';
+  if (hash === '#admin#app-settings#notification-queue') return 'notification-queue';
+  if (hash === '#admin#app-settings#troubleshooting') return 'troubleshooting';
+  if (hash === '#admin#app-settings#ai') return 'ai';
+  return 'ui';
+}
+
 const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
   settings,
   editingSettings,
@@ -63,13 +94,38 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
   onSave,
   onCancel,
   onAutoSave,
+  onLocalDirtyChange,
+  discardNonce = 0,
 }) => {
   const { t } = useTranslation('admin');
   const { updateSiteSettings } = useSettings();
   const [isSaving, setIsSaving] = useState(false);
-  const [activeSubTab, setActiveSubTab] = useState<AppSettingsSubTab>('ui');
+  const [activeSubTab, setActiveSubTab] = useState<AppSettingsSubTab>(() =>
+    typeof window !== 'undefined' ? subTabFromHash(window.location.hash) : 'ui'
+  );
+  const [visitedSubTabs, setVisitedSubTabs] = useState<Set<AppSettingsSubTab>>(
+    () =>
+      new Set<AppSettingsSubTab>([
+        typeof window !== 'undefined' ? subTabFromHash(window.location.hash) : 'ui',
+      ])
+  );
   const [notificationDefaults, setNotificationDefaults] = useState<{ [key: string]: boolean }>({});
   const [autosaveSuccess, setAutosaveSuccess] = useState<string | null>(null);
+  const [aiLocalDirty, setAiLocalDirty] = useState(false);
+
+  useEffect(() => {
+    setVisitedSubTabs((prev) => {
+      if (prev.has(activeSubTab)) return prev;
+      const next = new Set(prev);
+      next.add(activeSubTab);
+      return next;
+    });
+  }, [activeSubTab]);
+
+  useEffect(() => {
+    onLocalDirtyChange?.(aiLocalDirty);
+    // Do not clear on unmount — parent Admin tab stay-mounted; clearing would drop the tab dot
+  }, [aiLocalDirty, onLocalDirtyChange]);
   const troubleshootingGated = isTroubleshootingGatedDeployment();
   const [troubleshootingUnlocked, setTroubleshootingUnlocked] = useState(
     () => !troubleshootingGated || readTroubleshootingUnlocked()
@@ -90,51 +146,31 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
     return settings;
   }, []);
 
-  // Initialize notification defaults from settings
+  // Keep notification defaults in sync with draft (and re-hydrate on Discard)
   useEffect(() => {
-    if (settings.NOTIFICATION_DEFAULTS) {
+    const raw =
+      editingSettings.NOTIFICATION_DEFAULTS ?? settings.NOTIFICATION_DEFAULTS;
+    if (raw) {
       try {
-        const defaults = JSON.parse(settings.NOTIFICATION_DEFAULTS);
-        setNotificationDefaults(defaults);
+        setNotificationDefaults(JSON.parse(raw));
+        return;
       } catch (error) {
         console.error('Failed to parse notification defaults:', error);
-        // Set default values
-        setNotificationDefaults({
-          newTaskAssigned: true,
-          myTaskUpdated: true,
-          watchedTaskUpdated: true,
-          addedAsCollaborator: true,
-          collaboratingTaskUpdated: true,
-          commentAdded: true,
-          requesterTaskCreated: true,
-          requesterTaskUpdated: true
-        });
       }
-    } else {
-      // Set default values if no settings exist
-      setNotificationDefaults({
-        newTaskAssigned: true,
-        myTaskUpdated: true,
-        watchedTaskUpdated: true,
-        addedAsCollaborator: true,
-        collaboratingTaskUpdated: true,
-        commentAdded: true,
-        requesterTaskCreated: true,
-        requesterTaskUpdated: true
-      });
     }
-  }, [settings.NOTIFICATION_DEFAULTS]);
+    setNotificationDefaults({
+      newTaskAssigned: true,
+      myTaskUpdated: true,
+      watchedTaskUpdated: true,
+      addedAsCollaborator: true,
+      collaboratingTaskUpdated: true,
+      commentAdded: true,
+      requesterTaskCreated: true,
+      requesterTaskUpdated: true,
+    });
+  }, [editingSettings.NOTIFICATION_DEFAULTS, settings.NOTIFICATION_DEFAULTS, discardNonce]);
 
-  const subTabFromHash = (hash: string): AppSettingsSubTab => {
-    if (hash === '#admin#app-settings#file-uploads') return 'uploads';
-    if (hash === '#admin#app-settings#notifications') return 'notifications';
-    if (hash === '#admin#app-settings#notification-queue') return 'notification-queue';
-    if (hash === '#admin#app-settings#troubleshooting') return 'troubleshooting';
-    if (hash === '#admin#app-settings#ai') return 'ai';
-    return 'ui';
-  };
-
-  // Initialize activeSubTab from URL hash (fall back if troubleshooting is gated/locked)
+  // Sync activeSubTab from URL hash (fall back if troubleshooting is gated/locked)
   useEffect(() => {
     const tab = subTabFromHash(window.location.hash);
     if (tab === 'troubleshooting' && !showTroubleshootingTab) {
@@ -268,7 +304,11 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
   const handleSave = async () => {
     setIsSaving(true);
     try {
-      await onSave();
+      const clamped = clampActivityFeedInSettings(editingSettings);
+      if (clamped !== editingSettings) {
+        onSettingsChange(clamped);
+      }
+      await onSave(clamped);
     } finally {
       setIsSaving(false);
     }
@@ -278,6 +318,23 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
     () => adminSettingsHaveChanges(settings, editingSettings),
     [settings, editingSettings]
   );
+
+  const dirtySubTabs = useMemo(
+    () =>
+      getDirtyAppSettingsSubTabs(settings, editingSettings, {
+        aiLocalDirty,
+      }),
+    [settings, editingSettings, aiLocalDirty]
+  );
+
+  const activityFeedPos = useMemo(
+    () => readActivityFeedPositionRaw(editingSettings.DEFAULT_ACTIVITY_FEED_POSITION),
+    [editingSettings.DEFAULT_ACTIVITY_FEED_POSITION]
+  );
+
+  const revertField = (key: string) => {
+    onSettingsChange(revertAdminSettingField(key, settings, editingSettings));
+  };
 
   const handleAppLanguageChange = (value: string) => {
     onSettingsChange({
@@ -360,9 +417,10 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
   };
 
   const handleDefaultTaskViewModeChange = (value: string) => {
+    const mode = normalizeTaskViewMode(value);
     onSettingsChange({
       ...editingSettings,
-      DEFAULT_TASK_VIEW_MODE: value
+      DEFAULT_TASK_VIEW_MODE: mode
     });
     
     // Auto-save the default task view mode change (silent - no toast, parent will show one)
@@ -370,7 +428,7 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
       try {
         await onSave({
           ...editingSettings,
-          DEFAULT_TASK_VIEW_MODE: value
+          DEFAULT_TASK_VIEW_MODE: mode
         });
         // Don't show toast here - parent handleSaveSettings will show one
       } catch (error) {
@@ -380,28 +438,38 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
   };
 
   // Manual save fields (no auto-save) - position, width, height
-  const handleDefaultActivityFeedPositionChange = (value: string) => {
+  const handleActivityFeedPosChange = (axis: 'x' | 'y', value: string) => {
+    const current = readActivityFeedPositionRaw(editingSettings.DEFAULT_ACTIVITY_FEED_POSITION);
+    const next = {
+      x: axis === 'x' ? (value === '' ? '' : Number(value)) : current.x,
+      y: axis === 'y' ? (value === '' ? '' : Number(value)) : current.y,
+    };
     onSettingsChange({
       ...editingSettings,
-      DEFAULT_ACTIVITY_FEED_POSITION: value
+      DEFAULT_ACTIVITY_FEED_POSITION: JSON.stringify(next),
     });
-    // No auto-save - user must click Save button
+  };
+
+  const clampActivityFeedPosOnBlur = () => {
+    const pos = parseActivityFeedPosition(editingSettings.DEFAULT_ACTIVITY_FEED_POSITION);
+    onSettingsChange({
+      ...editingSettings,
+      DEFAULT_ACTIVITY_FEED_POSITION: stringifyActivityFeedPosition(pos),
+    });
   };
 
   const handleDefaultActivityFeedWidthChange = (value: string) => {
     onSettingsChange({
       ...editingSettings,
-      DEFAULT_ACTIVITY_FEED_WIDTH: value
+      DEFAULT_ACTIVITY_FEED_WIDTH: value,
     });
-    // No auto-save - user must click Save button
   };
 
   const handleDefaultActivityFeedHeightChange = (value: string) => {
     onSettingsChange({
       ...editingSettings,
-      DEFAULT_ACTIVITY_FEED_HEIGHT: value
+      DEFAULT_ACTIVITY_FEED_HEIGHT: value,
     });
-    // No auto-save - user must click Save button
   };
 
   const handleNotificationDelayChange = (value: string) => {
@@ -473,33 +541,36 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
         <nav className="flex space-x-8" aria-label="Tabs">
           <button
             onClick={() => handleSubTabChange('ui')}
-            className={`py-2 px-1 border-b-2 font-medium text-sm ${
+            className={`py-2 px-1 border-b-2 font-medium text-sm inline-flex items-center gap-1.5 ${
               activeSubTab === 'ui'
                 ? 'border-blue-500 text-blue-600 dark:text-blue-400'
                 : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600'
             }`}
           >
             {t('appSettings.userInterface')}
+            <AdminDirtyDot show={dirtySubTabs.has('ui')} />
           </button>
           <button
             onClick={() => handleSubTabChange('uploads')}
-            className={`py-2 px-1 border-b-2 font-medium text-sm ${
+            className={`py-2 px-1 border-b-2 font-medium text-sm inline-flex items-center gap-1.5 ${
               activeSubTab === 'uploads'
                 ? 'border-blue-500 text-blue-600 dark:text-blue-400'
                 : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600'
             }`}
           >
             {t('appSettings.fileUploads')}
+            <AdminDirtyDot show={dirtySubTabs.has('uploads')} />
           </button>
           <button
             onClick={() => handleSubTabChange('notifications')}
-            className={`py-2 px-1 border-b-2 font-medium text-sm ${
+            className={`py-2 px-1 border-b-2 font-medium text-sm inline-flex items-center gap-1.5 ${
               activeSubTab === 'notifications'
                 ? 'border-blue-500 text-blue-600 dark:text-blue-400'
                 : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600'
             }`}
           >
             {t('appSettings.notifications')}
+            <AdminDirtyDot show={dirtySubTabs.has('notifications')} />
           </button>
           <button
             onClick={() => handleSubTabChange('notification-queue')}
@@ -529,37 +600,58 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
               aria-hidden
             />
             {t('appSettings.ai')}
+            <AdminDirtyDot show={dirtySubTabs.has('ai')} />
           </button>
           {showTroubleshootingTab && (
             <button
               onClick={() => handleSubTabChange('troubleshooting')}
-              className={`py-2 px-1 border-b-2 font-medium text-sm ${
+              className={`py-2 px-1 border-b-2 font-medium text-sm inline-flex items-center gap-1.5 ${
                 activeSubTab === 'troubleshooting'
                   ? 'border-blue-500 text-blue-600 dark:text-blue-400'
                   : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600'
               }`}
             >
               {t('appSettings.troubleshooting')}
+              <AdminDirtyDot show={dirtySubTabs.has('troubleshooting')} />
             </button>
           )}
         </nav>
       </div>
 
-      {/* Conditional Content Based on Active Sub-tab */}
-      {activeSubTab === 'ai' && onAutoSave ? (
-        <AdminAISettingsTab
-          editingSettings={editingSettings}
-          onSettingsChange={onSettingsChange}
-          onAutoSave={onAutoSave}
-        />
-      ) : activeSubTab === 'troubleshooting' && showTroubleshootingTab && onAutoSave ? (
-        <AdminTroubleshootingTab
-          editingSettings={editingSettings}
-          onSettingsChange={onSettingsChange}
-          onAutoSave={onAutoSave}
-        />
-      ) : activeSubTab === 'ui' ? (
-        <>
+      {/* Sub-tab panels: keep visited mounted (hidden) so drafts survive switches */}
+      {visitedSubTabs.has('ai') && onAutoSave && (
+        <div
+          className={activeSubTab === 'ai' ? undefined : 'hidden'}
+          aria-hidden={activeSubTab !== 'ai'}
+        >
+          <AdminAISettingsTab
+            editingSettings={editingSettings}
+            onSettingsChange={onSettingsChange}
+            onAutoSave={onAutoSave}
+            onLocalDirtyChange={setAiLocalDirty}
+            discardNonce={discardNonce}
+          />
+        </div>
+      )}
+
+      {visitedSubTabs.has('troubleshooting') && showTroubleshootingTab && onAutoSave && (
+        <div
+          className={activeSubTab === 'troubleshooting' ? undefined : 'hidden'}
+          aria-hidden={activeSubTab !== 'troubleshooting'}
+        >
+          <AdminTroubleshootingTab
+            editingSettings={editingSettings}
+            onSettingsChange={onSettingsChange}
+            onAutoSave={onAutoSave}
+          />
+        </div>
+      )}
+
+      {visitedSubTabs.has('ui') && (
+        <div
+          className={activeSubTab === 'ui' ? undefined : 'hidden'}
+          aria-hidden={activeSubTab !== 'ui'}
+        >
           {/* Settings Form */}
           <div className="bg-white dark:bg-gray-800 shadow rounded-lg">
             <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
@@ -657,12 +749,13 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
                   </div>
                   <div className="ml-6 flex-shrink-0">
                     <select
-                      value={editingSettings.DEFAULT_TASK_VIEW_MODE || 'expand'}
+                      value={normalizeTaskViewMode(editingSettings.DEFAULT_TASK_VIEW_MODE)}
                       onChange={(e) => handleDefaultTaskViewModeChange(e.target.value)}
-                      className="block w-32 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+                      className="block w-36 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                     >
-                      <option value="expand">{t('appSettings.expanded')}</option>
-                      <option value="collapse">{t('appSettings.collapsed')}</option>
+                      <option value="expand">{t('appSettings.taskViewExpand')}</option>
+                      <option value="shrink">{t('appSettings.taskViewShrink')}</option>
+                      <option value="compact">{t('appSettings.taskViewCompact')}</option>
                     </select>
                   </div>
                 </div>
@@ -699,67 +792,128 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
               {/* Activity Feed Position */}
               <div className="flex items-start justify-between mb-4">
                 <div className="flex-1">
-                  <label className="text-sm font-medium text-gray-700 dark:text-gray-300 block mb-1">
-                    {t('appSettings.defaultPosition')}
+                  <label className="flex flex-wrap items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    <span>{t('appSettings.defaultPosition')}</span>
+                    <AdminFieldDraftControls
+                      settingKey="DEFAULT_ACTIVITY_FEED_POSITION"
+                      saved={settings}
+                      draft={editingSettings}
+                      onRevert={() => revertField('DEFAULT_ACTIVITY_FEED_POSITION')}
+                    />
                   </label>
                   <p className="text-sm text-gray-500 dark:text-gray-400">
                     {t('appSettings.defaultPositionDescription')}
                   </p>
-                  </div>
-                <div className="ml-6 flex-shrink-0">
-                  <input
-                    type="text"
-                    value={editingSettings.DEFAULT_ACTIVITY_FEED_POSITION || '{"x": 10, "y": 66}'}
-                    onChange={(e) => handleDefaultActivityFeedPositionChange(e.target.value)}
-                    className="block w-40 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-                    placeholder='{"x": 10, "y": 66}'
-                  />
-                  </div>
-                  </div>
+                </div>
+                <div className="ml-6 flex-shrink-0 flex items-center gap-2">
+                  <label className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
+                    X
+                    <input
+                      type="number"
+                      inputMode="numeric"
+                      value={activityFeedPos.x}
+                      onChange={(e) => handleActivityFeedPosChange('x', e.target.value)}
+                      onBlur={clampActivityFeedPosOnBlur}
+                      className={`block w-16 px-2 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 ${ADMIN_NUMERIC_INPUT_CLASS}`}
+                      aria-label={`${t('appSettings.defaultPosition')} X (${ACTIVITY_FEED_POS_X.min}–${ACTIVITY_FEED_POS_X.max})`}
+                    />
+                  </label>
+                  <label className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
+                    Y
+                    <input
+                      type="number"
+                      inputMode="numeric"
+                      value={activityFeedPos.y}
+                      onChange={(e) => handleActivityFeedPosChange('y', e.target.value)}
+                      onBlur={clampActivityFeedPosOnBlur}
+                      className={`block w-16 px-2 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 ${ADMIN_NUMERIC_INPUT_CLASS}`}
+                      aria-label={`${t('appSettings.defaultPosition')} Y (${ACTIVITY_FEED_POS_Y.min}–${ACTIVITY_FEED_POS_Y.max})`}
+                    />
+                  </label>
+                </div>
+              </div>
 
               {/* Activity Feed Width */}
               <div className="flex items-start justify-between mb-4">
                 <div className="flex-1">
-                  <label className="text-sm font-medium text-gray-700 dark:text-gray-300 block mb-1">
-                    {t('appSettings.defaultWidth')}
+                  <label className="flex flex-wrap items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    <span>{t('appSettings.defaultWidth')}</span>
+                    <AdminFieldDraftControls
+                      settingKey="DEFAULT_ACTIVITY_FEED_WIDTH"
+                      saved={settings}
+                      draft={editingSettings}
+                      onRevert={() => revertField('DEFAULT_ACTIVITY_FEED_WIDTH')}
+                    />
                   </label>
                   <p className="text-sm text-gray-500 dark:text-gray-400">
-                    {t('appSettings.defaultWidthDescription')}
+                    {t('appSettings.defaultWidthDescription', {
+                      min: ACTIVITY_FEED_WIDTH.min,
+                      max: ACTIVITY_FEED_WIDTH.max,
+                    })}
                   </p>
-                  </div>
+                </div>
                 <div className="ml-6 flex-shrink-0">
                   <input
                     type="number"
-                    min="180"
-                    max="400"
-                    value={editingSettings.DEFAULT_ACTIVITY_FEED_WIDTH || '180'}
+                    inputMode="numeric"
+                    value={editingSettings.DEFAULT_ACTIVITY_FEED_WIDTH || '160'}
                     onChange={(e) => handleDefaultActivityFeedWidthChange(e.target.value)}
-                    className="block w-20 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+                    onBlur={() =>
+                      onSettingsChange({
+                        ...editingSettings,
+                        DEFAULT_ACTIVITY_FEED_WIDTH: clampIntToString(
+                          editingSettings.DEFAULT_ACTIVITY_FEED_WIDTH,
+                          ACTIVITY_FEED_WIDTH.min,
+                          ACTIVITY_FEED_WIDTH.max,
+                          160
+                        ),
+                      })
+                    }
+                    className={`block w-20 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 ${ADMIN_NUMERIC_INPUT_CLASS}`}
                   />
-                  </div>
-                  </div>
+                </div>
+              </div>
 
               {/* Activity Feed Height */}
               <div className="flex items-start justify-between">
                 <div className="flex-1">
-                  <label className="text-sm font-medium text-gray-700 dark:text-gray-300 block mb-1">
-                    {t('appSettings.defaultHeight')}
+                  <label className="flex flex-wrap items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    <span>{t('appSettings.defaultHeight')}</span>
+                    <AdminFieldDraftControls
+                      settingKey="DEFAULT_ACTIVITY_FEED_HEIGHT"
+                      saved={settings}
+                      draft={editingSettings}
+                      onRevert={() => revertField('DEFAULT_ACTIVITY_FEED_HEIGHT')}
+                    />
                   </label>
                   <p className="text-sm text-gray-500 dark:text-gray-400">
-                    {t('appSettings.defaultHeightDescription')}
+                    {t('appSettings.defaultHeightDescription', {
+                      min: ACTIVITY_FEED_HEIGHT.min,
+                      max: ACTIVITY_FEED_HEIGHT.max,
+                    })}
                   </p>
-                  </div>
+                </div>
                 <div className="ml-6 flex-shrink-0">
                   <input
                     type="number"
-                    min="200"
-                    max="800"
+                    inputMode="numeric"
                     value={editingSettings.DEFAULT_ACTIVITY_FEED_HEIGHT || '400'}
                     onChange={(e) => handleDefaultActivityFeedHeightChange(e.target.value)}
-                    className="block w-20 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+                    onBlur={() =>
+                      onSettingsChange({
+                        ...editingSettings,
+                        DEFAULT_ACTIVITY_FEED_HEIGHT: clampIntToString(
+                          editingSettings.DEFAULT_ACTIVITY_FEED_HEIGHT,
+                          ACTIVITY_FEED_HEIGHT.min,
+                          ACTIVITY_FEED_HEIGHT.max,
+                          400
+                        ),
+                      })
+                    }
+                    className={`block w-20 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 ${ADMIN_NUMERIC_INPUT_CLASS}`}
                   />
-                  </div>
-                  </div>
+                </div>
+              </div>
                 </div>
           </div>
         </div>
@@ -791,11 +945,23 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
               </div>
             </div>
           </div>
-        </>
-      ) : activeSubTab === 'notification-queue' ? (
-        <AdminNotificationQueueTab />
-      ) : activeSubTab === 'notifications' ? (
-        <>
+        </div>
+      )}
+
+      {visitedSubTabs.has('notification-queue') && (
+        <div
+          className={activeSubTab === 'notification-queue' ? undefined : 'hidden'}
+          aria-hidden={activeSubTab !== 'notification-queue'}
+        >
+          <AdminNotificationQueueTab />
+        </div>
+      )}
+
+      {visitedSubTabs.has('notifications') && (
+        <div
+          className={activeSubTab === 'notifications' ? undefined : 'hidden'}
+          aria-hidden={activeSubTab !== 'notifications'}
+        >
           <div className="space-y-6" data-setting-key="NOTIFICATIONS_SECTION">
             {/* Notification Delay Setting */}
             <div className="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
@@ -903,15 +1069,23 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
           </div>
 
           {/* Action Buttons - Notifications tab doesn't need manual save buttons (all auto-save) */}
-        </>
-      ) : (
-        <AdminFileUploadsTab
-          settings={settings}
-          editingSettings={editingSettings}
-          onSettingsChange={onSettingsChange}
-          onSave={onSave}
-          onCancel={onCancel}
-        />
+        </div>
+      )}
+
+      {visitedSubTabs.has('uploads') && (
+        <div
+          className={activeSubTab === 'uploads' ? undefined : 'hidden'}
+          aria-hidden={activeSubTab !== 'uploads'}
+        >
+          <AdminFileUploadsTab
+            settings={settings}
+            editingSettings={editingSettings}
+            onSettingsChange={onSettingsChange}
+            onSave={onSave}
+            onCancel={onCancel}
+            discardNonce={discardNonce}
+          />
+        </div>
       )}
     </div>
   );
