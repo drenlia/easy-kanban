@@ -4,6 +4,7 @@ import { CheckSquare2, ChevronDown, ChevronUp, RotateCcw, Square, Trash2 } from 
 import { Column, Columns, Task } from '../types';
 import { formatToYYYYMMDDHHmm } from '../utils/dateUtils';
 import { KanbanChromeTooltip } from './KanbanChromeTooltip';
+import { ModernCheckbox } from './ModernCheckbox';
 
 interface BoardTrashViewProps {
   tasks: Task[];
@@ -73,7 +74,7 @@ function TrashedTaskCard({
       }}
       className={`group relative rounded-lg bg-[var(--task-card-bg,#fff)] p-2.5 shadow-sm transition-shadow hover:shadow-md dark:bg-gray-800 ${
         isDetailsOpen
-          ? 'ring-2 ring-amber-400 dark:ring-amber-500'
+          ? 'ring-1 ring-amber-400 dark:ring-amber-500'
           : ''
       }`}
       data-tour-id={`trash-task-${task.id}`}
@@ -85,12 +86,11 @@ function TrashedTaskCard({
           onClick={(e) => e.stopPropagation()}
           onKeyDown={(e) => e.stopPropagation()}
         >
-          <input
-            type="checkbox"
+          <ModernCheckbox
             checked={checked}
             disabled={bulkBusy}
             onChange={onToggleCheck}
-            className="h-3.5 w-3.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700"
+            size="sm"
             aria-label={t('trash.selectTask')}
             data-tour-id={`trash-task-select-${task.id}`}
           />

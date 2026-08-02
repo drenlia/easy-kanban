@@ -98,6 +98,8 @@ interface MainLayoutProps {
   onRemoveBoard: (boardId: string) => Promise<void>;
   onReorderBoards: (boardId: string, newPosition: number) => Promise<void>;
   getTaskCountForBoard: (board: Board) => number;
+  /** Unfiltered board task total, used for destructive confirmations. */
+  getTotalTaskCountForBoard?: (board: Board) => number;
   onDragStart: (event: any) => void;
   onDragOver: (event: any) => void;
   onDragEnd: (event: any) => void;
@@ -159,6 +161,22 @@ interface MainLayoutProps {
   kanbanColumnWidth?: number;
   onColumnWidthResize?: (deltaX: number) => void;
   onTaskRestoredLocally?: (task: Task) => void;
+
+  // Kanban multi-select / bulk actions
+  checkedTaskIds?: Set<string>;
+  onToggleTaskChecked?: (taskId: string) => void;
+  onToggleColumnChecked?: (columnId: string, taskIds: string[], selectAll: boolean) => void;
+  onClearAllChecked?: () => void;
+  isMultiSelectDragLocked?: boolean;
+  bulkBusy?: boolean;
+  onBulkAddTag?: (taskIds: string[], tagId: string) => void;
+  onBulkCopy?: (taskIds: string[]) => void;
+  onBulkArchive?: (taskIds: string[]) => void;
+  onBulkDelete?: (taskIds: string[]) => void;
+  onBulkSprint?: (taskIds: string[], sprintId: string | null) => void;
+  onBulkPriority?: (taskIds: string[], priorityId: string) => void;
+  onBulkMoveToBoard?: (taskIds: string[], boardId: string) => void;
+  draggedTaskIds?: string[];
 }
 
 const MainLayout: React.FC<MainLayoutProps> = ({

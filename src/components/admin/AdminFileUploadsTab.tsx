@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Save, RefreshCw } from 'lucide-react';
 import { toast } from '../../utils/toast';
+import { ModernCheckbox } from '../ModernCheckbox';
 
 interface AdminFileUploadsTabProps {
   settings: { [key: string]: string | undefined };
@@ -400,12 +401,11 @@ const AdminFileUploadsTab: React.FC<AdminFileUploadsTabProps> = ({
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     {category.types.map((fileType) => (
                       <div key={fileType.mime} className="flex items-center space-x-3">
-                        <input
-                          type="checkbox"
+                        <ModernCheckbox
                           id={fileType.mime}
                           checked={fileTypes[fileType.mime] || false}
                           onChange={() => handleFileTypeToggle(fileType.mime)}
-                          className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 dark:border-gray-600 rounded"
+                          size="sm"
                         />
                         <div className="flex-1">
                           <label htmlFor={fileType.mime} className="text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer">

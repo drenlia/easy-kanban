@@ -695,7 +695,19 @@
     "scrollListRight": "Défiler vers la droite",
     "addNewBoard": "Ajouter un nouveau tableau (Admin uniquement)",
     "dropTaskHere": "Déposer la tâche ici",
-    "newBoard": "Nouveau tableau"
+    "newBoard": "Nouveau tableau",
+    "boardMovedToTrashTitle": "Tableau déplacé vers la corbeille",
+    "boardMovedToTrashMessage": "« {{title}} » a été déplacé vers la corbeille. Passage à un autre tableau.",
+    "boardPermanentlyDeletedTitle": "Tableau supprimé",
+    "boardPermanentlyDeletedMessage": "« {{title}} » a été définitivement supprimé. Passage à un autre tableau.",
+    "boardRemovedNoReplacement": "« {{title}} » n'est plus disponible."
+  },
+  "boardLimit": {
+    "title": "Limite de tableaux atteinte",
+    "summary": "Vous avez {{live}} tableau(x) actif(s) et {{trash}} tableau(x) dans la corbeille ({{total}} / {{limit}}). Les tableaux en suppression récupérable comptent toujours dans la licence jusqu'à leur purge définitive.",
+    "trashHintAdmin": "Supprimez définitivement les tableaux dont vous n'avez plus besoin dans Admin → Cycle de vie pour libérer des emplacements.",
+    "trashHintUser": "Demandez à un administrateur de purger définitivement les tableaux de la corbeille dans Admin → Cycle de vie.",
+    "openLifecycle": "Ouvrir le cycle de vie"
   },
   "activityFeed": {
     "title": "Activité",
@@ -818,7 +830,9 @@
     "systemTooltip": "Afficher les tâches assignées à l'utilisateur système (admin uniquement)",
     "noFiltersSelected": "⚠️ Aucune option de filtre sélectionnée. Sélectionnez au moins une option ci-dessus pour afficher les tâches.",
     "selected": "(sélectionné)",
-    "clickToSelect": "(cliquer pour sélectionner)"
+    "clickToSelect": "(cliquer pour sélectionner)",
+    "copyEmail": "Copier l'adresse e-mail",
+    "emailCopied": "E-mail copié"
   },
   "columnFilterDropdown": {
     "filterColumns": "Filtrer les colonnes",

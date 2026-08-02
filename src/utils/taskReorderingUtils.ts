@@ -35,15 +35,19 @@ export type TaskDropPlacement =
 export function resolveDropIndex(
   fullTasks: Task[],
   placement: TaskDropPlacement,
-  draggedTaskId?: string
+  draggedTaskId?: string,
+  /** Extra ids to treat as part of the drag block (follower multi-drag). */
+  additionalDraggedIds: string[] = []
 ): number {
+  const excludeIds = new Set<string>(additionalDraggedIds);
+  if (draggedTaskId) excludeIds.add(draggedTaskId);
+
   const sorted = [...fullTasks].sort((a, b) => parsePos(a.position) - parsePos(b.position));
   const originalIndex = draggedTaskId
     ? sorted.findIndex(t => t.id === draggedTaskId)
     : -1;
-  const withoutDragged = draggedTaskId
-    ? sorted.filter(t => t.id !== draggedTaskId)
-    : sorted;
+  const withoutDragged =
+    excludeIds.size > 0 ? sorted.filter((t) => !excludeIds.has(t.id)) : sorted;
 
   if (placement.kind === 'start') {
     return 0;
@@ -56,6 +60,11 @@ export function resolveDropIndex(
   // the anchor is removed with the dragged task, so findIndex fails and used to
   // fall through to "append at end". Restore the original index instead.
   if (draggedTaskId && placement.taskId === draggedTaskId) {
+    return originalIndex >= 0
+      ? Math.min(originalIndex, withoutDragged.length)
+      : withoutDragged.length;
+  }
+  if (excludeIds.has(placement.taskId)) {
     return originalIndex >= 0
       ? Math.min(originalIndex, withoutDragged.length)
       : withoutDragged.length;
@@ -259,6 +268,63 @@ export function applySameColumnMove(
   };
 
   return { next, columnId, renumberedTasks, noop: false };
+}
+
+export type BulkMoveResult = {
+  next: Columns;
+  /** Columns whose live task positions need a batch API write. */
+  touchedColumnIds: string[];
+};
+
+/**
+ * Move multiple tasks as one contiguous block into targetColumnId at targetIndex.
+ * Preserves relative order of taskIds (caller should pass position-sorted ids).
+ */
+export function applyBulkMove(
+  prev: Columns,
+  taskIds: string[],
+  targetColumnId: string,
+  targetIndex: number
+): BulkMoveResult | null {
+  if (!prev[targetColumnId] || taskIds.length === 0) return null;
+
+  const moved: Task[] = [];
+  for (const taskId of taskIds) {
+    const found = findTaskInColumns(prev, taskId);
+    if (found?.task) moved.push(found.task);
+  }
+  if (moved.length === 0) return null;
+
+  let next = prev;
+  const touched = new Set<string>([targetColumnId]);
+  for (const task of moved) {
+    const found = findTaskInColumns(next, task.id);
+    if (found?.columnId) touched.add(found.columnId);
+    next = stripTaskFromAllColumns(next, task.id, { renumber: true });
+  }
+
+  const targetCol = next[targetColumnId];
+  if (!targetCol) return null;
+  const targetSorted = renumberTasks(targetCol.tasks || []);
+  const clampedIndex = Math.max(0, Math.min(targetIndex, targetSorted.length));
+  const block = moved.map((t) => ({ ...t, columnId: targetColumnId }));
+  const newOrder = [
+    ...targetSorted.slice(0, clampedIndex),
+    ...block,
+    ...targetSorted.slice(clampedIndex),
+  ];
+  const targetTasks = newOrder.map((t, index) => ({
+    ...t,
+    position: index,
+    columnId: targetColumnId,
+  }));
+
+  next = {
+    ...next,
+    [targetColumnId]: { ...targetCol, tasks: targetTasks },
+  };
+
+  return { next, touchedColumnIds: Array.from(touched) };
 }
 
 /** Keep filtered board list in lockstep with optimistic reorder (avoids post-drop flash). */
@@ -470,6 +536,77 @@ export const handleCrossColumnMove = async (
     }, DRAG_COOLDOWN_DURATION);
   } catch (error) {
     console.error('❌ [handleCrossColumnMove] Failed to move task:', error);
+    setColumns(rollbackSnapshot);
+    window.justUpdatedFromWebSocket = false;
+    (window as any).reorderingInProgress = false;
+    refreshBoardData().catch(() => {});
+    throw error;
+  }
+};
+
+/**
+ * Move many tasks as one block into targetColumnId at targetIndex (position-sorted caller order).
+ */
+export const handleBulkMoveTasks = async (
+  taskIds: string[],
+  targetColumnId: string,
+  targetIndex: number,
+  columns: Columns,
+  setColumns: Dispatch<SetStateAction<Columns>>,
+  setDragCooldown: (value: boolean) => void,
+  refreshBoardData: () => Promise<void>,
+  setFilteredColumns?: Dispatch<SetStateAction<Columns>>
+): Promise<void> => {
+  if (taskIds.length === 0) return;
+  const preview = applyBulkMove(columns, taskIds, targetColumnId, targetIndex);
+  if (!preview) return;
+
+  let applied: BulkMoveResult | null = null;
+  const rollbackSnapshot = columns;
+
+  window.justUpdatedFromWebSocket = true;
+  (window as any).lastOptimisticUpdateTime = Date.now();
+  (window as any).reorderingInProgress = true;
+
+  setColumns((prev) => {
+    applied = applyBulkMove(prev, taskIds, targetColumnId, targetIndex);
+    return applied ? applied.next : prev;
+  });
+
+  if (!applied) {
+    window.justUpdatedFromWebSocket = false;
+    (window as any).reorderingInProgress = false;
+    return;
+  }
+
+  if (setFilteredColumns) {
+    setFilteredColumns((prev) => {
+      const next = applyBulkMove(prev, taskIds, targetColumnId, targetIndex);
+      return next ? next.next : prev;
+    });
+  }
+
+  try {
+    const updates: Array<{ taskId: string; position: number; columnId: string }> = [];
+    for (const columnId of applied.touchedColumnIds) {
+      const tasks = applied.next[columnId]?.tasks || [];
+      tasks.forEach((t) => {
+        updates.push({
+          taskId: t.id,
+          position: Number(t.position) || 0,
+          columnId,
+        });
+      });
+    }
+    await batchUpdateTaskPositions(updates);
+    setTimeout(() => {
+      window.justUpdatedFromWebSocket = false;
+      (window as any).reorderingInProgress = false;
+    }, 1000);
+    setDragCooldown(true);
+    setTimeout(() => setDragCooldown(false), DRAG_COOLDOWN_DURATION);
+  } catch (error) {
+    console.error('❌ [handleBulkMoveTasks] Failed:', error);
     setColumns(rollbackSnapshot);
     window.justUpdatedFromWebSocket = false;
     (window as any).reorderingInProgress = false;

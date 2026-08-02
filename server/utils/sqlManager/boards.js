@@ -52,21 +52,39 @@ export async function getBoardById(db, boardId) {
  * @returns {Promise<Object|null>} Existing board or null
  */
 export async function getBoardByTitle(db, title, excludeBoardId = null) {
+  // Trashed boards must not reserve their title, otherwise deleted names can never be reused
   if (excludeBoardId) {
     const query = `
-      SELECT id FROM boards 
-      WHERE LOWER(title) = LOWER($1) AND id != $2
+      SELECT id FROM boards
+      WHERE LOWER(title) = LOWER($1) AND id != $2 AND deleted_at IS NULL
     `;
     const stmt = wrapQuery(db.prepare(query), 'SELECT');
     return await stmt.get(title, excludeBoardId);
   } else {
     const query = `
-      SELECT id FROM boards 
-      WHERE LOWER(title) = LOWER($1)
+      SELECT id FROM boards
+      WHERE LOWER(title) = LOWER($1) AND deleted_at IS NULL
     `;
     const stmt = wrapQuery(db.prepare(query), 'SELECT');
     return await stmt.get(title);
   }
+}
+
+/**
+ * First title not used by a live board: `title`, then `title (2)`, `title (3)`, …
+ *
+ * @param {Database} db - Database connection
+ * @param {string} title - Desired title
+ * @returns {Promise<string>} Available title
+ */
+export async function findAvailableBoardTitle(db, title) {
+  let candidate = title;
+  for (let suffix = 2; suffix < 1000; suffix += 1) {
+    const existing = await getBoardByTitle(db, candidate);
+    if (!existing) return candidate;
+    candidate = `${title} (${suffix})`;
+  }
+  return candidate;
 }
 
 /**
@@ -76,30 +94,16 @@ export async function getBoardByTitle(db, title, excludeBoardId = null) {
  * @returns {Promise<number>} Maximum position or -1
  */
 export async function getMaxBoardPosition(db) {
-  // Use quoted alias to preserve case in PostgreSQL
-  // Position is now NUMERIC, so no need to cast
+  // position is NUMERIC, which node-pg returns as a string: coerce so callers can do maxPos + 1
   const query = `
     SELECT MAX(position) as "maxPos" FROM boards
     WHERE deleted_at IS NULL
   `;
-  
+
   const stmt = wrapQuery(db.prepare(query), 'SELECT');
   const result = await stmt.get();
-  console.log(`[getMaxBoardPosition] Query result:`, result);
-  // PostgreSQL returns lowercase unless quoted, so check both
-  const maxPos = result?.maxPos ?? result?.maxpos ?? null;
-  console.log(`[getMaxBoardPosition] maxPos value:`, maxPos, `type:`, typeof maxPos);
-  
-  // Also check how many boards exist to debug
-  const countQuery = `SELECT COUNT(*) as count FROM boards`;
-  const countStmt = wrapQuery(db.prepare(countQuery), 'SELECT');
-  const countResult = await countStmt.get();
-  console.log(`[getMaxBoardPosition] Total boards in database:`, countResult?.count);
-  
-  // Use nullish coalescing to handle PostgreSQL NULL values properly
-  const finalMaxPos = maxPos ?? -1;
-  console.log(`[getMaxBoardPosition] Returning:`, finalMaxPos);
-  return finalMaxPos;
+  const maxPos = Number(result?.maxPos ?? result?.maxpos);
+  return Number.isFinite(maxPos) ? maxPos : -1;
 }
 
 /**
@@ -292,17 +296,19 @@ export async function softDeleteBoard(db, boardId, deletedBy) {
 /**
  * Restore a soft-deleted board (tasks stay soft-deleted)
  */
-export async function restoreBoard(db, boardId) {
+export async function restoreBoard(db, boardId, { title = null, position = null } = {}) {
   const query = `
     UPDATE boards
     SET deleted_at = NULL,
         deleted_by = NULL,
+        title = COALESCE($2::text, title),
+        position = COALESCE($3::numeric, position),
         updated_at = CURRENT_TIMESTAMP
     WHERE id = $1 AND deleted_at IS NOT NULL
     RETURNING *
   `;
   const stmt = wrapQuery(db.prepare(query), 'UPDATE');
-  return await stmt.get(boardId);
+  return await stmt.get(boardId, title, position);
 }
 
 /**
@@ -327,6 +333,7 @@ export async function getDeletedBoards(db) {
            updated_at as "updatedAt",
            deleted_at as "deletedAt",
            deleted_by as "deletedBy",
+           (SELECT COUNT(*)::int FROM tasks t WHERE t.boardid = boards.id) as "taskCount",
            (SELECT COUNT(*)::int FROM tasks t WHERE t.boardid = boards.id AND t.deleted_at IS NOT NULL) as "trashTaskCount"
     FROM boards
     WHERE deleted_at IS NOT NULL

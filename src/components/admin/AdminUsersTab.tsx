@@ -5,6 +5,7 @@ import { Edit, Trash2, Crown, User as UserIcon } from 'lucide-react';
 import { getAuthenticatedAvatarUrl } from '../../utils/authImageUrl';
 import { toast } from '../../utils/toast';
 import { CHROME_TOOLTIP_SURFACE_CLASS } from '../KanbanChromeTooltip';
+import { ModernCheckbox } from '../ModernCheckbox';
 
 interface User {
   id: string;
@@ -721,8 +722,7 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
                   </select>
                 </div>
                 <div className="flex items-center">
-                  <input
-                    type="checkbox"
+                  <ModernCheckbox
                     id="isActive"
                     checked={isDemoMode || newUser.isActive}
                     disabled={isDemoMode}
@@ -731,9 +731,6 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
                       setNewUser(prev => ({ ...prev, isActive: e.target.checked }));
                     }}
                     title={isDemoMode ? t('users.activeCreateLocallyDemo') : undefined}
-                    className={`h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded ${
-                      isDemoMode ? 'opacity-60 cursor-not-allowed' : ''
-                    }`}
                   />
                   <label
                     htmlFor="isActive"
@@ -838,11 +835,9 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
                 </div>
                 <div>
                   <label className="flex items-center">
-                    <input
-                      type="checkbox"
+                    <ModernCheckbox
                       checked={editingUserData.isActive}
                       onChange={(e) => setEditingUserData(prev => ({ ...prev, isActive: e.target.checked }))}
-                      className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
                     />
                     <span className="ml-2 text-sm text-gray-700">{t('users.active')}</span>
                   </label>

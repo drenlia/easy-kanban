@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { createPortal } from 'react-dom';
 import { Task } from '../types';
@@ -21,11 +21,26 @@ const TaskDeleteConfirmation: React.FC<TaskDeleteConfirmationProps> = ({
   position
 }) => {
   const { t } = useTranslation(['tasks', 'common']);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || isDeleting) return;
+      e.preventDefault();
+      e.stopPropagation();
+      onCancel();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [isOpen, isDeleting, onCancel]);
+
   if (!isOpen || !task || !position) return null;
 
   return createPortal(
     <div 
       className="delete-confirmation fixed bg-white border border-gray-200 rounded-lg shadow-lg p-3 z-[9999] min-w-[200px]"
+      role="dialog"
+      aria-modal="true"
       style={{
         top: `${position.top}px`,
         left: `${position.left}px`,

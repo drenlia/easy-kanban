@@ -478,6 +478,14 @@ export const purgeLifecycleTasksBatch = async (taskIds: string[]) => {
   return data;
 };
 
+export const purgeLifecycleBoardsBatch = async (boardIds: string[]) => {
+  const { data } = await api.post<{ purged: string[]; errors: unknown[] }>(
+    '/admin/lifecycle/boards/purge-batch',
+    { boardIds }
+  );
+  return data;
+};
+
 // Batch update task positions (optimized for drag-and-drop)
 export const batchUpdateTaskPositions = async (updates: Array<{ taskId: string; position: number; columnId?: string }>) => {
   const { data } = await api.post('/tasks/batch-update-positions', { updates });

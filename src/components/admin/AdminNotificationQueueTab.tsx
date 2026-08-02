@@ -4,6 +4,7 @@ import { Send, Trash2, CheckSquare, Square, RefreshCw, ChevronDown, Search } fro
 import { getNotificationQueue, sendNotificationsImmediately, deleteNotifications } from '../../api';
 import { toast } from '../../utils/toast';
 import { formatToYYYYMMDDHHmmss as formatDateTimeLocal } from '../../utils/dateUtils';
+import { ModernCheckbox } from '../ModernCheckbox';
 
 interface NotificationQueueItem {
   id: string;
@@ -417,15 +418,20 @@ const AdminNotificationQueueTab: React.FC = () => {
             <thead className="bg-gray-50 dark:bg-gray-800">
               <tr>
                 <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider w-12">
-                  <input
-                    type="checkbox"
+                  <ModernCheckbox
                     checked={(() => {
                       const visibleNotifications = filteredNotifications.slice(0, displayLimit);
                       const visibleIds = new Set(visibleNotifications.map(n => n.id));
                       return visibleIds.size > 0 && Array.from(visibleIds).every(id => selectedIds.has(id));
                     })()}
+                    indeterminate={(() => {
+                      const visibleNotifications = filteredNotifications.slice(0, displayLimit);
+                      const visibleIds = Array.from(new Set(visibleNotifications.map(n => n.id)));
+                      const selectedVisible = visibleIds.filter((id) => selectedIds.has(id)).length;
+                      return selectedVisible > 0 && selectedVisible < visibleIds.length;
+                    })()}
                     onChange={handleSelectAll}
-                    className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                    size="sm"
                   />
                 </th>
                 <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
@@ -460,11 +466,10 @@ const AdminNotificationQueueTab: React.FC = () => {
                   }`}
                 >
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <input
-                      type="checkbox"
+                    <ModernCheckbox
                       checked={selectedIds.has(notification.id)}
                       onChange={() => handleSelectOne(notification.id)}
-                      className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                      size="sm"
                     />
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">

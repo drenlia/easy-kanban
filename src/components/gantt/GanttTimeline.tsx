@@ -7,6 +7,7 @@ import { MoveHandle } from './MoveHandle';
 import { DRAG_TYPES, GanttDragItem } from './types';
 import TaskDependencyArrows from './TaskDependencyArrows';
 import { TaskBarTooltip } from './TaskBarTooltip';
+import { ModernCheckbox } from '../ModernCheckbox';
 
 // Format date helper for local dates
 const formatLocalDate = (date: Date): string => {
@@ -286,11 +287,10 @@ const TaskBar = ({
       {/* Multi-select checkbox */}
       {isMultiSelectMode && (
         <div className="flex items-center mr-3">
-          <input
-            type="checkbox"
+          <ModernCheckbox
             checked={isSelected}
             onChange={() => onTaskSelect(task.id)}
-            className="h-3 w-3 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+            size="sm"
             onClick={(e) => e.stopPropagation()}
           />
         </div>

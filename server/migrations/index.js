@@ -445,6 +445,27 @@ const migrations = [
 
       console.log('✅ Migration 23: Lifecycle soft-delete ready');
     }
+  },
+  {
+    version: 24,
+    name: 'normalize_board_positions',
+    description:
+      'Renumber live boards to sequential positions (migration 11 made position NUMERIC, and string concatenation of MAX(position) left duplicates)',
+    up: async (db) => {
+      await dbExec(
+        db,
+        `UPDATE boards b
+         SET position = ranked.rn
+         FROM (
+           SELECT id, (ROW_NUMBER() OVER (ORDER BY position ASC, created_at ASC, id ASC) - 1) AS rn
+           FROM boards
+           WHERE deleted_at IS NULL
+         ) ranked
+         WHERE b.id = ranked.id AND b.position IS DISTINCT FROM ranked.rn`
+      );
+
+      console.log('✅ Migration 24: Board positions normalized');
+    }
   }
 ];
 

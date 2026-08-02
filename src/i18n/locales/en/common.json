@@ -692,7 +692,19 @@
     "scrollListRight": "Scroll right",
     "addNewBoard": "Add New Board (Admin only)",
     "dropTaskHere": "Drop task here",
-    "newBoard": "New Board"
+    "newBoard": "New Board",
+    "boardMovedToTrashTitle": "Board moved to trash",
+    "boardMovedToTrashMessage": "\"{{title}}\" was moved to trash. Switched to another board.",
+    "boardPermanentlyDeletedTitle": "Board deleted",
+    "boardPermanentlyDeletedMessage": "\"{{title}}\" was permanently deleted. Switched to another board.",
+    "boardRemovedNoReplacement": "\"{{title}}\" is no longer available."
+  },
+  "boardLimit": {
+    "title": "Board limit reached",
+    "summary": "You have {{live}} active board(s) and {{trash}} board(s) in trash ({{total}} / {{limit}}). Soft-deleted boards still count toward your license until they are permanently purged.",
+    "trashHintAdmin": "Permanently delete boards you no longer need in Admin → Lifecycle to free license slots.",
+    "trashHintUser": "Ask an administrator to permanently purge boards from trash in Admin → Lifecycle.",
+    "openLifecycle": "Open Lifecycle"
   },
   "activityFeed": {
     "title": "Activity Feed",
@@ -815,7 +827,9 @@
     "systemTooltip": "Show tasks assigned to the system user (admin only)",
     "noFiltersSelected": "⚠️ No filter options selected. Select at least one option above to display tasks.",
     "selected": "(selected)",
-    "clickToSelect": "(click to select)"
+    "clickToSelect": "(click to select)",
+    "copyEmail": "Copy email address",
+    "emailCopied": "Email copied"
   },
   "columnFilterDropdown": {
     "filterColumns": "Filter columns",

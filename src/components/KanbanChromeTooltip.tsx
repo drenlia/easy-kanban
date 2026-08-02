@@ -31,6 +31,13 @@ export const CHROME_TOOLTIP_RICH_SURFACE_CLASS =
 export const CHROME_TOOLTIP_PANEL_SURFACE_CLASS =
   `w-80 max-h-64 flex flex-col text-xs rounded-md shadow-lg border border-gray-700 dark:border-gray-300 ${CHROME_TOOLTIP_COLORS}`;
 
+/**
+ * Selectable chrome tooltip (Team Members email copy only). Pointer events enabled so text
+ * can be selected / buttons clicked — do not use for ordinary hover hints.
+ */
+export const CHROME_TOOLTIP_SELECTABLE_SURFACE_CLASS =
+  `px-2.5 py-2 text-xs font-normal normal-case tracking-normal text-left max-w-[min(20rem,calc(100vw-2rem))] rounded-md shadow-lg select-text cursor-auto ${CHROME_TOOLTIP_COLORS} ${CHROME_TOOLTIP_RING} pointer-events-auto`;
+
 /** Muted secondary text inside rich/panel tooltips. */
 export const CHROME_TOOLTIP_MUTED_TEXT_CLASS =
   'text-gray-300 dark:text-gray-600';
@@ -49,9 +56,19 @@ const CHROME_TOOLTIP_PORTAL_Z = 9980;
 /** ~native `title` delay */
 export const CHROME_TOOLTIP_DELAY_MS = 650;
 
+/** Brief grace so the pointer can cross the gap into an interactive tooltip. */
+const INTERACTIVE_HIDE_DELAY_MS = 120;
+
 type KanbanChromeTooltipProps = {
-  /** No tooltip when empty */
-  label: string;
+  /** No tooltip when empty (ignored when `content` is set) */
+  label?: string;
+  /** Rich / interactive body. When set, takes precedence over `label`. */
+  content?: ReactNode;
+  /**
+   * Allow selecting text / clicking inside the tooltip. Only for the Team Members
+   * email-copy case — keeps the bubble open while the pointer is over it.
+   */
+  interactive?: boolean;
   children: ReactNode;
   /** `0` = show immediately (e.g. sprint). Default = delayed like browser `title`. */
   delayMs?: number;
@@ -65,7 +82,9 @@ type KanbanChromeTooltipProps = {
  * Bubble is portaled to `document.body` so it is not trapped under sibling z-index.
  */
 export function KanbanChromeTooltip({
-  label,
+  label = '',
+  content,
+  interactive = false,
   children,
   delayMs = CHROME_TOOLTIP_DELAY_MS,
   wrapperClassName = 'relative inline-flex',
@@ -74,7 +93,9 @@ export function KanbanChromeTooltip({
   const [visible, setVisible] = useState(false);
   const [portalStyle, setPortalStyle] = useState<React.CSSProperties | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const anchorRef = useRef<HTMLSpanElement>(null);
+  const tooltipRef = useRef<HTMLSpanElement>(null);
 
   const clearTimer = () => {
     if (timerRef.current) {
@@ -83,7 +104,15 @@ export function KanbanChromeTooltip({
     }
   };
 
+  const clearHideTimer = () => {
+    if (hideTimerRef.current) {
+      clearTimeout(hideTimerRef.current);
+      hideTimerRef.current = null;
+    }
+  };
+
   const show = () => {
+    clearHideTimer();
     clearTimer();
     if (delayMs <= 0) {
       setVisible(true);
@@ -94,7 +123,18 @@ export function KanbanChromeTooltip({
 
   const hide = () => {
     clearTimer();
+    clearHideTimer();
     setVisible(false);
+  };
+
+  const scheduleHide = () => {
+    clearTimer();
+    if (!interactive) {
+      hide();
+      return;
+    }
+    clearHideTimer();
+    hideTimerRef.current = setTimeout(() => setVisible(false), INTERACTIVE_HIDE_DELAY_MS);
   };
 
   /** mouseleave on the wrapper can miss when crossing a pointer-events-none popover; mouseout/pointerout bubble and relatedTarget reflects the real exit. */
@@ -102,10 +142,11 @@ export function KanbanChromeTooltip({
     e: React.MouseEvent<HTMLSpanElement> | React.PointerEvent<HTMLSpanElement>
   ) => {
     const next = e.relatedTarget;
-    if (next instanceof Node && e.currentTarget.contains(next)) {
-      return;
+    if (next instanceof Node) {
+      if (e.currentTarget.contains(next)) return;
+      if (interactive && tooltipRef.current?.contains(next)) return;
     }
-    hide();
+    scheduleHide();
   };
 
   useLayoutEffect(() => {
@@ -145,21 +186,39 @@ export function KanbanChromeTooltip({
     };
   }, [visible, placement]);
 
-  useEffect(() => () => clearTimer(), []);
+  useEffect(
+    () => () => {
+      clearTimer();
+      clearHideTimer();
+    },
+    []
+  );
 
-  if (!label) {
+  const hasBody = Boolean(content) || Boolean(label);
+  if (!hasBody) {
     return <>{children}</>;
   }
 
-  const tooltipClassName = label.includes('\n')
-    ? CHROME_TOOLTIP_MULTILINE_SURFACE_CLASS
-    : CHROME_TOOLTIP_SURFACE_CLASS;
+  const tooltipClassName = content
+    ? interactive
+      ? CHROME_TOOLTIP_SELECTABLE_SURFACE_CLASS
+      : CHROME_TOOLTIP_RICH_SURFACE_CLASS
+    : label.includes('\n')
+      ? CHROME_TOOLTIP_MULTILINE_SURFACE_CLASS
+      : CHROME_TOOLTIP_SURFACE_CLASS;
 
   const portal =
     visible && portalStyle && typeof document !== 'undefined'
       ? createPortal(
-          <span role="tooltip" className={tooltipClassName} style={portalStyle}>
-            {label}
+          <span
+            ref={tooltipRef}
+            role="tooltip"
+            className={tooltipClassName}
+            style={portalStyle}
+            onMouseEnter={interactive ? show : undefined}
+            onMouseLeave={interactive ? scheduleHide : undefined}
+          >
+            {content ?? label}
           </span>,
           document.body
         )

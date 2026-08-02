@@ -1,6 +1,7 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { isMaskedApiKeyDisplay } from '../../utils/maskSecret';
+import { ModernCheckbox } from '../ModernCheckbox';
 
 interface Settings {
   GOOGLE_CLIENT_ID?: string;
@@ -114,11 +115,10 @@ const AdminSSOTab: React.FC<AdminSSOTabProps> = ({
         
         <div>
           <label className="flex items-center">
-            <input
-              type="checkbox"
+            <ModernCheckbox
               checked={editingSettings.GOOGLE_SSO_DEBUG === 'true'}
               onChange={(e) => handleInputChange('GOOGLE_SSO_DEBUG', e.target.checked ? 'true' : 'false')}
-              className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+              size="sm"
             />
             <span className="ml-2 text-sm font-medium text-gray-700 dark:text-gray-300">{t('sso.enableDebugLogging')}</span>
           </label>

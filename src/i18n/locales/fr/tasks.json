@@ -234,6 +234,34 @@
     "selectColumn": "Sélectionner toutes les cartes de la colonne",
     "unselectColumn": "Désélectionner toutes les cartes de la colonne"
   },
+  "kanbanSelect": {
+    "selectTask": "Sélectionner la tâche",
+    "selectAllInColumn": "Tout sélectionner dans la colonne",
+    "unselectAllInColumn": "Tout désélectionner dans la colonne",
+    "selectAllLabel": "Tout sélectionner",
+    "unselectAll": "Tout désélectionner",
+    "unselectAllCount": "Tout désélectionner · {{count}}",
+    "selectedCount": "{{count}} sélectionné(s)",
+    "addTag": "Ajouter une étiquette",
+    "copy": "Dupliquer",
+    "archive": "Archiver",
+    "delete": "Supprimer",
+    "sprint": "Sprint",
+    "priority": "Priorité",
+    "moveToBoard": "Déplacer vers un tableau",
+    "noSprint": "Aucun (Backlog)",
+    "deleteConfirm": "Déplacer {{count}} tâche(s) sélectionnée(s) vers la corbeille ?",
+    "moveToBoardConfirm": "Déplacer {{count}} tâche(s) vers « {{board}} » ? Les relations peuvent être supprimées.",
+    "copiedCount": "{{count}} tâche(s) dupliquée(s)",
+    "archivedCount": "{{count}} tâche(s) archivée(s)",
+    "deletedCount": "{{count}} tâche(s) déplacée(s) vers la corbeille",
+    "taggedCount": "Étiquette ajoutée à {{count}} tâche(s)",
+    "sprintUpdatedCount": "Sprint mis à jour sur {{count}} tâche(s)",
+    "priorityUpdatedCount": "Priorité mise à jour sur {{count}} tâche(s)",
+    "movedToBoardCount": "{{count}} tâche(s) déplacée(s) vers le tableau",
+    "partialFailed": "{{ok}} réussi(s), {{failed}} échec(s)",
+    "dragDisabledMultiColumn": "Désélectionnez ou ne cochez qu’une seule colonne pour glisser"
+  },
   "addCommentModal": {
     "editComment": "Modifier le commentaire",
     "addComment": "Ajouter un commentaire",
@@ -265,7 +293,8 @@
     "searchSprints": "Rechercher des sprints...",
     "noTasksFound": "Aucune tâche trouvée correspondant à vos filtres",
     "showHideDependencies": "Afficher/Masquer les dépendances",
-    "sprintColumnUnavailableSingleSprint": "La colonne Sprint est masquée pour le backlog ou un seul sprint"
+    "sprintColumnUnavailableSingleSprint": "La colonne Sprint est masquée pour le backlog ou un seul sprint",
+    "resizeColumn": "Glisser pour redimensionner la colonne"
   },
   "columnLabels": {
     "sprint": "Sprint",

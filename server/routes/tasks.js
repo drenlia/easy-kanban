@@ -2137,9 +2137,21 @@ router.post('/batch-update-positions', authenticateToken, async (req, res) => {
         updatedBy: userId
       };
       
-      // Include previous location for cross-column moves (helps frontend with cleanup)
+      // Cross-column moves: include card display fields so peer sessions don't blank
+      // description/priority/effort when local merge can't find the source task.
+      // Same-column renumbers stay tiny (peers merge onto existing local cards).
       if (columnChanged && currentColumnId !== targetColumnId) {
         minimalTask.previousColumnId = currentColumnId;
+        minimalTask.description = currentTask.description ?? '';
+        minimalTask.effort = currentTask.effort ?? 0;
+        minimalTask.priority = currentTask.priority ?? null;
+        minimalTask.priorityId = currentTask.priorityId ?? null;
+        minimalTask.requesterId = currentTask.requesterId || currentTask.requesterid || null;
+        minimalTask.startDate = currentTask.startDate ?? null;
+        minimalTask.dueDate = currentTask.dueDate ?? null;
+        if (currentTask.sprintId !== undefined) {
+          minimalTask.sprintId = currentTask.sprintId;
+        }
       }
       
       // Use current task's boardId (batch position updates don't change board)

@@ -30,6 +30,11 @@ export interface ColumnVisibility {
   [columnKey: string]: boolean;
 }
 
+/** Per-board list-view column widths in pixels (keyed by column key). */
+export type ListViewColumnWidthsByBoard = {
+  [boardId: string]: { [columnKey: string]: number };
+};
+
 export interface UserPreferences {
   taskViewMode: TaskViewMode;
   viewMode: ViewMode;
@@ -52,6 +57,8 @@ export interface UserPreferences {
   kanbanColumnWidth: number; // User-adjustable width for Kanban columns (default: 300px)
   ganttScrollPositions: { [boardId: string]: { date: string; sessionId: string } }; // Per-board scroll positions
   listViewColumnVisibility: ColumnVisibility;
+  /** Per-board list view column widths (px). */
+  listViewColumnWidths: ListViewColumnWidthsByBoard;
   /** List view: show parent/child dependency tree in the ID column */
   listViewShowDependencies: boolean;
   selectedSprintId: string | null; // Selected sprint for filtering
@@ -110,7 +117,18 @@ export interface UserPreferences {
 }
 
 const COOKIE_NAME_PREFIX = 'easy-kanban-user-prefs';
+const LOCAL_STORAGE_PREFIX = 'easy-kanban-user-prefs-local';
 const COOKIE_EXPIRY_DAYS = 365;
+
+/**
+ * Per-board maps that grow with usage. Stored in localStorage (+ DB), never in the cookie —
+ * leftover copies in old cookies are ignored on read.
+ */
+type BulkyLocalPreferences = {
+  listViewColumnWidths: ListViewColumnWidthsByBoard;
+  boardColumnVisibility: { [boardId: string]: string[] };
+  ganttScrollPositions: UserPreferences['ganttScrollPositions'];
+};
 
 // Get user-specific cookie name
 const getUserCookieName = (userId: string | null): string => {
@@ -120,8 +138,75 @@ const getUserCookieName = (userId: string | null): string => {
   return `${COOKIE_NAME_PREFIX}-${userId}`;
 };
 
+const getBulkyLocalStorageKey = (userId: string | null): string =>
+  `${LOCAL_STORAGE_PREFIX}-${userId ?? 'anonymous'}`;
+
+const writeBulkyPreferencesLocal = (
+  userId: string | null,
+  preferences: Pick<UserPreferences, keyof BulkyLocalPreferences>
+): void => {
+  try {
+    const payload: BulkyLocalPreferences = {
+      listViewColumnWidths: preferences.listViewColumnWidths || {},
+      boardColumnVisibility: preferences.boardColumnVisibility || {},
+      ganttScrollPositions: preferences.ganttScrollPositions || {},
+    };
+    localStorage.setItem(getBulkyLocalStorageKey(userId), JSON.stringify(payload));
+  } catch (error) {
+    console.warn('Failed to save bulky preferences to localStorage:', error);
+  }
+};
+
+const readBulkyPreferencesLocal = (userId: string | null): BulkyLocalPreferences => {
+  const empty: BulkyLocalPreferences = {
+    listViewColumnWidths: {},
+    boardColumnVisibility: {},
+    ganttScrollPositions: {},
+  };
+  try {
+    const raw = localStorage.getItem(getBulkyLocalStorageKey(userId));
+    if (!raw) return empty;
+    const parsed = JSON.parse(raw);
+    return {
+      listViewColumnWidths: parsed?.listViewColumnWidths || {},
+      boardColumnVisibility: parsed?.boardColumnVisibility || {},
+      ganttScrollPositions: parsed?.ganttScrollPositions || {},
+    };
+  } catch {
+    return empty;
+  }
+};
+
+const clearBulkyPreferencesLocal = (keepUserId: string | null | undefined = undefined): void => {
+  try {
+    const keepKey =
+      keepUserId === undefined ? null : getBulkyLocalStorageKey(keepUserId);
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const key = localStorage.key(i);
+      if (!key || !key.startsWith(LOCAL_STORAGE_PREFIX)) continue;
+      if (keepKey !== null && key === keepKey) continue;
+      localStorage.removeItem(key);
+    }
+  } catch {
+    // ignore quota / private-mode failures
+  }
+};
+
+// Latest known preferences (cookie + localStorage merged with database), so components do not
+// have to re-read storage to see database-backed values.
+let cachedPreferences: { userId: string | null; preferences: UserPreferences } | null = null;
+
+/**
+ * Call sites that omit the user id would otherwise write to the "anonymous" cookie and skip the
+ * database entirely, so their changes disappear on refresh.
+ */
+const resolvePreferencesUserId = (userId: string | null): string | null =>
+  userId ?? cachedPreferences?.userId ?? null;
+
 // Clear all user preference cookies (useful for preventing cookie bloat)
 export const clearAllUserPreferenceCookies = (): void => {
+  cachedPreferences = null;
+  clearBulkyPreferencesLocal();
   const cookies = document.cookie.split(';');
   cookies.forEach(cookie => {
     const cookieName = cookie.trim().split('=')[0];
@@ -133,6 +218,10 @@ export const clearAllUserPreferenceCookies = (): void => {
 
 // Clear user preference cookies except for the current user
 export const clearOtherUserPreferenceCookies = (currentUserId: string | null): void => {
+  if (cachedPreferences && cachedPreferences.userId !== currentUserId) {
+    cachedPreferences = null;
+  }
+  clearBulkyPreferencesLocal(currentUserId);
   const cookies = document.cookie.split(';');
   const currentUserCookieName = getUserCookieName(currentUserId);
   
@@ -181,6 +270,7 @@ const BASE_DEFAULT_PREFERENCES: UserPreferences = {
     comments: true,
     createdAt: false // Hide created date by default
   },
+  listViewColumnWidths: {},
   listViewShowDependencies: false,
   searchFilters: {
     text: '',
@@ -340,6 +430,87 @@ export const getDefaultPreferences = (): UserPreferences => {
 // Export for backward compatibility - will use admin defaults if loaded
 export const DEFAULT_PREFERENCES = getDefaultPreferences();
 
+/**
+ * Browsers cap a single cookie at ~4096 bytes (name + value + attributes) and silently
+ * discard writes above it, which used to make every preference look "reset" after a refresh.
+ * Bulky per-board maps live in localStorage; only searchFilters is trimmed from the cookie
+ * when still near the limit.
+ */
+const MAX_PREFS_COOKIE_BYTES = 3900;
+
+const COOKIE_TRIMMABLE_KEYS: (keyof UserPreferences)[] = ['searchFilters'];
+
+/** Cookie payload never includes the per-board maps (localStorage owns those). */
+const stripBulkyFromCookiePayload = (preferences: UserPreferences): UserPreferences => ({
+  ...preferences,
+  listViewColumnWidths: BASE_DEFAULT_PREFERENCES.listViewColumnWidths,
+  boardColumnVisibility: BASE_DEFAULT_PREFERENCES.boardColumnVisibility,
+  ganttScrollPositions: BASE_DEFAULT_PREFERENCES.ganttScrollPositions,
+});
+
+const writePreferencesCookie = (userId: string | null, preferences: UserPreferences): void => {
+  const cookieName = getUserCookieName(userId);
+  const expiryDate = new Date();
+  expiryDate.setDate(expiryDate.getDate() + COOKIE_EXPIRY_DAYS);
+  const attributes = `; expires=${expiryDate.toUTCString()}; path=/; SameSite=Strict`;
+  const overhead = cookieName.length + 1 + attributes.length;
+
+  let payload: UserPreferences = stripBulkyFromCookiePayload(preferences);
+  let encoded = encodeURIComponent(JSON.stringify(payload));
+
+  for (const key of COOKIE_TRIMMABLE_KEYS) {
+    if (overhead + encoded.length <= MAX_PREFS_COOKIE_BYTES) break;
+    payload = { ...payload, [key]: BASE_DEFAULT_PREFERENCES[key] };
+    encoded = encodeURIComponent(JSON.stringify(payload));
+  }
+
+  document.cookie = `${cookieName}=${encoded}${attributes}`;
+};
+
+/** Persist cookie (sans bulky maps) + localStorage bulky maps + in-memory cache. */
+const persistLocalPreferences = (
+  userId: string | null,
+  preferences: UserPreferences
+): void => {
+  writePreferencesCookie(userId, preferences);
+  writeBulkyPreferencesLocal(userId, preferences);
+  setCachedPreferences(userId, preferences);
+};
+
+const preferenceListeners = new Set<(preferences: UserPreferences, userId: string | null) => void>();
+
+const setCachedPreferences = (userId: string | null, preferences: UserPreferences): void => {
+  cachedPreferences = { userId, preferences };
+  preferenceListeners.forEach(listener => {
+    try {
+      listener(preferences, userId);
+    } catch (error) {
+      console.warn('User preference listener failed:', error);
+    }
+  });
+};
+
+/** Notified whenever preferences are loaded from the database or updated locally. */
+export const subscribeToUserPreferences = (
+  listener: (preferences: UserPreferences, userId: string | null) => void
+): (() => void) => {
+  preferenceListeners.add(listener);
+  return () => {
+    preferenceListeners.delete(listener);
+  };
+};
+
+/**
+ * Cookie + localStorage preferences, replaced by the database-merged set once it has been loaded.
+ */
+export const getEffectiveUserPreferences = (userId: string | null = null): UserPreferences => {
+  const resolvedUserId = resolvePreferencesUserId(userId);
+  if (cachedPreferences && cachedPreferences.userId === resolvedUserId) {
+    return cachedPreferences.preferences;
+  }
+  return readLocalPreferences(resolvedUserId);
+};
+
 // Initialize new user with admin defaults (call this when a new user first logs in)
 export const initializeNewUserPreferences = async (userId: string): Promise<void> => {
   try {
@@ -392,18 +563,14 @@ export const mergeClearedKanbanVisibilityFilters = (base: UserPreferences): User
 export const saveUserPreferences = async (preferences: UserPreferences, userId: string | null = null): Promise<void> => {
   // Set global saving state to block user status polling
   setGlobalSavingState(true);
+  const resolvedUserId = resolvePreferencesUserId(userId);
   
   try {
-    // Save to cookie (existing behavior)
-    const cookieName = getUserCookieName(userId);
-    const prefsJson = JSON.stringify(preferences);
-    const expiryDate = new Date();
-    expiryDate.setDate(expiryDate.getDate() + COOKIE_EXPIRY_DAYS);
-    
-    document.cookie = `${cookieName}=${encodeURIComponent(prefsJson)}; expires=${expiryDate.toUTCString()}; path=/; SameSite=Strict`;
+    // Cookie for small prefs; localStorage for per-board maps; then DB when authenticated
+    persistLocalPreferences(resolvedUserId, preferences);
     
     // Also save ALL preferences to database if user is authenticated
-    if (userId) {
+    if (resolvedUserId) {
       try {
         // Helper function to only save non-undefined values
         // Special case: allow null for selectedSprintId (represents "All Sprints")
@@ -446,6 +613,7 @@ export const saveUserPreferences = async (preferences: UserPreferences, userId: 
           
           // List View Column Visibility
           saveIfDefined('listViewColumnVisibility', JSON.stringify(preferences.listViewColumnVisibility)),
+          saveIfDefined('listViewColumnWidths', JSON.stringify(preferences.listViewColumnWidths)),
           saveIfDefined('listViewShowDependencies', preferences.listViewShowDependencies),
           saveIfDefined('boardColumnVisibility', JSON.stringify(preferences.boardColumnVisibility)),
           
@@ -492,31 +660,41 @@ export const saveUserPreferences = async (preferences: UserPreferences, userId: 
   }
 };
 
-// Load preferences from cookie
-export const loadUserPreferences = (userId: string | null = null): UserPreferences => {
+// Load preferences from cookie + localStorage (bulky per-board maps)
+const readLocalPreferences = (userId: string | null = null): UserPreferences => {
   try {
     const cookieName = getUserCookieName(userId);
     const cookies = document.cookie.split(';');
     const prefsCookie = cookies.find(cookie => 
       cookie.trim().startsWith(`${cookieName}=`)
     );
+    const bulkyLocal = readBulkyPreferencesLocal(userId);
     
     if (prefsCookie) {
       const prefsJson = decodeURIComponent(prefsCookie.split('=')[1]);
       const loadedPrefs = JSON.parse(prefsJson);
       
-      // Merge with defaults to handle missing properties in old cookies
+      // Merge with defaults to handle missing properties in old cookies.
+      // Ignore cookie copies of bulky maps — localStorage is the client source for those.
       const defaults = getDefaultPreferences();
       return {
         ...defaults,
         ...loadedPrefs,
         boardColumnVisibility: {
           ...defaults.boardColumnVisibility,
-          ...(loadedPrefs.boardColumnVisibility || {})
+          ...bulkyLocal.boardColumnVisibility
         },
         listViewColumnVisibility: {
           ...defaults.listViewColumnVisibility,
           ...loadedPrefs.listViewColumnVisibility
+        },
+        listViewColumnWidths: {
+          ...defaults.listViewColumnWidths,
+          ...bulkyLocal.listViewColumnWidths
+        },
+        ganttScrollPositions: {
+          ...defaults.ganttScrollPositions,
+          ...bulkyLocal.ganttScrollPositions
         },
         searchFilters: {
           ...defaults.searchFilters,
@@ -545,12 +723,34 @@ export const loadUserPreferences = (userId: string | null = null): UserPreferenc
         }
       };
     }
+
+    // No cookie yet — still apply localStorage bulky maps over defaults
+    const defaults = getDefaultPreferences();
+    return {
+      ...defaults,
+      boardColumnVisibility: {
+        ...defaults.boardColumnVisibility,
+        ...bulkyLocal.boardColumnVisibility
+      },
+      listViewColumnWidths: {
+        ...defaults.listViewColumnWidths,
+        ...bulkyLocal.listViewColumnWidths
+      },
+      ganttScrollPositions: {
+        ...defaults.ganttScrollPositions,
+        ...bulkyLocal.ganttScrollPositions
+      }
+    };
   } catch (error) {
     console.error('Failed to load user preferences:', error);
   }
   
   return getDefaultPreferences();
 };
+
+/** Preferences for a user: database-merged values when available, cookie values otherwise. */
+export const loadUserPreferences = (userId: string | null = null): UserPreferences =>
+  getEffectiveUserPreferences(userId);
 
 // Helper function to check if a cookie preference is "default" (not customized by user)
 const isDefaultValue = (cookieValue: any, defaultValue: any): boolean => {
@@ -564,29 +764,43 @@ const isDefaultValue = (cookieValue: any, defaultValue: any): boolean => {
 
 // Load preferences from cookie and database (for authenticated users)
 export const loadUserPreferencesAsync = async (userId: string | null = null): Promise<UserPreferences> => {
-  // Start with cookie-based preferences
-  let preferences = loadUserPreferences(userId);
+  const resolvedUserId = resolvePreferencesUserId(userId);
+  // Start with cookie + localStorage preferences
+  let preferences = loadUserPreferences(resolvedUserId);
   let needsCookieUpdate = false;
+  let needsLocalStorageUpdate = false;
   
   // If user is authenticated, also load database settings and merge them intelligently
-  if (userId) {
+  if (resolvedUserId) {
     try {
       const dbSettings = await getUserSettings();
       
-      // Smart merge: Only use database value if cookie is at default value AND database has a non-default value
-      const smartMerge = (cookieValue: any, dbValue: any, defaultValue: any, allowNull: boolean = false) => {
-        // If cookie is customized (not default), keep cookie value
-        if (!isDefaultValue(cookieValue, defaultValue)) {
-          return cookieValue;
+      // Smart merge: Only use database value if local is at default value AND database has a non-default value
+      const smartMerge = (localValue: any, dbValue: any, defaultValue: any, allowNull: boolean = false) => {
+        // If local is customized (not default), keep local value
+        if (!isDefaultValue(localValue, defaultValue)) {
+          return localValue;
         }
-        // If cookie is default but database has a value, use database value
+        // If local is default but database has a value, use database value
         // Special case: allow null for sprint selection (represents "All Sprints")
         if (dbValue !== undefined && ((allowNull && dbValue === null) || (dbValue !== null && !isDefaultValue(dbValue, defaultValue)))) {
           needsCookieUpdate = true;
           return dbValue;
         }
-        // Otherwise keep cookie value
-        return cookieValue;
+        // Otherwise keep local value
+        return localValue;
+      };
+
+      /** Same as smartMerge, but DB wins write back to localStorage (not the cookie). */
+      const smartMergeBulky = (localValue: any, dbValue: any, defaultValue: any) => {
+        if (!isDefaultValue(localValue, defaultValue)) {
+          return localValue;
+        }
+        if (dbValue !== undefined && dbValue !== null && !isDefaultValue(dbValue, defaultValue)) {
+          needsLocalStorageUpdate = true;
+          return { ...defaultValue, ...dbValue };
+        }
+        return localValue;
       };
       
       // Apply smart merging to all preferences
@@ -644,8 +858,23 @@ export const loadUserPreferencesAsync = async (userId: string | null = null): Pr
           defaults.listViewShowDependencies
         ),
 
+        listViewColumnWidths: (() => {
+          let dbWidths: ListViewColumnWidthsByBoard | undefined;
+          try {
+            dbWidths = dbSettings.listViewColumnWidths
+              ? JSON.parse(dbSettings.listViewColumnWidths)
+              : undefined;
+          } catch {
+            dbWidths = undefined;
+          }
+          return smartMergeBulky(
+            preferences.listViewColumnWidths || {},
+            dbWidths,
+            defaults.listViewColumnWidths
+          );
+        })(),
+
         boardColumnVisibility: (() => {
-          const cookieVis = preferences.boardColumnVisibility || {};
           let dbVis: { [boardId: string]: string[] } | undefined;
           try {
             dbVis = dbSettings.boardColumnVisibility
@@ -654,15 +883,11 @@ export const loadUserPreferencesAsync = async (userId: string | null = null): Pr
           } catch {
             dbVis = undefined;
           }
-
-          if (!isDefaultValue(cookieVis, defaults.boardColumnVisibility)) {
-            return cookieVis;
-          }
-          if (dbVis && !isDefaultValue(dbVis, defaults.boardColumnVisibility)) {
-            needsCookieUpdate = true;
-            return { ...defaults.boardColumnVisibility, ...dbVis };
-          }
-          return cookieVis;
+          return smartMergeBulky(
+            preferences.boardColumnVisibility || {},
+            dbVis,
+            defaults.boardColumnVisibility
+          );
         })(),
         
         // App Settings
@@ -691,31 +916,30 @@ export const loadUserPreferencesAsync = async (userId: string | null = null): Pr
           filterText: smartMerge(preferences.activityFeed.filterText, dbSettings.activityFilterText, defaults.activityFeed.filterText),
         },
         
-        // Gantt Scroll Positions (special handling for object)
+        // Gantt Scroll Positions (localStorage + DB)
         ganttScrollPositions: (() => {
-          const cookieScrollPositions = preferences.ganttScrollPositions;
-          const dbScrollPositions = dbSettings.ganttScrollPositions ? JSON.parse(dbSettings.ganttScrollPositions) : undefined;
-          
-          if (!isDefaultValue(cookieScrollPositions, defaults.ganttScrollPositions)) {
-            return cookieScrollPositions; // Cookie is customized, keep it
+          let dbScrollPositions: UserPreferences['ganttScrollPositions'] | undefined;
+          try {
+            dbScrollPositions = dbSettings.ganttScrollPositions
+              ? JSON.parse(dbSettings.ganttScrollPositions)
+              : undefined;
+          } catch {
+            dbScrollPositions = undefined;
           }
-          if (dbScrollPositions && !isDefaultValue(dbScrollPositions, defaults.ganttScrollPositions)) {
-            needsCookieUpdate = true;
-            return { ...defaults.ganttScrollPositions, ...dbScrollPositions }; // Use database
-          }
-          return cookieScrollPositions; // Keep cookie
+          return smartMergeBulky(
+            preferences.ganttScrollPositions || {},
+            dbScrollPositions,
+            defaults.ganttScrollPositions
+          );
         })()
       };
       
-      // If we updated any preferences from database, save the merged result back to cookies
+      // Persist merged values back to the appropriate client stores
       if (needsCookieUpdate) {
-        // Save synchronously to cookies only (don't trigger another database save)
-        const cookieName = getUserCookieName(userId);
-        const prefsJson = JSON.stringify(preferences);
-        const expiryDate = new Date();
-        expiryDate.setDate(expiryDate.getDate() + COOKIE_EXPIRY_DAYS);
-        
-        document.cookie = `${cookieName}=${encodeURIComponent(prefsJson)}; expires=${expiryDate.toUTCString()}; path=/; SameSite=Strict`;
+        writePreferencesCookie(resolvedUserId, preferences);
+      }
+      if (needsLocalStorageUpdate) {
+        writeBulkyPreferencesLocal(resolvedUserId, preferences);
       }
       
     } catch (error) {
@@ -723,6 +947,7 @@ export const loadUserPreferencesAsync = async (userId: string | null = null): Pr
     }
   }
   
+  setCachedPreferences(resolvedUserId, preferences);
   return preferences;
 };
 
@@ -732,18 +957,15 @@ export const updateUserPreference = async <K extends keyof UserPreferences>(
   value: UserPreferences[K],
   userId: string | null = null
 ): Promise<void> => {
-  const currentPrefs = loadUserPreferences(userId);
+  const resolvedUserId = resolvePreferencesUserId(userId);
+  const currentPrefs = getEffectiveUserPreferences(resolvedUserId);
   const updatedPrefs = { ...currentPrefs, [key]: value };
   
-  // Update cookie immediately (synchronous, fast)
-  const cookieName = getUserCookieName(userId);
-  const prefsJson = JSON.stringify(updatedPrefs);
-  const expiryDate = new Date();
-  expiryDate.setDate(expiryDate.getDate() + COOKIE_EXPIRY_DAYS);
-  document.cookie = `${cookieName}=${encodeURIComponent(prefsJson)}; expires=${expiryDate.toUTCString()}; path=/; SameSite=Strict`;
+  // Update cookie + localStorage immediately (synchronous, fast)
+  persistLocalPreferences(resolvedUserId, updatedPrefs);
   
   // Save ONLY this specific preference to database (single API call instead of 30+)
-  if (userId) {
+  if (resolvedUserId) {
     try {
       // Map preference keys to database setting keys
       // For nested keys like appSettings, we need to handle them specially
@@ -772,6 +994,7 @@ export const updateUserPreference = async <K extends keyof UserPreferences>(
         'showAgentTasks': 'showAgentTasks',
         'searchFilters': 'searchFilters',
         'listViewColumnVisibility': 'listViewColumnVisibility',
+        'listViewColumnWidths': 'listViewColumnWidths',
         'listViewShowDependencies': 'listViewShowDependencies',
         'boardColumnVisibility': 'boardColumnVisibility',
         'ganttScrollPositions': 'ganttScrollPositions',
@@ -785,12 +1008,19 @@ export const updateUserPreference = async <K extends keyof UserPreferences>(
       
       if (!dbKey) {
         // If no mapping found, fall back to saving all preferences (for backwards compatibility)
-        await saveUserPreferences(updatedPrefs, userId);
+        await saveUserPreferences(updatedPrefs, resolvedUserId);
         return;
       }
       
       // Special handling for JSON-serialized values
-      if (dbKey === 'selectedMembers' || dbKey === 'listViewColumnVisibility' || dbKey === 'boardColumnVisibility' || dbKey === 'ganttScrollPositions' || dbKey === 'searchFilters') {
+      if (
+        dbKey === 'selectedMembers' ||
+        dbKey === 'listViewColumnVisibility' ||
+        dbKey === 'listViewColumnWidths' ||
+        dbKey === 'boardColumnVisibility' ||
+        dbKey === 'ganttScrollPositions' ||
+        dbKey === 'searchFilters'
+      ) {
         dbValue = JSON.stringify(value);
       }
       
@@ -803,7 +1033,7 @@ export const updateUserPreference = async <K extends keyof UserPreferences>(
     } catch (error) {
       console.warn('Failed to save single preference to database, falling back to full save:', error);
       // Fallback to saving all preferences if single save fails
-      await saveUserPreferences(updatedPrefs, userId);
+      await saveUserPreferences(updatedPrefs, resolvedUserId);
     }
   }
 };
@@ -814,7 +1044,8 @@ export const updateActivityFeedPreference = async <K extends keyof UserPreferenc
   value: UserPreferences['activityFeed'][K],
   userId: string | null = null
 ): Promise<void> => {
-  const currentPrefs = loadUserPreferences(userId);
+  const resolvedUserId = resolvePreferencesUserId(userId);
+  const currentPrefs = getEffectiveUserPreferences(resolvedUserId);
   const updatedPrefs = {
     ...currentPrefs,
     activityFeed: {
@@ -823,12 +1054,8 @@ export const updateActivityFeedPreference = async <K extends keyof UserPreferenc
     }
   };
   
-  // Update cookie immediately (synchronous, fast)
-  const cookieName = getUserCookieName(userId);
-  const prefsJson = JSON.stringify(updatedPrefs);
-  const expiryDate = new Date();
-  expiryDate.setDate(expiryDate.getDate() + COOKIE_EXPIRY_DAYS);
-  document.cookie = `${cookieName}=${encodeURIComponent(prefsJson)}; expires=${expiryDate.toUTCString()}; path=/; SameSite=Strict`;
+  // Update cookie + localStorage immediately (synchronous, fast)
+  persistLocalPreferences(resolvedUserId, updatedPrefs);
   
   // Map activity feed keys to database setting keys
   const dbKeyMap: Record<string, string> = {
@@ -862,7 +1089,8 @@ export const updateAppSettingsPreference = async <K extends keyof UserPreference
   value: UserPreferences['appSettings'][K],
   userId: string | null = null
 ): Promise<void> => {
-  const currentPrefs = loadUserPreferences(userId);
+  const resolvedUserId = resolvePreferencesUserId(userId);
+  const currentPrefs = getEffectiveUserPreferences(resolvedUserId);
   const updatedPrefs = {
     ...currentPrefs,
     appSettings: {
@@ -871,12 +1099,8 @@ export const updateAppSettingsPreference = async <K extends keyof UserPreference
     }
   };
   
-  // Update cookie immediately (synchronous, fast)
-  const cookieName = getUserCookieName(userId);
-  const prefsJson = JSON.stringify(updatedPrefs);
-  const expiryDate = new Date();
-  expiryDate.setDate(expiryDate.getDate() + COOKIE_EXPIRY_DAYS);
-  document.cookie = `${cookieName}=${encodeURIComponent(prefsJson)}; expires=${expiryDate.toUTCString()}; path=/; SameSite=Strict`;
+  // Update cookie + localStorage immediately (synchronous, fast)
+  persistLocalPreferences(resolvedUserId, updatedPrefs);
   
   // Map appSettings keys to database setting keys
   const dbKeyMap: Record<string, string> = {

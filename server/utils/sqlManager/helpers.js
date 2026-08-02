@@ -198,10 +198,12 @@ export async function getColumnsForAllBoards(db, boardIds) {
  * Get maximum position for columns in a board
  */
 export async function getMaxColumnPosition(db, boardId) {
-  const query = `SELECT MAX(position) as maxPos FROM columns WHERE boardid = $1`;
+  const query = `SELECT MAX(position) as "maxPos" FROM columns WHERE boardid = $1`;
   const stmt = wrapQuery(db.prepare(query), 'SELECT');
   const result = await stmt.get(boardId);
-  return result?.maxPos ?? -1;
+  // NUMERIC comes back as a string from node-pg, so coerce before callers do maxPos + 1
+  const maxPos = Number(result?.maxPos ?? result?.maxpos);
+  return Number.isFinite(maxPos) ? maxPos : -1;
 }
 
 /**

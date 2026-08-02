@@ -15,6 +15,11 @@ import {
 } from '../../types';
 import { TaskViewMode, ViewMode, loadUserPreferences, loadUserPreferencesAsync, updateAppSettingsPreference } from '../../utils/userPreferences';
 import { hasConfiguredSearchFilters, clearTaskSoftDelete } from '../../utils/taskUtils';
+import {
+  allTasksCheckedInColumn,
+  checkedIdsInColumn,
+} from '../../utils/kanbanMultiSelect';
+import { ModernCheckbox } from '../ModernCheckbox';
 import TeamMembers from '../TeamMembers';
 import Tools from '../Tools';
 import BoardMetrics from '../BoardMetrics';
@@ -143,6 +148,8 @@ interface KanbanPageProps {
   onRemoveBoard: (boardId: string) => Promise<void>;
   onReorderBoards: (boardId: string, newPosition: number) => Promise<void>;
   getTaskCountForBoard: (board: Board) => number;
+  /** Unfiltered board task total, used for destructive confirmations. */
+  getTotalTaskCountForBoard?: (board: Board) => number;
   onDragStart: (event: any) => void;
   onDragOver: (event: any) => void;
   onDragEnd: (event: any) => void;
@@ -212,6 +219,22 @@ interface KanbanPageProps {
 
   /** Called after a successful restore with the restored task payload for optimistic insert. */
   onTaskRestoredLocally?: (task: Task) => void;
+
+  // Kanban multi-select / bulk actions
+  checkedTaskIds?: Set<string>;
+  onToggleTaskChecked?: (taskId: string) => void;
+  onToggleColumnChecked?: (columnId: string, taskIds: string[], selectAll: boolean) => void;
+  onClearAllChecked?: () => void;
+  isMultiSelectDragLocked?: boolean;
+  bulkBusy?: boolean;
+  onBulkAddTag?: (taskIds: string[], tagId: string) => void;
+  onBulkCopy?: (taskIds: string[]) => void;
+  onBulkArchive?: (taskIds: string[]) => void;
+  onBulkDelete?: (taskIds: string[]) => void;
+  onBulkSprint?: (taskIds: string[], sprintId: string | null) => void;
+  onBulkPriority?: (taskIds: string[], priorityId: string) => void;
+  onBulkMoveToBoard?: (taskIds: string[], boardId: string) => void;
+  draggedTaskIds?: string[];
 }
 
 const KanbanPage: React.FC<KanbanPageProps> = ({
@@ -268,6 +291,7 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
   onRemoveBoard,
   onReorderBoards,
   getTaskCountForBoard,
+  getTotalTaskCountForBoard,
   onDragStart,
   onDragOver,
   onDragEnd,
@@ -328,6 +352,20 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
   selectedSprintId = null,
   availableSprints = [],
   onTaskRestoredLocally,
+  checkedTaskIds,
+  onToggleTaskChecked,
+  onToggleColumnChecked,
+  onClearAllChecked,
+  isMultiSelectDragLocked = false,
+  bulkBusy = false,
+  onBulkAddTag,
+  onBulkCopy,
+  onBulkArchive,
+  onBulkDelete,
+  onBulkSprint,
+  onBulkPriority,
+  onBulkMoveToBoard,
+  draggedTaskIds,
 }: KanbanPageProps) => {
   const { t } = useTranslation(['tasks', 'common']);
   const [showBoardToolbar, setShowBoardToolbar] = useState(() => {
@@ -1077,7 +1115,7 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
   return (
     <>
       {showBoardToolbar ? (
-        <div className="flex items-stretch gap-4 mb-4">
+        <div className="flex items-stretch gap-4 mb-1">
           <div className="w-[160px] shrink-0 flex">
             <Tools 
               taskViewMode={taskViewMode}
@@ -1124,7 +1162,7 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
           </div>
         </div>
       ) : (
-        <div className="flex items-center mb-4">
+        <div className="flex items-center mb-1">
           <button
             type="button"
             onClick={() => void handleToggleBoardToolbar()}
@@ -1159,24 +1197,27 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
       )}
 
       {/* Board Tabs */}
-      <BoardTabs
-        boards={boards}
-        selectedBoard={selectedBoard}
-        onSelectBoard={handleSelectBoardWithTrashExit}
-        onAddBoard={onAddBoard}
-        onEditBoard={onEditBoard}
-        onRemoveBoard={onRemoveBoard}
-        onReorderBoards={onReorderBoards}
-        isAdmin={isAdmin}
-        getFilteredTaskCount={getTaskCountForBoard}
-        hasActiveFilters={activeFilters}
-        draggedTask={draggedTask}
-        onTaskDropOnBoard={onTaskDropOnBoard}
-        siteSettings={siteSettings}
-        trashCount={trashCount}
-        trashOpen={trashOpen}
-        onToggleTrash={handleToggleTrash}
-      />
+      <div className="relative">
+        <BoardTabs
+          boards={boards}
+          selectedBoard={selectedBoard}
+          onSelectBoard={handleSelectBoardWithTrashExit}
+          onAddBoard={onAddBoard}
+          onEditBoard={onEditBoard}
+          onRemoveBoard={onRemoveBoard}
+          onReorderBoards={onReorderBoards}
+          isAdmin={isAdmin}
+          getFilteredTaskCount={getTaskCountForBoard}
+          getTotalTaskCount={getTotalTaskCountForBoard}
+          hasActiveFilters={activeFilters}
+          draggedTask={draggedTask}
+          onTaskDropOnBoard={onTaskDropOnBoard}
+          siteSettings={siteSettings}
+          trashCount={trashCount}
+          trashOpen={trashOpen}
+          onToggleTrash={handleToggleTrash}
+        />
+      </div>
 
       {selectedBoard && trashOpen && (
         <BoardTrashView
@@ -1328,6 +1369,30 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
               data-tour-id="kanban-columns"
               data-kanban-scroll="board"
             >
+              {/* Board-level selection controls align to the same grid as the columns.
+                  They intentionally live outside each column header/count slot. */}
+              <div
+                style={gridStyle}
+                className="h-5 items-center"
+                data-kanban-selection-strip
+              >
+                {Object.values(getFilteredColumnsForDisplay)
+                  .filter((column) => column && column.id)
+                  .sort((a, b) => (a.position || 0) - (b.position || 0))
+                  .map((column) => (
+                    <div
+                      key={`select-${column.id}`}
+                      className="flex h-5 items-center justify-center"
+                    >
+                      <ColumnSelectionControl
+                        columnId={column.id}
+                        tasks={filteredColumns[column.id]?.tasks || []}
+                        checkedTaskIds={checkedTaskIds || new Set<string>()}
+                        onToggleColumnChecked={onToggleColumnChecked}
+                      />
+                    </div>
+                  ))}
+              </div>
                              {/* DndContext handled at App level for global cross-board functionality */}
             {/* Admin view with column drag and drop */}
             {currentUser?.roles?.includes('admin') ? (
@@ -1406,6 +1471,21 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
                             selectedSprintId={selectedSprintId}
                             availableSprints={availableSprints}
                             hasActiveFilters={activeFilters}
+                            checkedTaskIds={checkedTaskIds}
+                            onToggleTaskChecked={onToggleTaskChecked}
+                            onToggleColumnChecked={onToggleColumnChecked}
+                            onClearAllChecked={onClearAllChecked}
+                            isMultiSelectDragLocked={isMultiSelectDragLocked}
+                            bulkBusy={bulkBusy}
+                            onBulkAddTag={onBulkAddTag}
+                            onBulkCopy={onBulkCopy}
+                            onBulkArchive={onBulkArchive}
+                            onBulkDelete={onBulkDelete}
+                            onBulkSprint={onBulkSprint}
+                            onBulkPriority={onBulkPriority}
+                            onBulkMoveToBoard={onBulkMoveToBoard}
+                            selectedBoardId={selectedBoard}
+                            draggedTaskIds={draggedTaskIds}
                           />
                           {/* Resize handle between columns (not after the last one) */}
                           {index < array.length - 1 && onColumnWidthResize && (
@@ -1484,6 +1564,21 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
                       selectedSprintId={selectedSprintId}
                       availableSprints={availableSprints}
                       hasActiveFilters={activeFilters}
+                      checkedTaskIds={checkedTaskIds}
+                      onToggleTaskChecked={onToggleTaskChecked}
+                      onToggleColumnChecked={onToggleColumnChecked}
+                      onClearAllChecked={onClearAllChecked}
+                      isMultiSelectDragLocked={isMultiSelectDragLocked}
+                      bulkBusy={bulkBusy}
+                      onBulkAddTag={onBulkAddTag}
+                      onBulkCopy={onBulkCopy}
+                      onBulkArchive={onBulkArchive}
+                      onBulkDelete={onBulkDelete}
+                      onBulkSprint={onBulkSprint}
+                      onBulkPriority={onBulkPriority}
+                      onBulkMoveToBoard={onBulkMoveToBoard}
+                      selectedBoardId={selectedBoard}
+                      draggedTaskIds={draggedTaskIds}
                         />
                         {/* Resize handle between columns (not after the last one) */}
                         {index < array.length - 1 && onColumnWidthResize && (
@@ -1503,6 +1598,55 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
 
 
     </>
+  );
+};
+
+const ColumnSelectionControl: React.FC<{
+  columnId: string;
+  tasks: Task[];
+  checkedTaskIds: Set<string>;
+  onToggleColumnChecked?: (
+    columnId: string,
+    taskIds: string[],
+    selectAll: boolean
+  ) => void;
+}> = ({ columnId, tasks, checkedTaskIds, onToggleColumnChecked }) => {
+  const { t } = useTranslation('tasks');
+  const selectedCount = checkedIdsInColumn(checkedTaskIds, tasks).length;
+  const allChecked = allTasksCheckedInColumn(checkedTaskIds, tasks);
+  const indeterminate = selectedCount > 0 && selectedCount < tasks.length;
+
+  // Always show Select all for columns that have tasks.
+  if (tasks.length === 0 || !onToggleColumnChecked) return null;
+
+  const ariaLabel = allChecked
+    ? t('kanbanSelect.unselectAllInColumn')
+    : t('kanbanSelect.selectAllInColumn');
+
+  return (
+    <label
+      className="flex cursor-pointer items-center gap-1.5 rounded px-1.5 py-0.5 hover:bg-gray-200/70 dark:hover:bg-gray-700/70"
+      title={ariaLabel}
+      onPointerDown={(event) => event.stopPropagation()}
+    >
+      <ModernCheckbox
+        checked={allChecked}
+        indeterminate={indeterminate}
+        onChange={() =>
+          onToggleColumnChecked(
+            columnId,
+            tasks.map((task) => task.id),
+            !allChecked
+          )
+        }
+        size="sm"
+        aria-label={ariaLabel}
+        data-testid={`column-select-all-${columnId}`}
+      />
+      <span className="whitespace-nowrap text-[11px] font-medium leading-none text-gray-500 dark:text-gray-400">
+        {t('kanbanSelect.selectAllLabel')}
+      </span>
+    </label>
   );
 };
 

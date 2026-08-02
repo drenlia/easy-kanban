@@ -12,14 +12,18 @@ interface SimpleDragOverlayProps {
   draggedColumn: Column | null;
   members: TeamMember[];
   isHoveringBoardTab?: boolean;
+  draggedTaskIds?: string[];
 }
 
 export const SimpleDragOverlay: React.FC<SimpleDragOverlayProps> = ({ 
   draggedTask,
   draggedColumn,
   members, 
-  isHoveringBoardTab = false 
+  isHoveringBoardTab = false,
+  draggedTaskIds = [],
 }) => {
+  const multiCount = draggedTaskIds.length > 1 ? draggedTaskIds.length : 0;
+
   return (
     <DndKitDragOverlay 
       dropAnimation={null}
@@ -33,10 +37,15 @@ export const SimpleDragOverlay: React.FC<SimpleDragOverlayProps> = ({
           <SmallTaskIndicator 
             task={draggedTask} 
             member={members.find(m => m.id === draggedTask.assignedTo)} 
+            count={multiCount || 1}
           />
         ) : (
           // Full task preview when dragging normally
-          <TaskDragPreview task={draggedTask} member={members.find(m => m.id === draggedTask.assignedTo)} />
+          <TaskDragPreview
+            task={draggedTask}
+            member={members.find(m => m.id === draggedTask.assignedTo)}
+            stackCount={multiCount}
+          />
         )
       ) : null}
     </DndKitDragOverlay>
@@ -44,7 +53,11 @@ export const SimpleDragOverlay: React.FC<SimpleDragOverlayProps> = ({
 };
 
 // Small task indicator for when hovering over board tabs
-const SmallTaskIndicator: React.FC<{ task: Task; member?: TeamMember }> = ({ task, member }) => {
+const SmallTaskIndicator: React.FC<{ task: Task; member?: TeamMember; count?: number }> = ({
+  task,
+  member,
+  count = 1,
+}) => {
   return (
     // Container matches the original task card size to maintain mouse offset
     <div className="w-80 h-24 relative pointer-events-none">
@@ -60,8 +73,8 @@ const SmallTaskIndicator: React.FC<{ task: Task; member?: TeamMember }> = ({ tas
         <FileText size={16} className="text-blue-600 relative z-10" />
         
         {/* Small task count indicator */}
-        <div className="absolute -top-1 -right-1 w-3 h-3 bg-blue-500 rounded-full border border-white text-[8px] text-white flex items-center justify-center font-bold">
-          1
+        <div className="absolute -top-1 -right-1 min-w-[12px] h-3 px-0.5 bg-blue-500 rounded-full border border-white text-[8px] text-white flex items-center justify-center font-bold">
+          {count}
         </div>
       </div>
     </div>
@@ -69,42 +82,72 @@ const SmallTaskIndicator: React.FC<{ task: Task; member?: TeamMember }> = ({ tas
 };
 
 // Full task preview for normal dragging
-const TaskDragPreview: React.FC<{ task: Task; member?: TeamMember }> = ({ task, member }) => {
+const TaskDragPreview: React.FC<{
+  task: Task;
+  member?: TeamMember;
+  stackCount?: number;
+}> = ({ task, member, stackCount = 0 }) => {
+  const layers = stackCount > 1 ? Math.min(stackCount, 3) : 1;
+
   return (
-    <div className="bg-white rounded-lg shadow-2xl border border-gray-200 p-4 w-80 transform rotate-3 scale-105 opacity-90 ring-2 ring-blue-400">
-      <div className="flex items-center justify-between mb-2">
-        <h4 className="font-semibold text-gray-900 truncate">{task.title}</h4>
-        <div className="flex items-center gap-1">
-          <div className="w-3 h-3 bg-blue-500 rounded-full opacity-75"></div>
-          <div className="w-3 h-3 bg-blue-400 rounded-full opacity-50"></div>
-          <div className="w-3 h-3 bg-blue-300 rounded-full opacity-25"></div>
+    <div className="relative w-80 pointer-events-none">
+      {layers > 1 &&
+        Array.from({ length: layers - 1 }).map((_, i) => {
+          const depth = layers - 1 - i;
+          return (
+            <div
+              key={`stack-${i}`}
+              className="absolute inset-0 rounded-lg border border-gray-200 bg-white shadow-md"
+              style={{
+                transform: `translate(${depth * 4}px, ${depth * 4}px) rotate(${2 + depth}deg)`,
+                opacity: 0.55 - i * 0.1,
+                zIndex: i,
+              }}
+            />
+          );
+        })}
+      <div
+        className="relative z-10 bg-white rounded-lg shadow-2xl border border-gray-200 p-4 w-80 transform rotate-3 scale-105 opacity-90 ring-2 ring-blue-400"
+      >
+        {stackCount > 1 && (
+          <div className="absolute -top-2 -right-2 z-20 min-w-[1.5rem] h-6 px-1.5 rounded-full bg-blue-600 text-white text-xs font-bold flex items-center justify-center shadow">
+            {stackCount}
+          </div>
+        )}
+        <div className="flex items-center justify-between mb-2">
+          <h4 className="font-semibold text-gray-900 truncate">{task.title}</h4>
+          <div className="flex items-center gap-1">
+            <div className="w-3 h-3 bg-blue-500 rounded-full opacity-75"></div>
+            <div className="w-3 h-3 bg-blue-400 rounded-full opacity-50"></div>
+            <div className="w-3 h-3 bg-blue-300 rounded-full opacity-25"></div>
+          </div>
         </div>
-      </div>
-      {task.description && (
-        <div 
-          className="text-sm text-gray-600 line-clamp-2 mb-2 prose prose-sm max-w-none"
-          dangerouslySetInnerHTML={{
-            __html: DOMPurify.sanitize(
-              (() => {
-                // Fix blob URLs in task description
-                let fixedDescription = task.description.length > 50 
-                  ? task.description.substring(0, 50) + '...' 
-                  : task.description;
-                const blobPattern = /blob:[^"]*#(img-[^"]*)/g;
-                fixedDescription = fixedDescription.replace(blobPattern, (_match, filename) => {
-                  // Convert blob URL to authenticated server URL
-                  const authenticatedUrl = getAuthenticatedAttachmentUrl(`/attachments/${filename}`);
-                  return authenticatedUrl || `/uploads/${filename}`;
-                });
-                return fixedDescription;
-              })()
-            )
-          }}
-        />
-      )}
-      <div className="flex items-center justify-between text-xs text-gray-500">
-        <span>Moving...</span>
-        {member && <span>@{member.name}</span>}
+        {task.description && (
+          <div
+            className="text-sm text-gray-600 line-clamp-2 mb-2 prose prose-sm max-w-none"
+            dangerouslySetInnerHTML={{
+              __html: DOMPurify.sanitize(
+                (() => {
+                  // Fix blob URLs in task description
+                  let fixedDescription = task.description.length > 50
+                    ? task.description.substring(0, 50) + '...'
+                    : task.description;
+                  const blobPattern = /blob:[^"]*#(img-[^"]*)/g;
+                  fixedDescription = fixedDescription.replace(blobPattern, (_match, filename) => {
+                    // Convert blob URL to authenticated server URL
+                    const authenticatedUrl = getAuthenticatedAttachmentUrl(`/attachments/${filename}`);
+                    return authenticatedUrl || `/uploads/${filename}`;
+                  });
+                  return fixedDescription;
+                })()
+              )
+            }}
+          />
+        )}
+        <div className="flex items-center justify-between text-xs text-gray-500">
+          <span>{stackCount > 1 ? `Moving ${stackCount}…` : 'Moving...'}</span>
+          {member && <span>@{member.name}</span>}
+        </div>
       </div>
     </div>
   );

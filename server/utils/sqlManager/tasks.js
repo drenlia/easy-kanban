@@ -956,9 +956,14 @@ export async function getTasksByIdsBasic(db, taskIds) {
       priority, 
       position, 
       title,
+      description,
+      effort,
+      startdate as "startDate",
+      duedate as "dueDate",
       memberid as "memberId",
       requesterid as "requesterId",
-      ticket
+      ticket,
+      sprint_id as "sprintId"
     FROM tasks 
     WHERE id IN (${placeholders})
   `;
@@ -1590,6 +1595,7 @@ export async function getMaxLivePositionInColumn(db, columnId) {
   `;
   const stmt = wrapQuery(db.prepare(query), 'SELECT');
   const row = await stmt.get(columnId);
-  return row?.maxPos ?? -1;
+  const maxPos = Number(row?.maxPos ?? row?.maxpos);
+  return Number.isFinite(maxPos) ? maxPos : -1;
 }
 

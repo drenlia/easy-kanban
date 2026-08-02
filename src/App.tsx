@@ -100,8 +100,12 @@ import { customCollisionDetection, calculateGridStyle } from './utils/dragDropUt
 import { clearCustomCursor } from './utils/cursorUtils';
 import { generateUniqueBoardName } from './utils/boardUtils';
 import { renumberColumns } from './utils/columnUtils';
-import { handleSameColumnReorder, handleCrossColumnMove, moveTaskToPosition, calculatePositionForIndex, renumberColumnAfterCopy, resolveDropIndex, TaskDropPlacement } from './utils/taskReorderingUtils';
+import { handleSameColumnReorder, handleCrossColumnMove, handleBulkMoveTasks, moveTaskToPosition, calculatePositionForIndex, renumberColumnAfterCopy, resolveDropIndex, TaskDropPlacement } from './utils/taskReorderingUtils';
+import { getTaskColumnId, orderedCheckedTasksInColumn } from './utils/kanbanMultiSelect';
+import { useKanbanMultiSelect } from './hooks/useKanbanMultiSelect';
+import { hasEscapeConsumingOverlay, isEditableEscapeTarget } from './utils/escapeKeyUtils';
 import { handleInviteUser as handleInviteUserUtil } from './utils/userInvitationUtils';
+import BoardLimitReachedDialog, { BoardLimitInfo } from './components/BoardLimitReachedDialog';
 import { KeyboardSensor, PointerSensor, useSensor, useSensors, DragEndEvent, DragStartEvent, DndContext, DragOverlay } from '@dnd-kit/core';
 import { arrayMove, sortableKeyboardCoordinates } from '@dnd-kit/sortable';
 import { SimpleDragDropManager } from './components/dnd/SimpleDragDropManager';
@@ -179,6 +183,7 @@ function AppContent() {
   const [isHoveringBoardTab, setIsHoveringBoardTab] = useState<boolean>(false);
   const boardTabHoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isHoveringBoardTabRef = useRef<boolean>(false);
+  const [boardLimitDialog, setBoardLimitDialog] = useState<BoardLimitInfo | null>(null);
 
   const [dragPreview, setDragPreview] = useState<DragPreview | null>(null);
   const dragPreviewRef = useRef<DragPreview | null>(null);
@@ -190,6 +195,7 @@ function AppContent() {
   const dragCooldownTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [taskDetailsOptions, setTaskDetailsOptions] = useState<{ scrollToComments?: boolean }>({});
+  const [draggedTaskIds, setDraggedTaskIds] = useState<string[]>([]);
 
   // Helper function to update user preferences with current user ID
   const updateCurrentUserPreference = <K extends keyof UserPreferences>(
@@ -225,6 +231,28 @@ function AppContent() {
       setTaskDetailsOptions({});
     }
   }, []);
+
+  // Board selection with URL hash persistence and user preference saving
+  const handleBoardSelection = useCallback((boardId: string) => {
+    setSelectedBoard(boardId);
+    window.location.hash = boardId;
+    updateCurrentUserPreference('lastSelectedBoard', boardId);
+  }, []);
+
+  // Escape: menus/confirms first → close TaskDetails → (multi-check cleared by useKanbanMultiSelect).
+  useEffect(() => {
+    if (!selectedTask) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      if (e.defaultPrevented) return;
+      if (isEditableEscapeTarget(e.target)) return;
+      if (hasEscapeConsumingOverlay()) return;
+      e.preventDefault();
+      handleSelectTask(null);
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [selectedTask, handleSelectTask]);
 
   // Task deletion handler with confirmation
   const handleTaskDelete = async (taskId: string) => {
@@ -1117,6 +1145,9 @@ function AppContent() {
     setSelectedBoard,
     setColumns,
     setBoards,
+    setSelectedTask,
+    onSelectBoard: handleBoardSelection,
+    onClearSelectedTask: () => handleSelectTask(null),
     selectedBoardRef,
     refreshBoardDataRef,
   });
@@ -1311,14 +1342,6 @@ function AppContent() {
       }
     }
   }, [columns, selectedTask]);
-
-  // Handle board selection with URL hash persistence and user preference saving
-  const handleBoardSelection = (boardId: string) => {
-    setSelectedBoard(boardId);
-    window.location.hash = boardId;
-    // Save the selected board to user preferences for future sessions
-    updateCurrentUserPreference('lastSelectedBoard', boardId);
-  };
 
   // Join board when selectedBoard changes
   useEffect(() => {
@@ -2342,32 +2365,39 @@ function AppContent() {
       if (error?.response?.status === 403 && error?.response?.data?.error === 'License limit exceeded') {
         const limitType = error.response.data.limit;
         const details = error.response.data.details;
-        
-        let title = '';
-        let message = '';
-        switch (limitType) {
-          case 'BOARD_LIMIT':
-            title = 'Board Limit Reached';
-            message = `You've reached the maximum number of boards. ${details}`;
-            break;
-          case 'USER_LIMIT':
-            title = 'User Limit Reached';
-            message = `You've reached the maximum number of users. ${details}`;
-            break;
-          case 'TASK_LIMIT':
-            title = 'Task Limit Reached';
-            message = `You've reached the maximum number of tasks for this board. ${details}`;
-            break;
-          case 'STORAGE_LIMIT':
-            title = 'Storage Limit Reached';
-            message = `You've reached the maximum storage limit. ${details}`;
-            break;
-          default:
-            title = 'License Limit Exceeded';
-            message = details;
+        const softDeletedCount = Number(error.response.data.softDeletedCount) || 0;
+        const liveCount = Number(error.response.data.liveCount);
+        const boardLimit = Number(error.response.data.boardLimit);
+
+        if (limitType === 'BOARD_LIMIT') {
+          setBoardLimitDialog({
+            liveCount: Number.isFinite(liveCount) ? liveCount : boards.length,
+            softDeletedCount,
+            boardLimit: Number.isFinite(boardLimit) ? boardLimit : liveCount + softDeletedCount,
+            details,
+          });
+        } else {
+          let title = '';
+          let message = '';
+          switch (limitType) {
+            case 'USER_LIMIT':
+              title = 'User Limit Reached';
+              message = `You've reached the maximum number of users. ${details}`;
+              break;
+            case 'TASK_LIMIT':
+              title = 'Task Limit Reached';
+              message = `You've reached the maximum number of tasks for this board. ${details}`;
+              break;
+            case 'STORAGE_LIMIT':
+              title = 'Storage Limit Reached';
+              message = `You've reached the maximum storage limit. ${details}`;
+              break;
+            default:
+              title = 'License Limit Exceeded';
+              message = details;
+          }
+          toast.error(title, message, 5000);
         }
-        
-        toast.error(title, message, 5000);
       } else if (await handleInstanceStatusError(error)) {
         // Instance status error handled by utility function
       }
@@ -3321,6 +3351,97 @@ function AppContent() {
     if (!crossBoardMoveBusy) setCrossBoardMovePending(null);
   }, [crossBoardMoveBusy]);
 
+  const findTaskInColumns = useCallback(
+    (taskId: string): Task | null => {
+      for (const column of Object.values(columns)) {
+        const found = column?.tasks?.find((t) => t.id === taskId);
+        if (found) return found;
+      }
+      return null;
+    },
+    [columns]
+  );
+
+  const kanbanMultiSelect = useKanbanMultiSelect({
+    columns,
+    selectedBoard,
+    isLinkingMode: taskLinking.isLinkingMode,
+    detailsOpen: !!selectedTask,
+    findTask: findTaskInColumns,
+    onEditTask: handleEditTask,
+    onCopyTask: handleCopyTask,
+    onTagAdd: handleTagAdd,
+    onSoftDelete: handleTaskDelete,
+    onMoveToBoard: performCrossBoardMove,
+    getArchiveColumnId: () => {
+      const archive = Object.values(columns).find(
+        (col) => col.is_archived === true || (col.is_archived as any) === 1
+      );
+      return archive?.id || null;
+    },
+    availablePriorities,
+  });
+
+  const {
+    clearAllChecked,
+    warnWipOnce,
+    checkedTaskIds,
+    toggleTaskChecked,
+    toggleColumnChecked,
+    isMultiSelectDragLocked,
+    bulkBusy,
+    onBulkAddTag,
+    onBulkCopy,
+    onBulkArchive,
+    onBulkDelete,
+    onBulkSprint,
+    onBulkPriority,
+    onBulkMoveToBoard,
+  } = kanbanMultiSelect;
+
+  const handleBulkMoveTaskIds = useCallback(
+    async (taskIds: string[], targetColumnId: string, placement: TaskDropPlacement) => {
+      if (taskIds.length === 0) return;
+      const targetColumn = columns[targetColumnId];
+      if (!targetColumn) return;
+
+      const sourceColumnId = getTaskColumnId(taskIds[0], columns);
+      const followers = taskIds.slice(1);
+      const targetIndex = resolveDropIndex(
+        targetColumn.tasks,
+        placement,
+        taskIds[0],
+        followers
+      );
+
+      if (sourceColumnId) {
+        warnWipOnce(sourceColumnId, targetColumnId, taskIds.length);
+      }
+
+      // Preserve relative column order for the block
+      const orderedIds =
+        sourceColumnId && columns[sourceColumnId]
+          ? orderedCheckedTasksInColumn(new Set(taskIds), columns[sourceColumnId].tasks).map(
+              (t) => t.id
+            )
+          : taskIds;
+
+      await handleBulkMoveTasks(
+        orderedIds,
+        targetColumnId,
+        targetIndex,
+        columns,
+        setColumns,
+        setDragCooldown,
+        refreshBoardData,
+        taskFilters.setFilteredColumns
+      );
+      clearAllChecked();
+      setDraggedTaskIds([]);
+    },
+    [columns, clearAllChecked, warnWipOnce, refreshBoardData, taskFilters.setFilteredColumns]
+  );
+
   const handleColumnReorder = useCallback(async (columnId: string, newPosition: number) => {
     try {
       await reorderColumns(columnId, newPosition, selectedBoard || '');
@@ -3859,6 +3980,19 @@ function AppContent() {
     return totalCount;
   };
 
+  // Every live task on the board, ignoring search/member/sprint filters. Deleting a board
+  // removes tasks that the current filters hide, so confirmations must count all of them.
+  const getTotalTaskCountForBoard = (board: Board) => {
+    const boardColumnsRaw: Columns =
+      board.id === selectedBoard ? columns : (board.columns || {});
+    const boardColumns = dedupeTasksInColumns(boardColumnsRaw);
+
+    return Object.values(boardColumns).reduce(
+      (total, column) => total + (column?.tasks?.length || 0),
+      0
+    );
+  };
+
 
   // Handle password reset pages (accessible without authentication)
   if (currentPage === 'forgot-password') {
@@ -4002,6 +4136,10 @@ function AppContent() {
         isOnline={isOnline}
         onTaskMove={handleMoveTaskToColumn}
         onTaskMoveToDifferentBoard={handleTaskDropOnBoard}
+        onBulkTaskMove={handleBulkMoveTaskIds}
+        checkedTaskIds={checkedTaskIds}
+        onClearChecked={clearAllChecked}
+        onDraggedTaskIdsChange={setDraggedTaskIds}
         onColumnReorder={handleColumnReorder}
         onDraggedTaskChange={handleDraggedTaskChange}
         onDraggedColumnChange={handleDraggedColumnChange}
@@ -4112,6 +4250,7 @@ function AppContent() {
                     onRemoveBoard={handleRemoveBoard}
                     onReorderBoards={handleBoardReorder}
         getTaskCountForBoard={getTaskCountForBoard}
+        getTotalTaskCountForBoard={getTotalTaskCountForBoard}
                         // NOTE: onDragStart and onDragEnd are handled by SimpleDragDropManager
                         // Pass no-op functions to satisfy interface - SimpleDragDropManager handles all drags
                         onDragStart={() => {}}
@@ -4166,6 +4305,20 @@ function AppContent() {
                                     // Auto-synced relationships
                                     boardRelationships={taskLinking.boardRelationships}
                                     onTaskRestoredLocally={handleTaskRestoredLocally}
+                                    checkedTaskIds={checkedTaskIds}
+                                    onToggleTaskChecked={toggleTaskChecked}
+                                    onToggleColumnChecked={toggleColumnChecked}
+                                    onClearAllChecked={clearAllChecked}
+                                    isMultiSelectDragLocked={isMultiSelectDragLocked}
+                                    bulkBusy={bulkBusy}
+                                    onBulkAddTag={onBulkAddTag}
+                                    onBulkCopy={onBulkCopy}
+                                    onBulkArchive={onBulkArchive}
+                                    onBulkDelete={onBulkDelete}
+                                    onBulkSprint={onBulkSprint}
+                                    onBulkPriority={onBulkPriority}
+                                    onBulkMoveToBoard={onBulkMoveToBoard}
+                                    draggedTaskIds={draggedTaskIds}
         />
       </div>
 
@@ -4234,6 +4387,18 @@ function AppContent() {
         isBusy={crossBoardMoveBusy}
       />
 
+      {boardLimitDialog && (
+        <BoardLimitReachedDialog
+          info={boardLimitDialog}
+          isAdmin={!!currentUser?.roles?.includes('admin')}
+          onClose={() => setBoardLimitDialog(null)}
+          onOpenLifecycle={() => {
+            setBoardLimitDialog(null);
+            window.location.hash = '#admin#lifecycle';
+          }}
+        />
+      )}
+
       {showDebug && (
         <DebugPanel
           logs={queryLogs}
@@ -4247,6 +4412,7 @@ function AppContent() {
         draggedColumn={draggedColumn}
         members={members}
         isHoveringBoardTab={isHoveringBoardTab}
+        draggedTaskIds={draggedTaskIds}
       />
       </SimpleDragDropManager>
 

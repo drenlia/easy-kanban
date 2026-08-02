@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { createPortal } from 'react-dom';
 import { ChevronDown, ChevronUp, Eye, EyeOff, Menu, X, Check, Trash2, Copy, FileText, ChevronLeft, ChevronRight, MessageCircle, UserPlus, Plus, Paperclip, Calendar, GitBranch } from 'lucide-react';
 import { Task, TeamMember, Priority, PriorityOption, Tag, Columns, Board, CurrentUser } from '../types';
-import { TaskViewMode, loadUserPreferences, updateUserPreference, ColumnVisibility } from '../utils/userPreferences';
+import { TaskViewMode, getEffectiveUserPreferences, subscribeToUserPreferences, updateUserPreference, ColumnVisibility } from '../utils/userPreferences';
 import { formatToYYYYMMDD, formatToYYYYMMDDHHmmss, parseLocalDate } from '../utils/dateUtils';
 import { formatMembersTooltip } from '../utils/taskUtils';
 import { getBoardColumns, addTagToTask, removeTagFromTask } from '../api';
@@ -260,6 +260,34 @@ const DEFAULT_COLUMNS: ColumnConfig[] = [
   { key: 'createdAt', label: 'Created', visible: true, width: 120 }
 ];
 
+const LIST_VIEW_MIN_COLUMN_WIDTH = 72;
+const LIST_VIEW_MAX_COLUMN_WIDTH = 720;
+
+function clampListColumnWidth(width: number): number {
+  if (!Number.isFinite(width)) return LIST_VIEW_MIN_COLUMN_WIDTH;
+  return Math.min(LIST_VIEW_MAX_COLUMN_WIDTH, Math.max(LIST_VIEW_MIN_COLUMN_WIDTH, Math.round(width)));
+}
+
+function buildListViewColumns(
+  userId: string | null,
+  boardId: string | null | undefined
+): ColumnConfig[] {
+  const prefs = getEffectiveUserPreferences(userId);
+  const boardWidths =
+    boardId && prefs.listViewColumnWidths?.[boardId]
+      ? prefs.listViewColumnWidths[boardId]
+      : {};
+  return DEFAULT_COLUMNS.map((col) => {
+    const savedWidth = boardWidths?.[col.key];
+    return {
+      ...col,
+      visible: prefs.listViewColumnVisibility[col.key] ?? col.visible,
+      width:
+        typeof savedWidth === 'number' ? clampListColumnWidth(savedWidth) : col.width,
+    };
+  });
+}
+
 export default function ListView({
   filteredColumns,
   selectedBoard,
@@ -299,14 +327,17 @@ export default function ListView({
     return board?.project || null;
   };
   
-  // Initialize columns from user preferences
-  const userPrefs = loadUserPreferences();
-  const [columns, setColumns] = useState<ColumnConfig[]>(() => {
-    return DEFAULT_COLUMNS.map(col => ({
-      ...col,
-      visible: userPrefs.listViewColumnVisibility[col.key] ?? col.visible
-    }));
-  });
+  // Initialize columns from user preferences (visibility + per-board widths)
+  const [columns, setColumns] = useState<ColumnConfig[]>(() =>
+    buildListViewColumns(currentUser?.id ?? null, selectedBoard)
+  );
+  const columnsRef = useRef(columns);
+  columnsRef.current = columns;
+  const [resizingColumnKey, setResizingColumnKey] = useState<SortField | null>(null);
+  const resizingRef = useRef<{ key: SortField; startX: number; startWidth: number } | null>(
+    null
+  );
+  const widthsSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Helper function to parse date string as local date (avoiding timezone issues)
   // Must be defined before useMemo hooks that use it
@@ -368,9 +399,100 @@ export default function ListView({
   const [sprintCalTooltipTaskId, setSprintCalTooltipTaskId] = useState<string | null>(null);
 
   useEffect(() => {
-    const prefs = loadUserPreferences(currentUser?.id ?? null);
+    const prefs = getEffectiveUserPreferences(currentUser?.id ?? null);
     setShowListDependencyTree(Boolean(prefs.listViewShowDependencies));
   }, [currentUser?.id]);
+
+  // Reload visibility + per-board widths when board or user changes
+  useEffect(() => {
+    setColumns(buildListViewColumns(currentUser?.id ?? null, selectedBoard));
+  }, [selectedBoard, currentUser?.id]);
+
+  // Preferences finish loading from the database after this component mounts, so re-apply
+  // them instead of staying on whatever the (possibly trimmed) cookie held.
+  useEffect(() => {
+    const userId = currentUser?.id ?? null;
+    return subscribeToUserPreferences((prefs, prefsUserId) => {
+      if (prefsUserId !== userId || resizingRef.current) return;
+      const next = buildListViewColumns(userId, selectedBoard);
+      setColumns(prev => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next));
+      setShowListDependencyTree(Boolean(prefs.listViewShowDependencies));
+    });
+  }, [selectedBoard, currentUser?.id]);
+
+  const persistColumnWidths = useCallback(() => {
+    if (!selectedBoard) return;
+    const widths: { [columnKey: string]: number } = {};
+    for (const col of columnsRef.current) {
+      widths[col.key] = col.width;
+    }
+    const prefs = getEffectiveUserPreferences(currentUser?.id ?? null);
+    void updateUserPreference(
+      'listViewColumnWidths',
+      {
+        ...prefs.listViewColumnWidths,
+        [selectedBoard]: widths,
+      },
+      currentUser?.id ?? null
+    );
+  }, [selectedBoard, currentUser?.id]);
+
+  const schedulePersistColumnWidths = useCallback(() => {
+    if (widthsSaveTimeoutRef.current) {
+      clearTimeout(widthsSaveTimeoutRef.current);
+    }
+    widthsSaveTimeoutRef.current = setTimeout(() => {
+      widthsSaveTimeoutRef.current = null;
+      persistColumnWidths();
+    }, 400);
+  }, [persistColumnWidths]);
+
+  const handleColumnResizeStart = useCallback(
+    (e: React.MouseEvent, key: SortField) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const col = columnsRef.current.find((c) => c.key === key);
+      if (!col) return;
+      resizingRef.current = {
+        key,
+        startX: e.clientX,
+        startWidth: col.width,
+      };
+      setResizingColumnKey(key);
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+    },
+    []
+  );
+
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      const active = resizingRef.current;
+      if (!active) return;
+      const nextWidth = clampListColumnWidth(active.startWidth + (e.clientX - active.startX));
+      setColumns((prev) =>
+        prev.map((col) => (col.key === active.key ? { ...col, width: nextWidth } : col))
+      );
+    };
+    const onUp = () => {
+      if (!resizingRef.current) return;
+      resizingRef.current = null;
+      setResizingColumnKey(null);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      schedulePersistColumnWidths();
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+    return () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      if (widthsSaveTimeoutRef.current) {
+        clearTimeout(widthsSaveTimeoutRef.current);
+      }
+    };
+  }, [schedulePersistColumnWidths]);
+
   const tableContainerRef = useRef<HTMLDivElement>(null);
   const scrollIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const clickTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -682,14 +804,11 @@ export default function ListView({
 
   const ticketColumnWidthBoost = showListDependencyTree ? 140 : 0;
 
-  const ticketColumnThStyle = (colWidth: number) => {
-    const dim = colWidth + ticketColumnWidthBoost;
-    return { width: dim, minWidth: dim } as const;
+  const columnSizeStyle = (column: ColumnConfig) => {
+    const width =
+      column.key === 'ticket' ? column.width + ticketColumnWidthBoost : column.width;
+    return { width, minWidth: width, maxWidth: width } as const;
   };
-  /** No maxWidth so long prefixes (e.g. TASK-99999) stay fully visible. */
-  const ticketColumnTdStyle = (colWidth: number) => ({
-    minWidth: colWidth + ticketColumnWidthBoost
-  });
 
   // Update scroll state when table content changes
   useEffect(() => {
@@ -756,7 +875,7 @@ export default function ListView({
     newColumns.forEach(col => {
       columnVisibility[col.key] = col.visible;
     });
-    updateUserPreference('listViewColumnVisibility', columnVisibility);
+    updateUserPreference('listViewColumnVisibility', columnVisibility, currentUser?.id ?? null);
   };
 
   const handleColumnMenuToggle = () => {
@@ -1630,11 +1749,18 @@ export default function ListView({
             scrollbarColor: '#CBD5E1 #F1F5F9'
           }}
         >
-        <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+        <table
+          className={`min-w-full table-fixed divide-y divide-gray-200 dark:divide-gray-700 ${
+            resizingColumnKey ? 'select-none' : ''
+          }`}
+        >
           <thead className="bg-gray-50 dark:bg-gray-700">
             <tr>
               {/* Row number column with column management dropdown */}
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider relative group w-16">
+              <th
+                className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider relative group"
+                style={{ width: 64, minWidth: 64, maxWidth: 64 }}
+              >
                 <div className="flex items-center justify-between">
                   <span>#</span>
                   <div className="flex items-center gap-1">
@@ -1672,19 +1798,13 @@ export default function ListView({
               {visibleColumns.map(column => (
                 <th
                   key={column.key}
-                  className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-600 relative group"
-                  style={
-                    column.key === 'ticket'
-                      ? ticketColumnThStyle(column.width)
-                      : {
-                          width: column.width,
-                          maxWidth: column.key === 'title' ? 300 : column.width,
-                          minWidth: column.key === 'title' ? 200 : 'auto'
-                        }
-                  }
+                  className={`px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-600 relative group ${
+                    resizingColumnKey === column.key ? 'bg-gray-100 dark:bg-gray-600' : ''
+                  }`}
+                  style={columnSizeStyle(column)}
                   onClick={() => handleSort(column.key)}
                 >
-                  <div className="flex items-center justify-between gap-1">
+                  <div className="flex items-center justify-between gap-1 pr-1">
                     <div className="flex items-center gap-1 min-w-0 flex-1">
                       {column.key === 'ticket' && (
                         <span
@@ -1730,6 +1850,19 @@ export default function ListView({
                       sortDirection === 'asc' ? <ChevronUp size={14} className="shrink-0" /> : <ChevronDown size={14} className="shrink-0" />
                     )}
                   </div>
+                  <div
+                    role="separator"
+                    aria-orientation="vertical"
+                    aria-label={t('listView.resizeColumn')}
+                    title={t('listView.resizeColumn')}
+                    className={`absolute right-0 top-0 z-[1] h-full w-1.5 cursor-col-resize touch-none ${
+                      resizingColumnKey === column.key
+                        ? 'bg-blue-500/70'
+                        : 'bg-transparent hover:bg-blue-400/50'
+                    }`}
+                    onMouseDown={(e) => handleColumnResizeStart(e, column.key)}
+                    onClick={(e) => e.stopPropagation()}
+                  />
                 </th>
               ))}
             </tr>
@@ -1827,15 +1960,8 @@ export default function ListView({
                   {visibleColumns.map(column => (
                     <td 
                       key={column.key} 
-                      className={`px-3 py-2 ${column.key !== 'title' ? 'whitespace-nowrap' : ''}`}
-                      style={
-                        column.key === 'ticket'
-                          ? ticketColumnTdStyle(column.width)
-                          : {
-                              maxWidth: column.key === 'title' ? 300 : column.width,
-                              minWidth: column.key === 'title' ? 200 : 'auto'
-                            }
-                      }
+                      className={`px-3 py-2 overflow-hidden ${column.key !== 'title' ? 'whitespace-nowrap' : ''}`}
+                      style={columnSizeStyle(column)}
                     >
                       {column.key === 'title' && (
                         <div className="max-w-full">
