@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import api, { createUser, updateUser, getUserTaskCount, resendUserInvitation, getTags, createTag, updateTag, deleteTag, getTagUsage, getBatchTagUsage, getPriorities, createPriority, updatePriority, deletePriority, reorderPriorities, setDefaultPriority, getPriorityUsage, getBatchPriorityUsage } from '../api';
 import { ADMIN_TABS, ROUTES } from '../constants';
@@ -17,9 +17,16 @@ import AdminLifecycleTab from './admin/AdminLifecycleTab';
 import AdminLicensingTab from './admin/AdminLicensingTab';
 import AdminNotificationQueueTab from './admin/AdminNotificationQueueTab';
 import AdminSettingsSearch from './admin/AdminSettingsSearch';
+import { AdminUnsavedChangesBanner } from './admin/AdminUnsavedChanges';
 import websocketClient from '../services/websocketClient';
 import { useSettings } from '../contexts/SettingsContext';
 import { isMaskedApiKeyDisplay } from '../utils/maskSecret';
+import { adminSettingsHaveChanges } from '../utils/adminSettingsDirty';
+import {
+  ADMIN_NAVIGATE_EVENT,
+  AdminNavigateDetail,
+  adminTabFromHash,
+} from '../utils/adminNavigation';
 
 interface AdminProps {
   currentUser: any;
@@ -124,58 +131,36 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
     }
   };
 
+  const applyAdminHash = useCallback((fullHash: string) => {
+    const tab = adminTabFromHash(fullHash);
+    if (tab && tab !== activeTab) {
+      setActiveTab(tab);
+    }
+  }, [activeTab]);
+
   // Handle URL hash changes for tab selection
   useEffect(() => {
     const handleHashChange = () => {
-      const fullHash = window.location.hash;
-      // Parse compound hash format like #admin#sso or #admin#app-settings#user-interface
-      const hashParts = fullHash.split('#');
-      const tabHash = hashParts[hashParts.length - 1]; // Get the last part
-      
-      // Check for sub-tab patterns like admin#app-settings#user-interface
-      if (fullHash.startsWith('#admin#app-settings#')) {
-        if (activeTab !== 'app-settings') {
-          setActiveTab('app-settings');
-        }
-        return; // Don't process further, let AdminAppSettingsTab handle the sub-tab
-      }
-      
-      // Check for sub-tab patterns like admin#licensing#overview or admin#licensing#subscription
-      if (fullHash.startsWith('#admin#licensing#')) {
-        if (activeTab !== 'licensing') {
-          setActiveTab('licensing');
-          // Clear tab-specific messages for the new tab
-        }
-        return; // Don't process further, let AdminLicensingTab handle the sub-tab
-      }
-      
-      if (ADMIN_TABS.includes(tabHash) && tabHash !== activeTab) {
-        setActiveTab(tabHash);
-        // Clear tab-specific messages for the new tab
-      }
+      applyAdminHash(window.location.hash);
+    };
+
+    // Direct navigation from Configuration guide (bypasses missed hashchange races)
+    const handleAdminNavigate = (event: Event) => {
+      const detail = (event as CustomEvent<AdminNavigateDetail>).detail;
+      if (!detail?.hash) return;
+      applyAdminHash(`#${detail.hash.replace(/^#/, '')}`);
     };
 
     // Handle initial hash on component mount
-    const fullHash = window.location.hash;
-    const hashParts = fullHash.split('#');
-    const tabHash = hashParts[hashParts.length - 1]; // Get the last part
-    
-    // Check for sub-tab patterns on initial load
-    if (fullHash.startsWith('#admin#app-settings#')) {
-      if (activeTab !== 'app-settings') {
-        setActiveTab('app-settings');
-      }
-    } else if (fullHash.startsWith('#admin#licensing#')) {
-      if (activeTab !== 'licensing') {
-        setActiveTab('licensing');
-      }
-    } else if (ADMIN_TABS.includes(tabHash) && tabHash !== activeTab) {
-      setActiveTab(tabHash);
-    }
+    applyAdminHash(window.location.hash);
 
     window.addEventListener('hashchange', handleHashChange);
-    return () => window.removeEventListener('hashchange', handleHashChange);
-  }, [activeTab]);
+    window.addEventListener(ADMIN_NAVIGATE_EVENT, handleAdminNavigate);
+    return () => {
+      window.removeEventListener('hashchange', handleHashChange);
+      window.removeEventListener(ADMIN_NAVIGATE_EVENT, handleAdminNavigate);
+    };
+  }, [applyAdminHash]);
 
   // WebSocket event listeners for real-time updates
   useEffect(() => {
@@ -947,6 +932,11 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
     setEditingSettings(settings);
   };
 
+  const hasUnsavedSettings = useMemo(
+    () => adminSettingsHaveChanges(settings, editingSettings),
+    [settings, editingSettings]
+  );
+
   const handleMailServerDisabled = () => {
     // Clear test result when mail server is disabled to require re-testing
     setTestEmailResult(null);
@@ -1154,11 +1144,20 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
                 {t('adminPanelDescription')}
               </p>
             </div>
-            <div className="flex-shrink-0 w-full sm:w-auto sm:pt-0.5 sm:max-w-xs">
-              <AdminSettingsSearch
-                activeTab={activeTab}
-                onNavigate={handleSearchNavigate}
+            <div className="flex flex-col sm:flex-row sm:items-center gap-2 flex-shrink-0 w-full sm:w-auto sm:pt-0.5 sm:max-w-none sm:justify-end">
+              <AdminUnsavedChangesBanner
+                visible={hasUnsavedSettings}
+                onSave={() => {
+                  void handleSaveSettings();
+                }}
+                onDiscard={handleCancelSettings}
               />
+              <div className="w-full sm:w-auto sm:max-w-xs">
+                <AdminSettingsSearch
+                  activeTab={activeTab}
+                  onNavigate={handleSearchNavigate}
+                />
+              </div>
             </div>
           </div>
           <nav className="flex space-x-8 overflow-x-auto px-4 max-w-full">
@@ -1220,6 +1219,7 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
           {/* Site Settings Tab */}
           {activeTab === 'site-settings' && (
             <AdminSiteSettingsTab
+              settings={settings}
               editingSettings={editingSettings}
               onSettingsChange={setEditingSettings}
               onSave={handleSaveSettings}
@@ -1231,6 +1231,7 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
           {/* Single Sign-On Tab */}
           {activeTab === 'sso' && (
             <AdminSSOTab
+              settings={settings}
               editingSettings={editingSettings}
               onSettingsChange={setEditingSettings}
               onSave={handleSaveSettings}
@@ -1242,6 +1243,7 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
           {/* Mail Server Tab */}
           {activeTab === 'mail-server' && (
             <AdminMailTab
+              settings={settings}
               editingSettings={editingSettings}
               onSettingsChange={setEditingSettings}
               onSave={handleSaveSettings}
@@ -1307,6 +1309,7 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
           {/* Project Settings Tab */}
           {activeTab === 'project-settings' && (
             <AdminProjectSettingsTab
+              settings={settings}
               editingSettings={editingSettings}
               onSettingsChange={setEditingSettings}
               onSave={handleSaveSettings}

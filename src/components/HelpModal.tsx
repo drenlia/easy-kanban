@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { X, Users, Columns, ClipboardList, MessageSquare, ArrowRight, LayoutGrid, List, Calendar, Search, Eye, Settings, Play, BarChart3, Shield, Download, Bot, KeyRound, CheckSquare, AlertTriangle, Trash2 } from 'lucide-react';
+import { X, Users, Columns, ClipboardList, MessageSquare, ArrowRight, LayoutGrid, List, Calendar, Search, Eye, Settings, Play, BarChart3, Shield, Download, Bot, KeyRound, CheckSquare, AlertTriangle, Trash2, ListChecks } from 'lucide-react';
 import { useTour } from '../contexts/TourContext';
+import { useOwnerSetupOptional } from '../contexts/OwnerSetupContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { versionDetection } from '../utils/versionDetection';
 import { updateUserPreference } from '../utils/userPreferences';
@@ -25,6 +26,7 @@ export default function HelpModal({ isOpen, onClose, currentUser }: HelpModalPro
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
   const firstMatchRef = useRef<HTMLElement | null>(null);
   const { startTour } = useTour();
+  const ownerSetup = useOwnerSetupOptional();
   
   // Check if user is admin
   const isAdmin = currentUser?.roles?.includes('admin') || false;
@@ -124,6 +126,14 @@ export default function HelpModal({ isOpen, onClose, currentUser }: HelpModalPro
     onClose(); // Close the modal first
     setTimeout(() => {
       startTour(); // Use context function
+    }, 100);
+  };
+
+  const handleOpenOwnerSetup = () => {
+    if (!ownerSetup) return;
+    onClose();
+    setTimeout(() => {
+      ownerSetup.openChecklist();
     }, 100);
   };
 
@@ -744,7 +754,7 @@ export default function HelpModal({ isOpen, onClose, currentUser }: HelpModalPro
             <h2 className="text-2xl font-bold text-gray-800 dark:text-gray-100">{t('help.title')}</h2>
             <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{t('help.pressF1')}</p>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 flex-wrap justify-end">
             {/* Search Box */}
             <div className="relative">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
@@ -773,6 +783,16 @@ export default function HelpModal({ isOpen, onClose, currentUser }: HelpModalPro
             >
               {currentLanguage === 'en' ? 'FR' : 'EN'}
             </button>
+            {ownerSetup?.isOwner && (
+              <button
+                type="button"
+                onClick={handleOpenOwnerSetup}
+                className="flex items-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg transition-colors font-medium"
+              >
+                <ListChecks size={16} />
+                {t('help.ownerSetup')}
+              </button>
+            )}
             <button
               onClick={handleStartTour}
               className="flex items-center gap-2 px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition-colors font-medium"

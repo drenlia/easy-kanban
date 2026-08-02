@@ -147,6 +147,7 @@
     "columnTitle": "Column title",
     "archivedColumn": "Archived Column",
     "columnManagementOptions": "Column management options",
+    "editColumn": "Edit",
     "addColumn": "Add Column",
     "deleteColumn": "Delete Column",
     "markAsFinishedColumn": "Mark as Finished Column",

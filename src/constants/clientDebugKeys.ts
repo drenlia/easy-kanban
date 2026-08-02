@@ -24,6 +24,7 @@ export const SERVER_DEBUG_KEYS = [
   'SERVER_DEBUG_HTTP',
   'SERVER_DEBUG_SQL',
   'SERVER_DEBUG_SETTINGS',
+  'SERVER_DEBUG_GOOGLE_SSO',
 ] as const;
 
 export type ServerDebugKey = (typeof SERVER_DEBUG_KEYS)[number];

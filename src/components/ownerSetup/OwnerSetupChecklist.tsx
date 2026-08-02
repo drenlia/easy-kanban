@@ -1,0 +1,638 @@
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import {
+  Check,
+  ChevronDown,
+  ChevronUp,
+  Circle,
+  GripHorizontal,
+  Minus,
+  Play,
+  SkipForward,
+  X,
+} from 'lucide-react';
+import { useOwnerSetup } from '../../contexts/OwnerSetupContext';
+import {
+  OWNER_SETUP_STEPS,
+  OwnerSetupStepId,
+  applyOwnerSetupFieldHighlights,
+  constrainOwnerSetupPositionX,
+  defaultOwnerSetupPositionX,
+  getEffectiveDisplayStatus,
+} from '../../utils/ownerSetup';
+
+const EXPANDED_WIDTH = 384; // ~24rem
+const MINIMIZED_WIDTH = 320; // ~max-w-sm
+const MARGIN = 16;
+
+const OwnerSetupChecklist: React.FC = () => {
+  const { t } = useTranslation('common');
+  const {
+    isOwner,
+    ready,
+    progress,
+    hints,
+    dismissChecklist,
+    minimizeChecklist,
+    expandChecklist,
+    setActiveStep,
+    markStep,
+    goToStep,
+    guideCurrentStep,
+    closeGuide,
+    guidingStepId,
+    setPositionX,
+    coreComplete,
+  } = useOwnerSetup();
+
+  const dragRef = useRef<{
+    startClientX: number;
+    startLeft: number;
+    currentLeft: number;
+    moved: boolean;
+  } | null>(null);
+  const suppressClickRef = useRef(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragLeft, setDragLeft] = useState<number | null>(null);
+  /** When true, only the active step is shown (entered via Go there / Guide me). */
+  const [stepFocused, setStepFocused] = useState(false);
+
+  // Leave focus / guide only when dismissed — minimize should preserve resume state
+  useEffect(() => {
+    if (!progress.visible) {
+      setStepFocused(false);
+      closeGuide();
+    }
+  }, [progress.visible, closeGuide]);
+
+  // When Guide me opens (or resumes after expand), enter focus mode on that step
+  useEffect(() => {
+    if (guidingStepId) {
+      setStepFocused(true);
+    }
+  }, [guidingStepId]);
+
+  // Re-apply field highlights after expanding while still guiding
+  useEffect(() => {
+    if (progress.minimized || !guidingStepId) return;
+    const def = OWNER_SETUP_STEPS.find((s) => s.id === guidingStepId);
+    const selectors =
+      def?.guideFields?.map((f) => f.selector).filter(Boolean) ??
+      (def?.tourTarget ? [def.tourTarget] : []);
+    if (selectors.length === 0) return;
+    const cancel = applyOwnerSetupFieldHighlights(selectors);
+    return cancel;
+  }, [progress.minimized, guidingStepId]);
+
+  const panelWidth = progress.minimized ? MINIMIZED_WIDTH : EXPANDED_WIDTH;
+
+  const resolvedLeft = useMemo(() => {
+    if (typeof dragLeft === 'number') return dragLeft;
+    if (typeof progress.positionX === 'number') {
+      return constrainOwnerSetupPositionX(progress.positionX, panelWidth, MARGIN);
+    }
+    return defaultOwnerSetupPositionX(panelWidth, MARGIN);
+  }, [dragLeft, progress.positionX, panelWidth]);
+
+  // Keep on-screen when resized or when expand/minimize changes width
+  useEffect(() => {
+    if (typeof progress.positionX !== 'number') return;
+    const constrained = constrainOwnerSetupPositionX(progress.positionX, panelWidth, MARGIN);
+    if (constrained !== progress.positionX) {
+      setPositionX(constrained);
+    }
+  }, [panelWidth, progress.positionX, setPositionX]);
+
+  useEffect(() => {
+    const onResize = () => {
+      if (typeof progress.positionX !== 'number') return;
+      const constrained = constrainOwnerSetupPositionX(progress.positionX, panelWidth, MARGIN);
+      if (constrained !== progress.positionX) {
+        setPositionX(constrained);
+      }
+    };
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, [panelWidth, progress.positionX, setPositionX]);
+
+  const endDrag = useCallback(() => {
+    const session = dragRef.current;
+    dragRef.current = null;
+    setIsDragging(false);
+    setDragLeft(null);
+    if (!session) return;
+    if (session.moved) {
+      suppressClickRef.current = true;
+      setPositionX(
+        constrainOwnerSetupPositionX(session.currentLeft, panelWidth, MARGIN)
+      );
+    }
+  }, [panelWidth, setPositionX]);
+
+  const onDragMove = useCallback(
+    (e: MouseEvent) => {
+      if (!dragRef.current) return;
+      const dx = e.clientX - dragRef.current.startClientX;
+      if (Math.abs(dx) > 3) dragRef.current.moved = true;
+      const next = constrainOwnerSetupPositionX(
+        dragRef.current.startLeft + dx,
+        panelWidth,
+        MARGIN
+      );
+      dragRef.current.currentLeft = next;
+      setDragLeft(next);
+    },
+    [panelWidth]
+  );
+
+  const onDragEnd = useCallback(() => {
+    window.removeEventListener('mousemove', onDragMove);
+    window.removeEventListener('mouseup', onDragEnd);
+    endDrag();
+  }, [endDrag, onDragMove]);
+
+  const startDrag = useCallback(
+    (e: React.MouseEvent) => {
+      if (e.button !== 0) return;
+      const target = e.target as HTMLElement;
+      if (target.closest('button, a, input, textarea, select')) return;
+
+      e.preventDefault();
+      dragRef.current = {
+        startClientX: e.clientX,
+        startLeft: resolvedLeft,
+        currentLeft: resolvedLeft,
+        moved: false,
+      };
+      setIsDragging(true);
+      setDragLeft(resolvedLeft);
+      window.addEventListener('mousemove', onDragMove);
+      window.addEventListener('mouseup', onDragEnd);
+    },
+    [onDragEnd, onDragMove, resolvedLeft]
+  );
+
+  useEffect(() => {
+    return () => {
+      window.removeEventListener('mousemove', onDragMove);
+      window.removeEventListener('mouseup', onDragEnd);
+    };
+  }, [onDragEnd, onDragMove]);
+
+  const resolvedCount = useMemo(() => {
+    return OWNER_SETUP_STEPS.filter((s) => {
+      const st = progress.steps[s.id];
+      return st === 'done' || st === 'skipped';
+    }).length;
+  }, [progress.steps]);
+
+  if (!ready || !isOwner || !progress.visible) {
+    return null;
+  }
+
+  const positionStyle: React.CSSProperties = {
+    left: resolvedLeft,
+    right: 'auto',
+    bottom: MARGIN,
+    width: Math.min(
+      panelWidth,
+      typeof window !== 'undefined' ? window.innerWidth - MARGIN * 2 : panelWidth
+    ),
+  };
+
+  if (progress.minimized) {
+    return (
+      <div
+        className={`fixed z-[9000] max-w-sm ${isDragging ? 'cursor-grabbing select-none' : ''}`}
+        style={positionStyle}
+      >
+        <div
+          role="button"
+          tabIndex={0}
+          onMouseDown={startDrag}
+          onClick={() => {
+            if (suppressClickRef.current) {
+              suppressClickRef.current = false;
+              return;
+            }
+            expandChecklist();
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              expandChecklist();
+            }
+          }}
+          className={`w-full flex items-center justify-between gap-3 rounded-lg border border-amber-300 dark:border-amber-700 bg-white dark:bg-gray-800 shadow-lg px-4 py-3 text-left hover:bg-amber-50 dark:hover:bg-gray-700 transition-colors ${
+            isDragging ? 'cursor-grabbing' : 'cursor-grab'
+          }`}
+          aria-label={t('ownerSetup.expand')}
+          title={t('ownerSetup.dragHint')}
+        >
+          <GripHorizontal
+            size={16}
+            className="text-gray-400 flex-shrink-0 pointer-events-none"
+            aria-hidden
+          />
+          <div className="min-w-0 flex-1 pointer-events-none">
+            <div className="text-sm font-semibold text-gray-900 dark:text-gray-100 truncate">
+              {t('ownerSetup.minimizedTitle')}
+            </div>
+            <div className="text-xs text-gray-500 dark:text-gray-400">
+              {t('ownerSetup.progressCount', {
+                done: resolvedCount,
+                total: OWNER_SETUP_STEPS.length,
+              })}
+              {coreComplete ? ` · ${t('ownerSetup.coreComplete')}` : ''}
+            </div>
+          </div>
+          <ChevronUp
+            size={18}
+            className="text-amber-600 dark:text-amber-400 flex-shrink-0 pointer-events-none"
+          />
+        </div>
+      </div>
+    );
+  }
+
+  const activeId = progress.activeStepId;
+  const activeStep = OWNER_SETUP_STEPS.find((s) => s.id === activeId) || OWNER_SETUP_STEPS[0];
+  const activeDisplay = getEffectiveDisplayStatus(progress, activeId, hints);
+
+  const handleGoThere = () => {
+    closeGuide();
+    setStepFocused(true);
+    goToStep(activeId);
+  };
+
+  const handleGuide = () => {
+    setStepFocused(true);
+    guideCurrentStep();
+  };
+
+  const handleMarkDone = () => {
+    // Stay focused and jump to the next step's screen
+    setStepFocused(true);
+    markStep(activeId, 'done');
+  };
+
+  const handleSkip = () => {
+    setStepFocused(true);
+    markStep(activeId, 'skipped');
+  };
+
+  const handleGuideDone = () => {
+    // Same path as Mark done — complete step + navigate to next screen
+    setStepFocused(true);
+    markStep(activeId, 'done');
+  };
+
+  const handleReset = () => {
+    setStepFocused(false);
+    closeGuide();
+    markStep(activeId, 'todo');
+  };
+
+  const handleSelectStep = (stepId: OwnerSetupStepId) => {
+    setStepFocused(false);
+    closeGuide();
+    setActiveStep(stepId);
+  };
+
+  const isGuiding = guidingStepId === activeId;
+  const guideFields = activeStep.guideFields ?? [];
+
+  return (
+    <div
+      className={`fixed z-[9000] rounded-lg border border-amber-300 dark:border-amber-700 bg-white dark:bg-gray-800 shadow-xl flex flex-col max-h-[min(90vh,44rem)] overflow-hidden ${
+        isDragging ? 'select-none' : ''
+      }`}
+      style={positionStyle}
+      role="dialog"
+      aria-labelledby="owner-setup-title"
+    >
+      <div
+        className={`flex-shrink-0 flex items-start gap-2 px-4 pt-3 pb-2 border-b border-gray-100 dark:border-gray-700 ${
+          isDragging ? 'cursor-grabbing' : 'cursor-grab'
+        }`}
+        onMouseDown={startDrag}
+        title={t('ownerSetup.dragHint')}
+      >
+        <GripHorizontal
+          size={16}
+          className="text-gray-400 mt-0.5 flex-shrink-0 pointer-events-none"
+          aria-hidden
+        />
+        <div className="flex-1 min-w-0 pointer-events-none">
+          <h2
+            id="owner-setup-title"
+            className="text-sm font-semibold text-gray-900 dark:text-gray-100"
+          >
+            {stepFocused
+              ? t(`ownerSetup.steps.${activeId}.title`)
+              : t('ownerSetup.title')}
+          </h2>
+          {!stepFocused && (
+            <>
+              <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                {t('ownerSetup.subtitle')}
+              </p>
+              <p className="mt-1 text-xs font-medium text-amber-700 dark:text-amber-300">
+                {t('ownerSetup.progressCount', {
+                  done: resolvedCount,
+                  total: OWNER_SETUP_STEPS.length,
+                })}
+              </p>
+            </>
+          )}
+          {stepFocused && (
+            <p className="mt-0.5 text-xs font-medium text-amber-700 dark:text-amber-300">
+              {t('ownerSetup.focusModeHint')}
+            </p>
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={minimizeChecklist}
+          className="p-1 rounded-md text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 pointer-events-auto"
+          title={t('ownerSetup.minimize')}
+          aria-label={t('ownerSetup.minimize')}
+        >
+          <Minus size={16} />
+        </button>
+        <button
+          type="button"
+          onClick={dismissChecklist}
+          className="p-1 rounded-md text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 pointer-events-auto"
+          title={t('ownerSetup.dismiss')}
+          aria-label={t('ownerSetup.dismiss')}
+        >
+          <X size={16} />
+        </button>
+      </div>
+
+      <div className="flex-1 min-h-0 overflow-y-auto">
+        {stepFocused ? (
+          <div className="px-4 py-3 space-y-3">
+            <div className="flex items-start gap-2">
+              <StatusIcon status={activeDisplay} />
+              <div className="min-w-0 flex-1 space-y-2">
+                {activeStep.optional && (
+                  <span className="text-[10px] uppercase tracking-wide text-gray-400 dark:text-gray-500">
+                    {t('ownerSetup.optional')}
+                  </span>
+                )}
+                <p className="text-sm text-gray-600 dark:text-gray-300">
+                  {t(`ownerSetup.steps.${activeId}.description`)}
+                </p>
+                {isGuiding && (
+                  <div className="rounded-md bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 px-3 py-2 space-y-2">
+                    <p className="text-xs font-medium text-blue-800 dark:text-blue-200">
+                      {t('ownerSetup.guideIntro')}
+                    </p>
+                    {guideFields.length > 0 ? (
+                      <div className="space-y-2.5 text-xs text-blue-900 dark:text-blue-100">
+                        {(() => {
+                          const groups: {
+                            sectionKey?: string;
+                            fields: typeof guideFields;
+                          }[] = [];
+                          for (const field of guideFields) {
+                            const last = groups[groups.length - 1];
+                            if (last && last.sectionKey === field.sectionKey) {
+                              last.fields.push(field);
+                            } else {
+                              groups.push({
+                                sectionKey: field.sectionKey,
+                                fields: [field],
+                              });
+                            }
+                          }
+                          return groups.map((group, groupIndex) => (
+                            <div key={group.sectionKey || `group-${groupIndex}`} className="space-y-1">
+                              {group.sectionKey && (
+                                <p className="font-semibold text-blue-800 dark:text-blue-200">
+                                  {t(`ownerSetup.steps.${activeId}.sections.${group.sectionKey}`)}
+                                </p>
+                              )}
+                              <ul className="list-disc ml-4 space-y-1">
+                                {group.fields.map((field) => (
+                                  <li key={field.fieldKey}>
+                                    {t(`ownerSetup.steps.${activeId}.fields.${field.fieldKey}`, {
+                                      defaultValue: t(`ownerSetup.steps.${activeId}.guide`),
+                                    })}
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          ));
+                        })()}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-blue-900 dark:text-blue-100">
+                        {t(`ownerSetup.steps.${activeId}.guide`)}
+                      </p>
+                    )}
+                    <button
+                      type="button"
+                      onClick={handleGuideDone}
+                      className="mt-1 px-2.5 py-1.5 text-xs font-medium rounded-md bg-blue-600 text-white hover:bg-blue-700"
+                    >
+                      {t('ownerSetup.guideDone')}
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                closeGuide();
+                setStepFocused(false);
+              }}
+              className="text-xs font-medium text-blue-600 dark:text-blue-400 hover:underline"
+            >
+              {t('ownerSetup.showAllSteps')}
+            </button>
+          </div>
+        ) : (
+          <div className="px-2 py-2 space-y-0.5">
+            {OWNER_SETUP_STEPS.map((step) => {
+              const display = getEffectiveDisplayStatus(progress, step.id, hints);
+              const isActive = activeId === step.id;
+              return (
+                <button
+                  key={step.id}
+                  type="button"
+                  onClick={() => handleSelectStep(step.id)}
+                  className={`w-full flex items-start gap-2 rounded-md px-2 py-2 text-left transition-colors ${
+                    isActive
+                      ? 'bg-amber-50 dark:bg-amber-900/30 ring-1 ring-amber-300 dark:ring-amber-700'
+                      : 'hover:bg-gray-50 dark:hover:bg-gray-700/60'
+                  }`}
+                >
+                  <StatusIcon status={display} />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
+                        {t(`ownerSetup.steps.${step.id}.title`)}
+                      </span>
+                      {step.optional && (
+                        <span className="text-[10px] uppercase tracking-wide text-gray-400 dark:text-gray-500 flex-shrink-0">
+                          {t('ownerSetup.optional')}
+                        </span>
+                      )}
+                    </div>
+                    {isActive && (
+                      <p className="mt-0.5 text-xs text-gray-600 dark:text-gray-300">
+                        {t(`ownerSetup.steps.${step.id}.description`)}
+                      </p>
+                    )}
+                  </div>
+                  {isActive ? (
+                    <ChevronDown size={14} className="text-gray-400 mt-1 flex-shrink-0" />
+                  ) : null}
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* While Guide me is open, Done in the tip completes the step — hide duplicate footer actions */}
+      {!isGuiding && (
+        <div className="flex-shrink-0">
+          <ActiveStepActions
+            stepId={activeId}
+            stepFocused={stepFocused}
+            isGuiding={isGuiding}
+            onGo={handleGoThere}
+            onGuide={handleGuide}
+            onDone={handleMarkDone}
+            onSkip={handleSkip}
+            onReset={handleReset}
+            display={activeDisplay}
+          />
+        </div>
+      )}
+    </div>
+  );
+};
+
+function StatusIcon({
+  status,
+}: {
+  status: 'todo' | 'done' | 'skipped' | 'suggested';
+}) {
+  if (status === 'done') {
+    return (
+      <span className="mt-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-green-100 dark:bg-green-900/40 text-green-600 dark:text-green-400 flex-shrink-0">
+        <Check size={12} strokeWidth={3} />
+      </span>
+    );
+  }
+  if (status === 'skipped') {
+    return (
+      <span className="mt-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-gray-100 dark:bg-gray-700 text-gray-400 flex-shrink-0">
+        <SkipForward size={11} />
+      </span>
+    );
+  }
+  if (status === 'suggested') {
+    return (
+      <span className="mt-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400 flex-shrink-0">
+        <Check size={12} strokeWidth={3} />
+      </span>
+    );
+  }
+  return (
+    <span className="mt-0.5 flex h-5 w-5 items-center justify-center text-gray-300 dark:text-gray-600 flex-shrink-0">
+      <Circle size={14} />
+    </span>
+  );
+}
+
+function ActiveStepActions({
+  stepId,
+  stepFocused,
+  isGuiding,
+  onGo,
+  onGuide,
+  onDone,
+  onSkip,
+  onReset,
+  display,
+}: {
+  stepId: OwnerSetupStepId;
+  stepFocused: boolean;
+  isGuiding: boolean;
+  onGo: () => void;
+  onGuide: () => void;
+  onDone: () => void;
+  onSkip: () => void;
+  onReset: () => void;
+  display: 'todo' | 'done' | 'skipped' | 'suggested';
+}) {
+  const { t } = useTranslation('common');
+  const def = OWNER_SETUP_STEPS.find((s) => s.id === stepId);
+  const canNavigate = Boolean(def?.tourTarget || def?.adminTab || def?.goKanban || def?.guideFields?.length);
+  const canGuide = Boolean(def?.guideFields?.length || def?.tourTarget || def?.adminTab || def?.goKanban);
+
+  return (
+    <div className="border-t border-gray-100 dark:border-gray-700 px-3 py-3 space-y-2">
+      {display === 'suggested' && (
+        <p className="text-xs text-blue-600 dark:text-blue-400">{t('ownerSetup.suggestedHint')}</p>
+      )}
+      <div className="flex flex-wrap gap-2">
+        {canNavigate && !stepFocused && (
+          <button
+            type="button"
+            onClick={onGo}
+            className="px-2.5 py-1.5 text-xs font-medium rounded-md border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700"
+          >
+            {t('ownerSetup.goThere')}
+          </button>
+        )}
+        {canGuide && !isGuiding && (
+          <button
+            type="button"
+            onClick={onGuide}
+            className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded-md bg-blue-600 text-white hover:bg-blue-700"
+          >
+            <Play size={12} />
+            {t('ownerSetup.guideMe')}
+          </button>
+        )}
+        {display !== 'done' && (
+          <button
+            type="button"
+            onClick={onDone}
+            className="px-2.5 py-1.5 text-xs font-medium rounded-md bg-green-600 text-white hover:bg-green-700"
+          >
+            {t('ownerSetup.markDone')}
+          </button>
+        )}
+        {display !== 'skipped' && stepId !== 'finish' && (
+          <button
+            type="button"
+            onClick={onSkip}
+            className="px-2.5 py-1.5 text-xs font-medium rounded-md text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
+          >
+            {t('ownerSetup.skip')}
+          </button>
+        )}
+        {(display === 'done' || display === 'skipped') && (
+          <button
+            type="button"
+            onClick={onReset}
+            className="px-2.5 py-1.5 text-xs font-medium rounded-md text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700"
+          >
+            {t('ownerSetup.reopen')}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export default OwnerSetupChecklist;

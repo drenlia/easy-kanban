@@ -388,6 +388,7 @@ const AdminSprintSettingsTab: React.FC = () => {
         {!isCreating && (
           <button
             onClick={handleCreate}
+            data-owner-setup="create-sprint"
             className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors"
           >
             <Plus className="w-4 h-4" />

@@ -2,6 +2,9 @@
   "title": "Administration",
   "adminPanel": "Admin Panel",
   "adminPanelDescription": "Manage users, site settings, and authentication configuration",
+  "unsavedChanges": "Unsaved changes",
+  "discardChanges": "Discard",
+  "saveChanges": "Save Changes",
   "accessDenied": "Access Denied",
   "noPermissionToAccess": "You don't have permission to access this page.",
   "goBackHome": "Go back home",
@@ -263,15 +266,10 @@
     "googleCallbackUrl": "Google Callback URL",
     "googleCallbackUrlPlaceholder": "e.g., https://yourdomain.com/api/auth/google/callback",
     "googleCallbackUrlDescription": "This must match exactly what you configure in Google Cloud Console. Include the full URL with protocol. https://yourdomain.com/api/auth/google/callback",
-    "enableDebugLogging": "Enable Google SSO Debug Logging",
-    "debugLoggingDescription": "When enabled, detailed Google SSO authentication logs will be displayed in the server console for debugging purposes.",
-    "debugLoggingNote": "⚠️ Note: A service/Docker restart may be required for debug log changes to take effect due to caching.",
     "hotReloadEnabled": "Hot Reload Enabled",
     "hotReloadDescription": "Google OAuth settings are automatically reloaded when you save changes. No application restart is required for most settings.",
     "tip": "Tip",
     "reloadOAuthConfigTip": "Use the \"Reload OAuth Config\" button if you need to force a reload.",
-    "note": "Note",
-    "debugLoggingRestartNote": "Debug logging changes may require a service restart due to memory caching.",
     "saveConfiguration": "Save Configuration",
     "reloadOAuthConfig": "🔄 Reload OAuth Config",
     "cancel": "Cancel"
@@ -532,6 +530,10 @@
       "SERVER_DEBUG_SETTINGS": {
         "label": "Settings",
         "description": "Verbose logs when settings are updated (OAuth cache, publish payloads)."
+      },
+      "SERVER_DEBUG_GOOGLE_SSO": {
+        "label": "Google SSO",
+        "description": "Detailed Google OAuth login logs in the server console (token exchange, user lookup)."
       }
     },
     "emailThrottling": "Email Throttling",

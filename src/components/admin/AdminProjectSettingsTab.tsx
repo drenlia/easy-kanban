@@ -1,7 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
+import { adminSettingsHaveChanges } from '../../utils/adminSettingsDirty';
+import { AdminUnsavedHint } from './AdminUnsavedChanges';
 
 interface AdminProjectSettingsTabProps {
+  settings: { [key: string]: string | undefined };
   editingSettings: { [key: string]: string };
   onSettingsChange: (settings: { [key: string]: string }) => void;
   onSave: () => Promise<void>;
@@ -10,6 +13,7 @@ interface AdminProjectSettingsTabProps {
 }
 
 const AdminProjectSettingsTab: React.FC<AdminProjectSettingsTabProps> = ({
+  settings,
   editingSettings,
   onSettingsChange,
   onSave,
@@ -17,8 +21,13 @@ const AdminProjectSettingsTab: React.FC<AdminProjectSettingsTabProps> = ({
   onAutoSave,
 }) => {
   const { t } = useTranslation('admin', { keyPrefix: 'projectSettings' });
+  const { t: tAdmin } = useTranslation('admin');
   const [finishedColumnNames, setFinishedColumnNames] = useState<string[]>([]);
   const [newColumnName, setNewColumnName] = useState('');
+  const hasChanges = useMemo(
+    () => adminSettingsHaveChanges(settings, editingSettings),
+    [settings, editingSettings]
+  );
 
   // Initialize finished column names from settings
   useEffect(() => {
@@ -253,19 +262,31 @@ const AdminProjectSettingsTab: React.FC<AdminProjectSettingsTabProps> = ({
       </div>
 
       {/* Action Buttons */}
-      <div className="mt-8 flex justify-end space-x-3">
-        <button
-          onClick={onCancel}
-          className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-        >
-          {t('cancel')}
-        </button>
-        <button
-          onClick={() => onSave()}
-          className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-        >
-          {t('saveSettings')}
-        </button>
+      <div className="mt-8 flex flex-wrap items-center justify-between gap-3">
+        <AdminUnsavedHint show={hasChanges} />
+        <div className="flex space-x-3 ml-auto">
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={!hasChanges}
+            className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {t('cancel')}
+          </button>
+          <button
+            type="button"
+            onClick={() => onSave()}
+            disabled={!hasChanges}
+            className={`px-4 py-2 text-sm font-medium text-white border border-transparent rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed ${
+              hasChanges
+                ? 'bg-blue-600 hover:bg-blue-700 ring-2 ring-amber-400 ring-offset-2'
+                : 'bg-blue-600'
+            }`}
+            title={!hasChanges ? tAdmin('noChangesToSave') : undefined}
+          >
+            {t('saveSettings')}
+          </button>
+        </div>
       </div>
     </div>
   );

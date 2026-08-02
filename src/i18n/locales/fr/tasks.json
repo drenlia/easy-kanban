@@ -147,6 +147,7 @@
     "columnTitle": "Titre de la colonne",
     "archivedColumn": "Colonne archivée",
     "columnManagementOptions": "Options de gestion de colonne",
+    "editColumn": "Modifier",
     "addColumn": "Ajouter une colonne",
     "deleteColumn": "Supprimer la colonne",
     "markAsFinishedColumn": "Marquer comme terminée",

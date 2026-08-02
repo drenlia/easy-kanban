@@ -1,9 +1,11 @@
-import React, { useRef, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Upload, X } from 'lucide-react';
 import api from '../../api';
 import { getAuthenticatedAvatarUrl } from '../../utils/authImageUrl';
 import { useSettings } from '../../contexts/SettingsContext';
+import { adminSettingsHaveChanges } from '../../utils/adminSettingsDirty';
+import { AdminUnsavedHint } from './AdminUnsavedChanges';
 
 interface Settings {
   SITE_NAME?: string;
@@ -18,6 +20,7 @@ interface Settings {
 }
 
 interface AdminSiteSettingsTabProps {
+  settings: Settings;
   editingSettings: Settings;
   onSettingsChange: (settings: Settings) => void;
   onSave: () => void;
@@ -26,6 +29,7 @@ interface AdminSiteSettingsTabProps {
 }
 
 const AdminSiteSettingsTab: React.FC<AdminSiteSettingsTabProps> = ({
+  settings,
   editingSettings,
   onSettingsChange,
   onSave,
@@ -38,6 +42,10 @@ const AdminSiteSettingsTab: React.FC<AdminSiteSettingsTabProps> = ({
   const darkFileRef = useRef<HTMLInputElement>(null);
   const [uploadingLight, setUploadingLight] = useState(false);
   const [uploadingDark, setUploadingDark] = useState(false);
+  const hasChanges = useMemo(
+    () => adminSettingsHaveChanges(settings, editingSettings),
+    [settings, editingSettings]
+  );
 
   const DEFAULT_SITE_LOGO = '/kanban.ico';
 
@@ -409,19 +417,30 @@ const AdminSiteSettingsTab: React.FC<AdminSiteSettingsTabProps> = ({
           </div>
         </div>
 
-        <div className="flex space-x-3">
-          <button
-            onClick={() => onSave()}
-            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
-          >
-            {t('siteSettings.saveChanges')}
-          </button>
-          <button
-            onClick={onCancel}
-            className="px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2"
-          >
-            {t('siteSettings.cancel')}
-          </button>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <AdminUnsavedHint show={hasChanges} />
+          <div className="flex space-x-3 ml-auto">
+            <button
+              type="button"
+              onClick={onCancel}
+              disabled={!hasChanges}
+              className="px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {t('siteSettings.cancel')}
+            </button>
+            <button
+              type="button"
+              onClick={() => onSave()}
+              disabled={!hasChanges}
+              className={`px-4 py-2 text-white rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed ${
+                hasChanges
+                  ? 'bg-blue-600 hover:bg-blue-700 ring-2 ring-amber-400 ring-offset-2'
+                  : 'bg-blue-600'
+              }`}
+            >
+              {t('siteSettings.saveChanges')}
+            </button>
+          </div>
         </div>
       </div>
     </div>

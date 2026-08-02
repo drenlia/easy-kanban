@@ -428,6 +428,7 @@
     "title": "Easy Kanban Help",
     "pressF1": "Press F1 anytime to open this help",
     "startTutorial": "Start Tutorial",
+    "ownerSetup": "Configuration guide",
     "gotIt": "Got it!",
     "searchPlaceholder": "Search help content...",
     "switchToFrench": "Switch to French",
@@ -1205,6 +1206,140 @@
       "adminReporting": "Configure reporting features including gamification, leaderboard visibility, and achievement settings. Enable or disable various reporting capabilities for your team.",
       "adminLifecycle": "Manage the lifecycle of deleted and archived work. Set automatic retention (purge) periods, restore soft-deleted tasks and boards, or permanently purge them when they are no longer needed.",
       "systemPanelToggle": "Use this button to show or hide the system metrics panel. When enabled, you'll see real-time monitoring of RAM, CPU, and disk usage. Your preference is saved and will persist across sessions."
+    }
+  },
+  "ownerSetup": {
+    "title": "Configuration guide",
+    "subtitle": "Configure your instance. Mark steps done when they feel right — you stay in control.",
+    "minimizedTitle": "Configuration guide",
+    "progressCount": "{{done}} / {{total}} steps",
+    "coreComplete": "Core steps done",
+    "optional": "Optional",
+    "minimize": "Minimize for later",
+    "expand": "Expand configuration guide",
+    "dismiss": "Dismiss guide",
+    "dragHint": "Drag left or right to reposition",
+    "focusModeHint": "Working on this step",
+    "showAllSteps": "Show all steps",
+    "goThere": "Go there",
+    "guideMe": "Guide me",
+    "guideIntro": "Highlighted fields to update on this screen:",
+    "guideDone": "Done — next step",
+    "markDone": "Mark done",
+    "skip": "Skip",
+    "reopen": "Reopen step",
+    "suggestedHint": "Looks configured already — confirm with Mark done when you are satisfied.",
+    "steps": {
+      "welcome": {
+        "title": "Welcome",
+        "description": "You are the instance owner. This checklist covers the essentials to get your workspace ready. Minimize anytime and reopen from Help.",
+        "guide": "Welcome to the configuration guide."
+      },
+      "siteIdentity": {
+        "title": "Site name & URL",
+        "description": "Set your site name, logo, and public URL under Admin → Site Settings so emails and the header look correct. Using \"/\" for the URL is usually fine.",
+        "guide": "Update these Site Settings fields.",
+        "fields": {
+          "SITE_NAME": "Enter your site name — it appears in the header and emails.",
+          "SITE_URL": "Set the public site URL. Using \"/\" is usually fine.",
+          "SITE_LOGO": "Optional: upload a logo for light mode (dark logo is below)."
+        }
+      },
+      "language": {
+        "title": "Default language",
+        "description": "Choose the default language (EN/FR) in Admin → App Settings for new boards and system messages.",
+        "guide": "Choose the default application language.",
+        "fields": {
+          "APP_LANGUAGE": "Pick English or Français as the default language for this instance."
+        }
+      },
+      "mail": {
+        "title": "Mail server",
+        "description": "Configure SMTP and send a test email so invitations and password resets work. Skip if you only create users locally.",
+        "guide": "Fill SMTP settings, test, then enable mail.",
+        "fields": {
+          "SMTP_HOST": "Enter your SMTP host (e.g. smtp.gmail.com).",
+          "SMTP_PORT": "Enter the SMTP port (often 587 for TLS).",
+          "SMTP_USERNAME": "Enter the SMTP username / account.",
+          "SMTP_PASSWORD": "Enter the SMTP password or app password.",
+          "SMTP_FROM_EMAIL": "Set the From email address used in outgoing mail.",
+          "MAIL_TEST_EMAIL": "Send a test email to verify the configuration.",
+          "MAIL_ENABLED": "After a successful test, enable the mail server."
+        }
+      },
+      "users": {
+        "title": "Invite your team",
+        "description": "Create or invite teammates in Admin → Users. Promote another admin if you want backup.",
+        "guide": "Add or invite users here — either path works.",
+        "fields": {
+          "addUser": "Click Add User to create or invite a teammate.",
+          "headerInvite": "Or use Invite in the top header to email an invitation."
+        }
+      },
+      "boards": {
+        "title": "Boards & columns",
+        "description": "Add boards and shape columns (including soft WIP / policy notes) to match how your team works. Rename a board by double-clicking its name in the board tabs.",
+        "guide": "Shape boards and columns here.",
+        "sections": {
+          "topOfScreen": "Top of the screen",
+          "tasksBoard": "Tasks board"
+        },
+        "fields": {
+          "addBoard": "Use + to add a board for a project or team.",
+          "boardTitle": "Double-click a board name in the tabs to rename it.",
+          "columnTitle": "Click a column title to rename it, and to set soft WIP and policy notes.",
+          "columnMenu": "Open a column’s ⋮ to insert or delete columns."
+        }
+      },
+      "tagsPriorities": {
+        "title": "Tags & priorities",
+        "description": "Review tags and priority levels so cards can be categorized from day one.",
+        "guide": "Set up tags, then priorities.",
+        "fields": {
+          "addTag": "Add tags your team will use on cards.",
+          "prioritiesTab": "Next, open the Priorities tab to review priority levels.",
+          "addPriority": "Add or adjust priority levels and colors."
+        }
+      },
+      "sprints": {
+        "title": "Sprints",
+        "description": "Optional: create planning periods if you want sprint filters and burndown.",
+        "guide": "Create a sprint when you are ready.",
+        "fields": {
+          "createSprint": "Click Create Sprint to add a planning period."
+        }
+      },
+      "sso": {
+        "title": "Google SSO",
+        "description": "Optional: enable Google OAuth so the team can sign in with Google.",
+        "guide": "Enter Google OAuth credentials.",
+        "fields": {
+          "GOOGLE_CLIENT_ID": "Paste your Google OAuth Client ID.",
+          "GOOGLE_CLIENT_SECRET": "Paste your Google OAuth Client Secret.",
+          "GOOGLE_CALLBACK_URL": "Confirm the callback URL matches your Google Cloud console."
+        }
+      },
+      "licensing": {
+        "title": "Licensing",
+        "description": "Optional: review seat limits and license status for this instance.",
+        "guide": "Review license and seat usage.",
+        "fields": {
+          "panel": "Check your plan, seat limits, and usage here."
+        }
+      },
+      "reporting": {
+        "title": "Reports",
+        "description": "Optional: enable reports and gamification if you want analytics for the team.",
+        "guide": "Enable reporting if you want it.",
+        "fields": {
+          "REPORTS_ENABLED": "Toggle Reports on to give the team analytics and burndown."
+        }
+      },
+      "finish": {
+        "title": "You're ready",
+        "description": "Core setup is in your hands. Take the product Tutorial from Help anytime, and reopen this checklist from Help if you need it again.",
+        "guide": "Setup complete."
+      }
     }
   }
 }

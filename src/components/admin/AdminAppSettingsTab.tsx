@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Sparkles } from 'lucide-react';
 import AdminFileUploadsTab from './AdminFileUploadsTab';
@@ -9,6 +9,8 @@ import api from '../../api';
 import { ALL_TROUBLESHOOTING_SETTING_KEYS } from '../../constants/clientDebugKeys';
 import { useSettings } from '../../contexts/SettingsContext';
 import { toast } from '../../utils/toast';
+import { adminSettingsHaveChanges } from '../../utils/adminSettingsDirty';
+import { AdminUnsavedHint } from './AdminUnsavedChanges';
 
 interface AdminAppSettingsTabProps {
   settings: { [key: string]: string | undefined };
@@ -242,10 +244,15 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
     window.location.hash = hashByTab[tab];
   };
 
-  // Listen for hash changes (back/forward navigation)
+  // Listen for hash changes (back/forward navigation within App Settings only)
   useEffect(() => {
     const handleHashChange = () => {
-      const tab = subTabFromHash(window.location.hash);
+      const hash = window.location.hash;
+      // Ignore Admin tab switches (e.g. → mail-server) so we don't fight navigation
+      if (!hash.startsWith('#admin#app-settings')) {
+        return;
+      }
+      const tab = subTabFromHash(hash);
       if (tab === 'troubleshooting' && !showTroubleshootingTab) {
         setActiveSubTab('ui');
         window.location.hash = '#admin#app-settings#user-interface';
@@ -267,9 +274,10 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
     }
   };
 
-  const hasChanges = () => {
-    return JSON.stringify(settings) !== JSON.stringify(editingSettings);
-  };
+  const hasChanges = useMemo(
+    () => adminSettingsHaveChanges(settings, editingSettings),
+    [settings, editingSettings]
+  );
 
   const handleAppLanguageChange = (value: string) => {
     onSettingsChange({
@@ -563,7 +571,7 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
 
             <div className="px-6 py-4 space-y-6">
               {/* Default Application Language Setting */}
-              <div className="flex items-start justify-between">
+              <div className="flex items-start justify-between" data-setting-key="APP_LANGUAGE">
                 <div className="flex-1">
                   <label className="text-sm font-medium text-gray-700 dark:text-gray-300 block mb-1">
                     {t('appSettings.defaultApplicationLanguage')}
@@ -757,22 +765,30 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
         </div>
 
             {/* Action Buttons - Always show for manual save fields (position, width, height) */}
-            <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-700 flex justify-end space-x-3">
-              <button
-                type="button"
-                onClick={onCancel}
-                className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-              >
-                {t('appSettings.cancel')}
-              </button>
-              <button
-                type="button"
-                onClick={handleSave}
-                disabled={isSaving || !hasChanges()}
-                className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {isSaving ? t('appSettings.saving') : t('appSettings.saveChanges')}
-              </button>
+            <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-700 flex flex-wrap items-center justify-between gap-3">
+              <AdminUnsavedHint show={hasChanges} />
+              <div className="flex space-x-3 ml-auto">
+                <button
+                  type="button"
+                  onClick={onCancel}
+                  disabled={isSaving || !hasChanges}
+                  className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {t('appSettings.cancel')}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSave}
+                  disabled={isSaving || !hasChanges}
+                  className={`px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed ${
+                    hasChanges
+                      ? 'bg-blue-600 hover:bg-blue-700 ring-2 ring-amber-400 ring-offset-2'
+                      : 'bg-blue-600'
+                  }`}
+                >
+                  {isSaving ? t('appSettings.saving') : t('appSettings.saveChanges')}
+                </button>
+              </div>
             </div>
           </div>
         </>

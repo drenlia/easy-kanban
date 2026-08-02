@@ -2,6 +2,9 @@
   "title": "Admin",
   "adminPanel": "Panneau d'administration",
   "adminPanelDescription": "Gérer les utilisateurs, les paramètres du site et la configuration de l'authentification",
+  "unsavedChanges": "Modifications non enregistrées",
+  "discardChanges": "Abandonner",
+  "saveChanges": "Enregistrer",
   "accessDenied": "Accès refusé",
   "noPermissionToAccess": "Vous n'avez pas la permission d'accéder à cette page.",
   "goBackHome": "Retour à l'accueil",
@@ -264,15 +267,10 @@
     "googleCallbackUrl": "URL de rappel Google",
     "googleCallbackUrlPlaceholder": "ex. : https://votredomaine.com/api/auth/google/callback",
     "googleCallbackUrlDescription": "Cela doit correspondre exactement à ce que vous configurez dans Google Cloud Console. Incluez l'URL complète avec le protocole. https://votredomaine.com/api/auth/google/callback",
-    "enableDebugLogging": "Activer la journalisation de débogage SSO Google",
-    "debugLoggingDescription": "Lorsqu'elle est activée, des journaux d'authentification SSO Google détaillés seront affichés dans la console du serveur à des fins de débogage.",
-    "debugLoggingNote": "⚠️ Note : Un redémarrage du service/Docker peut être nécessaire pour que les modifications des journaux de débogage prennent effet en raison de la mise en cache.",
     "hotReloadEnabled": "Rechargement à chaud activé",
     "hotReloadDescription": "Les paramètres Google OAuth sont automatiquement rechargés lorsque vous enregistrez les modifications. Aucun redémarrage de l'application n'est requis pour la plupart des paramètres.",
     "tip": "Astuce",
     "reloadOAuthConfigTip": "Utilisez le bouton \"Recharger la configuration OAuth\" si vous devez forcer un rechargement.",
-    "note": "Note",
-    "debugLoggingRestartNote": "Les modifications de la journalisation de débogage peuvent nécessiter un redémarrage du service en raison de la mise en cache en mémoire.",
     "saveConfiguration": "Enregistrer la configuration",
     "reloadOAuthConfig": "🔄 Recharger la configuration OAuth",
     "cancel": "Annuler"
@@ -533,6 +531,10 @@
       "SERVER_DEBUG_SETTINGS": {
         "label": "Paramètres",
         "description": "Journaux verbeux lors de la mise à jour des paramètres."
+      },
+      "SERVER_DEBUG_GOOGLE_SSO": {
+        "label": "SSO Google",
+        "description": "Journaux détaillés de connexion Google OAuth dans la console serveur (échange de jeton, recherche d'utilisateur)."
       }
     },
     "emailThrottling": "Limitation des emails",

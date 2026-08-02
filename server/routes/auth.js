@@ -376,9 +376,13 @@ router.get('/demo-credentials', async (req, res) => {
   }
 });
 
+function isGoogleSsoDebugEnabled(settingsObj) {
+  return settingsObj?.SERVER_DEBUG_GOOGLE_SSO === 'true' || settingsObj?.GOOGLE_SSO_DEBUG === 'true';
+}
+
 // Helper function for conditional debug logging
 function debugLog(settingsObj, ...args) {
-  if (settingsObj && settingsObj.GOOGLE_SSO_DEBUG === 'true') {
+  if (isGoogleSsoDebugEnabled(settingsObj)) {
     console.log(...args);
   }
 }
@@ -402,12 +406,17 @@ async function getOAuthSettings(db) {
   };
   
   // Always log basic OAuth config status, detailed logs only if debug enabled
-  console.log('🔄 [GOOGLE SSO] OAuth settings loaded:', Object.keys(settingsObj).filter(k => k !== 'GOOGLE_SSO_DEBUG').map(k => `${k}: ${settingsObj[k] ? '✓' : '✗'}`).join(', '), `[DEBUG: ${settingsObj.GOOGLE_SSO_DEBUG === 'true' ? 'ON' : 'OFF'}]`);
+  const oauthKeys = ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'GOOGLE_CALLBACK_URL'];
+  console.log(
+    '🔄 [GOOGLE SSO] OAuth settings loaded:',
+    oauthKeys.map((k) => `${k}: ${settingsObj[k] ? '✓' : '✗'}`).join(', '),
+    `[DEBUG: ${isGoogleSsoDebugEnabled(settingsObj) ? 'ON' : 'OFF'}]`
+  );
   debugLog(settingsObj, '🔄 [GOOGLE SSO] OAuth settings details:', {
     GOOGLE_CLIENT_ID: settingsObj.GOOGLE_CLIENT_ID ? `${settingsObj.GOOGLE_CLIENT_ID.substring(0, 20)}...` : 'NOT_SET',
     GOOGLE_CLIENT_SECRET: settingsObj.GOOGLE_CLIENT_SECRET ? 'SET' : 'NOT_SET',
     GOOGLE_CALLBACK_URL: settingsObj.GOOGLE_CALLBACK_URL || 'NOT_SET',
-    DEBUG_ENABLED: settingsObj.GOOGLE_SSO_DEBUG === 'true'
+    DEBUG_ENABLED: isGoogleSsoDebugEnabled(settingsObj)
   });
   
   return settingsObj;

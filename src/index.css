@@ -352,3 +352,24 @@ body {
   border-radius: 0.375rem;
   transition: outline-color 0.3s ease;
 }
+
+/* Owner Configuration guide — all related fields for Guide me */
+.owner-setup-field-highlight {
+  outline: 2px solid rgb(245 158 11);
+  outline-offset: 4px;
+  border-radius: 0.375rem;
+  box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.2);
+  animation: owner-setup-field-pulse 1.6s ease-in-out infinite;
+  position: relative;
+  z-index: 1;
+}
+
+@keyframes owner-setup-field-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.18);
+  }
+  50% {
+    box-shadow: 0 0 0 8px rgba(245, 158, 11, 0.28);
+  }
+}

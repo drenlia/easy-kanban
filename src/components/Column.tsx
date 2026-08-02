@@ -199,6 +199,11 @@ export default function KanbanColumn({
   );
   const [policyText, setPolicyText] = useState(column.policy_text || '');
   const [showMenu, setShowMenu] = useState(false);
+  const columnMenuButtonRef = useRef<HTMLButtonElement | null>(null);
+  const [columnMenuPosition, setColumnMenuPosition] = useState<{
+    top: number;
+    left: number;
+  } | null>(null);
 
   const visibilityWarning = columnWarnings?.[column.id];
   const hiddenTaskFilterList = useMemo(() => {
@@ -354,26 +359,55 @@ export default function KanbanColumn({
     );
   };
 
-  // Auto-close menu when clicking outside
+  const openColumnMenu = () => {
+    const button = columnMenuButtonRef.current;
+    if (!button) {
+      setShowMenu(true);
+      return;
+    }
+    const rect = button.getBoundingClientRect();
+    const menuWidth = 192; // w-48
+    const left = Math.max(8, Math.min(rect.right - menuWidth, window.innerWidth - menuWidth - 8));
+    setColumnMenuPosition({
+      top: rect.bottom + 4,
+      left,
+    });
+    setShowMenu(true);
+  };
+
+  // Auto-close menu when clicking outside; keep portaled menu aligned on scroll/resize
   React.useEffect(() => {
+    if (!showMenu) return;
+
     const handleClickOutside = (event: MouseEvent) => {
-      if (showMenu) {
-        const target = event.target as HTMLElement;
-        // Check if click is outside the menu button and menu content
-        if (!target.closest('.column-menu-container')) {
-          setShowMenu(false);
-        }
+      const target = event.target as HTMLElement;
+      if (
+        !target.closest('.column-menu-container') &&
+        !target.closest('.column-management-menu-portal')
+      ) {
+        setShowMenu(false);
+        setColumnMenuPosition(null);
       }
     };
 
-    // Add event listener when menu is open
-    if (showMenu) {
-      document.addEventListener('mousedown', handleClickOutside);
-    }
+    const reposition = () => {
+      const button = columnMenuButtonRef.current;
+      if (!button) return;
+      const rect = button.getBoundingClientRect();
+      const menuWidth = 192;
+      setColumnMenuPosition({
+        top: rect.bottom + 4,
+        left: Math.max(8, Math.min(rect.right - menuWidth, window.innerWidth - menuWidth - 8)),
+      });
+    };
 
-    // Cleanup event listener
+    document.addEventListener('mousedown', handleClickOutside);
+    window.addEventListener('resize', reposition);
+    window.addEventListener('scroll', reposition, true);
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
+      window.removeEventListener('resize', reposition);
+      window.removeEventListener('scroll', reposition, true);
     };
   }, [showMenu]);
 
@@ -1247,58 +1281,94 @@ export default function KanbanColumn({
             </KanbanChromeTooltip>
           )}
         
-          {/* Column Management Menu - Admin Only */}
+          {/* Column Management Menu - Admin Only (menu portaled so Select-all strip cannot clip it) */}
           {isAdmin && (
             <div className="relative column-menu-container flex items-center">
               <KanbanChromeTooltip label={t('column.columnManagementOptions')}>
                 <button
-                  onClick={() => setShowMenu(!showMenu)}
+                  ref={columnMenuButtonRef}
+                  type="button"
+                  onClick={() => {
+                    if (showMenu) {
+                      setShowMenu(false);
+                      setColumnMenuPosition(null);
+                    } else {
+                      openColumnMenu();
+                    }
+                  }}
                   className="p-1 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full transition-colors"
                   disabled={isSubmitting}
                   data-tour-id="column-management-menu"
+                  aria-expanded={showMenu}
+                  aria-haspopup="menu"
                 >
                   <MoreVertical size={18} className="text-gray-500 dark:text-gray-400" />
                 </button>
               </KanbanChromeTooltip>
-              
-              {showMenu && (
-                <div className="absolute right-0 mt-2 w-48 bg-white dark:bg-gray-800 rounded-md shadow-lg z-[200] border border-gray-100 dark:border-gray-700">
-                  <button
-                    onClick={() => {
-                      onAddColumn(column.id);
-                      setShowMenu(false);
-                    }}
-                    className="w-full text-left px-4 py-2 text-sm text-gray-600 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
-                    disabled={isSubmitting}
+
+              {showMenu &&
+                columnMenuPosition &&
+                createPortal(
+                  <div
+                    className="column-management-menu-portal fixed w-48 bg-white dark:bg-gray-800 rounded-md shadow-lg z-[10000] border border-gray-100 dark:border-gray-700"
+                    style={{ top: columnMenuPosition.top, left: columnMenuPosition.left }}
+                    role="menu"
                   >
-                    {t('column.addColumn')}
-                  </button>
-                  <button
-                    ref={setDeleteButtonRef}
-                    onClick={(e) => {
-                      // Capture column header position for dialog alignment
-                      // Defer DOM read to avoid forced reflow during event handler
-                      if (columnHeaderRef.current) {
-                        requestAnimationFrame(() => {
-                          if (columnHeaderRef.current) {
-                            const headerRect = columnHeaderRef.current.getBoundingClientRect();
-                            setDeleteButtonPosition({
-                              top: headerRect.bottom + 8,
-                              left: headerRect.left
-                            });
-                          }
-                        });
-                      }
-                      onRemoveColumn(column.id);
-                      setShowMenu(false);
-                    }}
-                    className="w-full text-left px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-gray-100 dark:hover:bg-gray-700"
-                    disabled={isSubmitting}
-                  >
-                    {t('column.deleteColumn')}
-                  </button>
-                </div>
-              )}
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setShouldSelectAll(true);
+                        setIsEditing(true);
+                        setShowMenu(false);
+                        setColumnMenuPosition(null);
+                      }}
+                      className="w-full text-left px-4 py-2 text-sm text-gray-600 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
+                      disabled={isSubmitting}
+                    >
+                      {t('column.editColumn')}
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        onAddColumn(column.id);
+                        setShowMenu(false);
+                        setColumnMenuPosition(null);
+                      }}
+                      className="w-full text-left px-4 py-2 text-sm text-gray-600 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
+                      disabled={isSubmitting}
+                    >
+                      {t('column.addColumn')}
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      ref={setDeleteButtonRef}
+                      onClick={() => {
+                        if (columnHeaderRef.current) {
+                          requestAnimationFrame(() => {
+                            if (columnHeaderRef.current) {
+                              const headerRect = columnHeaderRef.current.getBoundingClientRect();
+                              setDeleteButtonPosition({
+                                top: headerRect.bottom + 8,
+                                left: headerRect.left,
+                              });
+                            }
+                          });
+                        }
+                        onRemoveColumn(column.id);
+                        setShowMenu(false);
+                        setColumnMenuPosition(null);
+                      }}
+                      className="w-full text-left px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-gray-100 dark:hover:bg-gray-700"
+                      disabled={isSubmitting}
+                    >
+                      {t('column.deleteColumn')}
+                    </button>
+                  </div>,
+                  document.body
+                )}
             </div>
           )}
         </div>

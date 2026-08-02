@@ -320,6 +320,11 @@ router.put('/bulk', authenticateToken, requireRole(['admin']), async (req, res, 
       clearSqlDebugSettingsCache();
     }
 
+    // Google SSO auth routes cache OAuth settings (including debug flag)
+    if (Object.prototype.hasOwnProperty.call(applied, 'SERVER_DEBUG_GOOGLE_SSO') && global.oauthConfigCache) {
+      global.oauthConfigCache.invalidated = true;
+    }
+
     const tenantId = getTenantId(req);
     await notificationService.publish(
       'settings-updated',

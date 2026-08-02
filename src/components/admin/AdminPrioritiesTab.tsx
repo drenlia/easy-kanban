@@ -386,6 +386,7 @@ const AdminPrioritiesTab: React.FC<AdminPrioritiesTabProps> = ({
             </div>
             <button
               onClick={() => setShowAddPriorityForm(true)}
+              data-owner-setup="add-priority"
               className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
             >
               {t('priorities.addPriority')}

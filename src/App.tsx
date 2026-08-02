@@ -7,6 +7,8 @@ import DebugPanel from './components/DebugPanel';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { TourProvider } from './contexts/TourContext';
 import TourNudge from './components/tour/TourNudge';
+import { OwnerSetupProvider } from './contexts/OwnerSetupContext';
+import OwnerSetupChecklist from './components/ownerSetup/OwnerSetupChecklist';
 import { SettingsProvider, useSettings } from './contexts/SettingsContext';
 import Login from './components/Login';
 import ForgotPassword from './components/ForgotPassword';
@@ -1404,8 +1406,17 @@ function AppContent() {
   // Mock socket object for compatibility with existing UI (removed unused variable)
 
   // Header event handlers
-  const handlePageChange = (page: 'kanban' | 'admin' | 'reports' | 'test') => {
+  /** Optional `hash` avoids clobbering Admin tab deep-links (e.g. admin#tags). */
+  const handlePageChange = (
+    page: 'kanban' | 'admin' | 'reports' | 'test',
+    options?: { hash?: string }
+  ) => {
     setCurrentPage(page);
+    if (options?.hash) {
+      // Keep leading-hash-free form; Admin also listens for easy-kanban:admin-navigate
+      window.location.hash = options.hash.replace(/^#/, '');
+      return;
+    }
     if (page === 'kanban') {
       // If there was a previously selected board, restore it
       if (selectedBoard) {
@@ -4124,6 +4135,15 @@ function AppContent() {
 
   return (
     <ThemeProvider>
+    <OwnerSetupProvider
+      currentUser={currentUser}
+      boards={boards}
+      memberCount={members.length}
+      sprintCount={availableSprints.length}
+      tagCount={availableTags.length}
+      priorityCount={availablePriorities.length}
+      onPageChange={handlePageChange}
+    >
     <TourProvider currentUser={currentUser} onViewModeChange={handleViewModeChange} onPageChange={handlePageChange}>
       <div className="min-h-screen flex flex-col" style={{ backgroundColor: 'var(--main-bg)' }}>
       {/* Demo Reset Counter is now rendered in Header component */}
@@ -4467,6 +4487,7 @@ function AppContent() {
       
       {/* Toast Notifications */}
       <ToastContainer />
+      <OwnerSetupChecklist />
       <TourNudge />
 
       {/* Debug: Log admin status */}
@@ -4477,6 +4498,7 @@ function AppContent() {
         </div>
       )}
     </TourProvider>
+    </OwnerSetupProvider>
     </ThemeProvider>
   );
 }

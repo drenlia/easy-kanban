@@ -1,18 +1,19 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { isMaskedApiKeyDisplay } from '../../utils/maskSecret';
-import { ModernCheckbox } from '../ModernCheckbox';
+import { adminSettingsHaveChanges } from '../../utils/adminSettingsDirty';
+import { AdminUnsavedHint } from './AdminUnsavedChanges';
 
 interface Settings {
   GOOGLE_CLIENT_ID?: string;
   GOOGLE_CLIENT_SECRET?: string;
   GOOGLE_CLIENT_SECRET_SET?: string;
   GOOGLE_CALLBACK_URL?: string;
-  GOOGLE_SSO_DEBUG?: string;
   [key: string]: string | undefined;
 }
 
 interface AdminSSOTabProps {
+  settings: Settings;
   editingSettings: Settings;
   onSettingsChange: (settings: Settings) => void;
   onSave: () => void;
@@ -21,6 +22,7 @@ interface AdminSSOTabProps {
 }
 
 const AdminSSOTab: React.FC<AdminSSOTabProps> = ({
+  settings,
   editingSettings,
   onSettingsChange,
   onSave,
@@ -28,6 +30,10 @@ const AdminSSOTab: React.FC<AdminSSOTabProps> = ({
   onReloadOAuth,
 }) => {
   const { t } = useTranslation('admin');
+  const hasChanges = useMemo(
+    () => adminSettingsHaveChanges(settings, editingSettings),
+    [settings, editingSettings]
+  );
   const handleInputChange = (key: string, value: string) => {
     onSettingsChange({ ...editingSettings, [key]: value });
   };
@@ -113,23 +119,6 @@ const AdminSSOTab: React.FC<AdminSSOTabProps> = ({
           </p>
         </div>
         
-        <div>
-          <label className="flex items-center">
-            <ModernCheckbox
-              checked={editingSettings.GOOGLE_SSO_DEBUG === 'true'}
-              onChange={(e) => handleInputChange('GOOGLE_SSO_DEBUG', e.target.checked ? 'true' : 'false')}
-              size="sm"
-            />
-            <span className="ml-2 text-sm font-medium text-gray-700 dark:text-gray-300">{t('sso.enableDebugLogging')}</span>
-          </label>
-          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            {t('sso.debugLoggingDescription')}
-          </p>
-          <p className="mt-1 text-xs text-amber-600 dark:text-amber-400 font-medium">
-            {t('sso.debugLoggingNote')}
-          </p>
-        </div>
-        
         <div className="bg-blue-50 dark:bg-blue-900 border border-blue-200 dark:border-blue-700 rounded-md p-4">
           <div className="flex">
             <div className="flex-shrink-0">
@@ -146,32 +135,41 @@ const AdminSSOTab: React.FC<AdminSSOTabProps> = ({
                 <p className="mt-1">
                   <strong>{t('sso.tip')}:</strong> {t('sso.reloadOAuthConfigTip')}
                 </p>
-                <p className="mt-1 text-xs text-blue-600 dark:text-blue-400">
-                  <strong>{t('sso.note')}:</strong> {t('sso.debugLoggingRestartNote')}
-                </p>
               </div>
             </div>
           </div>
         </div>
-        <div className="flex space-x-3">
-          <button
-            onClick={() => onSave()}
-            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
-          >
-            {t('sso.saveConfiguration')}
-          </button>
-          <button
-            onClick={onReloadOAuth}
-            className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2"
-          >
-            {t('sso.reloadOAuthConfig')}
-          </button>
-          <button
-            onClick={onCancel}
-            className="px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2"
-          >
-            {t('sso.cancel')}
-          </button>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <AdminUnsavedHint show={hasChanges} />
+          <div className="flex flex-wrap space-x-3 ml-auto">
+            <button
+              type="button"
+              onClick={onCancel}
+              disabled={!hasChanges}
+              className="px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {t('sso.cancel')}
+            </button>
+            <button
+              type="button"
+              onClick={onReloadOAuth}
+              className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2"
+            >
+              {t('sso.reloadOAuthConfig')}
+            </button>
+            <button
+              type="button"
+              onClick={() => onSave()}
+              disabled={!hasChanges}
+              className={`px-4 py-2 text-white rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed ${
+                hasChanges
+                  ? 'bg-blue-600 hover:bg-blue-700 ring-2 ring-amber-400 ring-offset-2'
+                  : 'bg-blue-600'
+              }`}
+            >
+              {t('sso.saveConfiguration')}
+            </button>
+          </div>
         </div>
       </div>
     </div>

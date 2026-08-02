@@ -398,24 +398,35 @@ export async function getSetting(db, key) {
 
 /**
  * Get OAuth settings (Google SSO configuration)
- * 
+ *
  * @param {Database} db - Database connection
- * @returns {Promise<Object>} Settings object with GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_CALLBACK_URL, GOOGLE_SSO_DEBUG
+ * @returns {Promise<Object>} Settings with GOOGLE_CLIENT_*, SERVER_DEBUG_GOOGLE_SSO (legacy GOOGLE_SSO_DEBUG merged in)
  */
 export async function getOAuthSettings(db) {
   const query = `
     SELECT key, value 
     FROM settings 
-    WHERE key IN ($1, $2, $3, $4)
+    WHERE key IN ($1, $2, $3, $4, $5)
   `;
   
   const stmt = wrapQuery(db.prepare(query), 'SELECT');
-  const results = await stmt.all('GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'GOOGLE_CALLBACK_URL', 'GOOGLE_SSO_DEBUG');
+  const results = await stmt.all(
+    'GOOGLE_CLIENT_ID',
+    'GOOGLE_CLIENT_SECRET',
+    'GOOGLE_CALLBACK_URL',
+    'SERVER_DEBUG_GOOGLE_SSO',
+    'GOOGLE_SSO_DEBUG'
+  );
   
   const settingsObj = {};
   results.forEach(setting => {
     settingsObj[setting.key] = setting.value;
   });
+
+  // Prefer SERVER_DEBUG_GOOGLE_SSO; fall back to legacy GOOGLE_SSO_DEBUG until migrated away
+  const debugOn =
+    settingsObj.SERVER_DEBUG_GOOGLE_SSO === 'true' || settingsObj.GOOGLE_SSO_DEBUG === 'true';
+  settingsObj.SERVER_DEBUG_GOOGLE_SSO = debugOn ? 'true' : 'false';
 
   if (settingsObj.GOOGLE_CLIENT_SECRET) {
     try {

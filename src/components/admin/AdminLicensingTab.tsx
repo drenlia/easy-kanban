@@ -606,7 +606,7 @@ const AdminLicensingTab: React.FC<AdminLicensingTabProps> = ({ currentUser, sett
   };
 
   return (
-    <div className="p-6">
+    <div className="p-6" data-owner-setup="licensing-panel">
       <div className="mb-6">
         <div className="flex items-center justify-between">
           <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">{t('licensing.title')}</h2>

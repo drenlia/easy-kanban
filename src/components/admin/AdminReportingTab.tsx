@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { toast } from '../../utils/toast';
 import { Save, Trophy, TrendingUp, Settings, Database, Eye, EyeOff } from 'lucide-react';
 import { useSettings } from '../../contexts/SettingsContext';
+import { AdminUnsavedHint } from './AdminUnsavedChanges';
 
 interface ReportingSettings {
   REPORTS_ENABLED: string;
@@ -271,7 +272,7 @@ const AdminReportingTab: React.FC = () => {
         </h3>
 
         <div className="space-y-4">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between" data-setting-key="REPORTS_ENABLED">
             <div>
               <div className="font-medium text-gray-900 dark:text-white">{t('reporting.enableReportsModule')}</div>
               <div className="text-sm text-gray-600 dark:text-gray-400">
@@ -519,31 +520,40 @@ const AdminReportingTab: React.FC = () => {
       </div>
 
       {/* Save Button */}
-      <div className="flex justify-end gap-3">
-        <button
-          onClick={handleReset}
-          className="px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-          disabled={saving || !hasChanges}
-        >
-          {t('reporting.reset')}
-        </button>
-        <button
-          onClick={handleSave}
-          disabled={saving || !hasChanges}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {saving ? (
-            <>
-              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-              {t('reporting.saving')}
-            </>
-          ) : (
-            <>
-              <Save className="w-4 h-4" />
-              {t('reporting.saveChanges')}
-            </>
-          )}
-        </button>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <AdminUnsavedHint show={hasChanges} />
+        <div className="flex justify-end gap-3 ml-auto">
+          <button
+            type="button"
+            onClick={handleReset}
+            className="px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            disabled={saving || !hasChanges}
+          >
+            {t('reporting.reset')}
+          </button>
+          <button
+            type="button"
+            onClick={handleSave}
+            disabled={saving || !hasChanges}
+            className={`flex items-center gap-2 px-4 py-2 text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+              hasChanges
+                ? 'bg-blue-500 hover:bg-blue-600 ring-2 ring-amber-400 ring-offset-2'
+                : 'bg-blue-500'
+            }`}
+          >
+            {saving ? (
+              <>
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                {t('reporting.saving')}
+              </>
+            ) : (
+              <>
+                <Save className="w-4 h-4" />
+                {t('reporting.saveChanges')}
+              </>
+            )}
+          </button>
+        </div>
       </div>
     </div>
   );

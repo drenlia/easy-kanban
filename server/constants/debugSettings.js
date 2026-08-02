@@ -31,7 +31,8 @@ export const DEBUG_SETTING_DEFAULTS = Object.freeze([
   ...FE_PUBLIC_DEBUG_FLAG_KEYS.map((k) => /** @type {[string, string]} */ ([k, 'false'])),
   ['SERVER_DEBUG_SETTINGS', 'false'],
   ['SERVER_DEBUG_HTTP', 'false'],
-  ['SERVER_DEBUG_SQL', 'false']
+  ['SERVER_DEBUG_SQL', 'false'],
+  ['SERVER_DEBUG_GOOGLE_SSO', 'false']
 ]);
 
 /** Keys allowed on PUT /api/admin/settings/bulk (troubleshooting / debug flags only). */

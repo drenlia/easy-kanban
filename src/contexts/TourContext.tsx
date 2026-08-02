@@ -27,7 +27,10 @@ interface TourProviderProps {
   children: React.ReactNode;
   currentUser: any;
   onViewModeChange?: (mode: 'kanban' | 'list' | 'gantt') => void;
-  onPageChange?: (page: 'kanban' | 'admin' | 'reports') => void;
+  onPageChange?: (
+    page: 'kanban' | 'admin' | 'reports',
+    options?: { hash?: string }
+  ) => void;
 }
 
 /** Scroll an admin tab button into the horizontal tab strip before Joyride measures it. */
@@ -66,13 +69,15 @@ function prepareAdminTourTarget(
   if (!isAdmin || !targetSelector.startsWith('[data-tour-id="admin-')) return;
 
   const currentHash = window.location.hash;
-  if (onPageChange && !currentHash.includes('admin')) {
-    onPageChange('admin');
-  }
-
   const tabMatch = targetSelector.match(/admin-([^"]+)/);
-  if (tabMatch?.[1] && tabMatch[1] !== 'tab' && tabMatch[1] !== 'tabs') {
-    const tabName = tabMatch[1];
+  const tabName =
+    tabMatch?.[1] && tabMatch[1] !== 'tab' && tabMatch[1] !== 'tabs'
+      ? tabMatch[1]
+      : null;
+
+  if (onPageChange && (!currentHash.includes('admin') || tabName)) {
+    onPageChange('admin', tabName ? { hash: `admin#${tabName}` } : undefined);
+  } else if (tabName) {
     const expectedHash = `#admin#${tabName}`;
     if (!currentHash.includes(`#${tabName}`) || currentHash !== expectedHash) {
       window.location.hash = `admin#${tabName}`;

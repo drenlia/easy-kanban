@@ -466,6 +466,27 @@ const migrations = [
 
       console.log('✅ Migration 24: Board positions normalized');
     }
+  },
+  {
+    version: 25,
+    name: 'add_server_debug_google_sso',
+    description:
+      'Add SERVER_DEBUG_GOOGLE_SSO (Troubleshooting) and copy value from legacy GOOGLE_SSO_DEBUG',
+    up: async (db) => {
+      const { settings: settingsQueries } = await import('../utils/sqlManager/index.js');
+
+      const existing = await settingsQueries.getSettingByKey(db, 'SERVER_DEBUG_GOOGLE_SSO');
+      const legacy = await settingsQueries.getSettingByKey(db, 'GOOGLE_SSO_DEBUG');
+      const initialValue = legacy?.value === 'true' ? 'true' : 'false';
+
+      if (!existing) {
+        await settingsQueries.createSetting(db, 'SERVER_DEBUG_GOOGLE_SSO', initialValue);
+      } else if (legacy?.value === 'true' && existing.value !== 'true') {
+        await settingsQueries.updateSetting(db, 'SERVER_DEBUG_GOOGLE_SSO', 'true');
+      }
+
+      console.log('✅ Migration 25: SERVER_DEBUG_GOOGLE_SSO ready');
+    }
   }
 ];
 

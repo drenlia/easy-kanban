@@ -428,6 +428,7 @@
     "title": "Aide Easy Kanban",
     "pressF1": "Appuyez sur F1 à tout moment pour ouvrir cette aide",
     "startTutorial": "Démarrer le tutoriel",
+    "ownerSetup": "Guide de configuration",
     "gotIt": "Compris !",
     "searchPlaceholder": "Rechercher dans l'aide...",
     "switchToFrench": "Switch to French",
@@ -1208,6 +1209,140 @@
       "adminReporting": "Configurez les fonctionnalités de rapport, y compris la gamification, la visibilité du classement et les paramètres d'achievements. Activez ou désactivez diverses capacités de rapport pour votre équipe.",
       "adminLifecycle": "Gérez le cycle de vie des éléments supprimés et archivés. Définissez les périodes de rétention (purge) automatique, restaurez les tâches et tableaux en suppression récupérable, ou purgez-les définitivement lorsqu'ils ne sont plus nécessaires.",
       "systemPanelToggle": "Utilisez ce bouton pour afficher ou masquer le panneau de métriques système. Lorsqu'il est activé, vous verrez la surveillance en temps réel de la RAM, du CPU et de l'utilisation du disque. Votre préférence est enregistrée et persistera entre les sessions."
+    }
+  },
+  "ownerSetup": {
+    "title": "Guide de configuration",
+    "subtitle": "Configurez votre instance. Marquez les étapes terminées quand cela vous convient — vous gardez le contrôle.",
+    "minimizedTitle": "Guide de configuration",
+    "progressCount": "{{done}} / {{total}} étapes",
+    "coreComplete": "Étapes essentielles terminées",
+    "optional": "Facultatif",
+    "minimize": "Réduire pour plus tard",
+    "expand": "Agrandir le guide de configuration",
+    "dismiss": "Fermer le guide",
+    "dragHint": "Glisser horizontalement pour repositionner",
+    "focusModeHint": "Étape en cours",
+    "showAllSteps": "Afficher toutes les étapes",
+    "goThere": "Y aller",
+    "guideMe": "Me guider",
+    "guideIntro": "Champs mis en évidence à mettre à jour :",
+    "guideDone": "Terminé — étape suivante",
+    "markDone": "Marquer terminé",
+    "skip": "Passer",
+    "reopen": "Rouvrir l'étape",
+    "suggestedHint": "Semble déjà configuré — confirmez avec Marquer terminé quand vous êtes satisfait.",
+    "steps": {
+      "welcome": {
+        "title": "Bienvenue",
+        "description": "Vous êtes le propriétaire de l'instance. Cette liste couvre l'essentiel pour préparer votre espace. Réduisez-la à tout moment et rouvrez-la depuis l'Aide.",
+        "guide": "Bienvenue dans le guide de configuration."
+      },
+      "siteIdentity": {
+        "title": "Nom du site et URL",
+        "description": "Définissez le nom du site, le logo et l'URL publique dans Admin → Paramètres du site pour les e-mails et l'en-tête. Utiliser « / » pour l'URL convient généralement.",
+        "guide": "Mettez à jour ces champs des Paramètres du site.",
+        "fields": {
+          "SITE_NAME": "Saisissez le nom du site — il apparaît dans l'en-tête et les e-mails.",
+          "SITE_URL": "Définissez l'URL publique du site. Utiliser « / » convient généralement.",
+          "SITE_LOGO": "Facultatif : téléversez un logo pour le mode clair (logo sombre en dessous)."
+        }
+      },
+      "language": {
+        "title": "Langue par défaut",
+        "description": "Choisissez la langue par défaut (EN/FR) dans Admin → Paramètres de l'application pour les nouveaux tableaux et messages système.",
+        "guide": "Choisissez la langue par défaut de l'application.",
+        "fields": {
+          "APP_LANGUAGE": "Choisissez English ou Français comme langue par défaut de l'instance."
+        }
+      },
+      "mail": {
+        "title": "Serveur de messagerie",
+        "description": "Configurez SMTP et envoyez un e-mail de test pour les invitations et réinitialisations. Passez si vous créez les utilisateurs uniquement en local.",
+        "guide": "Remplissez SMTP, testez, puis activez le courrier.",
+        "fields": {
+          "SMTP_HOST": "Saisissez l'hôte SMTP (ex. smtp.gmail.com).",
+          "SMTP_PORT": "Saisissez le port SMTP (souvent 587 pour TLS).",
+          "SMTP_USERNAME": "Saisissez le nom d'utilisateur / compte SMTP.",
+          "SMTP_PASSWORD": "Saisissez le mot de passe SMTP ou le mot de passe d'application.",
+          "SMTP_FROM_EMAIL": "Définissez l'adresse From des e-mails sortants.",
+          "MAIL_TEST_EMAIL": "Envoyez un e-mail de test pour vérifier la configuration.",
+          "MAIL_ENABLED": "Après un test réussi, activez le serveur de messagerie."
+        }
+      },
+      "users": {
+        "title": "Inviter l'équipe",
+        "description": "Créez ou invitez des coéquipiers dans Admin → Utilisateurs. Promouvez un autre admin si vous voulez un relais.",
+        "guide": "Ajoutez ou invitez des utilisateurs ici — les deux chemins fonctionnent.",
+        "fields": {
+          "addUser": "Cliquez sur Ajouter un utilisateur pour créer ou inviter un coéquipier.",
+          "headerInvite": "Ou utilisez Inviter dans l’en-tête pour envoyer une invitation par e-mail."
+        }
+      },
+      "boards": {
+        "title": "Tableaux et colonnes",
+        "description": "Ajoutez des tableaux et formez les colonnes (WIP souple / notes de politique) selon le travail de votre équipe. Pour renommer un tableau, double-cliquez son nom dans les onglets.",
+        "guide": "Formez les tableaux et colonnes ici.",
+        "sections": {
+          "topOfScreen": "Haut de l'écran",
+          "tasksBoard": "Tableau des tâches"
+        },
+        "fields": {
+          "addBoard": "Utilisez + pour ajouter un tableau pour un projet ou une équipe.",
+          "boardTitle": "Double-cliquez le nom d'un tableau dans les onglets pour le renommer.",
+          "columnTitle": "Cliquez sur le titre d'une colonne pour le renommer, et pour définir le WIP souple et les notes de politique.",
+          "columnMenu": "Ouvrez le ⋮ d'une colonne pour insérer ou supprimer des colonnes."
+        }
+      },
+      "tagsPriorities": {
+        "title": "Étiquettes et priorités",
+        "description": "Vérifiez les étiquettes et niveaux de priorité pour catégoriser les cartes dès le début.",
+        "guide": "Configurez les étiquettes, puis les priorités.",
+        "fields": {
+          "addTag": "Ajoutez les étiquettes que l'équipe utilisera sur les cartes.",
+          "prioritiesTab": "Ensuite, ouvrez l'onglet Priorités pour revoir les niveaux.",
+          "addPriority": "Ajoutez ou ajustez les niveaux de priorité et les couleurs."
+        }
+      },
+      "sprints": {
+        "title": "Sprints",
+        "description": "Facultatif : créez des périodes de planification pour les filtres de sprint et le burndown.",
+        "guide": "Créez un sprint quand vous êtes prêt.",
+        "fields": {
+          "createSprint": "Cliquez sur Créer un sprint pour ajouter une période de planification."
+        }
+      },
+      "sso": {
+        "title": "SSO Google",
+        "description": "Facultatif : activez Google OAuth pour que l'équipe se connecte avec Google.",
+        "guide": "Saisissez les identifiants Google OAuth.",
+        "fields": {
+          "GOOGLE_CLIENT_ID": "Collez votre Client ID Google OAuth.",
+          "GOOGLE_CLIENT_SECRET": "Collez votre Client Secret Google OAuth.",
+          "GOOGLE_CALLBACK_URL": "Vérifiez que l'URL de callback correspond à la console Google Cloud."
+        }
+      },
+      "licensing": {
+        "title": "Licence",
+        "description": "Facultatif : consultez les limites de sièges et l'état de la licence.",
+        "guide": "Consultez la licence et l'utilisation des sièges.",
+        "fields": {
+          "panel": "Vérifiez ici votre forfait, les limites et l'utilisation."
+        }
+      },
+      "reporting": {
+        "title": "Rapports",
+        "description": "Facultatif : activez les rapports et la gamification si vous voulez des analyses d'équipe.",
+        "guide": "Activez les rapports si vous le souhaitez.",
+        "fields": {
+          "REPORTS_ENABLED": "Activez Rapports pour offrir analyses et burndown à l'équipe."
+        }
+      },
+      "finish": {
+        "title": "Vous êtes prêt",
+        "description": "La configuration essentielle est entre vos mains. Lancez le tutoriel produit depuis l'Aide, et rouvrez cette liste depuis l'Aide si besoin.",
+        "guide": "Configuration terminée."
+      }
     }
   }
 }
