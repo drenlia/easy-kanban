@@ -36,22 +36,24 @@ Easy Kanban is **not** a full enterprise agile ALM (no required Epic/Story types
 - **Task view modes** - Compact, shrink, and expand views for optimal screen space
 - **Task toolbar** - Quick actions on hover (assign members, change priority, add tags, copy tasks)
 - **Quick edit** - Inline editing without opening full task details
+- **Multi-select & bulk actions** - Select tasks (per card or Select all per column); bulk tag, copy, sprint, priority, archive, delete, and move to another board; drag multi-selected tasks between columns
 - **Task watchers & collaborators** - Add team members to watch or collaborate on tasks
 - **Requesters** - Track who requested each task
 - **Sprint association** - Organize tasks by time-based planning periods
-
+- **Soft delete & trash** - Deleted tasks go to board trash; restore or permanently purge
 ### Team & Collaboration
 - **Team management** with color-coded member assignments
 - **Activity feed** - Draggable panel showing real-time changes, comments, and team activity
 - **Member filtering** - Filter tasks by assignees, watchers, collaborators, requesters, and system tasks
 
 ### Views & Navigation
-- **Kanban View** - Visual board with drag-and-drop between columns
+- **Kanban View** - Visual board with drag-and-drop between columns (including cross-board drops onto board tabs)
 - **List View** - Table format with sorting, filtering, column configuration, and horizontal scrolling
-- **Gantt View** - Timeline view with task dependencies, visual arrows, and virtual scrolling
+- **Gantt View** - Timeline view with task dependencies, visual arrows, and date move/resize
 - **Advanced search & filtering** - Filter by text, dates, members, priorities, tags, project IDs, and sprints
 - **Saved filters** - Save and share frequently used filter combinations
 - **Sprint filtering** - Filter tasks by sprint or view backlog (unassigned tasks)
+- **EN / FR localization** - Switch language from preferences
 
 ### Reporting & Analytics
 - **Reports module** - Comprehensive analytics and insights (when enabled)
@@ -63,9 +65,9 @@ Easy Kanban is **not** a full enterprise agile ALM (no required Epic/Story types
 
 ### Admin Features
 - **User management** - Create, edit, invite, activate/deactivate users, assign roles
-- **Board & column management** - Create, rename, reorder, and delete boards and columns; set soft WIP and policy text per column
-- **Site settings** - Configure site name, URL, and global preferences
-- **SSO configuration** - Google OAuth Single Sign-On setup
+- **Board & column management** - Create, rename, reorder, and soft-delete boards and columns; set soft WIP and policy text per column
+- **Lifecycle (trash)** - Restore or permanently purge soft-deleted tasks and boards; configure retention/auto-purge
+- **Site settings** - Configure site name, URL, branding (logo light/dark), and global preferences- **SSO configuration** - Google OAuth Single Sign-On setup
 - **Mail server** - SMTP configuration for email notifications and invitations
 - **AI Settings** - Enable the AI Agent, choose LLM provider/model, and configure the agent runner
 - **Tags management** - Create and manage custom tags with colors
@@ -78,9 +80,11 @@ Easy Kanban is **not** a full enterprise agile ALM (no required Epic/Story types
 - **System monitoring** - Real-time resource monitoring (RAM, CPU, disk usage)
 
 ### Data & Export
+- **Soft-delete restore** - Recover tasks and boards from trash (board trash + Admin → Lifecycle)
 - **Export functionality** - Export tasks to CSV or Excel format (admin only)
 - **Excel export** - Multi-sheet Excel files with proper formatting when exporting all boards
 - **File uploads** - Task attachments and user avatars with size and type restrictions
+- **Database backup** - PostgreSQL dump/restore scripts (see [Database Backup & Restore](#database-backup--restore))
 
 ### Additional Features
 - **Email notifications** - Configurable email notifications for task activities
@@ -121,6 +125,7 @@ Easy Kanban is **not** a full enterprise agile ALM (no required Epic/Story types
 | Assign tasks to AI Agent (when enabled) | ✓ | ✓ |
 | Configure AI Agent / runner | ✓ | ✗ |
 | Create/edit/delete boards | ✓ | ✗ |
+| Soft-delete / restore boards (Lifecycle) | ✓ | ✗ |
 | Reorder boards and columns | ✓ | ✗ |
 | Manage columns (add/remove/reorder) | ✓ | ✗ |
 | Access Admin panel | ✓ | ✗ |
@@ -129,13 +134,15 @@ Easy Kanban is **not** a full enterprise agile ALM (no required Epic/Story types
 | Configure Google OAuth | ✓ | ✗ |
 | Configure mail server | ✓ | ✗ |
 | Manage tags and priorities | ✓ | ✗ |
+| Lifecycle retention & permanent purge | ✓ | ✗ |
 | Export data (CSV/Excel) | ✓ | ✗ |
 | Access Reports (when enabled) | ✓ | ✓* |
 | View Leaderboard (when enabled) | ✓ | ✓* |
 | Update own profile | ✓ | ✓ |
 | Configure own notifications | ✓ | ✓ |
 | Manage own Dev credentials (API token / SSH) | ✓ | ✓ |
-
+| Multi-select / bulk task actions | ✓ | ✓ |
+| Restore own trashed tasks (board trash) | ✓ | ✓ |
 *Some reports may be restricted to admins only depending on settings
 
 ## Requirements

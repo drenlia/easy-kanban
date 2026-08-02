@@ -1,9 +1,10 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { X, Users, Columns, ClipboardList, MessageSquare, ArrowRight, LayoutGrid, List, Calendar, Search, Eye, Settings, Play, BarChart3, Shield, Download, Bot, KeyRound } from 'lucide-react';
+import { X, Users, Columns, ClipboardList, MessageSquare, ArrowRight, LayoutGrid, List, Calendar, Search, Eye, Settings, Play, BarChart3, Shield, Download, Bot, KeyRound, CheckSquare, AlertTriangle, Trash2 } from 'lucide-react';
 import { useTour } from '../contexts/TourContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { versionDetection } from '../utils/versionDetection';
+import { updateUserPreference } from '../utils/userPreferences';
 import { CurrentUser } from '../types';
 
 interface HelpModalProps {
@@ -15,7 +16,7 @@ interface HelpModalProps {
 type TabType = 'overview' | 'kanban' | 'list' | 'gantt' | 'reports' | 'ai' | 'admin';
 
 export default function HelpModal({ isOpen, onClose, currentUser }: HelpModalProps) {
-  const { t } = useTranslation('common');
+  const { t, i18n } = useTranslation('common');
   const { siteSettings, systemSettings } = useSettings();
   const modalRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -29,6 +30,20 @@ export default function HelpModal({ isOpen, onClose, currentUser }: HelpModalPro
   const isAdmin = currentUser?.roles?.includes('admin') || false;
   const aiEnabled =
     siteSettings?.AI_ENABLED === 'true' || systemSettings?.AI_ENABLED === 'true';
+
+  const currentLanguage = useMemo(() => {
+    if (i18n.language?.startsWith('fr')) return 'fr';
+    if (i18n.language?.startsWith('en')) return 'en';
+    return 'en';
+  }, [i18n.language]);
+
+  const handleLanguageToggle = async () => {
+    const newLanguage = currentLanguage === 'en' ? 'fr' : 'en';
+    await i18n.changeLanguage(newLanguage);
+    if (currentUser) {
+      void updateUserPreference('language', newLanguage, currentUser.id);
+    }
+  };
 
   // Leave AI tab if AI is turned off while the modal is open
   useEffect(() => {
@@ -223,6 +238,17 @@ export default function HelpModal({ isOpen, onClose, currentUser }: HelpModalPro
   }, [t, debouncedSearchTerm, highlightText, anyTextMatches]);
 
   const renderOverviewTab = () => {
+    const navigationKeys = isAdmin
+      ? ['help.overview.boardSelectorAdmin', 'help.overview.boardTrash', 'help.overview.viewModes', 'help.overview.searchFilter', 'help.overview.userProfile', 'help.overview.activityFeed', 'help.overview.adminPanel']
+      : ['help.overview.boardSelector', 'help.overview.taskTrash', 'help.overview.viewModes', 'help.overview.searchFilter', 'help.overview.userProfile', 'help.overview.activityFeed'];
+    const roleListKeys = [
+      'help.overview.assignees',
+      'help.overview.watchers',
+      'help.overview.collaborators',
+      'help.overview.requesters',
+      ...(isAdmin ? ['help.overview.system'] : []),
+    ];
+
     const sections = [
       renderSection(
         'help.overview.whatIsEasyKanban',
@@ -232,7 +258,7 @@ export default function HelpModal({ isOpen, onClose, currentUser }: HelpModalPro
       ),
       renderSection(
         'help.overview.navigation',
-        ['help.overview.boardSelector', 'help.overview.viewModes', 'help.overview.searchFilter', 'help.overview.userProfile', 'help.overview.activityFeed', 'help.overview.adminPanel'],
+        navigationKeys,
         ArrowRight,
         'text-green-500'
       ),
@@ -245,13 +271,13 @@ export default function HelpModal({ isOpen, onClose, currentUser }: HelpModalPro
       renderSectionWithList(
         'help.overview.teamManagement',
         ['help.overview.teamMembers', 'help.overview.memberSelection', 'help.overview.clearButton', 'help.overview.roleBasedFiltering'],
-        ['help.overview.assignees', 'help.overview.watchers', 'help.overview.collaborators', 'help.overview.requesters', 'help.overview.system'],
+        roleListKeys,
         Users,
         'text-purple-500'
       ),
       renderSection(
         'help.overview.tools',
-        ['help.overview.views', 'help.overview.searchFilterTools', 'help.overview.taskViewModes', 'help.overview.activityFeedTools', 'help.overview.userProfileTools', 'help.overview.realtimeCollaboration', 'help.overview.keyboardShortcuts'],
+        ['help.overview.views', 'help.overview.searchFilterTools', 'help.overview.multiSelectTools', 'help.overview.taskViewModes', 'help.overview.activityFeedTools', 'help.overview.userProfileTools', 'help.overview.realtimeCollaboration', 'help.overview.keyboardShortcuts'],
         Settings,
         'text-orange-500'
       ),
@@ -270,13 +296,25 @@ export default function HelpModal({ isOpen, onClose, currentUser }: HelpModalPro
       ),
       renderSection(
         'help.kanban.taskManagement',
-        ['help.kanban.createTasks', 'help.kanban.editTasks', 'help.kanban.editTasksSprint', 'help.kanban.editTasksQuick', 'help.kanban.editTasksDates', 'help.kanban.editTasksAssignee', 'help.kanban.editTasksPriority', 'help.kanban.taskDetailsClick', 'help.kanban.moveTasks', 'help.kanban.reorderTasks', 'help.kanban.copyTasks', 'help.kanban.deleteTasks', 'help.kanban.taskToolbar'],
+        ['help.kanban.createTasks', 'help.kanban.editTasks', 'help.kanban.editTasksSprint', 'help.kanban.editTasksQuick', 'help.kanban.editTasksDates', 'help.kanban.editTasksAssignee', 'help.kanban.editTasksPriority', 'help.kanban.taskDetailsClick', 'help.kanban.moveTasks', 'help.kanban.reorderTasks', 'help.kanban.copyTasks', isAdmin ? 'help.kanban.deleteTasksAdmin' : 'help.kanban.deleteTasks', 'help.kanban.taskToolbar'],
         ClipboardList,
         'text-orange-500'
       ),
       renderSection(
+        'help.kanban.multiSelect',
+        ['help.kanban.multiSelectDesc1', 'help.kanban.multiSelectDesc2', 'help.kanban.multiSelectDesc3'],
+        CheckSquare,
+        'text-cyan-600'
+      ),
+      renderSection(
+        'help.kanban.flowAids',
+        ['help.kanban.flowAidsWip', 'help.kanban.flowAidsAging', 'help.kanban.flowAidsBlocked', 'help.kanban.flowAidsPolicy'],
+        AlertTriangle,
+        'text-amber-500'
+      ),
+      renderSection(
         'help.kanban.dragDrop',
-        ['help.kanban.crossColumnMovement', 'help.kanban.withinColumnReordering', 'help.kanban.visualFeedback', 'help.kanban.autoSave'],
+        ['help.kanban.crossColumnMovement', 'help.kanban.crossBoardMovement', 'help.kanban.withinColumnReordering', 'help.kanban.visualFeedback', 'help.kanban.autoSave'],
         ArrowRight,
         'text-teal-500'
       ),
@@ -288,7 +326,7 @@ export default function HelpModal({ isOpen, onClose, currentUser }: HelpModalPro
       ),
       ...(isAdmin ? [renderSection(
         'help.kanban.columnManagement',
-        ['help.kanban.createColumns', 'help.kanban.renameColumns', 'help.kanban.reorderColumns', 'help.kanban.deleteColumns', 'help.kanban.finishedColumns'],
+        ['help.kanban.createColumns', 'help.kanban.renameColumns', 'help.kanban.reorderColumns', 'help.kanban.deleteColumns', 'help.kanban.finishedColumns', 'help.kanban.columnWipPolicy'],
         Columns,
         'text-purple-500'
       )] : []),
@@ -319,7 +357,7 @@ export default function HelpModal({ isOpen, onClose, currentUser }: HelpModalPro
       ),
       renderSection(
         'help.list.taskActions',
-        ['help.list.quickActions', 'help.list.statusChanges', 'help.list.directEditing', 'help.list.taskDetails'],
+        [isAdmin ? 'help.list.quickActionsAdmin' : 'help.list.quickActions', 'help.list.statusChanges', 'help.list.directEditing', 'help.list.taskDetails'],
         ClipboardList,
         'text-green-500'
       ),
@@ -356,7 +394,7 @@ export default function HelpModal({ isOpen, onClose, currentUser }: HelpModalPro
       ),
       renderSection(
         'help.gantt.taskManagement',
-        ['help.gantt.createTasks', 'help.gantt.editTasks', 'help.gantt.resizeTasks', 'help.gantt.moveTasks', 'help.gantt.reorderTasks', 'help.gantt.copyTasks', 'help.gantt.deleteTasks'],
+        ['help.gantt.createTasks', 'help.gantt.editTasks', 'help.gantt.resizeTasks', 'help.gantt.moveTasks', 'help.gantt.reorderTasks', 'help.gantt.copyTasks', isAdmin ? 'help.gantt.deleteTasksAdmin' : 'help.gantt.deleteTasks'],
         ClipboardList,
         'text-orange-500'
       ),
@@ -548,6 +586,12 @@ export default function HelpModal({ isOpen, onClose, currentUser }: HelpModalPro
         'text-purple-500'
       ),
       renderSection(
+        'help.admin.lifecycle',
+        ['help.admin.lifecycleDesc', 'help.admin.lifecycleRetention'],
+        Trash2,
+        'text-amber-600'
+      ),
+      renderSection(
         'help.admin.licensing',
         ['help.admin.licensingDesc'],
         Shield,
@@ -588,48 +632,65 @@ export default function HelpModal({ isOpen, onClose, currentUser }: HelpModalPro
     switch (tabId) {
       case 'overview':
         tabKeys.push('help.overview.whatIsEasyKanban', 'help.overview.whatIsEasyKanbanDesc1', 'help.overview.whatIsEasyKanbanDesc2',
-          'help.overview.navigation', 'help.overview.boardSelector', 'help.overview.viewModes', 'help.overview.searchFilter',
-          'help.overview.userProfile', 'help.overview.activityFeed', 'help.overview.adminPanel', 'help.overview.sprints',
+          'help.overview.navigation', 'help.overview.viewModes', 'help.overview.searchFilter',
+          'help.overview.userProfile', 'help.overview.activityFeed', 'help.overview.sprints',
           'help.overview.sprintsDesc1', 'help.overview.sprintsDesc2', 'help.overview.sprintFilter', 'help.overview.teamManagement',
           'help.overview.teamMembers', 'help.overview.memberSelection', 'help.overview.clearButton', 'help.overview.roleBasedFiltering',
           'help.overview.assignees', 'help.overview.watchers', 'help.overview.collaborators', 'help.overview.requesters',
-          'help.overview.system', 'help.overview.tools', 'help.overview.views', 'help.overview.searchFilterTools',
-          'help.overview.taskViewModes', 'help.overview.activityFeedTools', 'help.overview.userProfileTools',
+          'help.overview.tools', 'help.overview.views', 'help.overview.searchFilterTools',
+          'help.overview.multiSelectTools', 'help.overview.taskViewModes', 'help.overview.activityFeedTools', 'help.overview.userProfileTools',
           'help.overview.realtimeCollaboration', 'help.overview.keyboardShortcuts');
+        if (isAdmin) {
+          tabKeys.push('help.overview.boardSelectorAdmin', 'help.overview.boardTrash', 'help.overview.adminPanel', 'help.overview.system');
+        } else {
+          tabKeys.push('help.overview.boardSelector', 'help.overview.taskTrash');
+        }
         break;
       case 'kanban':
         tabKeys.push('help.kanban.overview', 'help.kanban.overviewDesc1', 'help.kanban.overviewDesc2', 'help.kanban.overviewDesc3',
           'help.kanban.taskManagement', 'help.kanban.createTasks', 'help.kanban.editTasks', 'help.kanban.editTasksSprint',
           'help.kanban.editTasksQuick', 'help.kanban.editTasksDates', 'help.kanban.editTasksAssignee', 'help.kanban.editTasksPriority',
           'help.kanban.taskDetailsClick', 'help.kanban.moveTasks', 'help.kanban.reorderTasks', 'help.kanban.copyTasks',
-          'help.kanban.deleteTasks', 'help.kanban.taskToolbar', 'help.kanban.dragDrop', 'help.kanban.crossColumnMovement',
-          'help.kanban.withinColumnReordering', 'help.kanban.visualFeedback', 'help.kanban.autoSave', 'help.kanban.taskDetailsComm',
+          'help.kanban.taskToolbar', 'help.kanban.multiSelect', 'help.kanban.multiSelectDesc1',
+          'help.kanban.multiSelectDesc2', 'help.kanban.multiSelectDesc3', 'help.kanban.flowAids', 'help.kanban.flowAidsWip',
+          'help.kanban.flowAidsAging', 'help.kanban.flowAidsBlocked', 'help.kanban.flowAidsPolicy', 'help.kanban.dragDrop',
+          'help.kanban.crossColumnMovement', 'help.kanban.crossBoardMovement', 'help.kanban.withinColumnReordering',
+          'help.kanban.visualFeedback', 'help.kanban.autoSave', 'help.kanban.taskDetailsComm',
           'help.kanban.taskInformation', 'help.kanban.comments', 'help.kanban.attachments', 'help.kanban.priorityLevels',
-          'help.kanban.tags', 'help.kanban.watchers', 'help.kanban.collaborators', 'help.kanban.taskRelationships',
-          'help.kanban.columnManagement', 'help.kanban.createColumns', 'help.kanban.renameColumns', 'help.kanban.reorderColumns',
-          'help.kanban.deleteColumns', 'help.kanban.finishedColumns');
+          'help.kanban.tags', 'help.kanban.watchers', 'help.kanban.collaborators', 'help.kanban.taskRelationships');
+        tabKeys.push(isAdmin ? 'help.kanban.deleteTasksAdmin' : 'help.kanban.deleteTasks');
+        if (isAdmin) {
+          tabKeys.push(
+            'help.kanban.columnManagement', 'help.kanban.createColumns', 'help.kanban.renameColumns', 'help.kanban.reorderColumns',
+            'help.kanban.deleteColumns', 'help.kanban.finishedColumns', 'help.kanban.columnWipPolicy'
+          );
+        }
         break;
       case 'list':
         tabKeys.push('help.list.overview', 'help.list.overviewDesc1', 'help.list.overviewDesc2', 'help.list.overviewDesc3',
           'help.list.columnConfiguration', 'help.list.showHideColumns', 'help.list.defaultColumns', 'help.list.columnPersistence',
           'help.list.horizontalScrolling', 'help.list.sortingFiltering', 'help.list.sortByColumn', 'help.list.multiLevelSorting',
           'help.list.searchIntegration', 'help.list.savedFilters', 'help.list.advancedFiltering', 'help.list.taskActions',
-          'help.list.quickActions', 'help.list.statusChanges', 'help.list.directEditing', 'help.list.taskDetails',
+          'help.list.statusChanges', 'help.list.directEditing', 'help.list.taskDetails',
           'help.list.dataDisplay', 'help.list.richText', 'help.list.dateFormatting', 'help.list.priorityIndicators',
-          'help.list.memberAvatars', 'help.list.tagDisplay', 'help.list.commentCounts', 'help.list.statusIndicators',
-          'help.list.export', 'help.list.exportDesc', 'help.list.exportFormats', 'help.list.exportScopes',
-          'help.list.exportFields', 'help.list.exportExcel');
+          'help.list.memberAvatars', 'help.list.tagDisplay', 'help.list.commentCounts', 'help.list.statusIndicators');
+        tabKeys.push(isAdmin ? 'help.list.quickActionsAdmin' : 'help.list.quickActions');
+        if (isAdmin) {
+          tabKeys.push('help.list.export', 'help.list.exportDesc', 'help.list.exportFormats', 'help.list.exportScopes',
+            'help.list.exportFields', 'help.list.exportExcel');
+        }
         break;
       case 'gantt':
         tabKeys.push('help.gantt.overview', 'help.gantt.overviewDesc1', 'help.gantt.overviewDesc2', 'help.gantt.overviewDesc3',
           'help.gantt.timelineNavigation', 'help.gantt.scrollNavigation', 'help.gantt.todayButton', 'help.gantt.taskNavigation',
           'help.gantt.relationshipMode', 'help.gantt.taskManagement', 'help.gantt.createTasks', 'help.gantt.editTasks',
           'help.gantt.resizeTasks', 'help.gantt.moveTasks', 'help.gantt.reorderTasks', 'help.gantt.copyTasks',
-          'help.gantt.deleteTasks', 'help.gantt.dependencies', 'help.gantt.createDependencies', 'help.gantt.dependencyTypes',
+          'help.gantt.dependencies', 'help.gantt.createDependencies', 'help.gantt.dependencyTypes',
           'help.gantt.visualArrows', 'help.gantt.cycleDetection', 'help.gantt.taskRelationships', 'help.gantt.timelineFeatures',
           'help.gantt.timelineNavigationDesc', 'help.gantt.todayIndicator', 'help.gantt.lateBadge', 'help.gantt.columnOrganization',
           'help.gantt.realtimeUpdatesTimeline', 'help.gantt.performance', 'help.gantt.virtualScrolling', 'help.gantt.lazyLoading',
           'help.gantt.realtimeUpdates', 'help.gantt.keyboardShortcuts', 'help.gantt.performanceMonitoring');
+        tabKeys.push(isAdmin ? 'help.gantt.deleteTasksAdmin' : 'help.gantt.deleteTasks');
         break;
       case 'reports':
         tabKeys.push('help.reports.overview', 'help.reports.overviewDesc', 'help.reports.myStats', 'help.reports.myStatsDesc',
@@ -664,7 +725,8 @@ export default function HelpModal({ isOpen, onClose, currentUser }: HelpModalPro
             'help.admin.mailServer', 'help.admin.mailServerDesc', 'help.admin.tags', 'help.admin.tagsDesc',
             'help.admin.priorities', 'help.admin.prioritiesDesc', 'help.admin.appSettings', 'help.admin.appSettingsDesc',
             'help.admin.projectSettings', 'help.admin.projectSettingsDesc', 'help.admin.sprintSettings', 'help.admin.sprintSettingsDesc',
-            'help.admin.reporting', 'help.admin.reportingDesc', 'help.admin.licensing', 'help.admin.licensingDesc');
+            'help.admin.reporting', 'help.admin.reportingDesc', 'help.admin.lifecycle', 'help.admin.lifecycleDesc',
+            'help.admin.lifecycleRetention', 'help.admin.licensing', 'help.admin.licensingDesc');
         }
         break;
     }
@@ -702,6 +764,15 @@ export default function HelpModal({ isOpen, onClose, currentUser }: HelpModalPro
                 </button>
               )}
             </div>
+            <button
+              type="button"
+              onClick={handleLanguageToggle}
+              className="px-2.5 py-2 text-sm font-medium text-gray-700 dark:text-gray-200 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-lg transition-colors border border-gray-300 dark:border-gray-600 hover:border-blue-400 dark:hover:border-blue-500"
+              title={currentLanguage === 'en' ? t('help.switchToFrench') : t('help.switchToEnglish')}
+              aria-label={currentLanguage === 'en' ? t('help.switchToFrench') : t('help.switchToEnglish')}
+            >
+              {currentLanguage === 'en' ? 'FR' : 'EN'}
+            </button>
             <button
               onClick={handleStartTour}
               className="flex items-center gap-2 px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition-colors font-medium"

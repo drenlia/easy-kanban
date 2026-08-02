@@ -14,7 +14,9 @@
 7. [Task Management](#task-management)
 8. [User Profile & Settings](#user-profile--settings)
 9. [Admin Section](#admin-section-admin-only)
+   - [Lifecycle](#lifecycle-admin-only)
 10. [Advanced Features](#advanced-features)
+   - [Soft delete & trash](#soft-delete--trash)
 11. [AI Agent](#ai-agent)
 12. [Keyboard Shortcuts](#keyboard-shortcuts)
 13. [Troubleshooting](#troubleshooting)
@@ -28,16 +30,21 @@ Easy-Kanban is a comprehensive project management platform that combines Kanban 
 **Platform:** PostgreSQL-backed (single-tenant Docker or multi-tenant Kubernetes). Real-time updates use PostgreSQL `LISTEN/NOTIFY` with Socket.IO (Redis adapter for multi-pod deployments).
 
 ### Key Features
-- **Multi-board Kanban system** with drag-and-drop functionality
+- **Multi-board Kanban system** with drag-and-drop (including cross-board drops)
+- **Soft WIP limits**, card aging, blocked flags, and column policy notes
+- **Multiple views**: Kanban, List, and Gantt
 - **Real-time collaboration** - see changes instantly as team members work
 - **User authentication** with local accounts and Google OAuth support
 - **Role-based access control** (Admin/User permissions)
 - **Team management** with color-coded member assignments
-- **Task management** with priorities, comments, and file attachments
+- **Task management** with priorities, comments, attachments, and relationships
+- **Multi-select & bulk actions** - tag, copy, sprint, priority, archive, delete, move board; multi-drag between columns
+- **Soft delete & trash** - restore or permanently purge tasks and boards (board trash + Admin → Lifecycle)
 - **AI Agent** (optional) — assign tasks to an Agent that can comment (**Assist**), work a linked Git repo (**Code**), or (admins) run board **Automation** with dry-run Apply/Undo (see [AI Agent](#ai-agent))
-- **Admin panel** for user management and system configuration
+- **Admin panel** for users, branding, mail, SSO, sprints, reporting, licensing, and lifecycle
 - **File uploads** for task attachments and user avatars
 - **Site branding** - custom logo (light/dark), optional hide logo / GitHub link
+- **EN / FR localization**
 
 ### User Roles
 - **Admin**: Full access to all features including user management and system configuration
@@ -124,14 +131,16 @@ The **Tools** card on the Kanban page controls board layout and card density.
 3. Click "Create Board" to confirm
 
 ### Board Operations (Admin Only)
-- **Edit Board**: Double-click on board tab → "Edit Board"
-- **Delete Board**: Click x on board tab
-- **Reorder Boards**: Drag and drop board tabs to reorder using handle
+- **Edit Board**: Double-click board tab to rename
+- **Delete Board**: Soft-delete to trash (confirms with total task count); peers are notified and switched off the board
+- **Reorder Boards**: Drag board tabs using the handle
+- **Restore Board**: Admin → Lifecycle (or restore board when restoring its tasks)
 
 ### Board Settings
 - **Board Title**: Displayed in the tab
-- **Column Management**: Add, edit, delete, and reorder columns
+- **Column Management**: Add, edit, delete, and reorder columns; soft WIP limits and policy text
 - **Task Management**: Create, edit, delete, and move tasks
+- **Board trash**: Toggle trash on the board tabs to restore or permanently purge soft-deleted tasks for that board
 
 ---
 
@@ -147,6 +156,8 @@ The Kanban view displays tasks as cards in columns, representing different stage
 
 #### Column Management
 - **Column Headers**: Show column name and task count
+- **Soft WIP limits**: Warn when at/over limit (moves still allowed)
+- **Policy notes**: Short entry/exit guidance on the column
 - **Add Column Button** (Admin Only): `+` button at the end of columns
 - **Column Settings** (Admin Only): click column header for options:
   - Edit column name
@@ -162,11 +173,20 @@ The Kanban view displays tasks as cards in columns, representing different stage
 - **Agent activity** (when AI is on): spinner while the Agent is queued/running/waiting; open the activity modal from the card toolbar for live logs, pause/stop/resume
 - **Tags**: Color-coded tags
 - **Dates**: Start and due date
+- **Card aging**: Days spent in the current column
+- **Blocked**: Optional blocked flag/reason
 - **Watchers / collaborators / attachments**: Reflected on the card; side-panel edits update the board in real time
+- **Checkbox**: Multi-select for bulk actions
+
+#### Multi-select & bulk actions
+- **Select all** (per column): Checkbox strip above columns
+- **Bulk action bar**: Tag, copy, sprint, priority, move to board (admin), archive, delete; unselect all
+- **Bulk move**: Drag one selected card to move all checked cards in that column together
 
 #### Drag & Drop Operations
 - **Move Tasks**: Drag task cards between columns
 - **Reorder Tasks**: Drag tasks within the same column
+- **Cross-board move**: Drop a task onto another board tab
 - **Move Columns** (Admin Only): Drag column headers to reorder
 
 #### Task Creation
@@ -270,7 +290,7 @@ When you click on a task, the Task Details page opens with comprehensive task ma
 
 #### Task Actions
 - **Save Changes**: Save all modifications
-- **Delete Task**: Remove task permanently
+- **Delete Task**: Soft-delete to board trash (restore from trash or Admin → Lifecycle)
 - **Copy Task**: Duplicate task
 - **Link Tasks**: Create relationships with other tasks
 - **Assign to Agent** (when AI is enabled): Open the assign modal from the card toolbar or assignee control — see [AI Agent](#ai-agent)
@@ -395,6 +415,26 @@ The Admin section provides comprehensive system management capabilities.
 - **Notifications**: Task and system notifications
 - **Test Email**: Send test email to verify setup
 
+### Lifecycle (Admin Only)
+
+[Screenshot: Admin Lifecycle tab]
+
+Soft-deleted work stays recoverable until retention expires or an admin purges it.
+
+#### Deleted tasks
+- **Browse trash**: Filter soft-deleted tasks across boards
+- **Restore**: Return tasks to their board/column (prompts to restore the board first if it is still deleted)
+- **Permanent purge**: Delete forever (cannot be undone)
+- **Batch actions**: Restore or purge multiple selected tasks
+
+#### Deleted boards
+- **Restore board**: Brings the board back to the tab bar (tasks stay in trash until restored)
+- **Restore board then tasks**: When restoring tasks whose board is deleted, confirm to restore the board first, then the selected tasks
+- **Permanent purge**: Removes the board and related trash
+
+#### Retention
+- **Auto-purge settings**: Configure how long soft-deleted items are kept before automatic permanent deletion
+
 ### Priorities Management (Admin Only)
 
 [Screenshot: Priorities management interface]
@@ -498,6 +538,19 @@ Developer details (APIs, `task_work`, runner): [`docs/AI_INTEGRATION.md`](docs/A
 #### Archived Tasks
 - **View Archived**: Browse archived tasks
 - **Restore Tasks**: Move tasks back to active columns
+
+### Soft delete & trash
+
+Soft delete is separate from the Archive column: deleted items leave the active board and can be restored or purged.
+
+#### Board trash
+- **Open trash**: Toggle from the board tabs area
+- **Restore / purge**: Per task or in bulk for the current board
+- **Empty trash**: Permanently delete all trashed tasks on the board (admin)
+
+#### Admin Lifecycle
+- Cross-board restore and permanent purge for tasks and boards
+- Retention / auto-purge configuration (see [Lifecycle](#lifecycle-admin-only))
 
 ### Completed Tasks
 
