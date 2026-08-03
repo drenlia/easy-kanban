@@ -92,8 +92,8 @@ router.post('/request', passwordResetRequestLimiter, async (req, res) => {
     }
     
     const resetUrl = `${baseUrl}/#reset-password?token=${resetToken}`;
-    console.log('🔐 Password reset requested for:', user.email);
-    console.log('🔗 Reset URL:', resetUrl);
+    // Do not log resetUrl — it contains a usable secret token
+    console.log('🔐 Password reset requested for user id:', user.id);
     
     // Send email using EmailService (which handles MAIL_ENABLED check and SMTP_ settings internally)
     try {

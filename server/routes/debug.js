@@ -1,7 +1,10 @@
 import express from 'express';
+import { authenticateToken, requireRole } from '../middleware/auth.js';
 import { getQueryLogs, clearQueryLogs } from '../utils/queryLogger.js';
 
 const router = express.Router();
+
+router.use(authenticateToken, requireRole(['admin']));
 
 // Get query logs
 router.get('/logs', (req, res) => {
@@ -15,4 +18,3 @@ router.post('/logs/clear', (req, res) => {
 });
 
 export default router;
-

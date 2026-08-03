@@ -12,8 +12,18 @@ if (!JWT_SECRET) {
 }
 const JWT_EXPIRES_IN = '24h';
 
-// Debug: Log the JWT secret being used
-console.log('🔑 Auth middleware initialized with JWT_SECRET:', JWT_SECRET ? `${JWT_SECRET.substring(0, 8)}...` : 'undefined');
+console.log('🔑 Auth middleware initialized (JWT_SECRET configured)');
+
+function isUserActive(isActive) {
+  if (isActive === false || isActive === 0 || isActive === '0' || isActive === 'false') {
+    return false;
+  }
+  return true;
+}
+
+function primaryRole(roleNames) {
+  return roleNames.includes('admin') ? 'admin' : (roleNames[0] || 'user');
+}
 
 /**
  * Authenticate personal access tokens (ek_…). Used when JWT verification fails
@@ -45,7 +55,7 @@ async function authenticatePersonalAccessToken(req, rawToken) {
       'SELECT'
     ).get(row.user_id);
 
-    if (!userRow || userRow.is_active === false) {
+    if (!userRow || !isUserActive(userRow.is_active)) {
       return null;
     }
 
@@ -65,7 +75,7 @@ async function authenticatePersonalAccessToken(req, rawToken) {
     return {
       id: userRow.id,
       email: userRow.email,
-      role: roleNames[0] || 'user',
+      role: primaryRole(roleNames),
       roles: roleNames,
       authType: 'pat',
       tokenId: row.id
@@ -114,18 +124,46 @@ export const authenticateToken = async (req, res, next) => {
     const db = getRequestDatabase(req);
     if (db) {
       try {
-        const userInDb = await wrapQuery(db.prepare('SELECT id FROM users WHERE id = ?'), 'SELECT').get(user.id);
+        const userInDb = await wrapQuery(
+          db.prepare('SELECT id, email, is_active FROM users WHERE id = ?'),
+          'SELECT'
+        ).get(user.id);
         
         if (!userInDb) {
           console.log(`❌ [AUTH] Token validation failed: User ${user.email} (${user.id}) does not exist in database`);
           return res.status(401).json({ error: 'Invalid or expired token' });
         }
+
+        if (!isUserActive(userInDb.is_active)) {
+          console.log(`❌ [AUTH] Token validation failed: User ${userInDb.email} (${userInDb.id}) is inactive`);
+          return res.status(401).json({ error: 'Invalid or expired token' });
+        }
+
+        const roles = await wrapQuery(
+          db.prepare(`
+            SELECT r.name FROM roles r
+            JOIN user_roles ur ON r.id = ur.role_id
+            WHERE ur.user_id = $1
+          `),
+          'SELECT'
+        ).all(userInDb.id);
+        const roleNames = roles.map((r) => r.name);
+
+        req.user = {
+          id: userInDb.id,
+          email: userInDb.email,
+          role: primaryRole(roleNames),
+          roles: roleNames,
+          authType: 'jwt'
+        };
+        return next();
       } catch (dbError) {
         console.error('❌ [AUTH] Error checking user in database:', dbError);
         return res.status(401).json({ error: 'Authentication failed' });
       }
     }
     
+    // No DB available (should be rare) — fall back to JWT claims only
     req.user = { ...user, authType: 'jwt' };
     next();
   } catch (err) {
@@ -142,8 +180,13 @@ export const requireRole = (roles) => {
     if (!req.user) {
       return res.status(401).json({ error: 'Authentication required' });
     }
-    
-    if (!roles.includes(req.user.role)) {
+
+    const userRoles = Array.isArray(req.user.roles) ? req.user.roles : [];
+    const allowed =
+      roles.includes(req.user.role) ||
+      userRoles.some((r) => roles.includes(r));
+
+    if (!allowed) {
       return res.status(403).json({ error: 'Insufficient permissions' });
     }
     

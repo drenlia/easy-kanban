@@ -2932,6 +2932,8 @@ const TaskCard = React.memo(function TaskCard({
                             // Also replace any blob URLs in other contexts
                             fixedContent = fixedContent.replace(/blob:[^\s"')]+/gi, '');
                           }
+
+                          fixedContent = DOMPurify.sanitize(fixedContent);
                           
                           // Create a temporary div to parse the HTML
                           const tempDiv = document.createElement('div');

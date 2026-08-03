@@ -1,5 +1,19 @@
+import crypto from 'crypto';
+import { adminPortalLimiter } from './rateLimiters.js';
+
 // Admin Portal Authentication Middleware
 // This middleware validates INSTANCE_TOKEN for admin portal access
+
+function timingSafeEqualString(a, b) {
+  const bufA = Buffer.from(String(a), 'utf8');
+  const bufB = Buffer.from(String(b), 'utf8');
+  if (bufA.length !== bufB.length) {
+    // Constant-time-ish reject without leaking which side differed in length via early return alone
+    crypto.timingSafeEqual(bufA, bufA);
+    return false;
+  }
+  return crypto.timingSafeEqual(bufA, bufB);
+}
 
 export const authenticateAdminPortal = (req, res, next) => {
   const authHeader = req.headers['authorization'];
@@ -24,22 +38,18 @@ export const authenticateAdminPortal = (req, res, next) => {
     });
   }
 
-  // Validate the token (trim both to handle any whitespace issues)
   const trimmedToken = token.trim();
-  if (trimmedToken !== instanceToken) {
+  if (!timingSafeEqualString(trimmedToken, instanceToken)) {
     console.warn(`⚠️ Invalid admin portal token attempt from ${req.ip}`);
-    console.warn(`   Expected: ${instanceToken.substring(0, 20)}... (length: ${instanceToken.length})`);
-    console.warn(`   Received: ${trimmedToken.substring(0, 20)}... (length: ${trimmedToken.length})`);
     return res.status(403).json({ 
       error: 'Invalid admin portal token',
       message: 'The provided token does not match the instance token'
     });
   }
 
-  // Token is valid, add admin context to request
+  // Token is valid — do not attach the secret to the request object
   req.adminPortal = {
     authenticated: true,
-    instanceToken: instanceToken,
     instanceName: process.env.INSTANCE_NAME || 'easy-kanban-app',
     timestamp: new Date().toISOString()
   };
@@ -48,13 +58,5 @@ export const authenticateAdminPortal = (req, res, next) => {
   next();
 };
 
-// Optional: Add rate limiting for admin portal endpoints
-export const adminPortalRateLimit = (req, res, next) => {
-  // Simple rate limiting - can be enhanced with Redis-based rate limiting
-  const clientIP = req.ip || req.connection.remoteAddress;
-  
-  // For now, just log the request
-  console.log(`📊 Admin portal request from ${clientIP}: ${req.method} ${req.path}`);
-  
-  next();
-};
+/** Real rate limiter (express-rate-limit). Prefer this over the legacy no-op name. */
+export const adminPortalRateLimit = adminPortalLimiter;
