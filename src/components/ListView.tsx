@@ -13,11 +13,7 @@ import { mergeTaskTagsWithLiveData, getTagDisplayStyle } from '../utils/tagUtils
 import { getAuthenticatedAvatarUrl, getAuthenticatedAttachmentUrl } from '../utils/authImageUrl';
 import { getLinkTarget, shouldOpenLinkInNewTab } from '../utils/linkUtils';
 import { truncateMemberName } from '../utils/memberUtils';
-import { commentTextToHtml } from '../utils/commentContent';
-import ExportMenu from './ExportMenu';
-import TextEditor from './TextEditor';
-import AddTagModal from './AddTagModal';
-import DateRangePicker from './DateRangePicker';
+import MemberSearchList from './ui/MemberSearchList';
 import { CHROME_TOOLTIP_POPOVER_CLASS, CHROME_TOOLTIP_PANEL_SURFACE_CLASS, KanbanChromeTooltip } from './KanbanChromeTooltip';
 import AgentPanel from './AgentPanel';
 import type { AgentPanelView } from './AgentPanel';
@@ -27,7 +23,6 @@ import {
   getAgentAvatarSrc,
   isAgentMemberId,
   resolveTaskMember,
-  sortMembersAgentLast,
 } from '../utils/agentMemberUi';
 
 interface ListViewScrollControls {
@@ -1391,21 +1386,22 @@ export default function ListView({
     
     switch (dropdownType) {
       case 'assignee':
-        dropdownWidth = 180;
-        // Calculate optimal height for member dropdown based on number of members and viewport space
-        const memberItemHeight = 32; // Approximate height per member item (py-2 = 8px top + 8px bottom + text height)
-        const maxMembers = members?.length || 0;
-        const availableSpaceBelow = window.innerHeight - rect.bottom - 20; // 20px margin
-        const availableSpaceAbove = rect.top - 20; // 20px margin
-        const maxAvailableSpace = Math.max(availableSpaceBelow, availableSpaceAbove);
-        
-        // Calculate how many members we can fit
-        const maxVisibleMembers = Math.floor(maxAvailableSpace / memberItemHeight);
-        const membersToShow = Math.min(maxMembers, maxVisibleMembers);
-        
-        // Set height based on actual members to show, with a minimum of 2 members and maximum of 12
-        const visibleMembers = Math.max(2, Math.min(12, membersToShow));
-        dropdownHeight = visibleMembers * memberItemHeight + 8; // +8 for padding
+        dropdownWidth = 280;
+        {
+          const searchHeaderHeight = 52;
+          const memberItemHeight = 40;
+          const availableSpaceBelow = window.innerHeight - rect.bottom - 20;
+          const availableSpaceAbove = rect.top - 20;
+          const maxAvailableSpace = Math.max(availableSpaceBelow, availableSpaceAbove);
+          const maxVisibleMembers = Math.floor(
+            Math.max(80, maxAvailableSpace - searchHeaderHeight) / memberItemHeight
+          );
+          const visibleMembers = Math.max(
+            3,
+            Math.min(10, maxVisibleMembers, members?.length || 3)
+          );
+          dropdownHeight = searchHeaderHeight + visibleMembers * memberItemHeight + 16;
+        }
         break;
       case 'priority':
         dropdownWidth = 120;
@@ -2552,69 +2548,31 @@ export default function ListView({
       {showDropdown?.field === 'assignee' && assigneeDropdownCoords && createPortal(
         <div 
           ref={dropdownRef}
-          className="fixed bg-white dark:bg-gray-800 border-2 border-gray-300 dark:border-gray-600 rounded-lg shadow-2xl z-[9999] min-w-[200px] overflow-hidden"
+          className="fixed bg-white dark:bg-gray-800 border-2 border-gray-300 dark:border-gray-600 rounded-lg shadow-2xl z-[9999] overflow-hidden flex flex-col"
           style={{
             left: `${assigneeDropdownCoords.left}px`,
             top: `${assigneeDropdownCoords.top}px`,
-            maxHeight: `${assigneeDropdownCoords.height || 150}px`,
+            width: '280px',
+            height: `${assigneeDropdownCoords.height || 280}px`,
+            maxHeight: `${assigneeDropdownCoords.height || 280}px`,
           }}
         >
-          <div className="overflow-y-auto py-1" style={{ maxHeight: `${assigneeDropdownCoords.height || 150}px` }}>
-            {(() => {
-              const ordered = sortMembersAgentLast(members || []);
-              const people = ordered.filter((m) => !isAgentMemberId(m.id));
-              const agent = ordered.find((m) => isAgentMemberId(m.id));
-              const renderMember = (member: TeamMember) => (
-              <button
-                key={member.id}
-                onClick={() => handleDropdownSelect(showDropdown.taskId, 'memberId', member.id)}
-                className="w-full px-3 py-2 text-left text-xs hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-2"
-              >
-                {member.id === SYSTEM_MEMBER_ID ? (
-                  <div 
-                    className="w-4 h-4 rounded-full flex items-center justify-center text-xs"
-                    style={{ backgroundColor: member.color }}
-                  >
-                    🤖
-                  </div>
-                ) : isAgentMemberId(member.id) ? (
-                  <img
-                    src={getAgentAvatarSrc(member)}
-                    alt={member.name}
-                    className="w-4 h-4 rounded-full object-cover"
-                  />
-                ) : member.googleAvatarUrl || member.avatarUrl ? (
-                  <img
-                    src={getAuthenticatedAvatarUrl(member.googleAvatarUrl || member.avatarUrl)}
-                    alt={member.name}
-                    className="w-4 h-4 rounded-full object-cover"
-                  />
-                ) : (
-                  <div 
-                    className="w-4 h-4 rounded-full flex items-center justify-center text-xs font-medium text-white"
-                    style={{ backgroundColor: member.color }}
-                  >
-                    {member.name.charAt(0).toUpperCase()}
-                  </div>
-                )}
-                <span className="text-sm text-gray-900 dark:text-gray-100 font-medium">
-                  {truncateMemberName(member.name)}
-                </span>
-              </button>
-              );
-              return (
-                <>
-                  {people.map(renderMember)}
-                  {agent && (
-                    <>
-                      <div className="my-1 border-t border-gray-200 dark:border-gray-600" />
-                      {renderMember(agent)}
-                    </>
-                  )}
-                </>
-              );
-            })()}
-          </div>
+          <MemberSearchList
+            members={members || []}
+            selectedId={
+              allTasks.find((t) => t.id === showDropdown.taskId)?.memberId || null
+            }
+            showAgentSection
+            onSelect={(memberId) => {
+              handleDropdownSelect(showDropdown.taskId, 'memberId', memberId);
+            }}
+            onEscape={() => {
+              setShowDropdown(null);
+              setAssigneeDropdownCoords(null);
+            }}
+            maxHeightClassName="max-h-none"
+            className="min-h-0 flex-1"
+          />
         </div>,
         document.body
       )}

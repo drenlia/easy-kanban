@@ -1,7 +1,7 @@
 import express from 'express';
 import crypto from 'crypto';
 import { wrapQuery } from '../utils/queryLogger.js';
-import { logTaskActivity, generateTaskUpdateDetails } from '../services/activityLogger.js';
+import { logTaskActivity, generateTaskUpdateDetails, logBulkTaskFieldActivity } from '../services/activityLogger.js';
 import * as reportingLogger from '../services/reportingLogger.js';
 import { TASK_ACTIONS } from '../constants/activityActions.js';
 import { authenticateToken, requireRole } from '../middleware/auth.js';
@@ -1043,7 +1043,9 @@ router.post('/copy', authenticateToken, checkTaskLimit, async (req, res) => {
 // Update task
 router.put('/:id', authenticateToken, async (req, res) => {
   const { id: idParam } = req.params;
-  const task = req.body;
+  const task = { ...req.body };
+  const skipActivity = task.skipActivity === true;
+  delete task.skipActivity;
   const userId = req.user?.id || 'system';
   
   const endpointStartTime = Date.now();
@@ -1369,8 +1371,8 @@ router.put('/:id', authenticateToken, async (req, res) => {
     const dbUpdateTime = Date.now() - dbUpdateStartTime;
     taskHttpLog(dbgHttp, `⏱️  [PUT /tasks/:id] Database updates took ${dbUpdateTime}ms`);
     
-    // Log activity if there were changes
-    if (changes.length > 0) {
+    // Log activity if there were changes (skipped for multi-select bulk; one summary is logged separately)
+    if (changes.length > 0 && !skipActivity) {
       const activityStartTime = Date.now();
       
       // Parse bilingual JSON from changes and combine them properly
@@ -1553,6 +1555,43 @@ router.put('/:id', authenticateToken, async (req, res) => {
     const db = getRequestDatabase(req);
     const tTranslator = await getTranslator(db);
     res.status(500).json({ error: tTranslator('errors.failedToUpdateTask') });
+  }
+});
+
+// Log one activity-feed entry for a kanban multi-select field change
+router.post('/bulk-field-activity', authenticateToken, async (req, res) => {
+  try {
+    const db = getRequestDatabase(req);
+    const userId = req.user?.id || 'system';
+    const {
+      field,
+      taskIds,
+      newValue = null,
+      oldValue = null,
+      newLabel = null,
+      boardId = null,
+    } = req.body || {};
+
+    const allowed = new Set(['memberId', 'requesterId', 'priorityId', 'sprintId']);
+    if (!allowed.has(field) || !Array.isArray(taskIds) || taskIds.length === 0) {
+      return res.status(400).json({ error: 'Invalid bulk activity payload' });
+    }
+
+    await logBulkTaskFieldActivity(
+      userId,
+      field,
+      { taskIds, newValue, oldValue, newLabel, boardId },
+      {
+        db,
+        tenantId: getTenantId(req),
+        authType: req.user?.authType,
+      }
+    );
+
+    res.json({ success: true, count: taskIds.length });
+  } catch (error) {
+    console.error('Bulk field activity error:', error);
+    res.status(500).json({ error: 'Failed to log bulk activity' });
   }
 });
 

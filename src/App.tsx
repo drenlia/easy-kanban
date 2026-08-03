@@ -2780,7 +2780,7 @@ function AppContent() {
     }
   };
 
-  const handleEditTask = useCallback(async (task: Task) => {
+  const handleEditTask = useCallback(async (task: Task, options?: { skipActivity?: boolean }) => {
     // Optimistic update
     const previousColumns = { ...columns };
     const previousFilteredColumns = { ...(taskFilters.filteredColumns || {}) };
@@ -2875,7 +2875,7 @@ function AppContent() {
 
     try {
       await withLoading('tasks', async () => {
-        await updateTask(task);
+        await updateTask(task, options?.skipActivity ? { skipActivity: true } : undefined);
         await fetchQueryLogs();
       });
     } catch (error: any) {
@@ -3510,6 +3510,7 @@ function AppContent() {
       return archive?.id || null;
     },
     availablePriorities,
+    availableSprints,
   });
 
   const {
@@ -3527,6 +3528,15 @@ function AppContent() {
     onBulkSprint,
     onBulkPriority,
     onBulkMoveToBoard,
+    onBulkAssignee,
+    onBulkRequester,
+    onBulkAddWatcher,
+    onBulkRemoveWatcher,
+    onBulkAddCollaborator,
+    onBulkRemoveCollaborator,
+    bulkUndo,
+    clearBulkUndo,
+    onBulkUndo,
   } = kanbanMultiSelect;
 
   const handleBulkMoveTaskIds = useCallback(
@@ -4459,6 +4469,16 @@ function AppContent() {
                                     onBulkSprint={onBulkSprint}
                                     onBulkPriority={onBulkPriority}
                                     onBulkMoveToBoard={onBulkMoveToBoard}
+                                    onBulkAssignee={onBulkAssignee}
+                                    onBulkRequester={onBulkRequester}
+                                    onBulkAddWatcher={onBulkAddWatcher}
+                                    onBulkRemoveWatcher={onBulkRemoveWatcher}
+                                    onBulkAddCollaborator={onBulkAddCollaborator}
+                                    onBulkRemoveCollaborator={onBulkRemoveCollaborator}
+                                    bulkUndoTaskIds={bulkUndo?.taskIds ?? null}
+                                    bulkUndoLabelKey={bulkUndo?.labelKey}
+                                    onBulkUndo={onBulkUndo}
+                                    onClearBulkUndo={clearBulkUndo}
                                     draggedTaskIds={draggedTaskIds}
         />
       </div>

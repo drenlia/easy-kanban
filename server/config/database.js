@@ -895,6 +895,8 @@ const initializeDefaultData = async (db, tenantId = null) => {
       ['DEFAULT_TASK_PREFIX', 'TASK-'], // Default task prefix
       ['DEFAULT_FINISHED_COLUMN_NAMES', '["Done","Terminé","Completed","Complété", "Finished","Fini"]'], // Default finished column names
       ['APP_LANGUAGE', 'EN'], // Default application language (EN or FR)
+      ['TASK_DELETE_CONFIRM', 'true'], // Confirm before deleting tasks (system default)
+      ['ALLOW_USER_SELF_DELETE', 'true'], // Users may delete their own account (tasks reassigned to SYSTEM)
       ['SITE_OPENS_NEW_TAB', 'true'], // Default to opening links in new tab (matches current behavior)
       ['HIGHLIGHT_OVERDUE_TASKS', 'true'], // Highlight overdue tasks in light red
       ['EFFORT_UNIT', 'hours'], // Task effort display unit: hours | points

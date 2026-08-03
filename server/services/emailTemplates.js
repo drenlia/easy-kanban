@@ -9,6 +9,7 @@ import {
   stripHtmlForEmail,
   formatWordDiffHtml,
   formatWordDiffText,
+  buildTaskEmailUrl,
 } from '../utils/emailContent.js';
 
 /** Map activity / queue action codes → emails.taskNotification.common.actionMessage.* keys */
@@ -542,7 +543,177 @@ ${t('emails.passwordReset.body6', { siteName: siteName || 'Easy Kanban' })}`,
         </div>
       `
     };
-  }
+  },
+
+  /**
+   * Bulk multi-select field update — one email listing all affected tasks for a recipient.
+   */
+  bulkTaskNotification: async (data) => {
+    const {
+      user,
+      actorName,
+      boardTitle,
+      field,
+      tasks = [],
+      changeBefore = '',
+      changeAfter = '',
+      summaryDetails = '',
+      baseUrl = '',
+      siteName,
+      timestamp,
+      db,
+    } = data;
+
+    const t = db ? await getTranslator(db) : (key) => key;
+    const firstName = displayFirstName(user);
+    const count = tasks.length;
+    const board = boardTitle || 'Board';
+    const formattedTimestamp = db
+      ? await formatDateTimeLocal(timestamp || new Date().toISOString(), db)
+      : String(timestamp || new Date().toISOString());
+
+    const summaryKey =
+      field === 'memberId'
+        ? 'summaryAssignee'
+        : field === 'requesterId'
+          ? 'summaryRequester'
+          : field === 'priorityId'
+            ? 'summaryPriority'
+            : field === 'sprintId'
+              ? 'summarySprint'
+              : 'summaryDefault';
+    const summary = t(`emails.bulkTaskNotification.${summaryKey}`);
+
+    const fieldLabel =
+      field === 'memberId'
+        ? t('emails.taskNotification.common.fieldAssignee')
+        : field === 'requesterId'
+          ? t('emails.taskNotification.common.fieldRequester')
+          : field === 'priorityId'
+            ? t('emails.taskNotification.common.fieldPriority')
+            : field === 'sprintId'
+              ? t('emails.taskNotification.common.fieldSprint')
+              : t('emails.bulkTaskNotification.whatChanged');
+
+    const before =
+      changeBefore || t('emails.taskNotification.common.unassigned');
+    const after =
+      changeAfter || t('emails.taskNotification.common.unassigned');
+    const showFromTo = Boolean(changeBefore && changeAfter && changeBefore !== changeAfter);
+    const showSetTo = Boolean(changeAfter) && !showFromTo;
+
+    const changeHtml = showFromTo
+      ? `<div style="margin: 14px 0; background-color: #f9fafb; border: 1px solid #e5e7eb; border-radius: 6px; padding: 12px 14px;">
+          <div style="font-size: 11px; font-weight: 700; color: #4b5563; text-transform: uppercase; letter-spacing: 0.03em; margin-bottom: 10px;">${escapeHtml(fieldLabel)}</div>
+          <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="width:100%;">
+            <tr>
+              <td style="padding: 8px 10px; background:#fef2f2; border-radius:4px; color:#7f1d1d; font-size:14px;">${escapeHtml(before)}</td>
+              <td style="width:36px; text-align:center; color:#9ca3af; font-size:16px;">→</td>
+              <td style="padding: 8px 10px; background:#f0fdf4; border-radius:4px; color:#14532d; font-size:14px; font-weight:600;">${escapeHtml(after)}</td>
+            </tr>
+          </table>
+        </div>`
+      : showSetTo
+        ? `<div style="margin: 14px 0; background-color: #f9fafb; border: 1px solid #e5e7eb; border-radius: 6px; padding: 12px 14px;">
+          <div style="font-size: 11px; font-weight: 700; color: #4b5563; text-transform: uppercase; letter-spacing: 0.03em; margin-bottom: 8px;">${escapeHtml(fieldLabel)}</div>
+          <div style="font-size: 14px; color: #14532d;"><strong>${t('emails.bulkTaskNotification.setTo')}:</strong> ${escapeHtml(after)}</div>
+        </div>`
+        : '';
+
+    const changeText = showFromTo
+      ? `\n${fieldLabel}: ${before} → ${after}\n`
+      : showSetTo
+        ? `\n${fieldLabel}: ${t('emails.bulkTaskNotification.setTo')} ${after}\n`
+        : '';
+
+    const taskRowsHtml = tasks
+      .map((task) => {
+        const ticket = task.ticket || task.id;
+        const url = buildTaskEmailUrl(baseUrl, {
+          projectId: task.projectId,
+          ticket,
+          taskId: task.id,
+        });
+        return `<tr>
+          <td style="padding: 8px 10px; border-bottom: 1px solid #e5e7eb; font-family: monospace; font-size: 12px; color: #4b5563; white-space: nowrap;">${escapeHtml(ticket)}</td>
+          <td style="padding: 8px 10px; border-bottom: 1px solid #e5e7eb; font-size: 14px; color: #111827;">${escapeHtml(task.title || 'Task')}</td>
+          <td style="padding: 8px 10px; border-bottom: 1px solid #e5e7eb; text-align: right;">
+            <a href="${escapeHtml(url)}" style="color: #2563eb; font-size: 13px; text-decoration: none;">${t('emails.bulkTaskNotification.viewTask')}</a>
+          </td>
+        </tr>`;
+      })
+      .join('');
+
+    const taskLinesText = tasks
+      .map((task) => {
+        const ticket = task.ticket || task.id;
+        const url = buildTaskEmailUrl(baseUrl, {
+          projectId: task.projectId,
+          ticket,
+          taskId: task.id,
+        });
+        return `- [${ticket}] ${task.title || 'Task'}\n  ${url}`;
+      })
+      .join('\n');
+
+    const subject = t('emails.bulkTaskNotification.subject', {
+      count,
+      summary,
+      boardTitle: board,
+    });
+
+    return {
+      subject,
+      text: `${t('emails.bulkTaskNotification.hi', { firstName })}
+
+${t('emails.bulkTaskNotification.intro', {
+  actorName: actorName || 'Someone',
+  count,
+  boardTitle: board,
+})}
+${summaryDetails ? `\n${summaryDetails}\n` : ''}${changeText}
+${t('emails.bulkTaskNotification.tasksAffected')} (${count}):
+${taskLinesText}
+
+${formattedTimestamp}
+
+${t('emails.bulkTaskNotification.receivingReason')}
+${t('emails.bulkTaskNotification.teamSignature', { siteName: siteName || 'Easy Kanban' })}`,
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 640px; margin: 0 auto; padding: 20px;">
+          <div style="text-align: center; margin-bottom: 24px;">
+            <h1 style="color: #2563eb; margin: 0;">📋 ${t('emails.bulkTaskNotification.title')}</h1>
+          </div>
+          <h2 style="color: #374151; margin-top: 0;">${t('emails.bulkTaskNotification.hi', { firstName })}</h2>
+          <p style="color: #374151; line-height: 1.5;">
+            ${escapeHtml(
+              t('emails.bulkTaskNotification.intro', {
+                actorName: actorName || 'Someone',
+                count,
+                boardTitle: board,
+              })
+            )}
+          </p>
+          ${summaryDetails ? `<p style="color: #4b5563; font-size: 14px;"><strong>${t('emails.taskNotification.common.details')}</strong> ${escapeHtml(summaryDetails)}</p>` : ''}
+          ${changeHtml}
+          <div style="margin: 20px 0;">
+            <div style="font-size: 11px; font-weight: 700; color: #4b5563; text-transform: uppercase; letter-spacing: 0.03em; margin-bottom: 8px;">
+              ${t('emails.bulkTaskNotification.tasksAffected')} (${count})
+            </div>
+            <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="width:100%; border: 1px solid #e5e7eb; border-radius: 6px; overflow: hidden;">
+              ${taskRowsHtml}
+            </table>
+          </div>
+          <p style="color: #6b7280; font-size: 13px;"><strong>${t('emails.taskNotification.common.timestamp')}</strong> ${escapeHtml(formattedTimestamp)}</p>
+          <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 24px 0;">
+          <p style="color: #9ca3af; font-size: 12px; text-align: center;">
+            ${t('emails.bulkTaskNotification.receivingReason')}<br>
+            <strong>${t('emails.bulkTaskNotification.teamSignature', { siteName: siteName || 'Easy Kanban' })}</strong>
+          </p>
+        </div>
+      `,
+    };
+  },
 };
 
 export default EmailTemplates;

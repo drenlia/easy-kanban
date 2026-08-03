@@ -268,12 +268,31 @@
         "unassigned": "Non assigné",
         "fieldAssignee": "Assigné",
         "fieldRequester": "Demandeur",
+        "fieldPriority": "Priorité",
+        "fieldSprint": "Sprint",
         "timestamp": "Date/Heure",
         "viewTask": "Voir la tâche",
         "viewTaskReply": "💬 Voir la tâche et répondre",
         "receivingReason": "Vous avez reçu cette notification car vous êtes impliqué dans cette tâche.",
         "teamSignature": "L'équipe {siteName}"
       }
+    },
+    "bulkTaskNotification": {
+      "subject": "[{count} tâches] {summary} — {boardTitle}",
+      "title": "Mise à jour groupée de tâches",
+      "hi": "Bonjour {firstName},",
+      "intro": "{actorName} a mis à jour {count} tâche(s) dans le tableau « {boardTitle} ».",
+      "whatChanged": "Modification",
+      "setTo": "Défini à",
+      "tasksAffected": "Tâches concernées",
+      "viewTask": "Voir",
+      "receivingReason": "Vous recevez ceci car vous êtes impliqué dans une ou plusieurs de ces tâches.",
+      "teamSignature": "L'équipe {siteName}",
+      "summaryAssignee": "Assigné modifié",
+      "summaryRequester": "Demandeur modifié",
+      "summaryPriority": "Priorité modifiée",
+      "summarySprint": "Sprint modifié",
+      "summaryDefault": "Tâches mises à jour"
     }
   },
   "achievements": {
@@ -391,6 +410,13 @@
     "setRequester": "a défini le demandeur à \"{newName}\"",
     "clearedRequester": "a supprimé le demandeur (était \"{oldName}\")",
     "changedRequester": "a modifié le demandeur de \"{oldName}\" à \"{newName}\"",
+    "bulkChangedAssignee": "a modifié l'assigné de \"{oldName}\" à \"{newName}\" sur {count} tâches dans le tableau \"{boardTitle}\"",
+    "bulkChangedAssigneeTo": "a défini l'assigné à \"{newName}\" sur {count} tâches dans le tableau \"{boardTitle}\"",
+    "bulkChangedRequester": "a modifié le demandeur de \"{oldName}\" à \"{newName}\" sur {count} tâches dans le tableau \"{boardTitle}\"",
+    "bulkChangedRequesterTo": "a défini le demandeur à \"{newName}\" sur {count} tâches dans le tableau \"{boardTitle}\"",
+    "bulkChangedPriority": "a modifié la priorité à \"{newValue}\" sur {count} tâches dans le tableau \"{boardTitle}\"",
+    "bulkChangedSprint": "a modifié le sprint à \"{newValue}\" sur {count} tâches dans le tableau \"{boardTitle}\"",
+    "bulkClearedSprint": "a retiré le sprint sur {count} tâches dans le tableau \"{boardTitle}\"",
     "fieldLabels": {
       "title": "titre",
       "description": "description",

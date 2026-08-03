@@ -64,3 +64,22 @@ export function isSuggestedOrEmptyBaseUrl(value: string): boolean {
     (p) => p.suggestedBaseUrl && p.suggestedBaseUrl === current
   );
 }
+
+/**
+ * Draft base URL vs saved setting. Empty saved + UI showing the provider
+ * suggested endpoint is display-only (not a real edit).
+ */
+export function isAiBaseUrlDirty(
+  draft: string,
+  saved: string | undefined,
+  providerId: string | undefined
+): boolean {
+  const draftTrim = (draft || '').trim();
+  const savedTrim = (saved || '').trim();
+  if (draftTrim === savedTrim) return false;
+  if (!savedTrim) {
+    const suggested = getAiProviderPreset(providerId).suggestedBaseUrl.trim();
+    if (suggested && draftTrim === suggested) return false;
+  }
+  return true;
+}

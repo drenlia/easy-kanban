@@ -256,26 +256,29 @@ const SortableBoardTab: React.FC<{
 
   return (
     <>
-      <div
-        ref={setNodeRef}
-        style={style}
-        role="button"
-        tabIndex={0}
-        onClick={onSelect}
-        onDoubleClick={onEdit}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            onSelect();
-          }
-        }}
-        className={`
-          relative group inline-flex shrink-0 cursor-pointer items-center
-          ${isSelected ? tabTrackActive : tabTrackInactive}
-          ${isDragging ? 'opacity-60 shadow-lg ring-2 ring-gray-300/50 dark:ring-gray-500/40' : ''}
-        `}
-        title={t('boardTabs.clickToSelectDoubleClickToRename')}
+      <KanbanChromeTooltip
+        label={t('boardTabs.clickToSelectDoubleClickToRename')}
+        wrapperClassName="relative group inline-flex shrink-0"
       >
+        <div
+          ref={setNodeRef}
+          style={style}
+          role="button"
+          tabIndex={0}
+          onClick={onSelect}
+          onDoubleClick={onEdit}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              onSelect();
+            }
+          }}
+          className={`
+            relative inline-flex shrink-0 cursor-pointer items-center
+            ${isSelected ? tabTrackActive : tabTrackInactive}
+            ${isDragging ? 'opacity-60 shadow-lg ring-2 ring-gray-300/50 dark:ring-gray-500/40' : ''}
+          `}
+        >
         {/* Task count covers the drag handle until hover reveals it. */}
         <KanbanChromeTooltip
           label={t('boardTabs.dragToReorder')}
@@ -334,7 +337,8 @@ const SortableBoardTab: React.FC<{
             </div>
           )}
         </div>
-      </div>
+        </div>
+      </KanbanChromeTooltip>
 
       {/* Delete Confirmation Menu - Using portal to escape stacking context */}
       {canDelete && showDeleteConfirm === board.id && deleteButtonRef && createPortal(

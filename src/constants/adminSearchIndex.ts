@@ -381,6 +381,15 @@ export const ADMIN_SEARCH_INDEX: AdminSearchEntry[] = [
     labelKey: 'appSettings.troubleshooting',
     aliases: ['debug', 'logs', 'débogage', 'debogage', 'fe_debug', 'server_debug'],
   },
+  {
+    id: 'allow-user-self-delete',
+    kind: 'setting',
+    tab: 'app-settings',
+    hash: '#admin#app-settings#user-interface',
+    settingKey: 'ALLOW_USER_SELF_DELETE',
+    labelKey: 'appSettings.allowUserSelfDelete',
+    aliases: ['self delete', 'delete account', 'supprimer compte', 'offboarding'],
+  },
 
   // —— File uploads (System Settings) ——
   {

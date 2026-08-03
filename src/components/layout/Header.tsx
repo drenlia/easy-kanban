@@ -11,6 +11,7 @@ import { loadUserPreferences, loadUserPreferencesAsync, updateUserPreference, up
 import { feDebug } from '../../utils/clientDebug';
 import ResetCountdown from '../ResetCountdown';
 import { KanbanChromeTooltip } from '../KanbanChromeTooltip';
+import { toast } from '../../utils/toast';
 
 interface SystemInfo {
   memory: {
@@ -320,6 +321,7 @@ const Header: React.FC<HeaderProps> = ({
     const handleClickOutside = (event: MouseEvent) => {
       const target = event.target as Node;
       if (inviteDropdownRef.current && !inviteDropdownRef.current.contains(target)) {
+        if (isInviting) return;
         setShowInviteDropdown(false);
         setInviteEmail('');
         setInviteError('');
@@ -338,7 +340,7 @@ const Header: React.FC<HeaderProps> = ({
 
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
+  }, [isInviting]);
 
   // Track auth token changes
   useEffect(() => {
@@ -447,7 +449,9 @@ const Header: React.FC<HeaderProps> = ({
 
     try {
       await onInviteUser(inviteEmail.trim());
+      const sentTo = inviteEmail.trim();
       setInviteSuccess(t('navigation.invitationSent'));
+      toast.success(t('navigation.invitationSentTo', { email: sentTo }), '');
       setInviteEmail('');
       setTimeout(() => {
         setShowInviteDropdown(false);

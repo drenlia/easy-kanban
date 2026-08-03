@@ -447,6 +447,7 @@ const Admin: React.FC<AdminProps> = ({
       const settingsWithDefaults = {
         ...loadedSettings,
         TASK_DELETE_CONFIRM: loadedSettings.TASK_DELETE_CONFIRM || 'true',
+        ALLOW_USER_SELF_DELETE: loadedSettings.ALLOW_USER_SELF_DELETE || 'true',
         // Ensure SMTP_SECURE has a default value if not in database
         // This ensures it's always in editingSettings and will be saved when user clicks Save/Test
         SMTP_SECURE: loadedSettings.SMTP_SECURE || 'tls'

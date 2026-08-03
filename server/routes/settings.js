@@ -113,6 +113,9 @@ router.get('/', async (req, res, next) => {
       'EFFORT_UNIT',
       'DEFAULT_FINISHED_COLUMN_NAMES',
       'DEMO_RESET_AT',
+      'TASK_DELETE_CONFIRM',
+      'ALLOW_USER_SELF_DELETE',
+      'SHOW_ACTIVITY_FEED',
       ...FE_PUBLIC_DEBUG_FLAG_KEYS,
       ...AI_PUBLIC_SETTING_KEYS
     ];

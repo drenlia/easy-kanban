@@ -535,30 +535,22 @@ export async function addUserRole(db, userId, roleId) {
 }
 
 /**
- * Get task count for a user (assigned + requested)
- * 
+ * Distinct tasks linked as assignee or requester (for delete-user confirmation).
+ * Do not sum separate COUNT queries — a task can match both roles.
+ *
  * @param {Database} db - Database connection
  * @param {string} memberId - Member ID
  * @returns {Promise<number>} Task count
  */
 export async function getTaskCountForMember(db, memberId) {
-  const assignedQuery = `
-    SELECT COUNT(*) as count 
-    FROM tasks 
-    WHERE memberid = $1
+  const query = `
+    SELECT COUNT(*)::int AS count
+    FROM tasks
+    WHERE memberid = $1 OR requesterid = $1
   `;
-  const assignedStmt = wrapQuery(db.prepare(assignedQuery), 'SELECT');
-  const assignedResult = await assignedStmt.get(memberId);
-  
-  const requestedQuery = `
-    SELECT COUNT(*) as count 
-    FROM tasks 
-    WHERE requesterid = $1
-  `;
-  const requestedStmt = wrapQuery(db.prepare(requestedQuery), 'SELECT');
-  const requestedResult = await requestedStmt.get(memberId);
-  
-  return (assignedResult?.count || 0) + (requestedResult?.count || 0);
+  const stmt = wrapQuery(db.prepare(query), 'SELECT');
+  const result = await stmt.get(memberId);
+  return Number(result?.count) || 0;
 }
 
 /**

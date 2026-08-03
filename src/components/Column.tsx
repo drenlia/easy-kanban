@@ -16,7 +16,9 @@ import { KanbanChromeTooltip } from './KanbanChromeTooltip';
 import { resolveTaskMember } from '../utils/agentMemberUi';
 import {
   shouldShowColumnBulkFab,
+  shouldShowColumnBulkUndo,
 } from '../utils/kanbanMultiSelect';
+import ColumnBulkUndoFab from './ColumnBulkUndoFab';
 
 interface KanbanColumnProps {
   column: Column;
@@ -107,6 +109,16 @@ interface KanbanColumnProps {
   onBulkSprint?: (taskIds: string[], sprintId: string | null) => void;
   onBulkPriority?: (taskIds: string[], priorityId: string) => void;
   onBulkMoveToBoard?: (taskIds: string[], boardId: string) => void;
+  onBulkAssignee?: (taskIds: string[], memberId: string) => void;
+  onBulkRequester?: (taskIds: string[], memberId: string) => void;
+  onBulkAddWatcher?: (taskIds: string[], memberId: string) => void;
+  onBulkRemoveWatcher?: (taskIds: string[], memberId: string) => void;
+  onBulkAddCollaborator?: (taskIds: string[], memberId: string) => void;
+  onBulkRemoveCollaborator?: (taskIds: string[], memberId: string) => void;
+  bulkUndoTaskIds?: string[] | null;
+  bulkUndoLabelKey?: string;
+  onBulkUndo?: () => void;
+  onClearBulkUndo?: () => void;
   selectedBoardId?: string | null;
   /** Task ids currently in a follower multi-drag (fade placeholders). */
   draggedTaskIds?: string[];
@@ -185,6 +197,16 @@ export default function KanbanColumn({
   onBulkSprint,
   onBulkPriority,
   onBulkMoveToBoard,
+  onBulkAssignee,
+  onBulkRequester,
+  onBulkAddWatcher,
+  onBulkRemoveWatcher,
+  onBulkAddCollaborator,
+  onBulkRemoveCollaborator,
+  bulkUndoTaskIds = null,
+  bulkUndoLabelKey,
+  onBulkUndo,
+  onClearBulkUndo,
   selectedBoardId = null,
   draggedTaskIds,
 }: KanbanColumnProps) {
@@ -1482,6 +1504,20 @@ export default function KanbanColumn({
             columnId={column.id}
             anchorRef={columnHeaderRef}
             selectedCount={checkedTaskIds.size}
+            selectedTasks={Array.from(checkedTaskIds)
+              .map((id) => {
+                const inFiltered = filteredTasks.find((t) => t.id === id);
+                if (inFiltered) return inFiltered;
+                if (columns) {
+                  for (const col of Object.values(columns)) {
+                    const found = col.tasks?.find((t) => t.id === id);
+                    if (found) return found;
+                  }
+                }
+                return undefined;
+              })
+              .filter((t): t is Task => Boolean(t))}
+            members={members}
             showUnselectAll={checkedTaskIds.size > 1}
             isAdmin={isAdmin}
             hasArchiveColumn={
@@ -1513,6 +1549,51 @@ export default function KanbanColumn({
             onMoveToBoard={(boardId) =>
               onBulkMoveToBoard?.(Array.from(checkedTaskIds), boardId)
             }
+            onAssignee={
+              onBulkAssignee
+                ? (memberId) => onBulkAssignee(Array.from(checkedTaskIds), memberId)
+                : undefined
+            }
+            onRequester={
+              onBulkRequester
+                ? (memberId) => onBulkRequester(Array.from(checkedTaskIds), memberId)
+                : undefined
+            }
+            onAddWatcher={
+              onBulkAddWatcher
+                ? (memberId) => onBulkAddWatcher(Array.from(checkedTaskIds), memberId)
+                : undefined
+            }
+            onRemoveWatcher={
+              onBulkRemoveWatcher
+                ? (memberId) => onBulkRemoveWatcher(Array.from(checkedTaskIds), memberId)
+                : undefined
+            }
+            onAddCollaborator={
+              onBulkAddCollaborator
+                ? (memberId) => onBulkAddCollaborator(Array.from(checkedTaskIds), memberId)
+                : undefined
+            }
+            onRemoveCollaborator={
+              onBulkRemoveCollaborator
+                ? (memberId) =>
+                    onBulkRemoveCollaborator(Array.from(checkedTaskIds), memberId)
+                : undefined
+            }
+          />
+        )}
+
+      {checkedTaskIds &&
+        onBulkUndo &&
+        shouldShowColumnBulkUndo(bulkUndoTaskIds, filteredTasks, checkedTaskIds.size) && (
+          <ColumnBulkUndoFab
+            columnId={column.id}
+            anchorRef={columnHeaderRef}
+            count={bulkUndoTaskIds?.length || 0}
+            busy={bulkBusy}
+            labelKey={bulkUndoLabelKey}
+            onUndo={onBulkUndo}
+            onDismiss={() => onClearBulkUndo?.()}
           />
         )}
 

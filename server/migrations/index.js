@@ -505,6 +505,24 @@ const migrations = [
 
       console.log('✅ Migration 26: Storage backend settings ready');
     }
+  },
+  {
+    version: 27,
+    name: 'add_allow_user_self_delete_setting',
+    description: 'Insert ALLOW_USER_SELF_DELETE (default true) for org-controlled account self-deletion',
+    up: async (db) => {
+      const { settings: settingsQueries } = await import('../utils/sqlManager/index.js');
+      const existing = await settingsQueries.getSettingByKey(db, 'ALLOW_USER_SELF_DELETE');
+      if (!existing) {
+        await settingsQueries.createSetting(db, 'ALLOW_USER_SELF_DELETE', 'true');
+      }
+      // Ensure TASK_DELETE_CONFIRM exists for older tenants (used beside the new setting in App UI)
+      const taskDelete = await settingsQueries.getSettingByKey(db, 'TASK_DELETE_CONFIRM');
+      if (!taskDelete) {
+        await settingsQueries.createSetting(db, 'TASK_DELETE_CONFIRM', 'true');
+      }
+      console.log('✅ Migration 27: ALLOW_USER_SELF_DELETE ready');
+    }
   }
 ];
 

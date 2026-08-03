@@ -122,7 +122,8 @@ function isAppSettingsKey(key: string): boolean {
     key.startsWith('SERVER_DEBUG_') ||
     key === 'FE_PERF_TESTS' ||
     key === 'SHOW_ACTIVITY_FEED' ||
-    key === 'TASK_DELETE_CONFIRM'
+    key === 'TASK_DELETE_CONFIRM' ||
+    key === 'ALLOW_USER_SELF_DELETE'
   );
 }
 

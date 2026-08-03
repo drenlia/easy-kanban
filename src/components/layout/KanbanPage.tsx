@@ -234,6 +234,16 @@ interface KanbanPageProps {
   onBulkSprint?: (taskIds: string[], sprintId: string | null) => void;
   onBulkPriority?: (taskIds: string[], priorityId: string) => void;
   onBulkMoveToBoard?: (taskIds: string[], boardId: string) => void;
+  onBulkAssignee?: (taskIds: string[], memberId: string) => void;
+  onBulkRequester?: (taskIds: string[], memberId: string) => void;
+  onBulkAddWatcher?: (taskIds: string[], memberId: string) => void;
+  onBulkRemoveWatcher?: (taskIds: string[], memberId: string) => void;
+  onBulkAddCollaborator?: (taskIds: string[], memberId: string) => void;
+  onBulkRemoveCollaborator?: (taskIds: string[], memberId: string) => void;
+  bulkUndoTaskIds?: string[] | null;
+  bulkUndoLabelKey?: string;
+  onBulkUndo?: () => void;
+  onClearBulkUndo?: () => void;
   draggedTaskIds?: string[];
 }
 
@@ -365,6 +375,16 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
   onBulkSprint,
   onBulkPriority,
   onBulkMoveToBoard,
+  onBulkAssignee,
+  onBulkRequester,
+  onBulkAddWatcher,
+  onBulkRemoveWatcher,
+  onBulkAddCollaborator,
+  onBulkRemoveCollaborator,
+  bulkUndoTaskIds = null,
+  bulkUndoLabelKey,
+  onBulkUndo,
+  onClearBulkUndo,
   draggedTaskIds,
 }: KanbanPageProps) => {
   const { t } = useTranslation(['tasks', 'common']);
@@ -1484,6 +1504,16 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
                             onBulkSprint={onBulkSprint}
                             onBulkPriority={onBulkPriority}
                             onBulkMoveToBoard={onBulkMoveToBoard}
+                            onBulkAssignee={onBulkAssignee}
+                            onBulkRequester={onBulkRequester}
+                            onBulkAddWatcher={onBulkAddWatcher}
+                            onBulkRemoveWatcher={onBulkRemoveWatcher}
+                            onBulkAddCollaborator={onBulkAddCollaborator}
+                            onBulkRemoveCollaborator={onBulkRemoveCollaborator}
+                            bulkUndoTaskIds={bulkUndoTaskIds}
+                            bulkUndoLabelKey={bulkUndoLabelKey}
+                            onBulkUndo={onBulkUndo}
+                            onClearBulkUndo={onClearBulkUndo}
                             selectedBoardId={selectedBoard}
                             draggedTaskIds={draggedTaskIds}
                           />
@@ -1577,6 +1607,16 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
                       onBulkSprint={onBulkSprint}
                       onBulkPriority={onBulkPriority}
                       onBulkMoveToBoard={onBulkMoveToBoard}
+                      onBulkAssignee={onBulkAssignee}
+                      onBulkRequester={onBulkRequester}
+                      onBulkAddWatcher={onBulkAddWatcher}
+                      onBulkRemoveWatcher={onBulkRemoveWatcher}
+                      onBulkAddCollaborator={onBulkAddCollaborator}
+                      onBulkRemoveCollaborator={onBulkRemoveCollaborator}
+                      bulkUndoTaskIds={bulkUndoTaskIds}
+                      bulkUndoLabelKey={bulkUndoLabelKey}
+                      onBulkUndo={onBulkUndo}
+                      onClearBulkUndo={onClearBulkUndo}
                       selectedBoardId={selectedBoard}
                       draggedTaskIds={draggedTaskIds}
                         />

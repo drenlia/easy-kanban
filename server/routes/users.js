@@ -2,15 +2,17 @@ import express from 'express';
 import crypto from 'crypto';
 import bcrypt from 'bcrypt';
 import { authenticateToken } from '../middleware/auth.js';
-import { wrapQuery } from '../utils/queryLogger.js';
 import { avatarUpload, createAttachmentUploadMiddleware } from '../config/multer.js';
 import { createDefaultAvatar } from '../utils/avatarGenerator.js';
 import { dbTransaction, dbExec } from '../utils/dbAsync.js';
 import notificationService from '../services/notificationService.js';
 import { getTranslator } from '../utils/i18n.js';
 import { getTenantId, getRequestDatabase } from '../middleware/tenantRouting.js';
-import { users as userQueries, tasks as taskQueries } from '../utils/sqlManager/index.js';
+import { users as userQueries, tasks as taskQueries, adminUsers as adminUserQueries, settings as settingsQueries } from '../utils/sqlManager/index.js';
 import { commitUploadedFile, getRequestStoragePaths } from '../services/storage/index.js';
+
+const SYSTEM_USER_ID = '00000000-0000-0000-0000-000000000000';
+const SYSTEM_MEMBER_ID = '00000000-0000-0000-0000-000000000001';
 
 const router = express.Router();
 
@@ -201,176 +203,145 @@ router.delete("/account", authenticateToken, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
     const userId = req.user.id;
-    
-    // Security validation: ensure user can only delete their own account
-    // The authenticateToken middleware already validates the JWT and sets req.user
-    // No additional user ID parameter needed - use the authenticated user's ID
-    
-    // MIGRATED: Check if user exists and is active using sqlManager
+    const tenantId = getTenantId(req);
+
+    const allowSelfDelete = await settingsQueries.getSettingByKey(db, 'ALLOW_USER_SELF_DELETE');
+    if (allowSelfDelete?.value === 'false') {
+      return res.status(403).json({
+        error: 'Self-service account deletion is disabled. Contact an administrator.',
+        code: 'self_delete_disabled',
+      });
+    }
+
     const user = await userQueries.getUserBasicInfo(db, userId);
     if (!user) {
       return res.status(404).json({ error: 'User not found or already inactive' });
     }
-    
-    // Get the SYSTEM user ID (00000000-0000-0000-0000-000000000000)
-    const SYSTEM_USER_ID = '00000000-0000-0000-0000-000000000000';
-    const systemMemberId = '00000000-0000-0000-0000-000000000001';
-    const tenantId = getTenantId(req);
-    
-    // MIGRATED: Get the member ID using sqlManager
+
+    const ownerSetting = await settingsQueries.getSettingByKey(db, 'OWNER');
+    const ownerEmail = ownerSetting?.value ? String(ownerSetting.value).trim().toLowerCase() : '';
+    if (ownerEmail && String(user.email || '').trim().toLowerCase() === ownerEmail) {
+      return res.status(403).json({
+        error: 'The instance owner cannot delete their own account. Transfer ownership first or ask another admin.',
+        code: 'owner_cannot_self_delete',
+      });
+    }
+
     const userMember = await userQueries.getMemberByUserId(db, userId);
-    
-    // MIGRATED: Get all tasks that will be reassigned using sqlManager
     let tasksToReassign = [];
     if (userMember) {
       tasksToReassign = await userQueries.getTasksForMember(db, userMember.id);
-      console.log(`📋 Found ${tasksToReassign.length} tasks to reassign from user ${userId} to SYSTEM`);
+      console.log(`📋 Self-delete: ${tasksToReassign.length} task(s) to reassign from ${userId} to SYSTEM`);
     }
-    
-    // Begin transaction for cascading deletion
+
     await dbTransaction(db, async () => {
-      // 0. Ensure SYSTEM account exists (create if missing, e.g., if it was deleted)
-      const existingSystemMember = await wrapQuery(db.prepare('SELECT id FROM members WHERE id = ?'), 'SELECT').get(systemMemberId);
+      const existingSystemMember = await userQueries.getMemberById(db, SYSTEM_MEMBER_ID);
       if (!existingSystemMember) {
         console.log('⚠️  SYSTEM account not found, creating it...');
-        
-        // Check if SYSTEM user exists
-        const existingSystemUser = await wrapQuery(db.prepare('SELECT id FROM users WHERE id = ?'), 'SELECT').get(SYSTEM_USER_ID);
-        
+        const existingSystemUser = await userQueries.getUserByIdForAdmin(db, SYSTEM_USER_ID);
         if (!existingSystemUser) {
-          // Create SYSTEM user account
-          const systemPasswordHash = bcrypt.hashSync(crypto.randomBytes(32).toString('hex'), 10); // Random unguessable password
+          const systemPasswordHash = bcrypt.hashSync(crypto.randomBytes(32).toString('hex'), 10);
           const systemAvatarPath = await createDefaultAvatar('System', SYSTEM_USER_ID, '#1E40AF', tenantId, {
             db,
-            storagePaths: req.locals?.tenantStoragePaths || req.app.locals?.tenantStoragePaths
+            storagePaths: req.locals?.tenantStoragePaths || req.app.locals?.tenantStoragePaths,
           });
-          
-          await wrapQuery(db.prepare(`
-            INSERT INTO users (id, email, password_hash, first_name, last_name, avatar_path, auth_provider, is_active) 
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-          `), 'INSERT').run(SYSTEM_USER_ID, 'system@local', systemPasswordHash, 'System', 'User', systemAvatarPath, 'local', false);
-          
-          // Assign user role to system account
-          const userRole = await wrapQuery(db.prepare('SELECT id FROM roles WHERE name = ?'), 'SELECT').get('user');
+          await userQueries.createUser(
+            db,
+            SYSTEM_USER_ID,
+            'system@local',
+            systemPasswordHash,
+            'System',
+            'User',
+            false,
+            'local'
+          );
+          if (systemAvatarPath) {
+            await userQueries.updateUserAvatar(db, SYSTEM_USER_ID, systemAvatarPath);
+          }
+          const userRole = await userQueries.getRoleByName(db, 'user');
           if (userRole) {
-            await wrapQuery(db.prepare('INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)'), 'INSERT').run(SYSTEM_USER_ID, userRole.id);
+            await userQueries.addUserRole(db, SYSTEM_USER_ID, userRole.id);
           }
         }
-        
-        // Create system member record
-        await wrapQuery(db.prepare('INSERT INTO members (id, name, color, user_id) VALUES (?, ?, ?, ?)'), 'INSERT').run(
-          systemMemberId, 
-          'SYSTEM', 
-          '#1E40AF', // Blue color
-          SYSTEM_USER_ID
-        );
-        
+        await adminUserQueries.createSystemMember(db, SYSTEM_MEMBER_ID, SYSTEM_USER_ID);
         console.log('✅ SYSTEM account created successfully');
       }
-      
-      // 1. Delete user roles
-      await wrapQuery(db.prepare('DELETE FROM user_roles WHERE user_id = ?'), 'DELETE').run(userId);
-      
-      // 2. Delete comments made by the user
-      await wrapQuery(db.prepare('DELETE FROM comments WHERE authorid = (SELECT id FROM members WHERE user_id = ?)'), 'DELETE').run(userId);
-      
-      // 3. Reassign tasks assigned to the user to the system account (preserve task history)
-      await wrapQuery(
-        db.prepare('UPDATE tasks SET memberid = ? WHERE memberid = (SELECT id FROM members WHERE user_id = ?)'), 
-        'UPDATE'
-      ).run(systemMemberId, userId);
-      
-      // 4. Reassign tasks requested by the user to the system account
-      await wrapQuery(
-        db.prepare('UPDATE tasks SET requesterid = ? WHERE requesterid = (SELECT id FROM members WHERE user_id = ?)'), 
-        'UPDATE'
-      ).run(systemMemberId, userId);
-      
-      // 5. Delete the member record
-        await wrapQuery(db.prepare('DELETE FROM members WHERE user_id = ?'), 'DELETE').run(userId);
-        
-        // 6. Finally, delete the user account
-        await wrapQuery(db.prepare('DELETE FROM users WHERE id = ?'), 'DELETE').run(userId);
-        
-        console.log(`🗑️ Account deleted successfully for user: ${user.email}`);
+
+      await adminUserQueries.deleteUserActivity(db, userId);
+
+      if (userMember) {
+        await adminUserQueries.deleteCommentsByMember(db, userMember.id);
+        await adminUserQueries.deleteWatchersByMember(db, userMember.id);
+        await adminUserQueries.deleteCollaboratorsByMember(db, userMember.id);
+      }
+
+      await adminUserQueries.clearPlanningPeriodsCreatedBy(db, userId);
+      await userQueries.deleteUserRoles(db, userId);
+      await adminUserQueries.deleteAllUserSettings(db, userId);
+      await adminUserQueries.deleteViewsByUser(db, userId);
+      await adminUserQueries.deletePasswordResetTokensByUser(db, userId);
+      await adminUserQueries.deleteUserInvitations(db, userId);
+
+      if (userMember) {
+        await adminUserQueries.reassignTasksToSystemMember(db, SYSTEM_MEMBER_ID, userMember.id);
+        await adminUserQueries.reassignTaskRequestersToSystemMember(db, SYSTEM_MEMBER_ID, userMember.id);
+        await adminUserQueries.deleteMemberByUserId(db, userId);
+      }
+
+      await adminUserQueries.deleteUser(db, userId);
+      console.log(`🗑️ Account deleted successfully for user: ${user.email}`);
     });
-    
-    // Publish task-updated events for all reassigned tasks (for real-time updates)
+
     if (tasksToReassign.length > 0) {
-      const systemMember = await wrapQuery(db.prepare('SELECT id FROM members WHERE id = ?'), 'SELECT').get('00000000-0000-0000-0000-000000000001');
-      
+      const systemMember = await userQueries.getMemberById(db, SYSTEM_MEMBER_ID);
       if (systemMember) {
-        console.log(`📤 Publishing ${tasksToReassign.length} task-updated events to Redis`);
+        console.log(`📤 Publishing ${tasksToReassign.length} task-updated events after self-delete`);
         for (const task of tasksToReassign) {
-          // MIGRATED: Get the full updated task details using sqlManager
           const updatedTask = await taskQueries.getTaskWithRelationships(db, task.id);
-          
           if (updatedTask) {
-            updatedTask.tags = updatedTask.tags === '[null]' ? [] : JSON.parse(updatedTask.tags).filter(Boolean);
-            updatedTask.watchers = updatedTask.watchers === '[null]' ? [] : JSON.parse(updatedTask.watchers).filter(Boolean);
-            updatedTask.collaborators = updatedTask.collaborators === '[null]' ? [] : JSON.parse(updatedTask.collaborators).filter(Boolean);
-            
-            // Use priorityName from JOIN (current name) or fallback to stored priority
-            updatedTask.priority = updatedTask.priorityName || updatedTask.priority || null;
-            updatedTask.priorityId = updatedTask.priorityId || null;
-            updatedTask.priorityName = updatedTask.priorityName || updatedTask.priority || null;
-            updatedTask.priorityColor = updatedTask.priorityColor || null;
-            
             notificationService.publish('task-updated', {
               boardId: task.boardId,
               task: updatedTask,
-              timestamp: new Date().toISOString()
-            }, tenantId).catch(err => {
+              timestamp: new Date().toISOString(),
+            }, tenantId).catch((err) => {
               console.error('Failed to publish task-updated event:', err);
             });
           }
         }
-        console.log(`✅ Published ${tasksToReassign.length} task-updated events to Redis`);
-      } else {
-        console.warn('⚠️ SYSTEM user member not found, tasks reassigned but no WebSocket events published');
       }
     }
-    
-    // Publish to Redis for real-time updates to admins viewing user list
-    console.log('📤 Publishing member-deleted and user-deleted to Redis for user:', userId);
-    
-    // Publish member-deleted for task/member updates
+
     notificationService.publish('member-deleted', {
-      userId: userId,
-      memberId: null, // User deleted themselves, member record is already gone
+      userId,
+      memberId: userMember?.id || null,
       userName: `${user.first_name} ${user.last_name}`,
       userEmail: user.email,
-      timestamp: new Date().toISOString()
-    }, tenantId).catch(err => {
+      timestamp: new Date().toISOString(),
+    }, tenantId).catch((err) => {
       console.error('Failed to publish member-deleted event:', err);
-      // Don't fail the deletion if Redis publish fails
     });
-    
-    // Publish user-deleted for admin UI updates
+
     notificationService.publish('user-deleted', {
-      userId: userId,
+      userId,
       user: {
         id: userId,
         email: user.email,
         first_name: user.first_name,
-        last_name: user.last_name
+        last_name: user.last_name,
       },
-      timestamp: new Date().toISOString()
-    }, tenantId).catch(err => {
+      timestamp: new Date().toISOString(),
+    }, tenantId).catch((err) => {
       console.error('Failed to publish user-deleted event:', err);
-      // Don't fail the deletion if Redis publish fails
     });
-    
-    console.log('✅ Member-deleted and user-deleted published to Redis');
-    
-    res.json({ 
+
+    res.json({
       message: 'Account deleted successfully',
       deletedUser: {
         email: user.email,
-        name: `${user.first_name} ${user.last_name}`
-      }
+        name: `${user.first_name} ${user.last_name}`,
+      },
+      tasksReassigned: tasksToReassign.length,
     });
-    
   } catch (error) {
     console.error('Account deletion error:', error);
     res.status(500).json({ error: 'Failed to delete account' });

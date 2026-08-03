@@ -332,6 +332,24 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
     }, 100);
   };
 
+  const handleAllowUserSelfDeleteChange = (value: string) => {
+    onSettingsChange({
+      ...editingSettings,
+      ALLOW_USER_SELF_DELETE: value
+    });
+
+    setTimeout(async () => {
+      try {
+        await onSave({
+          ...editingSettings,
+          ALLOW_USER_SELF_DELETE: value
+        });
+      } catch (error) {
+        console.error('Failed to save allow user self-delete:', error);
+      }
+    }, 100);
+  };
+
   const handleShowActivityFeedChange = (value: string) => {
     onSettingsChange({
       ...editingSettings,
@@ -516,6 +534,28 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
                   <select
                     value={editingSettings.TASK_DELETE_CONFIRM || 'true'}
                     onChange={(e) => handleTaskDeleteConfirmChange(e.target.value)}
+                    className={`w-36 ${adminInputClass}`}
+                  >
+                    <option value="true">{t('appSettings.enabled')}</option>
+                    <option value="false">{t('appSettings.disabled')}</option>
+                  </select>
+                </div>
+
+                <div
+                  className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-2 sm:gap-4 items-start"
+                  data-setting-key="ALLOW_USER_SELF_DELETE"
+                >
+                  <div className="min-w-0">
+                    <label className="text-sm font-medium text-gray-700 dark:text-gray-300 block">
+                      {t('appSettings.allowUserSelfDelete')}
+                    </label>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 leading-snug">
+                      {t('appSettings.allowUserSelfDeleteDescription')}
+                    </p>
+                  </div>
+                  <select
+                    value={editingSettings.ALLOW_USER_SELF_DELETE || 'true'}
+                    onChange={(e) => handleAllowUserSelfDeleteChange(e.target.value)}
                     className={`w-36 ${adminInputClass}`}
                   >
                     <option value="true">{t('appSettings.enabled')}</option>

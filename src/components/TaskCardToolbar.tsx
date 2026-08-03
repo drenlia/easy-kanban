@@ -5,8 +5,8 @@ import { Copy, Eye, UserPlus, GripVertical, TagIcon, Plus, Trash2, Link, Archive
 import { Task, TeamMember, Tag } from '../types';
 import { formatMembersTooltip } from '../utils/taskUtils';
 import { getAuthenticatedAvatarUrl } from '../utils/authImageUrl';
-import { truncateMemberName } from '../utils/memberUtils';
 import AddTagModal from './AddTagModal';
+import MemberSearchList from './ui/MemberSearchList';
 import { KanbanChromeTooltip } from './KanbanChromeTooltip';
 import AgentStatusButton from './AgentStatusButton';
 import {
@@ -17,7 +17,6 @@ import {
 import {
   getAgentAvatarSrc,
   isAgentMemberId,
-  sortMembersAgentLast,
 } from '../utils/agentMemberUi';
 
 interface TaskCardToolbarProps {
@@ -266,44 +265,35 @@ export default function TaskCardToolbar({
   // Calculate member dropdown position for portal rendering
   const getMemberDropdownPosition = () => {
     if (memberButtonRef.current) {
+      const dropdownWidth = 280;
       const rect = memberButtonRef.current.getBoundingClientRect();
-      const dropdownWidth = 200;
-      
-      // Calculate optimal height for member dropdown based on number of members and viewport space
-      const memberItemHeight = 40; // Height per member item
-      const maxMembers = members.length;
-      const availableSpaceBelow = window.innerHeight - rect.bottom - 20; // 20px margin
-      const availableSpaceAbove = rect.top - 20; // 20px margin
+
+      // Search header (~52) + agent section padding + rows; cap to viewport
+      const searchHeaderHeight = 52;
+      const memberItemHeight = 40;
+      const availableSpaceBelow = window.innerHeight - rect.bottom - 20;
+      const availableSpaceAbove = rect.top - 20;
       const maxAvailableSpace = Math.max(availableSpaceBelow, availableSpaceAbove);
-      
-      // Calculate how many members we can fit
-      const maxVisibleMembers = Math.floor(maxAvailableSpace / memberItemHeight);
-      const membersToShow = Math.min(maxMembers, maxVisibleMembers);
-      
-      // Set height based on actual members to show, with a minimum of 2 members and maximum of 12
-      const visibleMembers = Math.max(2, Math.min(12, membersToShow));
-      const dropdownHeight = visibleMembers * memberItemHeight + 40; // +40 for "Assign to:" header
-      
-      // Position below the button, aligned to right edge
+      const maxVisibleMembers = Math.floor(
+        Math.max(80, maxAvailableSpace - searchHeaderHeight) / memberItemHeight
+      );
+      const visibleMembers = Math.max(3, Math.min(10, maxVisibleMembers, members.length || 3));
+      const dropdownHeight = searchHeaderHeight + visibleMembers * memberItemHeight + 24;
+
       let left = rect.right - dropdownWidth;
       let top = rect.bottom + 5;
-      
-      // Keep within viewport horizontally
-      if (left < 20) {
-        left = 20;
-      }
+
+      if (left < 20) left = 20;
       if (left + dropdownWidth > window.innerWidth - 20) {
         left = window.innerWidth - dropdownWidth - 20;
       }
-      
-      // Keep within viewport vertically
       if (top + dropdownHeight > window.innerHeight - 20) {
-        top = rect.top - dropdownHeight - 5; // Position above instead
+        top = rect.top - dropdownHeight - 5;
       }
-      
-      return { left, top, height: dropdownHeight };
+
+      return { left, top, height: dropdownHeight, width: dropdownWidth };
     }
-    return { left: 0, top: 0, height: 192 };
+    return { left: 0, top: 0, height: 280, width: 280 };
   };
 
   // Close quick tag dropdown when clicking outside
@@ -707,13 +697,15 @@ export default function TaskCardToolbar({
       {showMemberSelect && (() => {
         const position = getMemberDropdownPosition();
         return createPortal(
-          <div 
+          <div
             data-member-dropdown="true"
-            className="fixed bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg shadow-lg z-[99999] min-w-[200px] overflow-y-auto"
+            className="fixed bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg shadow-lg z-[99999] overflow-hidden flex flex-col"
             style={{
               left: `${position.left}px`,
               top: `${position.top}px`,
-              maxHeight: `${position.height}px`
+              width: `${position.width}px`,
+              height: `${position.height}px`,
+              maxHeight: `${position.height}px`,
             }}
             onClick={(e) => {
               e.stopPropagation();
@@ -723,71 +715,21 @@ export default function TaskCardToolbar({
               e.stopPropagation();
             }}
           >
-          <div className="p-2">
-            <div className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">{t('toolbar.assignTo')}</div>
-            {(() => {
-              const ordered = sortMembersAgentLast(members);
-              const people = ordered.filter((m) => !isAgentMemberId(m.id));
-              const agent = ordered.find((m) => isAgentMemberId(m.id));
-              const renderRow = (m: TeamMember) => (
-                <button
-                  key={m.id}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onMemberChange(m.id);
-                  }}
-                  className={`w-full flex items-center gap-2 p-2 rounded hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors ${
-                    m.id === SYSTEM_MEMBER_ID ? 'bg-yellow-50 dark:bg-yellow-900/20' : ''
-                  } ${
-                    m.id === member.id
-                      ? 'bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700'
-                      : ''
-                  }`}
-                >
-                  {isAgentMemberId(m.id) ? (
-                    <img
-                      src={getAgentAvatarSrc(m)}
-                      alt={m.name}
-                      className="w-6 h-6 rounded-full object-cover"
-                    />
-                  ) : m.googleAvatarUrl || m.avatarUrl ? (
-                    <img
-                      src={getAuthenticatedAvatarUrl(m.googleAvatarUrl || m.avatarUrl)}
-                      alt={m.name}
-                      className="w-6 h-6 rounded-full object-cover"
-                    />
-                  ) : (
-                    <div
-                      className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium text-white"
-                      style={{ backgroundColor: m.color }}
-                    >
-                      {m.id === SYSTEM_MEMBER_ID ? '🤖' : m.name.charAt(0).toUpperCase()}
-                    </div>
-                  )}
-                  <span className="text-sm text-gray-900 dark:text-gray-100">
-                    {truncateMemberName(m.name)}
-                  </span>
-                  {m.id === member.id && (
-                    <span className="ml-auto text-blue-600 dark:text-blue-400 text-xs">✓</span>
-                  )}
-                </button>
-              );
-              return (
-                <>
-                  {people.map(renderRow)}
-                  {agent && (
-                    <>
-                      <div className="my-1.5 border-t border-gray-200 dark:border-gray-600" />
-                      <div className="text-[10px] uppercase tracking-wide text-gray-400 dark:text-gray-500 px-2 mb-1">
-                        {t('toolbar.assignToAgentSection')}
-                      </div>
-                      {renderRow(agent)}
-                    </>
-                  )}
-                </>
-              );
-            })()}
-          </div>
+            <div className="px-2.5 pt-2 pb-1 text-xs font-medium text-gray-500 dark:text-gray-400">
+              {t('toolbar.assignTo')}
+            </div>
+            <MemberSearchList
+              members={members}
+              selectedId={member.id}
+              showAgentSection
+              onSelect={(memberId) => {
+                onMemberChange(memberId);
+                onCloseMemberSelect();
+              }}
+              onEscape={onCloseMemberSelect}
+              maxHeightClassName="max-h-none"
+              className="min-h-0 flex-1"
+            />
           </div>,
           document.body
         );

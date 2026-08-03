@@ -5,6 +5,7 @@ import api from '../../api';
 import {
   AI_PROVIDER_PRESETS,
   getAiProviderPreset,
+  isAiBaseUrlDirty,
   isSuggestedOrEmptyBaseUrl,
 } from '../../constants/aiProviders';
 import { isMaskedApiKeyDisplay, maskApiKey } from '../../utils/maskSecret';
@@ -159,7 +160,7 @@ const AdminAISettingsTab: React.FC<AdminAISettingsTabProps> = ({
 
   const configDirty =
     provider !== (editingSettings.AI_PROVIDER || 'openai') ||
-    baseUrl.trim() !== (editingSettings.AI_API_BASE_URL || '') ||
+    isAiBaseUrlDirty(baseUrl, editingSettings.AI_API_BASE_URL, provider) ||
     model.trim() !== (editingSettings.AI_MODEL || '') ||
     maxConcurrent.trim() !== (editingSettings.AI_MAX_CONCURRENT || '1') ||
     (!platformRunnerManaged &&
@@ -261,10 +262,18 @@ const AdminAISettingsTab: React.FC<AdminAISettingsTabProps> = ({
       const maxVal = String(parsedMax);
       setMaxConcurrent(maxVal);
       const runnerUrlVal = runnerUrl.trim();
+      const baseUrlChanged = isAiBaseUrlDirty(
+        url,
+        editingSettings.AI_API_BASE_URL,
+        provider
+      );
       const next: { [key: string]: string | undefined } = {
         ...editingSettings,
         AI_PROVIDER: provider,
-        AI_API_BASE_URL: url,
+        // Keep empty saved + suggested display from becoming a fake persisted value
+        AI_API_BASE_URL: baseUrlChanged
+          ? url
+          : editingSettings.AI_API_BASE_URL || '',
         AI_MODEL: modelVal,
         AI_MAX_CONCURRENT: maxVal,
       };
@@ -275,7 +284,7 @@ const AdminAISettingsTab: React.FC<AdminAISettingsTabProps> = ({
       if (provider !== (editingSettings.AI_PROVIDER || 'openai')) {
         await putSetting('AI_PROVIDER', provider);
       }
-      if (url !== (editingSettings.AI_API_BASE_URL || '')) {
+      if (baseUrlChanged) {
         await putSetting('AI_API_BASE_URL', url);
       }
       if (modelVal !== (editingSettings.AI_MODEL || '')) {
@@ -506,6 +515,7 @@ const AdminAISettingsTab: React.FC<AdminAISettingsTabProps> = ({
 
   const savedProvider = editingSettings.AI_PROVIDER || 'openai';
   const savedBaseUrl = editingSettings.AI_API_BASE_URL || '';
+  const baseUrlDirty = isAiBaseUrlDirty(baseUrl, savedBaseUrl, provider);
   const savedModel = editingSettings.AI_MODEL || '';
   const savedMaxConcurrent = editingSettings.AI_MAX_CONCURRENT || '1';
   const savedRunnerUrl =
@@ -696,7 +706,7 @@ const AdminAISettingsTab: React.FC<AdminAISettingsTabProps> = ({
           <div data-setting-key="AI_API_BASE_URL">
             {aiFieldLabel(
               t('appSettings.aiApiBaseUrl'),
-              baseUrl.trim() !== savedBaseUrl,
+              baseUrlDirty,
               savedBaseUrl || initialBaseUrl(editingSettings),
               () => setBaseUrl(initialBaseUrl(editingSettings))
             )}

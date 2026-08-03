@@ -25,7 +25,12 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
   const aiEnabled = siteSettings?.AI_ENABLED === 'true' || contextSystemSettings?.AI_ENABLED === 'true';
   const [activeTab, setActiveTab] = useState<'profile' | 'app-settings' | 'notifications' | 'dev'>('profile');
   const [displayName, setDisplayName] = useState(currentUser?.firstName + ' ' + currentUser?.lastName || '');
-  const [systemSettings, setSystemSettings] = useState<{ TASK_DELETE_CONFIRM?: string; SHOW_ACTIVITY_FEED?: string; MAIL_ENABLED?: string }>({});
+  const [systemSettings, setSystemSettings] = useState<{
+    TASK_DELETE_CONFIRM?: string;
+    SHOW_ACTIVITY_FEED?: string;
+    MAIL_ENABLED?: string;
+    ALLOW_USER_SELF_DELETE?: string;
+  }>({});
   const [userSettings, setUserSettings] = useState<{ showActivityFeed?: boolean }>({});
   const [userPrefs, setUserPrefs] = useState(loadUserPreferences(currentUser?.id));
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -270,7 +275,12 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
       }
       
     } catch (err: any) {
-      setError(err.response?.data?.error || t('profile.failedToDeleteAccount'));
+      setError(
+        err.response?.data?.error ||
+          (err.response?.data?.code === 'self_delete_disabled'
+            ? t('profile.selfDeleteDisabled')
+            : t('profile.failedToDeleteAccount'))
+      );
       setIsDeletingAccount(false);
     }
   };
@@ -554,6 +564,7 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
               </form>
 
               {/* Danger Zone - Account Deletion */}
+              {systemSettings.ALLOW_USER_SELF_DELETE !== 'false' ? (
               <div className="mt-8 pt-6 border-t border-red-200">
                 <div className="bg-red-50 border border-red-200 rounded-lg p-4">
                   <h3 className="text-lg font-semibold text-red-800 mb-2 flex items-center">
@@ -636,6 +647,18 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
                   )}
                 </div>
               </div>
+              ) : (
+              <div className="mt-8 pt-6 border-t border-gray-200 dark:border-gray-700">
+                <div className="rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-800/60 p-4">
+                  <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100 mb-1">
+                    {t('profile.dangerZone')}
+                  </h3>
+                  <p className="text-sm text-gray-600 dark:text-gray-300">
+                    {t('profile.selfDeleteDisabled')}
+                  </p>
+                </div>
+              </div>
+              )}
             </>
           )}
 

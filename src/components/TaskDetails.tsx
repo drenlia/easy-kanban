@@ -43,11 +43,12 @@ import { getAuthenticatedAttachmentUrl, getAuthenticatedAvatarUrl } from '../uti
 import { truncateMemberName } from '../utils/memberUtils';
 import {
   isAgentMemberId,
-  sortMembersAgentLast,
 } from '../utils/agentMemberUi';
 import AddTagModal from './AddTagModal';
 import AgentPanel from './AgentPanel';
 import type { AgentPanelView } from './AgentPanel';
+import MemberPicker from './ui/MemberPicker';
+import MemberAvatar from './ui/MemberAvatar';
 import AgentStatusButton from './AgentStatusButton';
 import {
   AGENT_MEMBER_ID,
@@ -293,15 +294,7 @@ export default function TaskDetails({
   // Watchers and Collaborators state
   const [taskWatchers, setTaskWatchers] = useState<TeamMember[]>(task.watchers || []);
   const [taskCollaborators, setTaskCollaborators] = useState<TeamMember[]>(task.collaborators || []);
-  const [showWatchersDropdown, setShowWatchersDropdown] = useState(false);
-  const [showCollaboratorsDropdown, setShowCollaboratorsDropdown] = useState(false);
-  const [watchersDropdownPosition, setWatchersDropdownPosition] = useState<'above' | 'below'>('below');
-  const [collaboratorsDropdownPosition, setCollaboratorsDropdownPosition] = useState<'above' | 'below'>('below');
   const [tagsDropdownPosition, setTagsDropdownPosition] = useState<'above' | 'below'>('below');
-  const watchersDropdownRef = useRef<HTMLDivElement>(null);
-  const collaboratorsDropdownRef = useRef<HTMLDivElement>(null);
-  const watchersButtonRef = useRef<HTMLButtonElement>(null);
-  const collaboratorsButtonRef = useRef<HTMLButtonElement>(null);
   const tagsButtonRef = useRef<HTMLButtonElement>(null);
   const previousTaskIdRef = useRef<string | null>(null);
   const previousTaskRef = useRef<Task | null>(null);
@@ -333,8 +326,6 @@ export default function TaskDetails({
     setTaskCollaborators(task.collaborators || []);
     
     // Reset dropdown states
-    setShowWatchersDropdown(false);
-    setShowCollaboratorsDropdown(false);
     setShowTagsDropdown(false);
     setShowChildrenDropdown(false);
     
@@ -924,12 +915,6 @@ export default function TaskDetails({
       if (tagsDropdownRef.current && !tagsDropdownRef.current.contains(event.target as Node)) {
         setShowTagsDropdown(false);
       }
-      if (watchersDropdownRef.current && !watchersDropdownRef.current.contains(event.target as Node)) {
-        setShowWatchersDropdown(false);
-      }
-      if (collaboratorsDropdownRef.current && !collaboratorsDropdownRef.current.contains(event.target as Node)) {
-        setShowCollaboratorsDropdown(false);
-      }
     };
 
     document.addEventListener('mousedown', handleClickOutside);
@@ -1042,24 +1027,6 @@ export default function TaskDetails({
     } catch (error) {
       console.error('Failed to toggle collaborator:', error);
     }
-  };
-
-  // Handler for opening watchers dropdown with position calculation
-  const handleWatchersDropdownToggle = () => {
-    if (!showWatchersDropdown) {
-      const position = calculateDropdownPosition(watchersButtonRef);
-      setWatchersDropdownPosition(position);
-    }
-    setShowWatchersDropdown(!showWatchersDropdown);
-  };
-
-  // Handler for opening collaborators dropdown with position calculation
-  const handleCollaboratorsDropdownToggle = () => {
-    if (!showCollaboratorsDropdown) {
-      const position = calculateDropdownPosition(collaboratorsButtonRef);
-      setCollaboratorsDropdownPosition(position);
-    }
-    setShowCollaboratorsDropdown(!showCollaboratorsDropdown);
   };
 
   // Handler for opening tags dropdown with position calculation
@@ -1839,48 +1806,26 @@ export default function TaskDetails({
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">
-                  {t('labels.assignedTo')}
-                </label>
-                <select
+                <MemberPicker
+                  label={t('labels.assignedTo')}
+                  members={members}
                   value={validMemberId}
-                  onChange={e => handleUpdate({ memberId: e.target.value })}
-                  className="w-full px-3 py-2 border rounded-md bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-100 disabled:opacity-70 disabled:cursor-not-allowed"
+                  onChange={(memberId) => handleUpdate({ memberId })}
+                  mode="single"
                   disabled={isSubmitting || isWritersLocked}
-                  title={
-                    isWritersLocked
-                      ? isReadOnlyMode
-                        ? t('trash.readOnlyHint')
-                        : t('toolbar.disabledWhileAgent')
-                      : undefined
-                  }
-                >
-                  {sortMembersAgentLast(members).map(member => (
-                    <option key={member.id} value={member.id}>
-                      {isAgentMemberId(member.id) ? `🤖 ${truncateMemberName(member.name)}` : truncateMemberName(member.name)}
-                    </option>
-                  ))}
-                </select>
+                />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">
-                  {t('labels.requester')}
-                </label>
-                <select
+                <MemberPicker
+                  label={t('labels.requester')}
+                  members={members}
                   value={validRequesterId}
-                  onChange={e => handleUpdate({ requesterId: e.target.value })}
-                  className="w-full px-3 py-2 border rounded-md bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-100"
+                  onChange={(memberId) => handleUpdate({ requesterId: memberId })}
+                  mode="single"
+                  showAgentSection={false}
                   disabled={isSubmitting || isWritersLocked}
-                >
-                  {sortMembersAgentLast(members)
-                    .filter((m) => !isAgentMemberId(m.id))
-                    .map(member => (
-                    <option key={member.id} value={member.id}>
-                      {truncateMemberName(member.name)}
-                    </option>
-                  ))}
-                </select>
+                />
               </div>
             </div>
 
@@ -1891,67 +1836,21 @@ export default function TaskDetails({
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">
                   {t('labels.watchers')}
                 </label>
-                <div className="relative" ref={watchersDropdownRef}>
-                  <button
-                    ref={watchersButtonRef}
-                    type="button"
-                    onClick={handleWatchersDropdownToggle}
-                    className="w-full px-3 py-2 border rounded-md bg-white dark:bg-gray-700 text-left flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-600"
-                    disabled={isSubmitting || isWritersLocked}
-                  >
-                    <span className="text-gray-700 dark:text-gray-200 truncate">
-                      {taskWatchers.length === 0 
-                        ? t('labels.selectWatchers') 
-                        : `${taskWatchers.length} ${taskWatchers.length !== 1 ? t('watcher.plural') : t('watcher.singular')}`}
-                    </span>
-                    <ChevronDown className="w-4 h-4 flex-shrink-0 ml-2" />
-                  </button>
-                  
-                  {showWatchersDropdown && (
-                    <div className={`absolute z-50 w-full bg-white dark:bg-gray-800 border rounded-md shadow-lg max-h-48 overflow-y-auto ${
-                      watchersDropdownPosition === 'above' 
-                        ? 'bottom-full mb-1' 
-                        : 'top-full mt-1'
-                    }`}>
-                      {members
-                        .filter((m) => !isAgentMemberId(m.id))
-                        .map(member => {
-                        const isWatching = taskWatchers.some(w => w.id === member.id);
-                        return (
-                          <div
-                            key={member.id}
-                            onClick={() => toggleWatcher(member)}
-                            className="px-3 py-2 hover:bg-gray-100 cursor-pointer flex items-center justify-between"
-                          >
-                            <span>{truncateMemberName(member.name)}</span>
-                            {isWatching && <Check className="w-4 h-4 text-green-500" />}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-                
-                {/* Selected Watchers Display */}
-                {taskWatchers.length > 0 && (
-                  <div className="mt-2 flex flex-wrap gap-1">
-                    {taskWatchers.map(member => (
+                <div className="space-y-2">
+                  <div className="flex flex-wrap gap-1.5">
+                    {taskWatchers.map((watcher) => (
                       <span
-                        key={member.id}
-                        className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-full bg-blue-100 dark:bg-blue-900 border border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300 hover:opacity-80 transition-opacity"
+                        key={watcher.id}
+                        className="inline-flex items-center gap-1.5 pl-1 pr-1.5 py-0.5 rounded-full text-xs bg-blue-50 dark:bg-blue-950/50 text-blue-800 dark:text-blue-200 border border-blue-200 dark:border-blue-800"
                       >
-                        <div 
-                          className="w-2 h-2 rounded-full"
-                          style={{ backgroundColor: member.color }}
-                        />
-                        {truncateMemberName(member.name)}
+                        <MemberAvatar memberId={watcher.id} members={members} size="xs" />
+                        <span className="max-w-[7rem] truncate">{truncateMemberName(watcher.name)}</span>
                         <button
                           type="button"
-                          onClick={(e) => {
-                            e.preventDefault();
-                            toggleWatcher(member);
-                          }}
-                          className="ml-1 hover:bg-red-500 hover:text-white rounded-full w-3 h-3 flex items-center justify-center text-xs font-bold transition-colors"
+                          disabled={isSubmitting || isWritersLocked}
+                          onClick={() => toggleWatcher(watcher)}
+                          className="ml-0.5 h-4 w-4 rounded-full bg-blue-100 dark:bg-blue-900 hover:bg-blue-200 dark:hover:bg-blue-800 flex items-center justify-center text-blue-700 dark:text-blue-200 disabled:opacity-50"
+                          aria-label={t('remove.watcher')}
                           title={t('remove.watcher')}
                         >
                           ×
@@ -1959,7 +1858,19 @@ export default function TaskDetails({
                       </span>
                     ))}
                   </div>
-                )}
+                  <MemberPicker
+                    members={members}
+                    mode="add"
+                    placeholder={t('taskPage.addWatcher')}
+                    excludeIds={taskWatchers.map((w) => w.id)}
+                    showAgentSection={false}
+                    disabled={isSubmitting || isWritersLocked}
+                    onChange={(memberId) => {
+                      const member = members.find((m) => m.id === memberId);
+                      if (member) toggleWatcher(member);
+                    }}
+                  />
+                </div>
               </div>
 
               {/* Collaborators Section */}
@@ -1967,67 +1878,21 @@ export default function TaskDetails({
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">
                   {t('labels.collaborators')}
                 </label>
-                <div className="relative" ref={collaboratorsDropdownRef}>
-                  <button
-                    ref={collaboratorsButtonRef}
-                    type="button"
-                    onClick={handleCollaboratorsDropdownToggle}
-                    className="w-full px-3 py-2 border rounded-md bg-white dark:bg-gray-700 text-left flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-600"
-                    disabled={isSubmitting || isWritersLocked}
-                  >
-                    <span className="text-gray-700 dark:text-gray-200 truncate">
-                      {taskCollaborators.length === 0 
-                        ? t('labels.selectCollaborators') 
-                        : `${taskCollaborators.length} ${taskCollaborators.length !== 1 ? t('collaborator.plural') : t('collaborator.singular')}`}
-                    </span>
-                    <ChevronDown className="w-4 h-4 flex-shrink-0 ml-2" />
-                  </button>
-                  
-                  {showCollaboratorsDropdown && (
-                    <div className={`absolute z-50 w-full bg-white dark:bg-gray-800 border rounded-md shadow-lg max-h-48 overflow-y-auto ${
-                      collaboratorsDropdownPosition === 'above' 
-                        ? 'bottom-full mb-1' 
-                        : 'top-full mt-1'
-                    }`}>
-                      {members
-                        .filter((m) => !isAgentMemberId(m.id))
-                        .map(member => {
-                        const isCollaborating = taskCollaborators.some(c => c.id === member.id);
-                        return (
-                          <div
-                            key={member.id}
-                            onClick={() => toggleCollaborator(member)}
-                            className="px-3 py-2 hover:bg-gray-100 cursor-pointer flex items-center justify-between"
-                          >
-                            <span>{truncateMemberName(member.name)}</span>
-                            {isCollaborating && <Check className="w-4 h-4 text-green-500" />}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-                
-                {/* Selected Collaborators Display */}
-                {taskCollaborators.length > 0 && (
-                  <div className="mt-2 flex flex-wrap gap-1">
-                    {taskCollaborators.map(member => (
+                <div className="space-y-2">
+                  <div className="flex flex-wrap gap-1.5">
+                    {taskCollaborators.map((collaborator) => (
                       <span
-                        key={member.id}
-                        className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-full bg-green-100 border border-green-300 text-green-700 hover:opacity-80 transition-opacity"
+                        key={collaborator.id}
+                        className="inline-flex items-center gap-1.5 pl-1 pr-1.5 py-0.5 rounded-full text-xs bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-200 border border-emerald-200 dark:border-emerald-800"
                       >
-                        <div 
-                          className="w-2 h-2 rounded-full"
-                          style={{ backgroundColor: member.color }}
-                        />
-                        {truncateMemberName(member.name)}
+                        <MemberAvatar memberId={collaborator.id} members={members} size="xs" />
+                        <span className="max-w-[7rem] truncate">{truncateMemberName(collaborator.name)}</span>
                         <button
                           type="button"
-                          onClick={(e) => {
-                            e.preventDefault();
-                            toggleCollaborator(member);
-                          }}
-                          className="ml-1 hover:bg-red-500 hover:text-white rounded-full w-3 h-3 flex items-center justify-center text-xs font-bold transition-colors"
+                          disabled={isSubmitting || isWritersLocked}
+                          onClick={() => toggleCollaborator(collaborator)}
+                          className="ml-0.5 h-4 w-4 rounded-full bg-emerald-100 dark:bg-emerald-900 hover:bg-emerald-200 dark:hover:bg-emerald-800 flex items-center justify-center disabled:opacity-50"
+                          aria-label={t('remove.collaborator')}
                           title={t('remove.collaborator')}
                         >
                           ×
@@ -2035,7 +1900,19 @@ export default function TaskDetails({
                       </span>
                     ))}
                   </div>
-                )}
+                  <MemberPicker
+                    members={members}
+                    mode="add"
+                    placeholder={t('taskPage.addCollaborator')}
+                    excludeIds={taskCollaborators.map((c) => c.id)}
+                    showAgentSection={false}
+                    disabled={isSubmitting || isWritersLocked}
+                    onChange={(memberId) => {
+                      const member = members.find((m) => m.id === memberId);
+                      if (member) toggleCollaborator(member);
+                    }}
+                  />
+                </div>
               </div>
             </div>
 

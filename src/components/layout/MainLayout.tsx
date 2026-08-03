@@ -178,6 +178,16 @@ interface MainLayoutProps {
   onBulkSprint?: (taskIds: string[], sprintId: string | null) => void;
   onBulkPriority?: (taskIds: string[], priorityId: string) => void;
   onBulkMoveToBoard?: (taskIds: string[], boardId: string) => void;
+  onBulkAssignee?: (taskIds: string[], memberId: string) => void;
+  onBulkRequester?: (taskIds: string[], memberId: string) => void;
+  onBulkAddWatcher?: (taskIds: string[], memberId: string) => void;
+  onBulkRemoveWatcher?: (taskIds: string[], memberId: string) => void;
+  onBulkAddCollaborator?: (taskIds: string[], memberId: string) => void;
+  onBulkRemoveCollaborator?: (taskIds: string[], memberId: string) => void;
+  bulkUndoTaskIds?: string[] | null;
+  bulkUndoLabelKey?: string;
+  onBulkUndo?: () => void;
+  onClearBulkUndo?: () => void;
   draggedTaskIds?: string[];
 }
 

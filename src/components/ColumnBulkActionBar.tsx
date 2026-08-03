@@ -1,9 +1,10 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import {
   Archive,
   Copy,
+  Eye,
   Layers,
   Square,
   Tag as TagIcon,
@@ -11,16 +12,24 @@ import {
   Calendar,
   Flag,
   Plus,
+  User,
+  UserCircle,
+  UserPlus,
 } from 'lucide-react';
-import { Board, PriorityOption, Tag } from '../types';
+import { Board, PriorityOption, Tag, Task, TeamMember } from '../types';
 import { KanbanChromeTooltip } from './KanbanChromeTooltip';
 import { getTagDisplayStyle } from '../utils/tagUtils';
+import { truncateMemberName } from '../utils/memberUtils';
 import AddTagModal from './AddTagModal';
+import MemberAvatar from './ui/MemberAvatar';
+import MemberSearchList from './ui/MemberSearchList';
 
 export type ColumnBulkActionBarProps = {
   columnId: string;
   anchorRef: React.RefObject<HTMLElement | null>;
   selectedCount: number;
+  selectedTasks?: Task[];
+  members?: TeamMember[];
   showUnselectAll?: boolean;
   isAdmin?: boolean;
   hasArchiveColumn?: boolean;
@@ -38,17 +47,75 @@ export type ColumnBulkActionBarProps = {
   onSprint: (sprintId: string | null) => void;
   onPriority: (priorityId: string) => void;
   onMoveToBoard: (boardId: string) => void;
+  onAssignee?: (memberId: string) => void;
+  onRequester?: (memberId: string) => void;
+  onAddWatcher?: (memberId: string) => void;
+  onRemoveWatcher?: (memberId: string) => void;
+  onAddCollaborator?: (memberId: string) => void;
+  onRemoveCollaborator?: (memberId: string) => void;
 };
 
-type MenuKind = 'tag' | 'sprint' | 'priority' | 'board' | null;
+type MenuKind =
+  | 'tag'
+  | 'sprint'
+  | 'priority'
+  | 'board'
+  | 'assignee'
+  | 'requester'
+  | 'watchers'
+  | 'collaborators'
+  | null;
+
+type UnionMemberChip = {
+  member: TeamMember;
+  count: number;
+};
+
+function unionMembersFromTasks(
+  tasks: Task[],
+  members: TeamMember[],
+  field: 'watchers' | 'collaborators'
+): UnionMemberChip[] {
+  const counts = new Map<string, number>();
+  for (const task of tasks) {
+    const list = task[field] || [];
+    const seen = new Set<string>();
+    for (const entry of list) {
+      if (!entry?.id || seen.has(entry.id)) continue;
+      seen.add(entry.id);
+      counts.set(entry.id, (counts.get(entry.id) || 0) + 1);
+    }
+  }
+  const memberById = new Map(members.map((m) => [m.id, m]));
+  return Array.from(counts.entries())
+    .map(([id, count]) => {
+      const fromMembers = memberById.get(id);
+      const fromTask = tasks
+        .flatMap((t) => t[field] || [])
+        .find((m) => m && m.id === id);
+      const member = fromMembers || fromTask;
+      if (!member) return null;
+      return { member, count };
+    })
+    .filter((x): x is UnionMemberChip => Boolean(x))
+    .sort((a, b) =>
+      (a.member.name || '').localeCompare(b.member.name || '', undefined, {
+        sensitivity: 'base',
+      })
+    );
+}
 
 const btnClass =
   'inline-flex h-7 w-7 items-center justify-center rounded-md border border-gray-200 bg-white text-gray-600 shadow-sm transition-colors hover:bg-gray-50 hover:text-gray-900 disabled:opacity-40 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700';
+
+const MEMBER_MENU_WIDTH = 280;
 
 export default function ColumnBulkActionBar({
   columnId,
   anchorRef,
   selectedCount,
+  selectedTasks = [],
+  members = [],
   showUnselectAll = false,
   isAdmin = false,
   hasArchiveColumn = false,
@@ -66,6 +133,12 @@ export default function ColumnBulkActionBar({
   onSprint,
   onPriority,
   onMoveToBoard,
+  onAssignee,
+  onRequester,
+  onAddWatcher,
+  onRemoveWatcher,
+  onAddCollaborator,
+  onRemoveCollaborator,
 }: ColumnBulkActionBarProps) {
   const { t } = useTranslation(['tasks', 'common']);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -80,6 +153,15 @@ export default function ColumnBulkActionBar({
     left: 0,
     visible: false,
   });
+
+  const watcherChips = useMemo(
+    () => unionMembersFromTasks(selectedTasks, members, 'watchers'),
+    [selectedTasks, members]
+  );
+  const collaboratorChips = useMemo(
+    () => unionMembersFromTasks(selectedTasks, members, 'collaborators'),
+    [selectedTasks, members]
+  );
 
   useEffect(() => {
     const update = () => {
@@ -99,9 +181,7 @@ export default function ColumnBulkActionBar({
         columnRect.top < window.innerHeight;
 
       setRootPos({
-        // Keep the controls below the column header while the board scrolls vertically.
         top: Math.max(96, headerRect.bottom + 4),
-        // Half-in / half-out of the column edge, but never clipped by the viewport.
         left: Math.max(16, columnRect.left + 2),
         visible,
       });
@@ -112,7 +192,6 @@ export default function ColumnBulkActionBar({
       typeof ResizeObserver !== 'undefined' ? new ResizeObserver(update) : null;
     if (anchorRef.current) observer?.observe(anchorRef.current);
     window.addEventListener('resize', update);
-    // Capture scrolls from the horizontal board scroller as well as the page.
     window.addEventListener('scroll', update, true);
     return () => {
       observer?.disconnect();
@@ -121,17 +200,22 @@ export default function ColumnBulkActionBar({
     };
   }, [anchorRef]);
 
+  const isMemberMenu = (kind: MenuKind) =>
+    kind === 'assignee' ||
+    kind === 'requester' ||
+    kind === 'watchers' ||
+    kind === 'collaborators';
+
   const openMenu = (kind: MenuKind, el: HTMLElement | null) => {
     if (!el) return;
-    // Same button again closes the submenu.
     if (menu === kind) {
       setMenu(null);
       setMenuPos(null);
       return;
     }
     const rect = el.getBoundingClientRect();
-    const menuWidth = kind === 'tag' ? 200 : 192;
-    const menuHeight = kind === 'tag' ? 400 : 256;
+    const menuWidth = kind === 'tag' ? 200 : isMemberMenu(kind) ? MEMBER_MENU_WIDTH : 192;
+    const menuHeight = kind === 'tag' ? 400 : isMemberMenu(kind) ? 360 : 256;
     const preferredLeft = rect.right + 6;
     setMenuPos({
       top: Math.max(8, Math.min(rect.top, window.innerHeight - menuHeight - 8)),
@@ -143,6 +227,11 @@ export default function ColumnBulkActionBar({
     setMenu(kind);
     setDeleteConfirm(false);
     setBoardConfirm(null);
+  };
+
+  const closeMenu = () => {
+    setMenu(null);
+    setMenuPos(null);
   };
 
   const overlayOpen = !!menu || deleteConfirm || !!boardConfirm;
@@ -179,15 +268,84 @@ export default function ColumnBulkActionBar({
 
   const otherBoards = boards.filter((b) => b.id !== currentBoardId && !(b as any).deletedAt);
 
+  const renderMemberChips = (
+    chips: UnionMemberChip[],
+    variant: 'watchers' | 'collaborators',
+    onRemove?: (memberId: string) => void
+  ) => {
+    const chipClass =
+      variant === 'watchers'
+        ? 'bg-blue-50 dark:bg-blue-950/50 text-blue-800 dark:text-blue-200 border-blue-200 dark:border-blue-800'
+        : 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-200 border-emerald-200 dark:border-emerald-800';
+    const removeBtnClass =
+      variant === 'watchers'
+        ? 'bg-blue-100 dark:bg-blue-900 hover:bg-blue-200 dark:hover:bg-blue-800 text-blue-700 dark:text-blue-200'
+        : 'bg-emerald-100 dark:bg-emerald-900 hover:bg-emerald-200 dark:hover:bg-emerald-800';
+
+    if (chips.length === 0) {
+      return (
+        <p className="px-2 py-1 text-xs text-gray-500 dark:text-gray-400">
+          {variant === 'watchers'
+            ? t('kanbanSelect.noWatchersOnSelection')
+            : t('kanbanSelect.noCollaboratorsOnSelection')}
+        </p>
+      );
+    }
+
+    return (
+      <div className="flex flex-wrap gap-1.5 px-2 pb-2">
+        {chips.map(({ member, count }) => (
+          <span
+            key={member.id}
+            className={`inline-flex items-center gap-1.5 pl-1 pr-1.5 py-0.5 rounded-full text-xs border ${chipClass}`}
+          >
+            <MemberAvatar member={member} members={members} size="xs" />
+            <span className="max-w-[6.5rem] truncate">{truncateMemberName(member.name)}</span>
+            {count < selectedCount && (
+              <span className="text-[10px] opacity-70 tabular-nums">
+                {count}/{selectedCount}
+              </span>
+            )}
+            {onRemove && (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => onRemove(member.id)}
+                className={`ml-0.5 h-4 w-4 rounded-full flex items-center justify-center ${removeBtnClass}`}
+                aria-label={
+                  variant === 'watchers'
+                    ? t('taskPage.removeWatcher', { defaultValue: 'Remove watcher' })
+                    : t('taskPage.removeCollaborator', {
+                        defaultValue: 'Remove collaborator',
+                      })
+                }
+              >
+                ×
+              </button>
+            )}
+          </span>
+        ))}
+      </div>
+    );
+  };
+
   const menuPortal =
     menu && menuPos && typeof document !== 'undefined'
       ? createPortal(
           <div
             id={`column-bulk-menu-${columnId}`}
-            className={`fixed z-[9990] overflow-y-auto rounded-md border border-gray-200 bg-white shadow-lg dark:border-gray-600 dark:bg-gray-800 ${
-              menu === 'tag' ? 'max-h-[400px] w-[200px]' : 'max-h-64 w-48 py-1'
+            className={`fixed z-[9990] overflow-hidden rounded-md border border-gray-200 bg-white shadow-lg dark:border-gray-600 dark:bg-gray-800 ${
+              menu === 'tag'
+                ? 'max-h-[400px] w-[200px] overflow-y-auto'
+                : isMemberMenu(menu)
+                  ? ''
+                  : 'max-h-64 w-48 overflow-y-auto py-1'
             }`}
-            style={{ top: menuPos.top, left: menuPos.left }}
+            style={{
+              top: menuPos.top,
+              left: menuPos.left,
+              width: isMemberMenu(menu) ? MEMBER_MENU_WIDTH : undefined,
+            }}
             role="menu"
           >
             {menu === 'tag' && (
@@ -290,6 +448,68 @@ export default function ColumnBulkActionBar({
             {menu === 'board' && otherBoards.length === 0 && (
               <div className="px-3 py-2 text-xs text-gray-500">—</div>
             )}
+            {menu === 'assignee' && onAssignee && (
+              <MemberSearchList
+                members={members}
+                showAgentSection
+                onSelect={(memberId) => {
+                  onAssignee(memberId);
+                  closeMenu();
+                }}
+                onEscape={closeMenu}
+              />
+            )}
+            {menu === 'requester' && onRequester && (
+              <MemberSearchList
+                members={members}
+                showAgentSection={false}
+                onSelect={(memberId) => {
+                  onRequester(memberId);
+                  closeMenu();
+                }}
+                onEscape={closeMenu}
+              />
+            )}
+            {menu === 'watchers' && (
+              <div className="flex flex-col max-h-[360px]">
+                <div className="px-2.5 pt-2 pb-1 text-xs font-medium text-gray-600 dark:text-gray-300">
+                  {t('kanbanSelect.watchers')}
+                </div>
+                {renderMemberChips(watcherChips, 'watchers', onRemoveWatcher)}
+                <div className="border-t border-gray-200 dark:border-gray-700">
+                  <MemberSearchList
+                    members={members}
+                    excludeIds={watcherChips
+                      .filter((c) => c.count >= selectedCount)
+                      .map((c) => c.member.id)}
+                    showAgentSection={false}
+                    onSelect={(memberId) => onAddWatcher?.(memberId)}
+                    onEscape={closeMenu}
+                    maxHeightClassName="max-h-48"
+                  />
+                </div>
+              </div>
+            )}
+            {menu === 'collaborators' && (
+              <div className="flex flex-col max-h-[360px]">
+                <div className="px-2.5 pt-2 pb-1 text-xs font-medium text-gray-600 dark:text-gray-300">
+                  {t('kanbanSelect.collaborators')}
+                </div>
+                {renderMemberChips(collaboratorChips, 'collaborators', onRemoveCollaborator)}
+                <div className="border-t border-gray-200 dark:border-gray-700">
+                  <MemberSearchList
+                    members={members}
+                    excludeIds={collaboratorChips
+                      .filter((c) => c.count >= selectedCount)
+                      .map((c) => c.member.id)}
+                    showAgentSection={false}
+                    onSelect={(memberId) => onAddCollaborator?.(memberId)}
+                    onEscape={closeMenu}
+                    maxHeightClassName="max-h-48"
+                  />
+                </div>
+              </div>
+            )}
           </div>,
           document.body
         )
@@ -359,162 +579,242 @@ export default function ColumnBulkActionBar({
   const actionBarPortal =
     typeof document !== 'undefined'
       ? createPortal(
-      <div
-        ref={rootRef}
-        className={`pointer-events-auto fixed z-[9980] flex -translate-x-1/2 flex-col gap-1 ${
-          rootPos.visible ? '' : 'invisible'
-        }`}
-        style={{ top: rootPos.top, left: rootPos.left }}
-        data-testid={`column-bulk-fab-${columnId}`}
-      >
-        <div className="flex flex-col gap-1">
-          {showUnselectAll && (
-            <KanbanChromeTooltip
-              label={overlayOpen ? '' : t('kanbanSelect.unselectAll')}
-              delayMs={0}
-              placement="top"
-            >
-              <button
-                type="button"
-                disabled={busy}
-                className={btnClass}
-                onClick={onUnselectAll}
-                aria-label={t('kanbanSelect.unselectAll')}
+          <div
+            ref={rootRef}
+            className={`pointer-events-auto fixed z-[9980] flex -translate-x-1/2 flex-col gap-1 ${
+              rootPos.visible ? '' : 'invisible'
+            }`}
+            style={{ top: rootPos.top, left: rootPos.left }}
+            data-testid={`column-bulk-fab-${columnId}`}
+          >
+            <div className="flex flex-col gap-1 items-center">
+              <KanbanChromeTooltip
+                label={overlayOpen ? '' : t('kanbanSelect.selectedCount', { count: selectedCount })}
+                delayMs={0}
+                placement="top"
               >
-                <Square size={14} />
-              </button>
-            </KanbanChromeTooltip>
-          )}
-          <KanbanChromeTooltip
-            label={overlayOpen ? '' : t('kanbanSelect.addTag')}
-            delayMs={0}
-            placement="top"
-          >
-            <button
-              type="button"
-              disabled={busy}
-              className={btnClass}
-              onClick={(e) => openMenu('tag', e.currentTarget)}
-              aria-label={t('kanbanSelect.addTag')}
-            >
-              <TagIcon size={14} />
-            </button>
-          </KanbanChromeTooltip>
-          <KanbanChromeTooltip
-            label={overlayOpen ? '' : t('kanbanSelect.copy')}
-            delayMs={0}
-            placement="top"
-          >
-            <button
-              type="button"
-              disabled={busy}
-              className={btnClass}
-              onClick={onCopy}
-              aria-label={t('kanbanSelect.copy')}
-            >
-              <Copy size={14} />
-            </button>
-          </KanbanChromeTooltip>
-          <KanbanChromeTooltip
-            label={overlayOpen ? '' : t('kanbanSelect.sprint')}
-            delayMs={0}
-            placement="top"
-          >
-            <button
-              type="button"
-              disabled={busy}
-              className={btnClass}
-              onClick={(e) => openMenu('sprint', e.currentTarget)}
-              aria-label={t('kanbanSelect.sprint')}
-            >
-              <Calendar size={14} />
-            </button>
-          </KanbanChromeTooltip>
-          <KanbanChromeTooltip
-            label={overlayOpen ? '' : t('kanbanSelect.priority')}
-            delayMs={0}
-            placement="top"
-          >
-            <button
-              type="button"
-              disabled={busy}
-              className={btnClass}
-              onClick={(e) => openMenu('priority', e.currentTarget)}
-              aria-label={t('kanbanSelect.priority')}
-            >
-              <Flag size={14} />
-            </button>
-          </KanbanChromeTooltip>
-          {isAdmin && otherBoards.length > 0 && (
-            <KanbanChromeTooltip
-              label={overlayOpen ? '' : t('kanbanSelect.moveToBoard')}
-              delayMs={0}
-              placement="top"
-            >
-              <button
-                type="button"
-                disabled={busy}
-                className={btnClass}
-                onClick={(e) => openMenu('board', e.currentTarget)}
-                aria-label={t('kanbanSelect.moveToBoard')}
+                <div
+                  className="inline-flex h-7 min-w-[1.75rem] items-center justify-center rounded-md border border-blue-200 bg-blue-50 px-1.5 text-[11px] font-semibold tabular-nums text-blue-700 shadow-sm dark:border-blue-700 dark:bg-blue-950/60 dark:text-blue-200"
+                  aria-label={t('kanbanSelect.selectedCount', { count: selectedCount })}
+                >
+                  {selectedCount}
+                </div>
+              </KanbanChromeTooltip>
+              {showUnselectAll && (
+                <KanbanChromeTooltip
+                  label={overlayOpen ? '' : t('kanbanSelect.unselectAll')}
+                  delayMs={0}
+                  placement="top"
+                >
+                  <button
+                    type="button"
+                    disabled={busy}
+                    className={btnClass}
+                    onClick={onUnselectAll}
+                    aria-label={t('kanbanSelect.unselectAll')}
+                  >
+                    <Square size={14} />
+                  </button>
+                </KanbanChromeTooltip>
+              )}
+              <KanbanChromeTooltip
+                label={overlayOpen ? '' : t('kanbanSelect.addTag')}
+                delayMs={0}
+                placement="top"
               >
-                <Layers size={14} />
-              </button>
-            </KanbanChromeTooltip>
-          )}
-          {hasArchiveColumn && (
-            <KanbanChromeTooltip
-              label={overlayOpen ? '' : t('kanbanSelect.archive')}
-              delayMs={0}
-              placement="top"
-            >
-              <button
-                type="button"
-                disabled={busy}
-                className={btnClass}
-                onClick={onArchive}
-                aria-label={t('kanbanSelect.archive')}
+                <button
+                  type="button"
+                  disabled={busy}
+                  className={btnClass}
+                  onClick={(e) => openMenu('tag', e.currentTarget)}
+                  aria-label={t('kanbanSelect.addTag')}
+                >
+                  <TagIcon size={14} />
+                </button>
+              </KanbanChromeTooltip>
+              <KanbanChromeTooltip
+                label={overlayOpen ? '' : t('kanbanSelect.copy')}
+                delayMs={0}
+                placement="top"
               >
-                <Archive size={14} className="text-yellow-600" />
-              </button>
-            </KanbanChromeTooltip>
-          )}
-          <KanbanChromeTooltip
-            label={overlayOpen ? '' : t('kanbanSelect.delete')}
-            delayMs={0}
-            placement="top"
-          >
-            <button
-              type="button"
-              disabled={busy}
-              className={`${btnClass} text-red-600 hover:text-red-700`}
-              onClick={(e) => {
-                if (deleteConfirm) {
-                  setDeleteConfirm(false);
-                  setMenuPos(null);
-                  return;
-                }
-                const rect = e.currentTarget.getBoundingClientRect();
-                const popupWidth = 288;
-                setMenuPos({
-                  top: Math.max(8, Math.min(rect.top, window.innerHeight - 160)),
-                  left:
-                    rect.right + 6 + popupWidth <= window.innerWidth - 8
-                      ? rect.right + 6
-                      : Math.max(8, rect.left - popupWidth - 6),
-                });
-                setDeleteConfirm(true);
-                setMenu(null);
-                setBoardConfirm(null);
-              }}
-              aria-label={t('kanbanSelect.delete')}
-            >
-              <Trash2 size={14} />
-            </button>
-          </KanbanChromeTooltip>
-        </div>
-      </div>,
-      document.body
+                <button
+                  type="button"
+                  disabled={busy}
+                  className={btnClass}
+                  onClick={onCopy}
+                  aria-label={t('kanbanSelect.copy')}
+                >
+                  <Copy size={14} />
+                </button>
+              </KanbanChromeTooltip>
+              <KanbanChromeTooltip
+                label={overlayOpen ? '' : t('kanbanSelect.sprint')}
+                delayMs={0}
+                placement="top"
+              >
+                <button
+                  type="button"
+                  disabled={busy}
+                  className={btnClass}
+                  onClick={(e) => openMenu('sprint', e.currentTarget)}
+                  aria-label={t('kanbanSelect.sprint')}
+                >
+                  <Calendar size={14} />
+                </button>
+              </KanbanChromeTooltip>
+              <KanbanChromeTooltip
+                label={overlayOpen ? '' : t('kanbanSelect.priority')}
+                delayMs={0}
+                placement="top"
+              >
+                <button
+                  type="button"
+                  disabled={busy}
+                  className={btnClass}
+                  onClick={(e) => openMenu('priority', e.currentTarget)}
+                  aria-label={t('kanbanSelect.priority')}
+                >
+                  <Flag size={14} />
+                </button>
+              </KanbanChromeTooltip>
+              {onAssignee && (
+                <KanbanChromeTooltip
+                  label={overlayOpen ? '' : t('kanbanSelect.assignee')}
+                  delayMs={0}
+                  placement="top"
+                >
+                  <button
+                    type="button"
+                    disabled={busy}
+                    className={btnClass}
+                    onClick={(e) => openMenu('assignee', e.currentTarget)}
+                    aria-label={t('kanbanSelect.assignee')}
+                  >
+                    <User size={14} />
+                  </button>
+                </KanbanChromeTooltip>
+              )}
+              {onRequester && (
+                <KanbanChromeTooltip
+                  label={overlayOpen ? '' : t('kanbanSelect.requester')}
+                  delayMs={0}
+                  placement="top"
+                >
+                  <button
+                    type="button"
+                    disabled={busy}
+                    className={btnClass}
+                    onClick={(e) => openMenu('requester', e.currentTarget)}
+                    aria-label={t('kanbanSelect.requester')}
+                  >
+                    <UserCircle size={14} />
+                  </button>
+                </KanbanChromeTooltip>
+              )}
+              {onAddWatcher && onRemoveWatcher && (
+                <KanbanChromeTooltip
+                  label={overlayOpen ? '' : t('kanbanSelect.watchers')}
+                  delayMs={0}
+                  placement="top"
+                >
+                  <button
+                    type="button"
+                    disabled={busy}
+                    className={btnClass}
+                    onClick={(e) => openMenu('watchers', e.currentTarget)}
+                    aria-label={t('kanbanSelect.watchers')}
+                  >
+                    <Eye size={14} />
+                  </button>
+                </KanbanChromeTooltip>
+              )}
+              {onAddCollaborator && onRemoveCollaborator && (
+                <KanbanChromeTooltip
+                  label={overlayOpen ? '' : t('kanbanSelect.collaborators')}
+                  delayMs={0}
+                  placement="top"
+                >
+                  <button
+                    type="button"
+                    disabled={busy}
+                    className={btnClass}
+                    onClick={(e) => openMenu('collaborators', e.currentTarget)}
+                    aria-label={t('kanbanSelect.collaborators')}
+                  >
+                    <UserPlus size={14} />
+                  </button>
+                </KanbanChromeTooltip>
+              )}
+              {isAdmin && otherBoards.length > 0 && (
+                <KanbanChromeTooltip
+                  label={overlayOpen ? '' : t('kanbanSelect.moveToBoard')}
+                  delayMs={0}
+                  placement="top"
+                >
+                  <button
+                    type="button"
+                    disabled={busy}
+                    className={btnClass}
+                    onClick={(e) => openMenu('board', e.currentTarget)}
+                    aria-label={t('kanbanSelect.moveToBoard')}
+                  >
+                    <Layers size={14} />
+                  </button>
+                </KanbanChromeTooltip>
+              )}
+              {hasArchiveColumn && (
+                <KanbanChromeTooltip
+                  label={overlayOpen ? '' : t('kanbanSelect.archive')}
+                  delayMs={0}
+                  placement="top"
+                >
+                  <button
+                    type="button"
+                    disabled={busy}
+                    className={btnClass}
+                    onClick={onArchive}
+                    aria-label={t('kanbanSelect.archive')}
+                  >
+                    <Archive size={14} className="text-yellow-600" />
+                  </button>
+                </KanbanChromeTooltip>
+              )}
+              <KanbanChromeTooltip
+                label={overlayOpen ? '' : t('kanbanSelect.delete')}
+                delayMs={0}
+                placement="top"
+              >
+                <button
+                  type="button"
+                  disabled={busy}
+                  className={`${btnClass} text-red-600 hover:text-red-700`}
+                  onClick={(e) => {
+                    if (deleteConfirm) {
+                      setDeleteConfirm(false);
+                      setMenuPos(null);
+                      return;
+                    }
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    const popupWidth = 288;
+                    setMenuPos({
+                      top: Math.max(8, Math.min(rect.top, window.innerHeight - 160)),
+                      left:
+                        rect.right + 6 + popupWidth <= window.innerWidth - 8
+                          ? rect.right + 6
+                          : Math.max(8, rect.left - popupWidth - 6),
+                    });
+                    setDeleteConfirm(true);
+                    setMenu(null);
+                    setBoardConfirm(null);
+                  }}
+                  aria-label={t('kanbanSelect.delete')}
+                >
+                  <Trash2 size={14} />
+                </button>
+              </KanbanChromeTooltip>
+            </div>
+          </div>,
+          document.body
         )
       : null;
 

@@ -382,23 +382,22 @@ export const createTask = async (task: Task) => {
   return data;
 };
 
-export const updateTask = async (task: Task) => {
-  // console.log('📡 [API] updateTask called with:', {
-  //   taskId: task.id,
-  //   title: task.title,
-  //   startDate: task.startDate,
-  //   dueDate: task.dueDate,
-  //   isSingleDay: task.startDate === task.dueDate
-  // });
-  
-  const { data } = await api.put<Task>(`/tasks/${task.id}`, task);
-  
-  // console.log('📡 [API] updateTask response:', {
-  //   taskId: data.id,
-  //   startDate: data.startDate,
-  //   dueDate: data.dueDate
-  // });
-  
+export const updateTask = async (task: Task, options?: { skipActivity?: boolean }) => {
+  const payload = options?.skipActivity ? { ...task, skipActivity: true } : task;
+  const { data } = await api.put<Task>(`/tasks/${task.id}`, payload);
+  return data;
+};
+
+/** One activity-feed line for kanban multi-select field updates */
+export const logBulkTaskFieldActivity = async (payload: {
+  field: 'memberId' | 'requesterId' | 'priorityId' | 'sprintId';
+  taskIds: string[];
+  newValue?: string | null;
+  oldValue?: string | null;
+  newLabel?: string | null;
+  boardId?: string | null;
+}) => {
+  const { data } = await api.post('/tasks/bulk-field-activity', payload);
   return data;
 };
 

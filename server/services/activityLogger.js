@@ -1,6 +1,6 @@
 import { isValidAction } from '../constants/activityActions.js';
 import notificationService from './notificationService.js';
-import { notifyTaskActivity, notifyCommentActivity } from './taskEmailNotificationService.js';
+import { notifyTaskActivity, notifyCommentActivity, notifyBulkTaskFieldActivity } from './taskEmailNotificationService.js';
 import { getBilingualTranslation, t } from '../utils/i18n.js';
 import { activity as activityQueries } from '../utils/sqlManager/index.js';
 
@@ -930,5 +930,189 @@ export const logCommentActivity = async (userId, action, commentId, taskId, deta
     
   } catch (error) {
     console.error('Failed to log comment activity:', error);
+  }
+};
+
+/**
+ * Log a single activity feed entry for a multi-select / bulk field change.
+ * @param {string} userId
+ * @param {'memberId'|'requesterId'|'priorityId'|'sprintId'} field
+ * @param {Object} payload
+ * @param {string[]} payload.taskIds - Tasks that actually changed
+ * @param {string|null} [payload.oldValue] - Shared previous value, or null if mixed/unknown
+ * @param {string|null} payload.newValue
+ * @param {string} [payload.newLabel] - Display label for priority/sprint
+ * @param {string} [payload.boardId]
+ * @param {Object} [additionalData] - db, tenantId, authType
+ */
+export const logBulkTaskFieldActivity = async (userId, field, payload = {}, additionalData = {}) => {
+  const database = additionalData.db || db;
+  if (!database) {
+    console.warn('Activity logger: No database available, skipping bulk log');
+    return;
+  }
+
+  const taskIds = Array.isArray(payload.taskIds) ? payload.taskIds.filter(Boolean) : [];
+  const count = taskIds.length;
+  if (!userId || !field || count === 0) {
+    console.warn('Missing required parameters for bulk activity logging');
+    return;
+  }
+
+  try {
+    let boardId = payload.boardId || null;
+    let boardTitle = 'Unknown Board';
+    let projectIdentifier = null;
+
+    const contextTaskId = taskIds[0];
+    try {
+      const taskInfo = await activityQueries.getTaskInfoForActivity(database, contextTaskId);
+      if (taskInfo) {
+        boardId = boardId || taskInfo.boardId;
+        boardTitle = taskInfo.boardTitle || boardTitle;
+      }
+      const taskDetails = await activityQueries.getTaskDetailsForActivity(database, contextTaskId);
+      if (taskDetails) {
+        projectIdentifier = taskDetails.project || null;
+        if (!boardTitle || boardTitle === 'Unknown Board') {
+          // board title already from taskInfo
+        }
+      }
+    } catch (err) {
+      console.warn('Failed to resolve board context for bulk activity:', err.message);
+    }
+
+    const resolveMemberName = async (memberId) => {
+      if (!memberId) {
+        return {
+          en: t('activity.unassigned', {}, 'en'),
+          fr: t('activity.unassigned', {}, 'fr'),
+        };
+      }
+      try {
+        const member = await activityQueries.getMemberName(database, memberId);
+        return {
+          en: member?.name || t('activity.unknownUser', {}, 'en'),
+          fr: member?.name || t('activity.unknownUser', {}, 'fr'),
+        };
+      } catch {
+        return {
+          en: t('activity.unknownUser', {}, 'en'),
+          fr: t('activity.unknownUser', {}, 'fr'),
+        };
+      }
+    };
+
+    const boardTitleEn = boardTitle === 'Unknown Board' ? t('activity.unknownBoard', {}, 'en') : boardTitle;
+    const boardTitleFr = boardTitle === 'Unknown Board' ? t('activity.unknownBoard', {}, 'fr') : boardTitle;
+
+    let detailsEn = '';
+    let detailsFr = '';
+
+    if (field === 'memberId' || field === 'requesterId') {
+      const newName = await resolveMemberName(payload.newValue);
+      const hasSharedOld =
+        payload.oldValue !== undefined &&
+        payload.oldValue !== null &&
+        payload.oldValue !== '';
+      const oldName = hasSharedOld ? await resolveMemberName(payload.oldValue) : null;
+      const keyBase = field === 'memberId' ? 'Assignee' : 'Requester';
+      if (hasSharedOld && oldName) {
+        const key = `activity.bulkChanged${keyBase}`;
+        detailsEn = t(key, {
+          oldName: oldName.en,
+          newName: newName.en,
+          count,
+          boardTitle: boardTitleEn,
+        }, 'en');
+        detailsFr = t(key, {
+          oldName: oldName.fr,
+          newName: newName.fr,
+          count,
+          boardTitle: boardTitleFr,
+        }, 'fr');
+      } else {
+        const key = `activity.bulkChanged${keyBase}To`;
+        detailsEn = t(key, {
+          newName: newName.en,
+          count,
+          boardTitle: boardTitleEn,
+        }, 'en');
+        detailsFr = t(key, {
+          newName: newName.fr,
+          count,
+          boardTitle: boardTitleFr,
+        }, 'fr');
+      }
+    } else if (field === 'priorityId') {
+      const newLabel = payload.newLabel || String(payload.newValue ?? '');
+      detailsEn = t('activity.bulkChangedPriority', {
+        newValue: newLabel,
+        count,
+        boardTitle: boardTitleEn,
+      }, 'en');
+      detailsFr = t('activity.bulkChangedPriority', {
+        newValue: newLabel,
+        count,
+        boardTitle: boardTitleFr,
+      }, 'fr');
+    } else if (field === 'sprintId') {
+      if (payload.newValue === null || payload.newValue === undefined || payload.newValue === '') {
+        detailsEn = t('activity.bulkClearedSprint', { count, boardTitle: boardTitleEn }, 'en');
+        detailsFr = t('activity.bulkClearedSprint', { count, boardTitle: boardTitleFr }, 'fr');
+      } else {
+        const newLabel = payload.newLabel || String(payload.newValue);
+        detailsEn = t('activity.bulkChangedSprint', {
+          newValue: newLabel,
+          count,
+          boardTitle: boardTitleEn,
+        }, 'en');
+        detailsFr = t('activity.bulkChangedSprint', {
+          newValue: newLabel,
+          count,
+          boardTitle: boardTitleFr,
+        }, 'fr');
+      }
+    } else {
+      console.warn(`Unsupported bulk activity field: ${field}`);
+      return;
+    }
+
+    if (projectIdentifier) {
+      const suffix = ` (${projectIdentifier})`;
+      detailsEn += suffix;
+      detailsFr += suffix;
+    }
+
+    const details = stringifyActivityDetails(
+      { en: detailsEn, fr: detailsFr, bulk: true, taskIds, field },
+      additionalData
+    );
+
+    await logActivity(userId, 'update_task', details, {
+      ...additionalData,
+      db: database,
+      boardId,
+      taskId: null,
+    });
+
+    // One digest email per involved recipient (not N per-task emails)
+    notifyBulkTaskFieldActivity(
+      database,
+      {
+        userId,
+        field,
+        taskIds,
+        oldValue: payload.oldValue ?? null,
+        newValue: payload.newValue ?? null,
+        newLabel: payload.newLabel ?? null,
+        details,
+      },
+      additionalData.tenantId || null
+    ).catch((err) => {
+      console.error('❌ Error sending bulk task field emails:', err);
+    });
+  } catch (error) {
+    console.error('❌ Error logging bulk task activity:', error);
   }
 };

@@ -479,6 +479,176 @@ class TaskEmailNotificationService {
       console.error('❌ [TASK-EMAIL] Error sending comment notification:', error);
     }
   }
+
+  /**
+   * One digest email per recipient for kanban multi-select field updates.
+   * Lists only the tasks that recipient is involved in.
+   */
+  async sendBulkTaskFieldNotification(bulkData) {
+    try {
+      if (process.env.DEMO_ENABLED === 'true') return;
+
+      const mail = await this.isMailReady();
+      if (!mail.valid) return;
+
+      const {
+        userId,
+        field,
+        taskIds,
+        oldValue = null,
+        newValue = null,
+        newLabel = null,
+        details = null,
+      } = bulkData || {};
+
+      if (!userId || !field || !Array.isArray(taskIds) || taskIds.length === 0) {
+        return;
+      }
+
+      const actor = await this.getActor(userId);
+      if (!actor) return;
+
+      const display = await this.resolvePeopleDisplayValues(field, oldValue, newValue);
+
+      let changeBefore = '';
+      let changeAfter = '';
+      if (field === 'memberId' || field === 'requesterId') {
+        // Only show from→to when all tasks shared the same previous value
+        if (oldValue) changeBefore = display.oldValue || '';
+        changeAfter = display.newValue || '';
+      } else if (field === 'priorityId') {
+        changeAfter = newLabel || String(newValue ?? '');
+      } else if (field === 'sprintId') {
+        if (newValue === null || newValue === undefined || newValue === '') {
+          changeAfter = '—';
+        } else {
+          changeAfter = newLabel || String(newValue);
+        }
+      }
+
+      const typePriority = {
+        newTaskAssigned: 100,
+        myTaskUpdated: 90,
+        requesterTaskUpdated: 70,
+        collaboratingTaskUpdated: 60,
+        watchedTaskUpdated: 50,
+      };
+
+      /** @type {Map<string, { notificationType: string, tasks: object[], boardTitle: string }>} */
+      const byRecipient = new Map();
+      let boardTitle = 'Board';
+
+      for (const taskId of taskIds) {
+        const participants = await this.getTaskParticipants(taskId);
+        if (!participants?.task) continue;
+        boardTitle = participants.boardTitle || boardTitle;
+
+        const notifications = this.determineNotifications(
+          'update_task',
+          participants,
+          userId,
+          {
+            changedField: field,
+            newAssigneeUserId: display.newAssigneeUserId,
+          }
+        );
+
+        const taskSummary = {
+          id: participants.task.id,
+          title: participants.task.title,
+          ticket: participants.task.ticket,
+          boardId: participants.task.boardId,
+          projectId: participants.projectId || participants.task.projectId || null,
+        };
+
+        for (const { recipientUserId, notificationType } of notifications) {
+          const existing = byRecipient.get(recipientUserId);
+          if (!existing) {
+            byRecipient.set(recipientUserId, {
+              notificationType,
+              tasks: [taskSummary],
+              boardTitle: participants.boardTitle || boardTitle,
+            });
+          } else {
+            if (
+              (typePriority[notificationType] || 0) >
+              (typePriority[existing.notificationType] || 0)
+            ) {
+              existing.notificationType = notificationType;
+            }
+            if (!existing.tasks.some((t) => t.id === taskSummary.id)) {
+              existing.tasks.push(taskSummary);
+            }
+          }
+        }
+      }
+
+      if (byRecipient.size === 0) return;
+
+      const appUrlSetting = await wrapQuery(
+        this.db.prepare('SELECT value FROM settings WHERE key = ?'),
+        'SELECT'
+      ).get('APP_URL');
+      let baseUrl =
+        appUrlSetting?.value || process.env.BASE_URL || 'http://localhost:3000';
+      baseUrl = baseUrl.replace(/\/$/, '');
+
+      const siteNameSetting = await wrapQuery(
+        this.db.prepare('SELECT value FROM settings WHERE key = ?'),
+        'SELECT'
+      ).get('SITE_NAME');
+      const siteName = siteNameSetting?.value || 'Easy Kanban';
+
+      const { getAppLanguage } = await import('../utils/i18n.js');
+      const lang = await getAppLanguage(this.db);
+      const summaryDetails = details
+        ? (await import('../utils/emailContent.js')).formatDetailsForEmail(details, lang)
+        : '';
+
+      const actorName =
+        actor.name ||
+        [actor.first_name, actor.last_name].filter(Boolean).join(' ') ||
+        actor.email ||
+        'Someone';
+
+      for (const [recipientUserId, payload] of byRecipient.entries()) {
+        const userPrefs = await this.getUserNotificationPreferences(recipientUserId);
+        if (!userPrefs[payload.notificationType]) continue;
+
+        const recipient = await wrapQuery(
+          this.db.prepare(
+            'SELECT id, email, first_name, last_name, is_active FROM users WHERE id = ?'
+          ),
+          'SELECT'
+        ).get(recipientUserId);
+        if (!isMailableRecipient(recipient)) continue;
+
+        const emailContent = await EmailTemplates.bulkTaskNotification({
+          user: recipient,
+          actorName,
+          boardTitle: payload.boardTitle || boardTitle,
+          field,
+          tasks: payload.tasks,
+          changeBefore,
+          changeAfter,
+          summaryDetails,
+          baseUrl,
+          siteName,
+          timestamp: new Date().toISOString(),
+          db: this.db,
+        });
+
+        await this.emailService.sendEmail({
+          to: recipient.email,
+          subject: emailContent.subject,
+          text: emailContent.text,
+          html: emailContent.html,
+        });
+      }
+    } catch (error) {
+      console.error('❌ [TASK-EMAIL] Error sending bulk task notification:', error);
+    }
+  }
 }
 
 /** Fire-and-forget helpers used from activityLogger */
@@ -492,6 +662,12 @@ export function notifyCommentActivity(db, commentData, tenantId = null) {
   if (!db) return Promise.resolve();
   const service = new TaskEmailNotificationService(db, tenantId);
   return service.sendCommentNotification(commentData);
+}
+
+export function notifyBulkTaskFieldActivity(db, bulkData, tenantId = null) {
+  if (!db) return Promise.resolve();
+  const service = new TaskEmailNotificationService(db, tenantId);
+  return service.sendBulkTaskFieldNotification(bulkData);
 }
 
 export { TaskEmailNotificationService };

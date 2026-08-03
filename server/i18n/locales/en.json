@@ -268,12 +268,31 @@
         "unassigned": "Unassigned",
         "fieldAssignee": "Assignee",
         "fieldRequester": "Requester",
+        "fieldPriority": "Priority",
+        "fieldSprint": "Sprint",
         "timestamp": "Date/Time",
         "viewTask": "View Task",
         "viewTaskReply": "💬 View Task & Reply",
         "receivingReason": "You received this notification because you're involved in this task.",
         "teamSignature": "The {siteName} Team"
       }
+    },
+    "bulkTaskNotification": {
+      "subject": "[{count} tasks] {summary} — {boardTitle}",
+      "title": "Bulk task update",
+      "hi": "Hi {firstName},",
+      "intro": "{actorName} updated {count} task(s) on board \"{boardTitle}\".",
+      "whatChanged": "What changed",
+      "setTo": "Set to",
+      "tasksAffected": "Tasks affected",
+      "viewTask": "View",
+      "receivingReason": "You're receiving this because you're involved in one or more of these tasks.",
+      "teamSignature": "The {siteName} Team",
+      "summaryAssignee": "Assignee changed",
+      "summaryRequester": "Requester changed",
+      "summaryPriority": "Priority changed",
+      "summarySprint": "Sprint changed",
+      "summaryDefault": "Tasks updated"
     }
   },
   "achievements": {
@@ -391,6 +410,13 @@
     "setRequester": "set requester to \"{newName}\"",
     "clearedRequester": "cleared requester (was \"{oldName}\")",
     "changedRequester": "changed requester from \"{oldName}\" to \"{newName}\"",
+    "bulkChangedAssignee": "changed assignee from \"{oldName}\" to \"{newName}\" on {count} tasks in board \"{boardTitle}\"",
+    "bulkChangedAssigneeTo": "changed assignee to \"{newName}\" on {count} tasks in board \"{boardTitle}\"",
+    "bulkChangedRequester": "changed requester from \"{oldName}\" to \"{newName}\" on {count} tasks in board \"{boardTitle}\"",
+    "bulkChangedRequesterTo": "changed requester to \"{newName}\" on {count} tasks in board \"{boardTitle}\"",
+    "bulkChangedPriority": "changed priority to \"{newValue}\" on {count} tasks in board \"{boardTitle}\"",
+    "bulkChangedSprint": "changed sprint to \"{newValue}\" on {count} tasks in board \"{boardTitle}\"",
+    "bulkClearedSprint": "cleared sprint on {count} tasks in board \"{boardTitle}\"",
     "fieldLabels": {
       "title": "title",
       "description": "description",

@@ -69,6 +69,7 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
   const [editingColor, setEditingColor] = useState<string>('#4ECDC4');
   const [originalColor, setOriginalColor] = useState<string>('#4ECDC4');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const [isAddingUser, setIsAddingUser] = useState(false);
   const [isResendingInvitation, setIsResendingInvitation] = useState<boolean>(false);
   const [colorPickerPosition, setColorPickerPosition] = useState<{top: number, left: number, userId: string} | null>(null);
   const [avatarPreviewUrl, setAvatarPreviewUrl] = useState<string | null>(null);
@@ -281,16 +282,28 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
   };
 
   const handleAddUser = async () => {
+    if (isAddingUser) return;
+    const userPayload = isDemoMode ? { ...newUser, isActive: true } : newUser;
+    const creatingLocally = Boolean(userPayload.isActive);
+    setIsAddingUser(true);
     try {
-      const userPayload = isDemoMode ? { ...newUser, isActive: true } : newUser;
       await onAddUser(userPayload);
       setShowAddUserForm(false);
       setNewUser(getEmptyNewUser());
-      toast.success(t('users.userCreatedSuccessfully'), '');
+      if (creatingLocally) {
+        toast.success(t('users.userCreatedSuccessfully'), '');
+      } else {
+        toast.success(
+          t('users.userInvitedSuccessfully', { email: userPayload.email }),
+          ''
+        );
+      }
     } catch (err: any) {
       console.error('Failed to add user:', err);
       const errorMessage = err.response?.data?.error || t('failedToCreateUser');
       toast.error(errorMessage, '');
+    } finally {
+      setIsAddingUser(false);
     }
   };
 
@@ -752,14 +765,30 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
               </div>
               <div className="flex space-x-3 mt-6">
                 <button
+                  type="button"
                   onClick={handleAddUser}
-                  className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+                  disabled={isAddingUser}
+                  className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {newUser.isActive ? t('users.save') : t('users.inviteUser')}
+                  {isAddingUser && (
+                    <span
+                      className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-white border-t-transparent"
+                      aria-hidden
+                    />
+                  )}
+                  {isAddingUser
+                    ? newUser.isActive || isDemoMode
+                      ? t('users.creatingUser')
+                      : t('users.sendingInvitation')
+                    : newUser.isActive || isDemoMode
+                      ? t('users.save')
+                      : t('users.inviteUser')}
                 </button>
                 <button
+                  type="button"
                   onClick={handleCancelAddUser}
-                  className="flex-1 px-4 py-2 bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-200 rounded-md hover:bg-gray-400 dark:hover:bg-gray-500 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2"
+                  disabled={isAddingUser}
+                  className="flex-1 px-4 py-2 bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-200 rounded-md hover:bg-gray-400 dark:hover:bg-gray-500 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {t('users.cancel')}
                 </button>
@@ -981,7 +1010,7 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
                   <>
                     <div className="font-medium mb-1">{t('users.deleteUser')}</div>
                     <div className="text-xs text-gray-700">
-                      <span className="text-red-600 font-medium">
+                      <span className="font-medium text-amber-700 dark:text-amber-300">
                         {t('users.tasksWillBeRemoved', { count: userTaskCounts[user.id] })}
                       </span>{' '}
                       {t('users.willBeRemovedFor')}{' '}
