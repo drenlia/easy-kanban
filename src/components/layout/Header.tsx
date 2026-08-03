@@ -551,7 +551,7 @@ const Header: React.FC<HeaderProps> = ({
           </a>
           {/* Sprint Selector - only show in Kanban view, hide on TaskPage / very narrow */}
           {currentUser && currentPage === 'kanban' && !hideSprintSelector && (
-            <div className="hidden sm:block min-w-0">
+            <div className="hidden sm:block min-w-0 shrink">
               <SprintSelector
                 selectedSprintId={selectedSprintId || null}
                 onSprintChange={onSprintChange || (() => {})}
@@ -560,14 +560,13 @@ const Header: React.FC<HeaderProps> = ({
               />
             </div>
           )}
-          
-          {/* Demo Reset Counter - positioned between sprint selector and invite button */}
-          {process.env.DEMO_ENABLED === 'true' && (
-            <ResetCountdown inline={true} onReset={onLogout} />
-          )}
         </div>
         
         <div className="flex items-center gap-1 sm:gap-2 min-w-0 shrink-0">
+          {/* Demo reset timer — right cluster so it never crowds the sprint selector */}
+          {process.env.DEMO_ENABLED === 'true' && (
+            <ResetCountdown inline={true} onReset={onLogout} />
+          )}
           {currentUser && (
             <>
               {/* Quick task search — hide under md; Tools search still available */}

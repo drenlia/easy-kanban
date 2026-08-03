@@ -477,17 +477,155 @@ export async function initializeDemoData(db, boardId, columns) {
 
   console.log(`✅ Created demo sprint: Sprint 1 (${sprintStartDate} to ${sprintEndDate})`);
 
-  // Note: sprint_tasks table doesn't exist yet, so we're not assigning tasks to sprints
-  // TODO: Uncomment when sprint_tasks table is created
-  /*
-  // Assign all tasks to the sprint
-  const createdTaskIdsResult = await wrapQuery(db.prepare('SELECT id FROM tasks WHERE boardid = $1'), 'SELECT').all(boardId);
-  const createdTaskIds = createdTaskIdsResult.map(t => t.id);
-  const sprintTaskStmt = db.prepare('INSERT INTO sprint_tasks (sprint_id, task_id) VALUES ($1, $2)');
-  for (const taskId of createdTaskIds) {
-    await wrapQuery(sprintTaskStmt, 'INSERT').run(sprintId, taskId);
+  // Link only a subset of the original tasks to the sprint (rest stay backlog).
+  // Target: 12 sprint tasks total = 4 originals + 8 extras below.
+  const originalSprintTaskIndices = [0, 1, 3, 4]; // docs, mockups, auth, schema
+  const linkSprintStmt = db.prepare(
+    'UPDATE tasks SET sprint_id = $1, updated_at = $2 WHERE id = $3'
+  );
+  for (const idx of originalSprintTaskIndices) {
+    const task = createdTasks[idx];
+    if (task) {
+      await wrapQuery(linkSprintStmt, 'UPDATE').run(sprintId, now, task.id);
+    }
   }
-  */
+  console.log(`✅ Linked ${originalSprintTaskIndices.length} original demo tasks to Sprint 1`);
+
+  // Extra sprint tasks — varied columns/assignees so Sprint 1 has a fuller board
+  const extraSprintTasks = [
+    {
+      title: 'Polish onboarding checklist',
+      description: 'Add empty-state tips and a short checklist for first-time board setup.',
+      priority: 'medium',
+      effort: 2,
+      startDate: sprintStartForTasks,
+      dueDate: new Date(Date.now() + 6 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+      columnIndex: 0,
+      assignedTo: 1
+    },
+    {
+      title: 'Add keyboard shortcuts help',
+      description: 'Document and surface common board shortcuts for power users.',
+      priority: 'low',
+      effort: 1,
+      startDate: sprintStartForTasks,
+      dueDate: new Date(Date.now() + 8 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+      columnIndex: 0,
+      assignedTo: 0
+    },
+    {
+      title: 'Improve task search relevance',
+      description: 'Rank ticket IDs and titles ahead of description matches in header search.',
+      priority: 'high',
+      effort: 3,
+      startDate: sprintStartForTasks,
+      dueDate: new Date(Date.now() + 4 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+      columnIndex: 1,
+      assignedTo: 2
+    },
+    {
+      title: 'Socket reconnect banner',
+      description: 'Show a non-blocking banner when the realtime connection drops and recovers.',
+      priority: 'medium',
+      effort: 2,
+      startDate: sprintStartForTasks,
+      dueDate: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+      columnIndex: 1,
+      assignedTo: 0
+    },
+    {
+      title: 'Column WIP limit warnings',
+      description: 'Warn when moving a card into a column that already exceeds its WIP limit.',
+      priority: 'medium',
+      effort: 2,
+      startDate: sprintStartForTasks,
+      dueDate: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+      columnIndex: 1,
+      assignedTo: 1
+    },
+    {
+      title: 'Verify sprint filter edge cases',
+      description: 'QA backlog vs sprint views, including tasks moved between sprints mid-cycle.',
+      priority: 'high',
+      effort: 2,
+      startDate: sprintStartForTasks,
+      dueDate: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+      columnIndex: 2,
+      assignedTo: 2
+    },
+    {
+      title: 'Regression: drag across boards',
+      description: 'Confirm multi-select drag still works when moving cards to another board.',
+      priority: 'urgent',
+      effort: 3,
+      startDate: sprintStartForTasks,
+      dueDate: new Date(Date.now() + 1 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+      columnIndex: 2,
+      assignedTo: 0
+    },
+    {
+      title: 'Ship demo seed sprint data',
+      description: 'Ensure sample tasks are assigned to members and linked to the active sprint.',
+      priority: 'low',
+      effort: 1,
+      startDate: new Date(Date.now() - 11 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+      dueDate: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+      completedDate: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+      columnIndex: 3,
+      assignedTo: 1
+    }
+  ];
+
+  const sprintTaskStmt = db.prepare(`
+    INSERT INTO tasks (id, title, description, ticket, memberid, requesterid, startdate, duedate, effort, priority, columnid, boardid, position, sprint_id, created_at, updated_at)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+  `);
+
+  const positionsByColumn = {};
+  for (const task of extraSprintTasks) {
+    const colIdx = task.columnIndex;
+    if (positionsByColumn[colIdx] === undefined) {
+      // Original seed places 3 tasks at positions 0–2 in each column
+      positionsByColumn[colIdx] = 3;
+    }
+    const taskId = crypto.randomUUID();
+    const ticketNumber = String(createdTasks.length + 1).padStart(5, '0');
+    const assignedMember = members[task.assignedTo % members.length];
+    const position = positionsByColumn[colIdx]++;
+
+    await wrapQuery(sprintTaskStmt, 'INSERT').run(
+      taskId,
+      task.title,
+      task.description,
+      `TASK-${ticketNumber}`,
+      assignedMember.id,
+      assignedMember.id,
+      task.startDate || today,
+      task.dueDate || null,
+      task.effort,
+      task.priority,
+      columns[colIdx].id,
+      boardId,
+      position,
+      sprintId,
+      now,
+      now
+    );
+
+    createdTasks.push({
+      id: taskId,
+      ticket: `TASK-${ticketNumber}`,
+      columnIndex: colIdx,
+      memberId: assignedMember.id,
+      completedDate: task.completedDate || null,
+      effort: task.effort
+    });
+  }
+
+  console.log(
+    `✅ Created ${extraSprintTasks.length} additional sprint-linked demo tasks ` +
+      `(${originalSprintTaskIndices.length + extraSprintTasks.length} on Sprint 1 total)`
+  );
 
   // TODO: Update completed tasks with realistic completion dates
   // Disabled because completed_at column doesn't exist in tasks table yet

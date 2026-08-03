@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Clock } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { KanbanChromeTooltip } from './KanbanChromeTooltip';
 
 interface ResetCountdownProps {
   onReset?: () => void;
@@ -57,21 +58,30 @@ const ResetCountdown: React.FC<ResetCountdownProps> = ({ onReset, inline = false
 
   // Check if we're in the last 30 seconds (urgent state)
   const isUrgent = timeLeft.minutes === 0 && timeLeft.seconds <= 30;
+  const timeLabel = `${String(timeLeft.minutes).padStart(2, '0')}:${String(timeLeft.seconds).padStart(2, '0')}`;
+  const tooltipLabel = t('resetCountdown.demoResetsIn', {
+    minutes: timeLeft.minutes,
+    seconds: timeLeft.seconds,
+  });
 
   const countdownContent = (
-    <div className={`
-      ${isUrgent 
-        ? 'bg-red-600 dark:bg-red-700 text-white border-red-700 dark:border-red-800' 
-        : 'bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-300 border-red-200 dark:border-red-800'
-      }
-      text-xs py-1.5 px-3 rounded-full shadow-lg border flex items-center space-x-1.5 transition-colors duration-300
-      ${isUrgent ? 'animate-pulse' : ''}
-    `}>
-      <Clock size={12} className={isUrgent ? 'text-white' : 'text-red-500 dark:text-red-400'} />
-      <span className="font-medium whitespace-nowrap">
-        {t('resetCountdown.demoResetsIn', { minutes: timeLeft.minutes, seconds: timeLeft.seconds })}
-      </span>
-    </div>
+    <KanbanChromeTooltip label={tooltipLabel} wrapperClassName="shrink-0 inline-flex" delayMs={0}>
+      <div
+        className={`
+          shrink-0
+          ${isUrgent
+            ? 'bg-red-600 dark:bg-red-700 text-white border-red-700 dark:border-red-800'
+            : 'bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-300 border-red-200 dark:border-red-800'
+          }
+          text-xs py-1.5 px-2 rounded-full border flex items-center gap-1 transition-colors duration-300
+          ${isUrgent ? 'animate-pulse' : ''}
+        `}
+        aria-label={tooltipLabel}
+      >
+        <Clock size={12} className={`shrink-0 ${isUrgent ? 'text-white' : 'text-red-500 dark:text-red-400'}`} />
+        <span className="font-medium tabular-nums leading-none">{timeLabel}</span>
+      </div>
+    </KanbanChromeTooltip>
   );
 
   if (inline) {
@@ -80,7 +90,7 @@ const ResetCountdown: React.FC<ResetCountdownProps> = ({ onReset, inline = false
 
   // Legacy fixed positioning (for backward compatibility)
   return (
-    <div className="fixed top-2 left-1/2 transform -translate-x-1/2 pointer-events-none" style={{ zIndex: 9999 }}>
+    <div className="fixed top-2 left-1/2 transform -translate-x-1/2" style={{ zIndex: 9999 }}>
       {countdownContent}
     </div>
   );
