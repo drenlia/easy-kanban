@@ -794,7 +794,8 @@ export default function KanbanColumn({
   };
 
   const unfilteredTaskCount = column.tasks?.length || 0;
-  const displayedTaskCount = hasActiveFilters ? filteredTasks.length : unfilteredTaskCount;
+  // Always match visible cards (includes sprint filter even when search filters are off)
+  const displayedTaskCount = filteredTasks.length;
   const columnWipStatus = getWipStatus(unfilteredTaskCount, column.wip_limit);
   const showWipMeter = hasWipLimit(column.wip_limit);
   const showTaskCount = displayedTaskCount > 0 || showWipMeter;
@@ -808,12 +809,14 @@ export default function KanbanColumn({
           : 'bg-blue-50/80 text-blue-500 dark:bg-blue-900/25 dark:text-blue-400';
   const taskCountLabel = showWipMeter
     ? t('column.wipMeterTooltip', {
-        count: unfilteredTaskCount,
+        count: hasActiveFilters ? displayedTaskCount : unfilteredTaskCount,
         limit: column.wip_limit,
       })
     : t('column.taskCount');
+  // WIP meter: when filters (incl. sprint) are active, show visible count vs limit;
+  // capacity coloring still uses unfiltered WIP above.
   const taskCountDisplay = showWipMeter
-    ? `${unfilteredTaskCount} / ${column.wip_limit}`
+    ? `${hasActiveFilters ? displayedTaskCount : unfilteredTaskCount} / ${column.wip_limit}`
     : displayedTaskCount;
   const taskCountBadge = showTaskCount ? (
     <span

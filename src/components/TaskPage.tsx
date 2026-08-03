@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useTranslation } from 'react-i18next';
 import { useTaskDetails } from '../hooks/useTaskDetails';
 import { Task, TeamMember, CurrentUser, Attachment } from '../types';
-import { ArrowLeft, Save, Clock, User, Calendar, AlertCircle, Tag, Users, Paperclip, Edit2, X, ChevronDown, ChevronUp, GitBranch } from 'lucide-react';
+import { ArrowLeft, Save, Clock, User, Calendar, AlertCircle, Tag, Users, Paperclip, Edit2, X, ChevronDown, ChevronUp, GitBranch, Trash2 } from 'lucide-react';
 import { parseTaskRoute } from '../utils/routingUtils';
 import { getTaskById, getMembers, getBoards, addWatcherToTask, removeWatcherFromTask, addCollaboratorToTask, removeCollaboratorFromTask, addTagToTask, removeTagFromTask, deleteComment, updateComment, fetchTaskAttachments, deleteAttachment, fetchCommentAttachments, getTaskRelationships, getAvailableTasksForRelationship, addTaskRelationship, removeTaskRelationship, getAllSprints } from '../api';
 import { useFileUpload } from '../hooks/useFileUpload';
@@ -18,7 +18,7 @@ import DOMPurify from 'dompurify';
 import { getAuthenticatedAttachmentUrl, getAuthenticatedAvatarUrl } from '../utils/authImageUrl';
 import { commentTextToHtml } from '../utils/commentContent';
 import { feDebug } from '../utils/clientDebug';
-import { parseEffortUnit } from '../utils/taskUtils';
+import { parseEffortUnit, isTaskSoftDeleted } from '../utils/taskUtils';
 import { AGENT_MEMBER_ID, SYSTEM_MEMBER_ID } from '../constants/appConstants';
 import { mergeTaskTagsWithLiveData } from '../utils/tagUtils';
 import MemberAvatar, { getPriorityPillStyle } from './ui/MemberAvatar';
@@ -55,6 +55,7 @@ function normalizeTaskFromApi(taskData: any): Task {
     isBlocked: Boolean(taskData.isBlocked ?? taskData.is_blocked),
     blockedReason: taskData.blockedReason || taskData.blocked_reason || null,
     priorityId: taskData.priorityId ?? taskData.priority_id ?? null,
+    deletedAt: taskData.deletedAt ?? taskData.deleted_at ?? null,
   };
 }
 
@@ -935,6 +936,7 @@ export default function TaskPage({
   const requesterMember = members.find(m => m.id === editedTask.requesterId);
   const priority = availablePriorities.find(p => p.id === editedTask.priorityId);
   const liveTaskTags = mergeTaskTagsWithLiveData(taskTags, availableTags);
+  const isInTrash = isTaskSoftDeleted(editedTask) || isTaskSoftDeleted(task);
 
   const toggleTaskTag = async (tag: Tag) => {
     try {
@@ -984,9 +986,17 @@ export default function TaskPage({
               <div className="h-6 border-l border-gray-300 shrink-0"></div>
               <div className="min-w-0">
                 <h1 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-gray-100 truncate">{editedTask.title}</h1>
-                <p className="text-xs sm:text-sm text-gray-500 truncate">
-                  {getProjectIdentifier() && `${getProjectIdentifier()} / `}
-                  {taskId}
+                <p className="text-xs sm:text-sm text-gray-500 flex flex-wrap items-center gap-x-2 gap-y-0.5 min-w-0">
+                  <span className="truncate">
+                    {getProjectIdentifier() && `${getProjectIdentifier()} / `}
+                    {taskId}
+                  </span>
+                  {isInTrash && (
+                    <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-amber-100 dark:bg-amber-900/60 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-amber-800 dark:text-amber-200">
+                      <Trash2 size={11} aria-hidden />
+                      {t('trash.readOnlyBadge')}
+                    </span>
+                  )}
                 </p>
               </div>
             </div>
@@ -1042,7 +1052,14 @@ export default function TaskPage({
                 type="text"
                 value={editedTask.title}
                 onChange={(e) => handleTaskUpdate({ title: e.target.value })}
-                className="w-full min-w-0 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-base sm:text-lg font-medium bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+                readOnly={isInTrash}
+                disabled={isInTrash}
+                title={isInTrash ? t('trash.readOnlyHint') : undefined}
+                className={`w-full min-w-0 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-base sm:text-lg font-medium text-gray-900 dark:text-gray-100 disabled:opacity-70 disabled:cursor-not-allowed ${
+                  isInTrash
+                    ? 'bg-amber-50/80 dark:bg-amber-950/30'
+                    : 'bg-white dark:bg-gray-700'
+                }`}
                 placeholder={t('placeholders.enterTitle')}
               />
             </div>

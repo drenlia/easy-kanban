@@ -4,6 +4,29 @@
 - Prioritize security, maintainability, and least-privilege by default.
 - Never ship code that violates these rules unless explicitly instructed otherwise.
 
+## UI / UX (forms & screens)
+
+When designing or changing any screen, treat **density, alignment, and input affordances** as first-class requirements—not polish after the fact.
+
+### Density & vertical rhythm
+- Prefer a **medium-compact** layout: enough breathing room to scan and click, without tall empty bands, oversized section padding, or stacked whitespace that forces unnecessary scrolling.
+- Tighten vertical spacing where content is related (label → control → hint); keep clearer separation between distinct sections.
+- Avoid one-off “spacious” blocks that break the density of surrounding Admin / app chrome.
+
+### Alignment & field width
+- Align labels and controls consistently within a form or grid (shared columns, matching baselines, predictable gutters).
+- Size inputs to the **expected content length**—short values (ports, days, codes, prefixes, ticket IDs) should use compact widths, not full-bleed `w-full` when that wastes space or weakens the visual hierarchy.
+- Prefer grids or fixed/`max-w-*` controls for short fields; reserve full width for prose, descriptions, URLs that may be long, and rich text.
+
+### Dates
+- Calendar dates are always **`YYYY-MM-DD`** in the UI and when bound to form controls.
+- Use a native **date picker** (`<input type="date">`) so users can pick from a calendar **or type freely**; do not force spinner-style increment/decrement UX.
+- Do **not** use `type="number"` (or other spinbutton controls) for calendar dates.
+- Follow the project date pipeline (API `YYYY-MM-DD` / `::text`, normalize before binding, local-date display)—see `.cursor/rules/easy-kanban-dates.mdc` and `src/utils/dateUtils.ts`.
+
+### Numeric fields (non-date)
+- For quantities and settings that are numbers, allow free typing; hide browser spinner arrows where the project already does (e.g. `ADMIN_NUMERIC_INPUT_CLASS` in `src/utils/adminFieldLimits.ts`) so users are not nudged into click-to-increment behavior.
+
 ## Documentation Policy
 - **DO NOT create new .md documentation files** unless explicitly requested by the user
 - **ESPECIALLY for QA/testing work**: Do NOT create README files, CHANGES files, or summary documents

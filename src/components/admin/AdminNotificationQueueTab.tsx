@@ -354,7 +354,16 @@ const AdminNotificationQueueTab: React.FC<AdminNotificationQueueTabProps> = ({
             >
               {t('notificationQueue.retentionDays')}
             </label>
-            <div className="flex items-center gap-2 sm:justify-end">
+            <div className="sm:hidden mb-1 flex justify-start">
+              <AdminUnsavedHint show={retentionDirty} />
+            </div>
+            <div className="relative flex items-center gap-2 sm:justify-end">
+              {/* Absolutely left of the controls so the field/button stay put when dirty */}
+              <div className="pointer-events-none absolute inset-y-0 right-full mr-2 hidden items-center sm:flex">
+                <div className="pointer-events-auto whitespace-nowrap">
+                  <AdminUnsavedHint show={retentionDirty} />
+                </div>
+              </div>
               <input
                 id="notification-queue-retention"
                 type="number"
@@ -390,7 +399,6 @@ const AdminNotificationQueueTab: React.FC<AdminNotificationQueueTabProps> = ({
                   ? t('notificationQueue.savingRetention')
                   : t('notificationQueue.saveRetention')}
               </button>
-              <AdminUnsavedHint show={retentionDirty} />
             </div>
             <p
               id="notification-queue-retention-hint"

@@ -215,6 +215,7 @@
     "purgeFailed": "Échec de la suppression définitive",
     "restoreBoardFirst": "Un administrateur doit d'abord restaurer le tableau",
     "readOnlyHint": "Cette tâche est dans la corbeille (lecture seule).",
+    "readOnlyBadge": "Corbeille",
     "selectAll": "Tout sélectionner",
     "unselectAll": "Tout désélectionner",
     "restoreSelected": "Restaurer la sélection",

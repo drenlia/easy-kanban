@@ -1616,6 +1616,7 @@ export default function TaskDetails({
         height: 'calc(100vh - 65px)' // Full height minus header
       }}
       data-task-details
+      data-readonly={isReadOnlyMode ? 'true' : undefined}
     >
       {/* Professional Resize Handle */}
       <div
@@ -1677,8 +1678,13 @@ export default function TaskDetails({
                     type="text"
                     value={editedTask.title}
                     onChange={e => handleTextUpdate('title', e.target.value)}
-                    className="text-xl font-semibold w-full min-w-0 border-none focus:outline-none focus:ring-0 bg-gray-50 dark:bg-gray-700 p-3 rounded text-gray-900 dark:text-white disabled:opacity-70 disabled:cursor-not-allowed"
+                    className={`text-xl font-semibold w-full min-w-0 border-none focus:outline-none focus:ring-0 p-3 rounded text-gray-900 dark:text-white disabled:opacity-70 disabled:cursor-not-allowed ${
+                      isReadOnlyMode
+                        ? 'bg-amber-50/80 dark:bg-amber-950/30'
+                        : 'bg-gray-50 dark:bg-gray-700'
+                    }`}
                     disabled={isSubmitting || isWritersLocked}
+                    readOnly={isReadOnlyMode}
                     title={
                       isWritersLocked
                         ? isReadOnlyMode
@@ -1692,6 +1698,12 @@ export default function TaskDetails({
                 {/* Ticket + close on top; Restore / Delete forever under the ticket */}
                 <div className="flex flex-shrink-0 flex-col items-end gap-1.5">
                   <div className="flex items-center gap-2">
+                    {isReadOnlyMode && (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 dark:bg-amber-900/60 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-amber-800 dark:text-amber-200">
+                        <Trash2 size={11} aria-hidden />
+                        {t('trash.readOnlyBadge')}
+                      </span>
+                    )}
                     {task.ticket && (
                       <a 
                         href={generateTaskUrl(task.ticket, getProjectIdentifier())}

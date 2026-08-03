@@ -215,6 +215,7 @@
     "purgeFailed": "Failed to permanently delete task",
     "restoreBoardFirst": "An admin must restore the board before this task can be restored",
     "readOnlyHint": "This task is in the trash (read-only).",
+    "readOnlyBadge": "In trash",
     "selectAll": "Select all",
     "unselectAll": "Unselect all",
     "restoreSelected": "Restore selected",

@@ -3990,6 +3990,7 @@ function AppContent() {
     taskFilters.selectedMembers.length > 0 ||
     hasNonDefaultRoleFilters ||
     hasColumnFilters ||
+    taskFilters.selectedSprintId !== null ||
     (siteSettings?.AI_ENABLED === 'true' && !taskFilters.showAgentTasks);
   const getTaskCountForBoard = (board: Board) => {
     // During board switching, return the last calculated count to prevent flashing
