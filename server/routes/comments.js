@@ -1,6 +1,5 @@
 import express from 'express';
 import { authenticateToken } from '../middleware/auth.js';
-import { wrapQuery } from '../utils/queryLogger.js';
 import { updateStorageUsage } from '../utils/storageUtils.js';
 import { logCommentActivity } from '../services/activityLogger.js';
 import * as reportingLogger from '../services/reportingLogger.js';
@@ -8,10 +7,31 @@ import { COMMENT_ACTIONS } from '../constants/activityActions.js';
 import notificationService from '../services/notificationService.js';
 import { getTenantId, getRequestDatabase } from '../middleware/tenantRouting.js';
 // MIGRATED: Import sqlManager
-import { comments as commentQueries, helpers, tasks as taskQueries, files as fileQueries } from '../utils/sqlManager/index.js';
+import { comments as commentQueries, helpers, tasks as taskQueries, members as memberQueries } from '../utils/sqlManager/index.js';
 import { deleteObject, getRequestStoragePaths, filenameFromPublicUrl } from '../services/storage/index.js';
 
 const router = express.Router();
+
+function userIsAdmin(user) {
+  if (!user) return false;
+  if (user.role === 'admin') return true;
+  return Array.isArray(user.roles) && user.roles.includes('admin');
+}
+
+function commentAuthorId(comment) {
+  return comment?.authorid || comment?.authorId || null;
+}
+
+async function resolveCallerMemberId(db, userId) {
+  const member = await memberQueries.getMemberByUserId(db, userId);
+  return member?.id || null;
+}
+
+function canModifyComment(user, comment, callerMemberId) {
+  if (userIsAdmin(user)) return true;
+  const authorId = commentAuthorId(comment);
+  return Boolean(callerMemberId && authorId && callerMemberId === authorId);
+}
 
 // Create comment endpoint
 router.post('/', authenticateToken, async (req, res) => {
@@ -20,6 +40,13 @@ router.post('/', authenticateToken, async (req, res) => {
   const db = getRequestDatabase(req);
   
   try {
+    const callerMemberId = await resolveCallerMemberId(db, userId);
+    if (!callerMemberId) {
+      return res.status(400).json({ error: 'No member profile linked to this user' });
+    }
+
+    // Always bind author to the authenticated user's member (ignore client authorId)
+    const authorId = callerMemberId;
     
     // Collect queries and send as a batched transaction
     const batchQueries = [];
@@ -34,7 +61,7 @@ router.post('/', authenticateToken, async (req, res) => {
         comment.id,
         comment.taskId,
         comment.text,
-        comment.authorId,
+        authorId,
         comment.createdAt
       ]
     });
@@ -168,6 +195,11 @@ router.put('/:id', authenticateToken, async (req, res) => {
     if (!originalComment) {
       return res.status(404).json({ error: 'Comment not found' });
     }
+
+    const callerMemberId = await resolveCallerMemberId(db, userId);
+    if (!canModifyComment(req.user, originalComment, callerMemberId)) {
+      return res.status(403).json({ error: 'Insufficient permissions to modify this comment' });
+    }
     
     // MIGRATED: Update comment text using sqlManager
     const result = await commentQueries.updateComment(db, id, text);
@@ -234,6 +266,11 @@ router.delete('/:id', authenticateToken, async (req, res) => {
     
     if (!commentToDelete) {
       return res.status(404).json({ error: 'Comment not found' });
+    }
+
+    const callerMemberId = await resolveCallerMemberId(db, userId);
+    if (!canModifyComment(req.user, commentToDelete, callerMemberId)) {
+      return res.status(403).json({ error: 'Insufficient permissions to delete this comment' });
     }
     
     // MIGRATED: Get attachments before deleting the comment using sqlManager
@@ -309,4 +346,3 @@ router.get('/:commentId/attachments', authenticateToken, async (req, res) => {
 });
 
 export default router;
-

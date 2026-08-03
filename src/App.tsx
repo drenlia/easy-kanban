@@ -2284,11 +2284,12 @@ function AppContent() {
     if (selectedBoard) {
       // Set switching state to prevent task count updates during board switch
       setIsSwitchingBoard(true);
+      const boardIdBeingOpened = selectedBoard;
       
       // CRITICAL FIX: Check if board data is already loaded in boards array
       const boardInState = boards.find(b => b.id === selectedBoard);
       if (boardInState && boardInState.columns && Object.keys(boardInState.columns).length > 0) {
-        // Board data already loaded — always copy columns for the newly selected board.
+        // Board data already loaded — show cached columns immediately for snappy UX.
         // Do NOT gate this on justUpdatedFromWebSocket: after a cross-board drop (or any
         // WS batch), that flag can still be true while the user switches boards. Skipping
         // setColumns leaves the *previous* board's column IDs in `columns`, while
@@ -2307,13 +2308,24 @@ function AppContent() {
         });
         setColumns(newColumns);
         setIsSwitchingBoard(false);
+
+        // Revalidate from API in the background. Cached boards[] can miss comment/task
+        // updates that arrived while this client was not in that board's WS room.
+        // Race-guard: only apply if still on the same board when the fetch completes.
+        refreshBoardData({ force: true, forBoardId: boardIdBeingOpened }).then(() => {
+          if (selectedBoardRef.current !== boardIdBeingOpened) return;
+        }).catch(() => {
+          /* refreshBoardData already logs */
+        });
       } else {
         // Board data not in state yet — clear columns immediately so the previous board's tasks
         // are not shown while refresh runs (e.g. new board or slow network).
         setColumns({});
         // Force refresh: otherwise justUpdatedFromWebSocket can skip and leave stale columns visible.
-        refreshBoardData({ force: true }).finally(() => {
-          setIsSwitchingBoard(false);
+        refreshBoardData({ force: true, forBoardId: boardIdBeingOpened }).finally(() => {
+          if (selectedBoardRef.current === boardIdBeingOpened) {
+            setIsSwitchingBoard(false);
+          }
         });
       }
       
@@ -2321,11 +2333,14 @@ function AppContent() {
       if (currentPage === 'kanban') {
         getBoardTaskRelationships(selectedBoard)
           .then(relationships => {
+            if (selectedBoardRef.current !== boardIdBeingOpened) return;
             taskLinking.setBoardRelationships(relationships);
           })
           .catch(error => {
             console.error('⚠️ [App] Failed to load relationships:', error);
-            taskLinking.setBoardRelationships([]);
+            if (selectedBoardRef.current === boardIdBeingOpened) {
+              taskLinking.setBoardRelationships([]);
+            }
           });
       }
     } else {
@@ -2375,6 +2390,16 @@ function AppContent() {
       // Hydrate columns for a specific board (e.g. newly created) before selectedBoard state updates,
       // or for the current selectedBoard when forBoardId is omitted.
       const boardIdToHydrate = options?.forBoardId !== undefined ? options.forBoardId : selectedBoard;
+
+      // If this refresh was for a specific board and the user has already switched away, still
+      // update boards[] (above) but do not clobber the currently visible columns.
+      if (
+        options?.forBoardId !== undefined &&
+        selectedBoardRef.current &&
+        selectedBoardRef.current !== options.forBoardId
+      ) {
+        return;
+      }
       
       if (loadedBoards.length > 0) {
         if (boardIdToHydrate) {

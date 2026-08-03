@@ -127,6 +127,36 @@ export async function getMemberById(db, id) {
 }
 
 /**
+ * Get the member linked to a user id
+ *
+ * @param {Database} db
+ * @param {string} userId
+ * @returns {Promise<object|null>}
+ */
+export async function getMemberByUserId(db, userId) {
+  const query = `
+    SELECT 
+      m.id, 
+      m.name, 
+      m.color, 
+      m.user_id as "userId", 
+      m.created_at as "createdAt"
+    FROM members m
+    WHERE m.user_id = $1
+    LIMIT 1
+  `;
+  const stmt = wrapQuery(db.prepare(query), 'SELECT');
+  const member = await stmt.get(userId);
+  if (!member) return null;
+  return {
+    id: member.id,
+    name: member.name,
+    color: member.color,
+    user_id: member.userId
+  };
+}
+
+/**
  * Create a new member
  * 
  * @param {Database} db - Database connection

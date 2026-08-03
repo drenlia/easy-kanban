@@ -2,7 +2,7 @@
 
 **Date:** August 2026 · **App:** 0.9-beta  
 **Purpose:** Prioritized checklist to raise security posture toward production.  
-**Overall:** Needs Work · **Internet-facing risk:** High (reduced after Sprint A low-impact fixes)
+**Overall:** Needs Work · **Internet-facing risk:** Medium (P0 + Sprint B done; P2 design items remain)
 
 **Status legend:** ✅ Implemented · ⬜ Open · 🔶 Design first
 
@@ -28,14 +28,15 @@
 
 ## P0 — Blockers (do first)
 
-### C1 — Auth on member create/delete · ⬜ Open
+### C1 — Auth on member create/delete · ✅ Implemented
 
 | | |
 |--|--|
-| **Where** | `server/routes/members.js` POST/DELETE; mount `server/index.js` |
-| **Do** | Add `authenticateToken` + admin (or drop public mutators) |
+| **Where** | `server/routes/members.js` POST/DELETE |
+| **Do** | Add `authenticateToken` + admin |
 | **Done when** | Unauthenticated POST/DELETE → 401; invite/user-create still creates members |
 | **UX risk** | Low–medium — verify user-create still creates member rows [^C1] |
+| **Shipped** | `authenticateToken` + `requireRole(['admin'])` on POST/DELETE; invites still use `createMemberForUser` |
 
 ### C2 — Lock down `/api/debug` · ✅ Implemented
 
@@ -47,14 +48,15 @@
 | **UX risk** | None [^C2] |
 | **Shipped** | `authenticateToken` + `requireRole(['admin'])` on router |
 
-### C3 — Gate `demo-credentials` · ⬜ Open
+### C3 — Gate `demo-credentials` · ✅ Implemented
 
 | | |
 |--|--|
 | **Where** | `server/routes/auth.js` `GET /demo-credentials` |
-| **Do** | 404 unless `DEMO_ENABLED=true` (optionally single-tenant only) |
+| **Do** | 404 unless `DEMO_ENABLED=true` |
 | **Done when** | Non-demo → 404; demo compose with `DEMO_ENABLED=true` still fills login |
 | **UX risk** | Medium if demo flag missing [^C3] |
+| **Shipped** | Early 404 when `DEMO_ENABLED !== 'true'` |
 
 ### C4 — Stop logging reset tokens · ✅ Implemented
 
@@ -86,29 +88,35 @@
 | **UX risk** | Low [^H2] |
 | **Shipped** | Sanitize after blob-URL fix, before DOM parse (same pattern as descriptions) |
 
-### H3 — Bind comment author server-side · ⬜ Open
+### H3 — Bind comment author server-side · ✅ Implemented
 
 | | |
 |--|--|
-| **Where** | `server/routes/comments.js` |
-| **Do** | Resolve author from `req.user` → member; admin may edit/delete any; ignore/override client `authorId`; keep agent path separate |
+| **Where** | `server/routes/comments.js`; `members.getMemberByUserId` |
+| **Do** | Resolve author from `req.user` → member; admin may edit/delete any; ignore client `authorId` |
 | **Done when** | Forged `authorId` ignored; non-author non-admin cannot update/delete; agent + normal comments work |
 | **UX risk** | Medium — must mirror FE `canModifyComment` [^H3] |
+| **Shipped** | Create binds caller member; update/delete require author or admin; agent comments still via agent routes |
+
+### H3 notes
+- Users without a linked member get `400` on create (no fallback to `members[0]`).
+- Agent comments continue to use `AGENT_MEMBER_ID` on `/api/agent` paths (unchanged).
 
 ---
 
 ## P1 — Production hardening
 
-### H4 — OAuth `state` + rate limits · ⬜ Open
+### H4 — OAuth `state` + rate limits · ✅ Implemented
 
 | | |
 |--|--|
-| **Where** | `server/routes/auth.js` Google flow |
-| **Do** | Signed `state` on start; validate on callback; rate-limit OAuth; keep `#login?token=…` unless FE updated together |
+| **Where** | `server/routes/auth.js` Google flow; `oauthUrlLimiter` / `oauthCallbackLimiter` |
+| **Do** | Signed `state` on start; validate on callback; rate-limit OAuth; keep `#login?token=…` |
 | **Done when** | Bad/missing state fails; happy path Google login works |
 | **UX risk** | Low if state persisted correctly [^H4] |
+| **Shipped** | JWT-signed `state` (10m); callback rejects invalid state; URL/callback rate limits |
 
-### H5 — Dependency hygiene · ⬜ Open
+### H5 — Dependency hygiene · ✅ Implemented (partial)
 
 | | |
 |--|--|
@@ -116,6 +124,8 @@
 | **Do** | `npm audit fix`; axios ≥1.15.2; plan `xlsx` replace/isolate; CI audit gate |
 | **Done when** | Actionable critical/high CVEs cleared or accepted; export + API + WS smoke-tested |
 | **UX risk** | Mixed — especially `xlsx` / TipTap / socket.io [^H5] |
+| **Shipped** | axios 1.19.x; `@tiptap/extension-link` 2.27.x; vite 7.3.6; audit improved (xlsx left — no clean fix; spike remains) |
+| **Note** | CI runs `npm audit --audit-level=high` with `continue-on-error` until xlsx/bcrypt major decisions |
 
 ### I1 — Admin portal token compare + real rate limit · ✅ Implemented
 
@@ -126,7 +136,7 @@
 | **Done when** | Failed auth logs have no token prefixes; limiter rejects floods |
 | **UX risk** | None for compare; tune limits for provisioning [^I1] |
 | **Shipped** | Timing-safe compare; no token prefix logs; `adminPortalLimiter` (120/15m); secret not attached to `req` |
-| **Note** | Still in-memory per pod (Redis store remains I8) |
+| **Note** | Redis-backed when `MULTI_TENANT` / `USE_REDIS_RATE_LIMIT` (I8) |
 
 ### I2 — Stop logging JWT secret prefix · ✅ Implemented
 
@@ -138,32 +148,35 @@
 | **UX risk** | None [^I2] |
 | **Shipped** | Boot log confirms secret configured without printing it |
 
-### I7 — Tenant registry for background jobs · ⬜ Open
+### I7 — Tenant registry for background jobs · ✅ Implemented
 
 | | |
 |--|--|
-| **Where** | `tenantRouting.js` `getAllTenantDatabases()`; throttler / cron |
+| **Where** | `tenantRouting.js` `getAllTenantDatabases()` |
 | **Do** | Iterate known tenants from a registry, not only per-pod `dbCache` |
 | **Done when** | New tenant gets email/cron on all pods without prior HTTP hit on each |
 | **UX risk** | None / positive [^I7] |
+| **Shipped** | Multi-tenant: list `tenant_*` schemas from `information_schema`, then open each DB; cache still used as fallback |
 
-### I8 — Cluster-wide rate limits · ⬜ Open
+### I8 — Cluster-wide rate limits · ✅ Implemented
 
 | | |
 |--|--|
-| **Where** | `server/middleware/rateLimiters.js` |
-| **Do** | Redis store when `MULTI_TENANT` |
+| **Where** | `server/middleware/rateLimiters.js`; `redisService.getPublisherClient()` |
+| **Do** | Redis store when `MULTI_TENANT` (or `USE_REDIS_RATE_LIMIT=true`) |
 | **Done when** | Limits enforced across replicas |
 | **UX risk** | Low — limits feel stricter [^I8] |
+| **Shipped** | `RedisOrMemoryStore` for all limiters; falls back to memory if Redis down |
 
-### I9 — Minimal CI · ⬜ Open
+### I9 — Minimal CI · ✅ Implemented
 
 | | |
 |--|--|
-| **Where** | `.github/workflows` (new) |
-| **Do** | lint + build + `npm audit` (+ smoke when available) |
+| **Where** | `.github/workflows/ci.yml` |
+| **Do** | lint + build + `npm audit` |
 | **Done when** | PRs fail on lint/build/audit regressions |
 | **UX risk** | None [^I9] |
+| **Shipped** | CI on push/PR: `npm ci`, lint, build; audit high+ is non-blocking until remaining CVEs cleared |
 
 ---
 
@@ -234,17 +247,17 @@
 - [x] H1 JWT active + roles  
 - [x] H2 tooltip DOMPurify  
 
-**Sprint A — remaining P0**
-- [ ] C1 members auth  
-- [ ] C3 demo-credentials gate  
-- [ ] H3 comment author binding  
+**Sprint A — remaining P0 (done)**
+- [x] C1 members auth  
+- [x] C3 demo-credentials gate  
+- [x] H3 comment author binding  
 
-**Sprint B — P1**
-- [ ] H4 OAuth state  
-- [ ] H5 deps (axios first; `xlsx` as separate spike)  
-- [ ] I7 tenant registry  
-- [ ] I8 Redis rate limits (multi-tenant)  
-- [ ] I9 CI workflow  
+**Sprint B — P1 (done)**
+- [x] H4 OAuth state  
+- [x] H5 deps (axios / tiptap-link / vite; `xlsx` spike remains)  
+- [x] I7 tenant registry  
+- [x] I8 Redis rate limits (multi-tenant)  
+- [x] I9 CI workflow  
 
 **Sprint C — P2 (design spikes first)**
 - [ ] Spike: I3 file URL auth  

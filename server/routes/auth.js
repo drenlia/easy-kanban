@@ -5,7 +5,7 @@ import crypto from 'crypto';
 import { authenticateToken, requireRole, JWT_SECRET, JWT_EXPIRES_IN } from '../middleware/auth.js';
 import { getLicenseManager } from '../config/license.js';
 import notificationService from '../services/notificationService.js';
-import { loginLimiter, activationLimiter, registrationLimiter } from '../middleware/rateLimiters.js';
+import { loginLimiter, activationLimiter, registrationLimiter, oauthUrlLimiter, oauthCallbackLimiter } from '../middleware/rateLimiters.js';
 import { createDefaultAvatar, getRandomColor } from '../utils/avatarGenerator.js';
 import { getTranslator } from '../utils/i18n.js';
 import { getTenantId, getRequestDatabase } from '../middleware/tenantRouting.js';
@@ -334,9 +334,13 @@ router.get('/check-demo-user', async (req, res) => {
   }
 });
 
-// Get demo credentials
+// Get demo credentials (demo deployments only)
 router.get('/demo-credentials', async (req, res) => {
   try {
+    if (process.env.DEMO_ENABLED !== 'true') {
+      return res.status(404).json({ error: 'Not found' });
+    }
+
     // Prevent browsers/proxies from caching passwords across demo resets
     res.set({
       'Cache-Control': 'no-store, no-cache, must-revalidate, private',
@@ -426,7 +430,29 @@ async function getOAuthSettings(db) {
 }
 
 // Google OAuth endpoints
-router.get('/google/url', async (req, res) => {
+const OAUTH_STATE_TTL = '10m';
+
+function createOAuthState() {
+  return jwt.sign(
+    { purpose: 'google_oauth', nonce: crypto.randomBytes(16).toString('hex') },
+    JWT_SECRET,
+    { expiresIn: OAUTH_STATE_TTL }
+  );
+}
+
+function verifyOAuthState(state) {
+  if (!state || typeof state !== 'string') {
+    return false;
+  }
+  try {
+    const payload = jwt.verify(state, JWT_SECRET);
+    return payload?.purpose === 'google_oauth' && typeof payload?.nonce === 'string';
+  } catch {
+    return false;
+  }
+}
+
+router.get('/google/url', oauthUrlLimiter, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
     const settingsObj = await getOAuthSettings(db);
@@ -451,12 +477,15 @@ router.get('/google/url', async (req, res) => {
       console.error('🔐 [GOOGLE SSO] ❌ OAuth not fully configured');
       return res.status(400).json({ error: 'Google OAuth not fully configured. Please set Client ID, Client Secret, and Callback URL.' });
     }
+
+    const state = createOAuthState();
     
     const googleAuthUrl = `https://accounts.google.com/o/oauth2/v2/auth?` +
       `client_id=${encodeURIComponent(settingsObj.GOOGLE_CLIENT_ID)}` +
       `&redirect_uri=${encodeURIComponent(settingsObj.GOOGLE_CALLBACK_URL)}` +
       `&response_type=code` +
       `&scope=${encodeURIComponent('openid email profile')}` +
+      `&state=${encodeURIComponent(state)}` +
       `&access_type=offline`;
     
     debugLog(settingsObj, '🔐 [GOOGLE SSO] ✅ Generated OAuth URL successfully');
@@ -474,9 +503,9 @@ router.get('/google/url', async (req, res) => {
   }
 });
 
-router.get('/google/callback', async (req, res) => {
+router.get('/google/callback', oauthCallbackLimiter, async (req, res) => {
   try {
-    const { code, error, error_description } = req.query;
+    const { code, error, error_description, state } = req.query;
     const db = getRequestDatabase(req);
     
     // Get OAuth settings first to check debug mode
@@ -490,7 +519,8 @@ router.get('/google/callback', async (req, res) => {
       fullUrl: `${req.protocol}://${req.get('host')}${req.originalUrl}`,
       query: req.query,
       hasCode: !!code,
-      codeLength: code ? code.length : 0
+      codeLength: code ? code.length : 0,
+      hasState: !!state
     });
     
     // Check for OAuth errors from Google
@@ -506,6 +536,11 @@ router.get('/google/callback', async (req, res) => {
     if (!code) {
       console.error('🔐 [GOOGLE SSO] ❌ No authorization code received');
       return res.redirect('/?error=oauth_failed');
+    }
+
+    if (!verifyOAuthState(state)) {
+      console.error('🔐 [GOOGLE SSO] ❌ Invalid or missing OAuth state');
+      return res.redirect('/?error=oauth_invalid_state');
     }
     
     debugLog(settingsObj, '🔐 [GOOGLE SSO] ✅ Authorization code received successfully');

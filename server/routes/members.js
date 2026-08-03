@@ -34,8 +34,8 @@ router.get('/', authenticateToken, async (req, res) => {
   }
 });
 
-// Create member
-router.post('/', checkUserLimit, async (req, res) => {
+// Create member (admin only — user invite flows create members via auth/admin routes)
+router.post('/', authenticateToken, requireRole(['admin']), checkUserLimit, async (req, res) => {
   const { id, name, color } = req.body;
   try {
     const db = getRequestDatabase(req);
@@ -65,8 +65,8 @@ router.post('/', checkUserLimit, async (req, res) => {
   }
 });
 
-// Delete member
-router.delete('/:id', async (req, res) => {
+// Delete member (admin only)
+router.delete('/:id', authenticateToken, requireRole(['admin']), async (req, res) => {
   const { id } = req.params;
   try {
     const db = getRequestDatabase(req);

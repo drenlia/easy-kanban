@@ -486,7 +486,7 @@ const Header: React.FC<HeaderProps> = ({
   };
 
   return (
-    <header className="sticky top-0 z-50 bg-white dark:bg-gray-800 shadow-sm border-b border-gray-100 dark:border-gray-700" data-tour-id="navigation">
+    <header className="sticky top-0 z-[60] bg-white dark:bg-gray-800 shadow-sm border-b border-gray-100 dark:border-gray-700" data-tour-id="navigation">
       <div className="app-page-shell app-page-inline-gutter py-2.5 flex justify-between items-center gap-2 min-w-0 max-w-full">
         <div className="flex items-center gap-2 sm:gap-3 min-w-0 shrink">
           <a
@@ -661,7 +661,7 @@ const Header: React.FC<HeaderProps> = ({
                 {showAppNavMenu && (
                   <div
                     role="menu"
-                    className="absolute right-0 top-full mt-2 min-w-[11rem] bg-white dark:bg-gray-800 rounded-lg shadow-lg z-50 border border-gray-200 dark:border-gray-700 py-1"
+                    className="absolute right-0 top-full mt-2 min-w-[11rem] bg-white dark:bg-gray-800 rounded-lg shadow-lg z-[70] border border-gray-200 dark:border-gray-700 py-1"
                   >
                     <button
                       type="button"
@@ -742,7 +742,7 @@ const Header: React.FC<HeaderProps> = ({
                   </KanbanChromeTooltip>
 
                   {showInviteDropdown && (
-                    <div className="absolute right-0 top-full mt-2 w-[min(20rem,calc(100vw-1.5rem))] bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 z-50">
+                    <div className="absolute right-0 top-full mt-2 w-[min(20rem,calc(100vw-1.5rem))] bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 z-[70]">
                       <div className="p-4">
                         <div className="flex items-center gap-2 mb-3">
                           <Mail className="h-4 w-4 text-blue-600" />
@@ -913,7 +913,7 @@ const Header: React.FC<HeaderProps> = ({
               {showMoreMenu && (
                 <div
                   role="menu"
-                  className="absolute right-0 top-full mt-2 min-w-[12rem] bg-white dark:bg-gray-800 rounded-lg shadow-lg z-50 border border-gray-200 dark:border-gray-700 py-1"
+                  className="absolute right-0 top-full mt-2 min-w-[12rem] bg-white dark:bg-gray-800 rounded-lg shadow-lg z-[70] border border-gray-200 dark:border-gray-700 py-1"
                 >
                   <button
                     type="button"
@@ -1010,7 +1010,7 @@ const Header: React.FC<HeaderProps> = ({
               {showProfileMenu && (
                 <div
                   role="menu"
-                  className="absolute right-0 top-full mt-2 min-w-max bg-white dark:bg-gray-800 rounded-lg shadow-lg z-50 border border-gray-200 dark:border-gray-700"
+                  className="absolute right-0 top-full mt-2 min-w-max bg-white dark:bg-gray-800 rounded-lg shadow-lg z-[70] border border-gray-200 dark:border-gray-700"
                 >
                   <div className="py-1">
                     <button

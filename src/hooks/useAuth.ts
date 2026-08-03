@@ -4,6 +4,7 @@ import { DEFAULT_SITE_SETTINGS } from '../constants';
 import * as api from '../api';
 import { clearAllUserPreferenceCookies, clearOtherUserPreferenceCookies } from '../utils/userPreferences';
 import { registerLogoutCallback, unregisterLogoutCallback, markAsAuthenticated } from '../utils/authErrorHandler';
+import { feDebug } from '../utils/clientDebug';
 
 // Get intended destination from HTML capture
 const getInitialIntendedDestination = (): string | null => {
@@ -195,6 +196,24 @@ export const useAuth = (callbacks: UseAuthCallbacks): UseAuthReturn => {
     return () => {
       unregisterLogoutCallback();
     };
+  }, [handleLogout]);
+
+  // Cross-tab logout: when another tab clears authToken, mirror logout here.
+  // `storage` only fires in *other* documents, so this does not loop with same-tab logout.
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key !== 'authToken') return;
+      // Token removed or emptied in another tab while this tab still thinks it is logged in
+      if ((e.newValue === null || e.newValue === '') && e.oldValue) {
+        if (feDebug('FE_DEBUG_AUTH')) {
+          console.log('🔑 authToken cleared in another tab — logging out this session');
+        }
+        sessionStorage.setItem('tokenExpiredRedirect', 'true');
+        handleLogout();
+      }
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
   }, [handleLogout]);
 
   // Escape hatch for ghost sessions (authenticated without user → App shows "Restoring session…").
