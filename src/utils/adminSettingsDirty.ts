@@ -6,22 +6,38 @@ const SECRET_KEYS = new Set([
   'GOOGLE_CLIENT_SECRET',
   'AI_API_KEY',
   'AI_RUNNER_TOKEN',
+  'S3_SECRET_ACCESS_KEY',
 ]);
 
 /** Main Admin nav tab ids that can show an unsaved-changes dot. */
 export type AdminSettingsTabId =
   | 'site-settings'
-  | 'sso'
-  | 'mail-server'
+  | 'system-settings'
   | 'app-settings'
   | 'project-settings';
 
-function isProjectSettingsKey(key: string): boolean {
+export type SystemSettingsSubTabId =
+  | 'sso'
+  | 'mail-server'
+  | 'storage'
+  | 'file-uploads'
+  | 'ai'
+  | 'notifications'
+  | 'notification-queue';
+
+export type ProjectHubSubTabId =
+  | 'project'
+  | 'sprint-settings'
+  | 'reporting'
+  | 'lifecycle';
+
+function isProjectGeneralKey(key: string): boolean {
   return (
     key === 'DEFAULT_PROJ_PREFIX' ||
     key === 'DEFAULT_TASK_PREFIX' ||
     key === 'DEFAULT_FINISHED_COLUMN_NAMES' ||
-    key === 'EFFORT_UNIT'
+    key === 'EFFORT_UNIT' ||
+    key === 'HIGHLIGHT_OVERDUE_TASKS'
   );
 }
 
@@ -42,22 +58,71 @@ function isMailKey(key: string): boolean {
   return key.startsWith('SMTP_') || key.startsWith('MAIL_');
 }
 
+function isStorageKey(key: string): boolean {
+  return (
+    key.startsWith('S3_') ||
+    key === 'STORAGE_BACKEND' ||
+    key === 'STORAGE_MANAGED' ||
+    key === 'STORAGE_TEST_OK' ||
+    key === 'STORAGE_MIGRATION_STATUS' ||
+    key === 'STORAGE_MIGRATION_DETAIL'
+  );
+}
+
+function isUploadKey(key: string): boolean {
+  return key.startsWith('UPLOAD_');
+}
+
+function isAiKey(key: string): boolean {
+  return key.startsWith('AI_');
+}
+
+function isLifecycleKey(key: string): boolean {
+  return (
+    key === 'LIFECYCLE_DELETED_RETENTION_DAYS' ||
+    key === 'LIFECYCLE_ARCHIVED_RETENTION_DAYS'
+  );
+}
+
+function isNotificationKey(key: string): boolean {
+  return (
+    key.startsWith('NOTIFICATION_') ||
+    key === 'NOTIFICATION_DELAY' ||
+    key === 'NOTIFICATION_DEFAULTS'
+  );
+}
+
+function isSystemSettingsKey(key: string): boolean {
+  return (
+    isSsoKey(key) ||
+    isMailKey(key) ||
+    isStorageKey(key) ||
+    isUploadKey(key) ||
+    isAiKey(key) ||
+    isNotificationKey(key)
+  );
+}
+
+function isProjectSettingsKey(key: string): boolean {
+  return isProjectGeneralKey(key) || isLifecycleKey(key);
+}
+
 function isAppSettingsKey(key: string): boolean {
-  if (isProjectSettingsKey(key) || isSiteSettingsKey(key) || isSsoKey(key) || isMailKey(key)) {
+  if (
+    isProjectSettingsKey(key) ||
+    isSiteSettingsKey(key) ||
+    isSystemSettingsKey(key)
+  ) {
     return false;
   }
   return (
     key.startsWith('APP_') ||
     key.startsWith('DEFAULT_') ||
-    key.startsWith('UPLOAD_') ||
-    key.startsWith('AI_') ||
-    key.startsWith('NOTIFICATION_') ||
     key.startsWith('FE_DEBUG_') ||
     key.startsWith('SERVER_DEBUG_') ||
     key === 'FE_PERF_TESTS' ||
     key === 'SHOW_ACTIVITY_FEED' ||
-    key === 'NOTIFICATION_DELAY' ||
-    key === 'NOTIFICATION_DEFAULTS'
+    key === 'TASK_DELETE_CONFIRM'
   );
 }
 
@@ -65,11 +130,23 @@ function isAppSettingsKey(key: string): boolean {
 export function adminTabForSettingKey(key: string): AdminSettingsTabId | null {
   if (SKIP_KEYS.has(key) || key.endsWith('_SET')) return null;
   if (isSiteSettingsKey(key)) return 'site-settings';
-  if (isSsoKey(key)) return 'sso';
-  if (isMailKey(key)) return 'mail-server';
+  if (isSystemSettingsKey(key)) return 'system-settings';
   if (isProjectSettingsKey(key)) return 'project-settings';
   if (isAppSettingsKey(key)) return 'app-settings';
   return null;
+}
+
+/** Coerce admin setting values to strings before trim/compare/save (WS may send booleans). */
+export function settingValueAsString(value: unknown): string {
+  if (value == null) return '';
+  if (typeof value === 'string') return value;
+  if (typeof value === 'boolean' || typeof value === 'number') return String(value);
+  // Avoid "[object Object]" surprises for accidental non-scalars
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
 }
 
 function valuesDiffer(
@@ -77,8 +154,8 @@ function valuesDiffer(
   saved: Record<string, string | undefined>,
   draft: Record<string, string | undefined>
 ): boolean {
-  let draftVal = (draft[key] || '').trim();
-  let savedVal = (saved[key] || '').trim();
+  let draftVal = settingValueAsString(draft[key]).trim();
+  let savedVal = settingValueAsString(saved[key]).trim();
 
   if (SECRET_KEYS.has(key) && isMaskedApiKeyDisplay(draftVal)) {
     return false;
@@ -129,19 +206,11 @@ export function getDirtyAdminSettingsTabs(
 }
 
 /** App Settings sub-tab ids that can show a dirty dot. */
-export type AppSettingsSubTabId =
-  | 'ui'
-  | 'uploads'
-  | 'notifications'
-  | 'notification-queue'
-  | 'ai'
-  | 'troubleshooting';
+export type AppSettingsSubTabId = 'ui' | 'troubleshooting';
 
 export function appSettingsSubTabForKey(key: string): AppSettingsSubTabId | null {
   if (SKIP_KEYS.has(key) || key.endsWith('_SET')) return null;
   if (!isAppSettingsKey(key)) return null;
-  if (key.startsWith('UPLOAD_')) return 'uploads';
-  if (key.startsWith('AI_')) return 'ai';
   if (
     key.startsWith('FE_DEBUG_') ||
     key.startsWith('SERVER_DEBUG_') ||
@@ -149,22 +218,13 @@ export function appSettingsSubTabForKey(key: string): AppSettingsSubTabId | null
   ) {
     return 'troubleshooting';
   }
-  if (
-    key.startsWith('NOTIFICATION_') ||
-    key === 'NOTIFICATION_DELAY' ||
-    key === 'NOTIFICATION_DEFAULTS'
-  ) {
-    return 'notifications';
-  }
-  // APP_*, DEFAULT_*, SHOW_ACTIVITY_FEED
   return 'ui';
 }
 
-/** Dirty App Settings subtabs from shared editingSettings (+ optional AI local draft). */
+/** Dirty App Settings subtabs from shared editingSettings. */
 export function getDirtyAppSettingsSubTabs(
   saved: Record<string, string | undefined>,
-  draft: Record<string, string | undefined>,
-  options?: { aiLocalDirty?: boolean }
+  draft: Record<string, string | undefined>
 ): Set<AppSettingsSubTabId> {
   const dirty = new Set<AppSettingsSubTabId>();
   const keys = new Set([...Object.keys(saved), ...Object.keys(draft)]);
@@ -176,7 +236,57 @@ export function getDirtyAppSettingsSubTabs(
     if (sub) dirty.add(sub);
   }
 
+  return dirty;
+}
+
+export function systemSettingsSubTabForKey(key: string): SystemSettingsSubTabId | null {
+  if (SKIP_KEYS.has(key) || key.endsWith('_SET')) return null;
+  if (isSsoKey(key)) return 'sso';
+  if (isMailKey(key)) return 'mail-server';
+  if (isStorageKey(key)) return 'storage';
+  if (isUploadKey(key)) return 'file-uploads';
+  if (isAiKey(key)) return 'ai';
+  if (isNotificationKey(key)) return 'notifications';
+  return null;
+}
+
+export function getDirtySystemSettingsSubTabs(
+  saved: Record<string, string | undefined>,
+  draft: Record<string, string | undefined>,
+  options?: { aiLocalDirty?: boolean; queueRetentionLocalDirty?: boolean }
+): Set<SystemSettingsSubTabId> {
+  const dirty = new Set<SystemSettingsSubTabId>();
+  const keys = new Set([...Object.keys(saved), ...Object.keys(draft)]);
+
+  for (const key of keys) {
+    if (SKIP_KEYS.has(key) || key.endsWith('_SET')) continue;
+    if (!valuesDiffer(key, saved, draft)) continue;
+    const sub = systemSettingsSubTabForKey(key);
+    if (sub) dirty.add(sub);
+  }
+
   if (options?.aiLocalDirty) dirty.add('ai');
+  if (options?.queueRetentionLocalDirty) dirty.add('notification-queue');
+  return dirty;
+}
+
+export function getDirtyProjectHubSubTabs(
+  saved: Record<string, string | undefined>,
+  draft: Record<string, string | undefined>,
+  options?: { reportingLocalDirty?: boolean; lifecycleLocalDirty?: boolean }
+): Set<ProjectHubSubTabId> {
+  const dirty = new Set<ProjectHubSubTabId>();
+  const keys = new Set([...Object.keys(saved), ...Object.keys(draft)]);
+
+  for (const key of keys) {
+    if (SKIP_KEYS.has(key) || key.endsWith('_SET')) continue;
+    if (!valuesDiffer(key, saved, draft)) continue;
+    if (isProjectGeneralKey(key)) dirty.add('project');
+    if (isLifecycleKey(key)) dirty.add('lifecycle');
+  }
+
+  if (options?.reportingLocalDirty) dirty.add('reporting');
+  if (options?.lifecycleLocalDirty) dirty.add('lifecycle');
   return dirty;
 }
 
@@ -204,7 +314,7 @@ export function revertAdminSettingField(
 
 /** Short display of the previous saved value for “Was: …”. */
 export function formatSavedSettingDisplay(value: string | undefined, maxLen = 48): string {
-  const v = (value ?? '').trim();
+  const v = settingValueAsString(value).trim();
   if (!v) return '—';
   if (v.length <= maxLen) return v;
   return `${v.slice(0, maxLen - 1)}…`;

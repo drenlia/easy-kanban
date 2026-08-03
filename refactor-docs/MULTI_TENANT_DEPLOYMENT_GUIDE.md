@@ -86,6 +86,17 @@ Typical keys in `k8s/configmap-pg.yaml` / app env:
 - `DB_TYPE=postgresql` / `POSTGRES_*` pointing at in-cluster Postgres
 - `REDIS_URL` for the Socket.IO adapter
 
+### Secrets (do not put in ConfigMap)
+
+| Secret | Keys | Purpose |
+|--------|------|---------|
+| `easy-kanban-settings-crypto` | `SETTINGS_ENCRYPTION_KEY` | AES key for settings at rest (`SMTP_PASSWORD`, `S3_SECRET_ACCESS_KEY`, OAuth/AI secrets). Injected on the app Deployment. |
+| `easy-kanban-managed-s3` | `MANAGED_S3_ACCESS_KEY_ID`, `MANAGED_S3_SECRET_ACCESS_KEY` | Platform S3 credentials for new tenants when `MANAGED_S3_BUCKET` is set in the ConfigMap. Tenant DB stores the secret encrypted with `SETTINGS_ENCRYPTION_KEY`. |
+| `kanban-runner-secret` | `RUNNER_TOKEN` | App ↔ runner bearer |
+| `postgres-secret` | DB password | PostgreSQL |
+
+Optional ConfigMap (non-secret) for managed S3: `MANAGED_S3_BUCKET`, `MANAGED_S3_REGION`, `MANAGED_S3_ENDPOINT`, `MANAGED_S3_FORCE_PATH_STYLE`, `MANAGED_S3_KEY_PREFIX`. Leave `MANAGED_S3_BUCKET` empty to skip platform S3 seeding.
+
 See also [`TENANT_DOMAIN_EXPLANATION.md`](./TENANT_DOMAIN_EXPLANATION.md).
 
 ## Single-tenant Docker (not this guide)

@@ -1320,8 +1320,13 @@ router.put('/:id', authenticateToken, async (req, res) => {
           });
           changes.push(movedTaskText);
         } else {
-          const oldVal = field === 'isBlocked' ? normalizedCurrentTask.isBlocked : currentTask[field];
-          const newVal = field === 'isBlocked' ? Boolean(task.isBlocked) : task[field];
+          // Always use normalized camelCase fields — raw currentTask is snake_case from PG
+          const oldVal =
+            field === 'isBlocked'
+              ? normalizedCurrentTask.isBlocked
+              : normalizedCurrentTask[field];
+          const newVal =
+            field === 'isBlocked' ? Boolean(task.isBlocked) : task[field];
           changes.push(await generateTaskUpdateDetails(field, oldVal, newVal, '', db));
         }
       }
@@ -1405,11 +1410,14 @@ router.put('/:id', authenticateToken, async (req, res) => {
         });
       }
       
-      // For single field changes, pass old and new values for better email templates
-      let oldValue, newValue;
+      // For single field changes, pass old/new + field for email templates
+      let oldValue;
+      let newValue;
+      let changedField;
       if (changes.length === 1) {
-        // Find which field changed (use normalized values)
-        const changedField = fieldsToTrack.find(field => hasChanged(normalizedCurrentTask[field], task[field]));
+        changedField = fieldsToTrack.find((field) =>
+          hasChanged(normalizedCurrentTask[field], task[field])
+        );
         if (changedField) {
           oldValue = normalizedCurrentTask[changedField];
           newValue = task[changedField];
@@ -1428,6 +1436,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
           boardId: task.boardId,
           oldValue,
           newValue,
+          changedField,
           tenantId: getTenantId(req),
           authType: req.user?.authType,
           db: db

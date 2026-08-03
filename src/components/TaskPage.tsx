@@ -20,6 +20,13 @@ import { commentTextToHtml } from '../utils/commentContent';
 import { feDebug } from '../utils/clientDebug';
 import { parseEffortUnit } from '../utils/taskUtils';
 import { AGENT_MEMBER_ID, SYSTEM_MEMBER_ID } from '../constants/appConstants';
+import { mergeTaskTagsWithLiveData } from '../utils/tagUtils';
+import MemberAvatar, { getPriorityPillStyle } from './ui/MemberAvatar';
+import MemberPicker from './ui/MemberPicker';
+import TagPicker from './ui/TagPicker';
+import PriorityPicker from './ui/PriorityPicker';
+import SprintSelector from './SprintSelector';
+import type { Tag } from '../types';
 
 function pageLog(...args: unknown[]) {
   if (feDebug('FE_DEBUG_TASK_PAGE')) console.log(...args);
@@ -927,6 +934,19 @@ export default function TaskPage({
   const assignedMember = members.find(m => m.id === editedTask.memberId);
   const requesterMember = members.find(m => m.id === editedTask.requesterId);
   const priority = availablePriorities.find(p => p.id === editedTask.priorityId);
+  const liveTaskTags = mergeTaskTagsWithLiveData(taskTags, availableTags);
+
+  const toggleTaskTag = async (tag: Tag) => {
+    try {
+      if (taskTags.some((t) => t.id === tag.id)) {
+        await handleRemoveTag(tag.id);
+      } else {
+        await handleAddTag(tag.id);
+      }
+    } catch (error) {
+      console.error('Error toggling tag:', error);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 overflow-x-hidden">
@@ -1353,60 +1373,56 @@ export default function TaskPage({
                 className={`p-3 sm:p-4 lg:p-6 cursor-pointer flex items-center justify-between ${collapsedSections.assignment ? 'pb-3' : 'pb-0'}`}
                 onClick={() => toggleSection('assignment')}
               >
-                <h3 className="text-sm font-medium text-gray-700 dark:text-gray-200 flex items-center">
-                  <User className="h-4 w-4 mr-2" />
-                  {t('taskPage.assignment')}
+                <h3 className="text-sm font-medium text-gray-700 dark:text-gray-200 flex items-center min-w-0">
+                  <User className="h-4 w-4 mr-2 shrink-0" />
+                  <span className="truncate">{t('taskPage.assignment')}</span>
+                  {collapsedSections.assignment && (
+                    <span className="ml-2 flex items-center gap-1 shrink-0">
+                      <MemberAvatar member={assignedMember} members={members} size="xs" />
+                      {requesterMember && requesterMember.id !== assignedMember?.id && (
+                        <MemberAvatar member={requesterMember} members={members} size="xs" />
+                      )}
+                    </span>
+                  )}
                 </h3>
                 {collapsedSections.assignment ? (
-                  <ChevronDown className="h-4 w-4 text-gray-400 hover:text-gray-600" />
+                  <ChevronDown className="h-4 w-4 text-gray-400 hover:text-gray-600 shrink-0" />
                 ) : (
-                  <ChevronUp className="h-4 w-4 text-gray-400 hover:text-gray-600" />
+                  <ChevronUp className="h-4 w-4 text-gray-400 hover:text-gray-600 shrink-0" />
                 )}
               </div>
               {!collapsedSections.assignment && (
                 <div className="px-3 sm:px-4 lg:px-6 pb-3 sm:pb-4 lg:pb-6">
               <div className="space-y-4">
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">{t('labels.assignedTo')}</label>
-                  <select
-                    value={editedTask.memberId}
-                    onChange={(e) => handleTaskUpdate({ memberId: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-                  >
-                    {members.map((member) => (
-                      <option key={member.id} value={member.id}>
-                        {truncateMemberName(member.name)}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">{t('taskPage.requestedBy')}</label>
-                  <select
-                    value={editedTask.requesterId}
-                    onChange={(e) => handleTaskUpdate({ requesterId: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-                  >
-                    {members.map((member) => (
-                      <option key={member.id} value={member.id}>
-                        {truncateMemberName(member.name)}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                <MemberPicker
+                  label={t('labels.assignedTo')}
+                  members={members}
+                  value={editedTask.memberId}
+                  onChange={(memberId) => handleTaskUpdate({ memberId })}
+                  mode="single"
+                />
+
+                <MemberPicker
+                  label={t('taskPage.requestedBy')}
+                  members={members}
+                  value={editedTask.requesterId}
+                  onChange={(memberId) => handleTaskUpdate({ requesterId: memberId })}
+                  mode="single"
+                  showAgentSection={false}
+                />
                 
                 {/* Watchers */}
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">{t('labels.watchers')}</label>
+                  <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">{t('labels.watchers')}</label>
                   <div className="space-y-2">
-                    <div className="flex flex-wrap gap-1">
+                    <div className="flex flex-wrap gap-1.5">
                       {taskWatchers.map((watcher) => (
                         <span
                           key={watcher.id}
-                          className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200"
+                          className="inline-flex items-center gap-1.5 pl-1 pr-1.5 py-0.5 rounded-full text-xs bg-blue-50 dark:bg-blue-950/50 text-blue-800 dark:text-blue-200 border border-blue-200 dark:border-blue-800"
                         >
-                          {watcher.name}
+                          <MemberAvatar memberId={watcher.id} members={members} size="xs" />
+                          <span className="max-w-[7rem] truncate">{truncateMemberName(watcher.name)}</span>
                           <button
                             type="button"
                             onClick={async () => {
@@ -1416,49 +1432,43 @@ export default function TaskPage({
                                 console.error('Error removing watcher:', error);
                               }
                             }}
-                            className="ml-1 h-3 w-3 rounded-full bg-blue-200 hover:bg-blue-300 flex items-center justify-center"
+                            className="ml-0.5 h-4 w-4 rounded-full bg-blue-100 dark:bg-blue-900 hover:bg-blue-200 dark:hover:bg-blue-800 flex items-center justify-center text-blue-700 dark:text-blue-200"
+                            aria-label={t('taskPage.removeWatcher', { defaultValue: 'Remove watcher' })}
                           >
                             ×
                           </button>
                         </span>
                       ))}
                     </div>
-                    <select
-                      onChange={async (e) => {
-                        if (e.target.value) {
-                          try {
-                            await handleAddWatcher(e.target.value);
-                            e.target.value = '';
-                          } catch (error) {
-                            console.error('Error adding watcher:', error);
-                          }
+                    <MemberPicker
+                      members={members}
+                      mode="add"
+                      placeholder={t('taskPage.addWatcher')}
+                      excludeIds={taskWatchers.map((w) => w.id)}
+                      showAgentSection={false}
+                      onChange={async (memberId) => {
+                        try {
+                          await handleAddWatcher(memberId);
+                        } catch (error) {
+                          console.error('Error adding watcher:', error);
                         }
                       }}
-                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-                    >
-                      <option value="">{t('taskPage.addWatcher')}</option>
-                      {members
-                        .filter(member => !taskWatchers.some(w => w.id === member.id))
-                        .map((member) => (
-                          <option key={member.id} value={member.id}>
-                            {member.name}
-                          </option>
-                        ))}
-                    </select>
+                    />
                   </div>
                 </div>
 
                 {/* Collaborators */}
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">{t('labels.collaborators')}</label>
+                  <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">{t('labels.collaborators')}</label>
                   <div className="space-y-2">
-                    <div className="flex flex-wrap gap-1">
+                    <div className="flex flex-wrap gap-1.5">
                       {taskCollaborators.map((collaborator) => (
                         <span
                           key={collaborator.id}
-                          className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-green-100 text-green-800"
+                          className="inline-flex items-center gap-1.5 pl-1 pr-1.5 py-0.5 rounded-full text-xs bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-200 border border-emerald-200 dark:border-emerald-800"
                         >
-                          {truncateMemberName(collaborator.name)}
+                          <MemberAvatar memberId={collaborator.id} members={members} size="xs" />
+                          <span className="max-w-[7rem] truncate">{truncateMemberName(collaborator.name)}</span>
                           <button
                             type="button"
                             onClick={async () => {
@@ -1468,35 +1478,28 @@ export default function TaskPage({
                                 console.error('Error removing collaborator:', error);
                               }
                             }}
-                            className="ml-1 h-3 w-3 rounded-full bg-green-200 hover:bg-green-300 flex items-center justify-center"
+                            className="ml-0.5 h-4 w-4 rounded-full bg-emerald-100 dark:bg-emerald-900 hover:bg-emerald-200 dark:hover:bg-emerald-800 flex items-center justify-center"
+                            aria-label={t('taskPage.removeCollaborator', { defaultValue: 'Remove collaborator' })}
                           >
                             ×
                           </button>
                         </span>
                       ))}
                     </div>
-                    <select
-                      onChange={async (e) => {
-                        if (e.target.value) {
-                          try {
-                            await handleAddCollaborator(e.target.value);
-                            e.target.value = '';
-                          } catch (error) {
-                            console.error('Error adding collaborator:', error);
-                          }
+                    <MemberPicker
+                      members={members}
+                      mode="add"
+                      placeholder={t('taskPage.addCollaborator')}
+                      excludeIds={taskCollaborators.map((c) => c.id)}
+                      showAgentSection={false}
+                      onChange={async (memberId) => {
+                        try {
+                          await handleAddCollaborator(memberId);
+                        } catch (error) {
+                          console.error('Error adding collaborator:', error);
                         }
                       }}
-                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-                    >
-                      <option value="">{t('taskPage.addCollaborator')}</option>
-                      {members
-                        .filter(member => !taskCollaborators.some(c => c.id === member.id))
-                        .map((member) => (
-                          <option key={member.id} value={member.id}>
-                            {member.name}
-                          </option>
-                        ))}
-                    </select>
+                    />
                   </div>
                 </div>
               </div>
@@ -1510,52 +1513,54 @@ export default function TaskPage({
                 className={`p-3 sm:p-4 lg:p-6 cursor-pointer flex items-center justify-between ${collapsedSections.schedule ? 'pb-3' : 'pb-0'}`}
                 onClick={() => toggleSection('schedule')}
               >
-                <h3 className="text-sm font-medium text-gray-700 dark:text-gray-200 flex items-center">
-                  <Calendar className="h-4 w-4 mr-2" />
-                  {t('taskPage.scheduleAndPriority')}
+                <h3 className="text-sm font-medium text-gray-700 dark:text-gray-200 flex items-center min-w-0">
+                  <Calendar className="h-4 w-4 mr-2 shrink-0" />
+                  <span className="truncate">{t('taskPage.scheduleAndPriority')}</span>
+                  {collapsedSections.schedule && priority && (
+                    <span
+                      className="ml-2 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold shrink-0 max-w-[7rem]"
+                      style={getPriorityPillStyle(priority.color)}
+                    >
+                      <span
+                        className="w-1.5 h-1.5 rounded-full shrink-0"
+                        style={{ backgroundColor: priority.color || '#6B7280' }}
+                      />
+                      <span className="truncate">{priority.priority}</span>
+                    </span>
+                  )}
                 </h3>
                 {collapsedSections.schedule ? (
-                  <ChevronDown className="h-4 w-4 text-gray-400 hover:text-gray-600" />
+                  <ChevronDown className="h-4 w-4 text-gray-400 hover:text-gray-600 shrink-0" />
                 ) : (
-                  <ChevronUp className="h-4 w-4 text-gray-400 hover:text-gray-600" />
+                  <ChevronUp className="h-4 w-4 text-gray-400 hover:text-gray-600 shrink-0" />
                 )}
               </div>
               {!collapsedSections.schedule && (
                 <div className="px-3 sm:px-4 lg:px-6 pb-3 sm:pb-4 lg:pb-6">
               <div className="space-y-4">
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">{t('labels.sprint')}</label>
-                  <select
-                    value={editedTask.sprintId || ''}
-                    onChange={(e) => {
-                      const sprintId = e.target.value || null;
-                      if (!sprintId) {
+                  <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">{t('labels.sprint')}</label>
+                  <SprintSelector
+                    mode="assign"
+                    className="w-full"
+                    selectedSprintId={editedTask.sprintId || null}
+                    sprints={sprints as any}
+                    onSprintChange={(sprint) => {
+                      if (!sprint) {
                         handleTaskUpdate({ sprintId: null });
                         return;
                       }
-                      const sprint = sprints.find(s => s.id === sprintId);
                       handleTaskUpdate({
-                        sprintId,
-                        startDate: sprint?.start_date
+                        sprintId: sprint.id,
+                        startDate: sprint.start_date
                           ? formatToYYYYMMDD(sprint.start_date)
                           : editedTask.startDate,
-                        dueDate: sprint?.end_date
+                        dueDate: sprint.end_date
                           ? formatToYYYYMMDD(sprint.end_date)
                           : editedTask.dueDate,
                       });
                     }}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-                  >
-                    <option value="">{t('sprintSelector.backlog')}</option>
-                    {sprints.map((sprint) => (
-                      <option key={sprint.id} value={sprint.id}>
-                        {sprint.name}
-                        {sprint.start_date && sprint.end_date
-                          ? ` (${toDateInputValue(sprint.start_date)} → ${toDateInputValue(sprint.end_date)})`
-                          : ''}
-                      </option>
-                    ))}
-                  </select>
+                  />
                 </div>
 
                 <div>
@@ -1599,28 +1604,17 @@ export default function TaskPage({
                   />
                 </div>
 
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">{t('labels.priority')}</label>
-                  <select
-                    value={editedTask.priorityId || ''}
-                    onChange={(e) => {
-                      const priorityId = e.target.value ? parseInt(e.target.value) : null;
-                      const priority = priorityId ? availablePriorities.find(p => p.id === priorityId) : null;
-                      handleTaskUpdate({ 
-                        priorityId: priorityId,
-                        priority: priority?.priority || null 
-                      });
-                    }}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-                  >
-                    <option value="">{t('taskPage.noPriority')}</option>
-                    {availablePriorities.map((priority) => (
-                      <option key={priority.id} value={priority.id}>
-                        {priority.priority}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                <PriorityPicker
+                  label={t('labels.priority')}
+                  priorities={availablePriorities}
+                  value={editedTask.priorityId}
+                  onChange={(priorityId, priorityName) =>
+                    handleTaskUpdate({
+                      priorityId,
+                      priority: priorityName,
+                    })
+                  }
+                />
 
                 <div>
                   <div className="flex items-center justify-between gap-3 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2">
@@ -1686,74 +1680,45 @@ export default function TaskPage({
                 className={`p-3 sm:p-4 lg:p-6 cursor-pointer flex items-center justify-between ${collapsedSections.tags ? 'pb-3' : 'pb-0'}`}
                 onClick={() => toggleSection('tags')}
               >
-                <h3 className="text-sm font-medium text-gray-700 dark:text-gray-200 flex items-center">
-                  <Tag className="h-4 w-4 mr-2" />
-                  {t('labels.tags')}
+                <h3 className="text-sm font-medium text-gray-700 dark:text-gray-200 flex items-center min-w-0">
+                  <Tag className="h-4 w-4 mr-2 shrink-0" />
+                  <span className="truncate">{t('labels.tags')}</span>
+                  {collapsedSections.tags && liveTaskTags.length > 0 && (
+                    <span className="ml-2 flex items-center gap-1 shrink-0">
+                      {liveTaskTags.slice(0, 3).map((tag) => (
+                        <span
+                          key={tag.id}
+                          className="w-2.5 h-2.5 rounded-full border border-white dark:border-gray-800 shadow-sm"
+                          style={{ backgroundColor: tag.color || '#6b7280' }}
+                          title={tag.tag}
+                        />
+                      ))}
+                      {liveTaskTags.length > 3 && (
+                        <span className="text-[10px] text-gray-400">+{liveTaskTags.length - 3}</span>
+                      )}
+                    </span>
+                  )}
                 </h3>
                 {collapsedSections.tags ? (
-                  <ChevronDown className="h-4 w-4 text-gray-400 hover:text-gray-600" />
+                  <ChevronDown className="h-4 w-4 text-gray-400 hover:text-gray-600 shrink-0" />
                 ) : (
-                  <ChevronUp className="h-4 w-4 text-gray-400 hover:text-gray-600" />
+                  <ChevronUp className="h-4 w-4 text-gray-400 hover:text-gray-600 shrink-0" />
                 )}
               </div>
               {!collapsedSections.tags && (
                 <div className="px-3 sm:px-4 lg:px-6 pb-3 sm:pb-4 lg:pb-6">
-              <div className="space-y-3">
-                <div className="flex flex-wrap gap-1">
-                  {taskTags.map((tag) => (
-                    <span
-                      key={tag.id}
-                      className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium"
-                      style={{
-                        backgroundColor: tag.color || '#6b7280',
-                        color: 'white'
-                      }}
-                    >
-                      {tag.tag}
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          try {
-                            await handleRemoveTag(tag.id);
-                          } catch (error) {
-                            console.error('Error removing tag:', error);
-                          }
-                        }}
-                        className="ml-1 h-3 w-3 rounded-full bg-black bg-opacity-20 hover:bg-opacity-30 flex items-center justify-center"
-                      >
-                        ×
-                      </button>
-                    </span>
-                  ))}
-                  {taskTags.length === 0 && (
-                    <p className="text-sm text-gray-500">{t('taskPage.noTagsAssigned')}</p>
-                  )}
-                </div>
-                {availableTags.length > 0 && (
-                  <select
-                    onChange={async (e) => {
-                      if (e.target.value) {
-                        try {
-                          await handleAddTag(parseInt(e.target.value));
-                          e.target.value = '';
-                        } catch (error) {
-                          console.error('Error adding tag:', error);
-                        }
+                  <TagPicker
+                    availableTags={availableTags}
+                    selectedTags={taskTags}
+                    onToggle={toggleTaskTag}
+                    onTagCreated={async (tag) => {
+                      try {
+                        await handleAddTag(tag.id);
+                      } catch (error) {
+                        console.error('Error adding created tag:', error);
                       }
                     }}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
-                  >
-                    <option value="">{t('taskPage.addTag')}</option>
-                    {availableTags
-                      .filter(tag => !taskTags.some(t => t.id === tag.id))
-                      .map((tag) => (
-                        <option key={tag.id} value={tag.id}>
-                          {tag.tag}
-                        </option>
-                      ))}
-                  </select>
-                )}
-              </div>
+                  />
                 </div>
               )}
             </div>

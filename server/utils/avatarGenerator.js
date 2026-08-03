@@ -1,4 +1,3 @@
-import crypto from 'crypto';
 import path from 'path';
 import { writeFileSync, existsSync, mkdirSync } from 'fs';
 import { fileURLToPath } from 'url';
@@ -49,40 +48,55 @@ export function generateDefaultAvatarSVG(name, size = 100, backgroundColor = nul
   </svg>`;
 }
 
-// Function to create and save default avatar file
-// tenantId: optional tenant identifier (for multi-tenant mode)
-export function createDefaultAvatar(name, userId, backgroundColor = null, tenantId = null) {
-  const svg = generateDefaultAvatarSVG(name, 100, backgroundColor);
-  const filename = `default-user-${Date.now()}-${userId.slice(0, 9)}.svg`;
-  
-  // Get tenant-specific avatar directory if in multi-tenant mode
-  let avatarsDir;
+function resolveAvatarsDir(tenantId) {
   if (tenantId && isMultiTenant()) {
     const basePath = process.env.DOCKER_ENV === 'true'
       ? '/app/server'
       : join(dirname(__dirname), '..');
-    avatarsDir = join(basePath, 'avatars', 'tenants', tenantId);
-  } else {
-    // Single-tenant: backward compatible path
-    avatarsDir = path.join(dirname(__dirname), 'avatars');
+    return join(basePath, 'avatars', 'tenants', tenantId);
   }
-  
-  // Ensure directory exists
+  return path.join(dirname(__dirname), 'avatars');
+}
+
+/**
+ * Create and save a default avatar.
+ * When `db` is provided, respects STORAGE_BACKEND (disk or S3).
+ *
+ * @param {string} name
+ * @param {string} userId
+ * @param {string|null} backgroundColor
+ * @param {string|null} tenantId
+ * @param {{ db?: any, storagePaths?: { avatars?: string } }} [opts]
+ * @returns {Promise<string|null>}
+ */
+export async function createDefaultAvatar(name, userId, backgroundColor = null, tenantId = null, opts = {}) {
+  const svg = generateDefaultAvatarSVG(name, 100, backgroundColor);
+  const filename = `default-user-${Date.now()}-${userId.slice(0, 9)}.svg`;
+  const avatarsDir = opts.storagePaths?.avatars || resolveAvatarsDir(tenantId);
+
   try {
+    if (opts.db) {
+      const { putObject } = await import('../services/storage/index.js');
+      await putObject(
+        opts.db,
+        { avatars: avatarsDir, attachments: null },
+        'avatars',
+        filename,
+        svg,
+        'image/svg+xml'
+      );
+      console.log(`✅ Created default avatar: ${filename}${tenantId ? ` (tenant: ${tenantId})` : ''}`);
+      return `/avatars/${filename}`;
+    }
+
+    // Sync disk fallback (DB init / no storage service context)
     if (!existsSync(avatarsDir)) {
       mkdirSync(avatarsDir, { recursive: true });
       if (tenantId) {
         console.log(`📁 Created tenant avatar directory: ${avatarsDir}`);
       }
     }
-  } catch (error) {
-    console.error('Error creating avatar directory:', error);
-  }
-  
-  const filePath = path.join(avatarsDir, filename);
-  
-  try {
-    writeFileSync(filePath, svg);
+    writeFileSync(path.join(avatarsDir, filename), svg);
     console.log(`✅ Created default avatar: ${filename}${tenantId ? ` (tenant: ${tenantId})` : ''}`);
     return `/avatars/${filename}`;
   } catch (error) {

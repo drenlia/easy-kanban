@@ -1200,8 +1200,12 @@
       "sprintAssociation": "Click the calendar icon on a task card to associate it with a sprint. This helps organize tasks by time periods and track progress within specific sprints.",
       "exportMenu": "In List View, admins can export tasks to CSV or XLSX format. Use the export menu in the table header to download task data for analysis or reporting.",
       "columnVisibility": "In List View, you can show or hide columns to customize your view. Click the menu icon in the table header to toggle column visibility.",
+      "adminSystemSettings": "System Settings groups SSO, mail, storage, file uploads, AI, and notification delivery for this instance.",
       "adminSso": "Configure Single Sign-On (SSO) authentication using Google OAuth. Enable or disable Google login and manage OAuth credentials.",
       "adminMailServer": "Configure email server settings for sending notifications, invitations, and other system emails. Set up SMTP server details and test email functionality.",
+      "adminStorage": "Choose how attachments and avatars are stored — local disk or S3-compatible object storage — and test or migrate between backends.",
+      "adminFileUploads": "Set attachment size limits and which file types users may upload.",
+      "adminAi": "Enable the in-app Agent, connect an LLM provider, and configure the runner that executes coding jobs.",
       "adminSprintSettings": "Create and manage sprints for your projects. Sprints are time-based planning periods used to organize tasks and track progress. Set sprint names, dates, and mark active sprints.",
       "adminReporting": "Configure reporting features including gamification, leaderboard visibility, and achievement settings. Enable or disable various reporting capabilities for your team.",
       "adminLifecycle": "Manage the lifecycle of deleted and archived work. Set automatic retention (purge) periods, restore soft-deleted tasks and boards, or permanently purge them when they are no longer needed.",
@@ -1227,12 +1231,18 @@
     "guideDone": "Done — next step",
     "markDone": "Mark done",
     "skip": "Skip",
-    "reopen": "Reopen step",
+    "getStarted": "Get started",
+    "doItLater": "I'll do it later",
+    "closeGuide": "Close guide",
+    "reviewSteps": "Review steps",
+    "introBadge": "Intro",
+    "outroBadge": "Wrap-up",
+    "reopen": "Reopen",
     "suggestedHint": "Looks configured already — confirm with Mark done when you are satisfied.",
     "steps": {
       "welcome": {
         "title": "Welcome",
-        "description": "You are the instance owner. This checklist covers the essentials to get your workspace ready. Minimize anytime and reopen from Help.",
+        "description": "You're the instance owner. This short guide walks through the essentials — site identity, language, mail, teammates, and boards — so the workspace is ready for your team. You can minimize anytime and reopen from Help.",
         "guide": "Welcome to the configuration guide."
       },
       "siteIdentity": {
@@ -1255,8 +1265,8 @@
       },
       "mail": {
         "title": "Mail server",
-        "description": "Configure SMTP and send a test email so invitations and password resets work. Skip if you only create users locally.",
-        "descriptionMultiTenant": "Tenants start on platform-managed email. Switch to Custom SMTP first, then configure SMTP and send a test email so invitations and password resets work. Skip if you only create users locally.",
+        "description": "Under Admin → System Settings → Mail Server, configure SMTP and send a test email so invitations and password resets work. Skip if you only create users locally.",
+        "descriptionMultiTenant": "Tenants start on platform-managed email. Under Admin → System Settings → Mail Server, switch to Custom SMTP first, then configure SMTP and send a test email so invitations and password resets work. Skip if you only create users locally.",
         "guide": "Fill SMTP settings, test, then enable mail.",
         "fields": {
           "switchToCustomSmtp": "First click Switch to Custom SMTP (confirm twice) so you can edit your own mail server settings.",
@@ -1304,7 +1314,7 @@
       },
       "sprints": {
         "title": "Sprints",
-        "description": "Optional: create planning periods if you want sprint filters and burndown.",
+        "description": "Optional: under Admin → Project Settings → Sprint Settings, create planning periods if you want sprint filters and burndown.",
         "guide": "Create a sprint when you are ready.",
         "fields": {
           "createSprint": "Click Create Sprint to add a planning period."
@@ -1312,7 +1322,7 @@
       },
       "sso": {
         "title": "Google SSO",
-        "description": "Optional: enable Google OAuth so the team can sign in with Google.",
+        "description": "Optional: under Admin → System Settings → SSO, enable Google OAuth so the team can sign in with Google.",
         "guide": "Enter Google OAuth credentials.",
         "fields": {
           "GOOGLE_CLIENT_ID": "Paste your Google OAuth Client ID.",
@@ -1330,7 +1340,7 @@
       },
       "reporting": {
         "title": "Reports",
-        "description": "Optional: enable reports and gamification if you want analytics for the team.",
+        "description": "Optional: under Admin → Project Settings → Reporting, enable reports and gamification if you want analytics for the team.",
         "guide": "Enable reporting if you want it.",
         "fields": {
           "REPORTS_ENABLED": "Toggle Reports on to give the team analytics and burndown."

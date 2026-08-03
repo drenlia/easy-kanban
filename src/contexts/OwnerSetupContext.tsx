@@ -29,7 +29,7 @@ import {
   ownerSetupGuideSelectors,
   persistOwnerSetupProgress,
 } from '../utils/ownerSetup';
-import { requestAdminNavigation } from '../utils/adminNavigation';
+import { adminHashForTabId, requestAdminNavigation } from '../utils/adminNavigation';
 
 interface OwnerSetupContextType {
   isOwner: boolean;
@@ -249,10 +249,7 @@ export const OwnerSetupProvider: React.FC<OwnerSetupProviderProps> = ({
       }
       if (!def.adminTab || !onPageChange) return;
 
-      const hash =
-        def.adminTab === 'app-settings'
-          ? 'admin#app-settings#user-interface'
-          : `admin#${def.adminTab}`;
+      const hash = adminHashForTabId(def.adminTab);
       // Switch page + notify Admin tab state directly (avoids Guide me / hash races)
       onPageChange('admin', { hash });
       requestAdminNavigation(hash);

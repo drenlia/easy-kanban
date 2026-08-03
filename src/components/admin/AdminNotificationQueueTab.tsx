@@ -1,10 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Send, Trash2, CheckSquare, Square, RefreshCw, ChevronDown, Search } from 'lucide-react';
-import { getNotificationQueue, sendNotificationsImmediately, deleteNotifications } from '../../api';
+import { getNotificationQueue, sendNotificationsImmediately, deleteNotifications, updateSetting } from '../../api';
 import { toast } from '../../utils/toast';
 import { formatToYYYYMMDDHHmmss as formatDateTimeLocal } from '../../utils/dateUtils';
 import { ModernCheckbox } from '../ModernCheckbox';
+import { useSettings } from '../../contexts/SettingsContext';
+import {
+  ADMIN_NUMERIC_INPUT_CLASS,
+  NOTIFICATION_QUEUE_RETENTION_DAYS,
+  clampIntToString,
+  parseOptionalInt,
+} from '../../utils/adminFieldLimits';
+import { AdminUnsavedHint } from './AdminUnsavedChanges';
 
 interface NotificationQueueItem {
   id: string;
@@ -35,8 +43,17 @@ interface NotificationQueueItem {
   } | null;
 }
 
-const AdminNotificationQueueTab: React.FC = () => {
+interface AdminNotificationQueueTabProps {
+  onLocalDirtyChange?: (dirty: boolean) => void;
+  discardNonce?: number;
+}
+
+const AdminNotificationQueueTab: React.FC<AdminNotificationQueueTabProps> = ({
+  onLocalDirtyChange,
+  discardNonce = 0,
+}) => {
   const { t } = useTranslation('admin');
+  const { systemSettings, refreshSettings } = useSettings();
   const [notifications, setNotifications] = useState<NotificationQueueItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -45,6 +62,19 @@ const AdminNotificationQueueTab: React.FC = () => {
   const [displayLimit, setDisplayLimit] = useState(50);
   const [showDeleteMenu, setShowDeleteMenu] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [retentionDays, setRetentionDays] = useState('0');
+  const [savingRetention, setSavingRetention] = useState(false);
+
+  const savedRetentionDays = systemSettings?.NOTIFICATION_QUEUE_RETENTION_DAYS || '0';
+  const retentionDirty = retentionDays.trim() !== savedRetentionDays.trim();
+
+  useEffect(() => {
+    setRetentionDays(systemSettings?.NOTIFICATION_QUEUE_RETENTION_DAYS || '0');
+  }, [systemSettings?.NOTIFICATION_QUEUE_RETENTION_DAYS, discardNonce]);
+
+  useEffect(() => {
+    onLocalDirtyChange?.(retentionDirty);
+  }, [retentionDirty, onLocalDirtyChange]);
 
   const fetchNotifications = async () => {
     try {
@@ -62,6 +92,45 @@ const AdminNotificationQueueTab: React.FC = () => {
   useEffect(() => {
     fetchNotifications();
   }, []);
+
+  const saveRetention = async () => {
+    const parsed = parseOptionalInt(retentionDays);
+    if (
+      parsed === null ||
+      parsed < NOTIFICATION_QUEUE_RETENTION_DAYS.min ||
+      parsed > NOTIFICATION_QUEUE_RETENTION_DAYS.max
+    ) {
+      toast.error(
+        t('numberOutOfRange', {
+          label: t('notificationQueue.retentionDays'),
+          min: NOTIFICATION_QUEUE_RETENTION_DAYS.min,
+          max: NOTIFICATION_QUEUE_RETENTION_DAYS.max,
+        })
+      );
+      setRetentionDays(
+        clampIntToString(
+          retentionDays,
+          NOTIFICATION_QUEUE_RETENTION_DAYS.min,
+          NOTIFICATION_QUEUE_RETENTION_DAYS.max,
+          0
+        )
+      );
+      return;
+    }
+    const normalized = String(parsed);
+    setSavingRetention(true);
+    try {
+      await updateSetting('NOTIFICATION_QUEUE_RETENTION_DAYS', normalized);
+      await refreshSettings?.();
+      setRetentionDays(normalized);
+      toast.success(t('notificationQueue.retentionSaved'));
+    } catch (error) {
+      console.error(error);
+      toast.error(t('notificationQueue.retentionSaveFailed'));
+    } finally {
+      setSavingRetention(false);
+    }
+  };
 
   // Filter notifications based on search query
   const filteredNotifications = notifications.filter((notification: NotificationQueueItem) => {
@@ -266,15 +335,68 @@ const AdminNotificationQueueTab: React.FC = () => {
   }
 
   return (
-    <div className="p-6">
-      <div className="mb-6">
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">
-              {t('notificationQueue.title') || 'Notification Queue'}
-            </h2>
-            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+    <div>
+      <div className="mb-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0">
+            <p className="text-sm text-gray-500 dark:text-gray-400">
               {t('notificationQueue.description') || 'Manage pending email notifications'}
+            </p>
+          </div>
+          <div
+            className="flex-shrink-0 sm:text-right"
+            data-setting-key="NOTIFICATION_QUEUE_RETENTION_DAYS"
+            title={t('notificationQueue.retentionDaysDescription')}
+          >
+            <label
+              htmlFor="notification-queue-retention"
+              className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1"
+            >
+              {t('notificationQueue.retentionDays')}
+            </label>
+            <div className="flex items-center gap-2 sm:justify-end">
+              <input
+                id="notification-queue-retention"
+                type="number"
+                inputMode="numeric"
+                min={NOTIFICATION_QUEUE_RETENTION_DAYS.min}
+                max={NOTIFICATION_QUEUE_RETENTION_DAYS.max}
+                value={retentionDays}
+                onChange={(e) => setRetentionDays(e.target.value)}
+                onBlur={() =>
+                  setRetentionDays(
+                    clampIntToString(
+                      retentionDays,
+                      NOTIFICATION_QUEUE_RETENTION_DAYS.min,
+                      NOTIFICATION_QUEUE_RETENTION_DAYS.max,
+                      0
+                    )
+                  )
+                }
+                aria-describedby="notification-queue-retention-hint"
+                className={`w-16 px-2 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 ${ADMIN_NUMERIC_INPUT_CLASS}`}
+              />
+              <button
+                type="button"
+                onClick={() => void saveRetention()}
+                disabled={savingRetention || !retentionDirty}
+                className={`px-2.5 py-1.5 text-xs font-medium text-white rounded-md focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed ${
+                  retentionDirty
+                    ? 'bg-blue-600 hover:bg-blue-700 ring-2 ring-amber-400 ring-offset-1'
+                    : 'bg-blue-600'
+                }`}
+              >
+                {savingRetention
+                  ? t('notificationQueue.savingRetention')
+                  : t('notificationQueue.saveRetention')}
+              </button>
+              <AdminUnsavedHint show={retentionDirty} />
+            </div>
+            <p
+              id="notification-queue-retention-hint"
+              className="mt-1 text-[11px] text-gray-500 dark:text-gray-400"
+            >
+              {t('notificationQueue.retentionDaysHint')}
             </p>
           </div>
         </div>

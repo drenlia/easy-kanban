@@ -31,9 +31,13 @@ import { createDefaultAvatar, getRandomColor } from './utils/avatarGenerator.js'
 import { initActivityLogger, logActivity, logCommentActivity } from './services/activityLogger.js';
 import { initReportingLogger } from './services/reportingLogger.js';
 import * as reportingLogger from './services/reportingLogger.js';
-// Note: Email notification service (initNotificationService/getNotificationService) 
-// is not yet implemented - pub/sub notifications use notificationService directly
-import { initNotificationThrottler, getNotificationThrottler } from './services/notificationThrottler.js';
+// Realtime pub/sub: notificationService.js — task emails: taskEmailNotificationService.js + throttler
+import {
+  initNotificationThrottler,
+  startGlobalNotificationProcessor,
+  stopGlobalNotificationProcessor,
+  flushAllTenantNotifications,
+} from './services/notificationThrottler.js';
 import { initializeScheduler, manualTriggers } from './jobs/scheduler.js';
 import { TAG_ACTIONS, COMMENT_ACTIONS } from './constants/activityActions.js';
 import { clearTranslationCache } from './utils/i18n.js';
@@ -104,7 +108,7 @@ if (!isMultiTenant()) {
   await initializeInstanceStatus(defaultDb);
   initActivityLogger(defaultDb);
   initReportingLogger(defaultDb);
-  // initNotificationService(defaultDb); // Email notification service not yet implemented
+  // Task email queue: bind default DB + start global 60s processor
   initNotificationThrottler(defaultDb);
   initializeScheduler(defaultDb);
   
@@ -124,6 +128,9 @@ if (!isMultiTenant()) {
     }
   }
   
+  // Queue processor walks getAllTenantDatabases() each tick (pods share DB; claim is atomic)
+  startGlobalNotificationProcessor();
+
   // Initialize scheduler for multi-tenant mode (will run jobs for all tenants)
   // Pass null as db parameter - scheduler will use getAllTenantDatabases() instead
   initializeScheduler(null);
@@ -615,11 +622,12 @@ const gracefulShutdown = async () => {
     }
   }
   
-  // Stop notification processing and flush pending notifications
-  const throttler = getNotificationThrottler();
-  if (throttler) {
-    throttler.stopProcessing();
-    await throttler.flushAllNotifications();
+  // Stop queue processor and flush pending notifications for all known tenants
+  stopGlobalNotificationProcessor();
+  try {
+    await flushAllTenantNotifications();
+  } catch (error) {
+    console.error('❌ Error flushing notification queues:', error);
   }
   
   // Disconnect WebSocket service (closes Socket.IO server and Redis adapter clients)

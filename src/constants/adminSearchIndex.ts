@@ -8,7 +8,7 @@ export type AdminSearchEntry = {
   kind: 'tab' | 'setting';
   /** Main Admin tab id (ADMIN_TABS) */
   tab: string;
-  /** Full location hash, e.g. #admin#mail-server or #admin#app-settings#ai */
+  /** Full location hash, e.g. #admin#system-settings#mail-server or #admin#project-settings#lifecycle */
   hash: string;
   /** Scroll target: [data-setting-key="…"] */
   settingKey?: string;
@@ -37,20 +37,68 @@ export const ADMIN_SEARCH_INDEX: AdminSearchEntry[] = [
     aliases: ['branding', 'logo', 'site'],
   },
   {
+    id: 'tab-system-settings',
+    kind: 'tab',
+    tab: 'system-settings',
+    hash: '#admin#system-settings#sso',
+    labelKey: 'tabs.systemSettings',
+    aliases: ['system', 'système', 'systeme', 'infrastructure'],
+  },
+  {
     id: 'tab-sso',
     kind: 'tab',
-    tab: 'sso',
-    hash: '#admin#sso',
+    tab: 'system-settings',
+    hash: '#admin#system-settings#sso',
     labelKey: 'tabs.sso',
     aliases: ['oauth', 'google', 'connexion', 'login'],
   },
   {
     id: 'tab-mail',
     kind: 'tab',
-    tab: 'mail-server',
-    hash: '#admin#mail-server',
+    tab: 'system-settings',
+    hash: '#admin#system-settings#mail-server',
     labelKey: 'tabs.mailServer',
     aliases: ['smtp', 'email', 'courriel', 'mail', 'messagerie'],
+  },
+  {
+    id: 'tab-storage',
+    kind: 'tab',
+    tab: 'system-settings',
+    hash: '#admin#system-settings#storage',
+    labelKey: 'tabs.storage',
+    aliases: ['s3', 'bucket', 'attachments', 'avatars', 'nfs', 'object storage', 'stockage'],
+  },
+  {
+    id: 'tab-file-uploads',
+    kind: 'tab',
+    tab: 'system-settings',
+    hash: '#admin#system-settings#file-uploads',
+    labelKey: 'appSettings.fileUploads',
+    aliases: ['upload', 'fichiers', 'attachments', 'pièces jointes', 'mime'],
+  },
+  {
+    id: 'tab-ai',
+    kind: 'tab',
+    tab: 'system-settings',
+    hash: '#admin#system-settings#ai',
+    labelKey: 'appSettings.ai',
+    aliases: ['ai', 'ia', 'agent', 'llm', 'openai', 'anthropic'],
+  },
+  {
+    id: 'tab-notifications',
+    kind: 'tab',
+    tab: 'system-settings',
+    hash: '#admin#system-settings#notifications',
+    labelKey: 'appSettings.notifications',
+    aliases: ['notification', 'email alerts', 'alertes'],
+  },
+  {
+    id: 'tab-notification-queue',
+    kind: 'tab',
+    tab: 'system-settings',
+    hash: '#admin#system-settings#notification-queue',
+    labelKey: 'tabs.notificationQueue',
+    aliases: ['queue', 'file', 'pending emails', 'e-mails en attente'],
   },
   {
     id: 'tab-tags',
@@ -80,31 +128,31 @@ export const ADMIN_SEARCH_INDEX: AdminSearchEntry[] = [
     id: 'tab-project-settings',
     kind: 'tab',
     tab: 'project-settings',
-    hash: '#admin#project-settings',
+    hash: '#admin#project-settings#project',
     labelKey: 'tabs.projectSettings',
     aliases: ['projet', 'project'],
   },
   {
     id: 'tab-sprint-settings',
     kind: 'tab',
-    tab: 'sprint-settings',
-    hash: '#admin#sprint-settings',
+    tab: 'project-settings',
+    hash: '#admin#project-settings#sprint-settings',
     labelKey: 'tabs.sprintSettings',
     aliases: ['sprint', 'agile'],
   },
   {
     id: 'tab-reporting',
     kind: 'tab',
-    tab: 'reporting',
-    hash: '#admin#reporting',
+    tab: 'project-settings',
+    hash: '#admin#project-settings#reporting',
     labelKey: 'tabs.reporting',
     aliases: ['rapports', 'reports', 'analytics'],
   },
   {
     id: 'tab-lifecycle',
     kind: 'tab',
-    tab: 'lifecycle',
-    hash: '#admin#lifecycle',
+    tab: 'project-settings',
+    hash: '#admin#project-settings#lifecycle',
     labelKey: 'tabs.lifecycle',
     aliases: ['cycle de vie', 'retention', 'rétention', 'trash', 'corbeille', 'purge'],
   },
@@ -155,12 +203,12 @@ export const ADMIN_SEARCH_INDEX: AdminSearchEntry[] = [
     aliases: ['logo dark', 'logo sombre'],
   },
 
-  // —— SSO ——
+  // —— SSO (System Settings) ——
   {
     id: 'google-client-id',
     kind: 'setting',
-    tab: 'sso',
-    hash: '#admin#sso',
+    tab: 'system-settings',
+    hash: '#admin#system-settings#sso',
     settingKey: 'GOOGLE_CLIENT_ID',
     labelKey: 'sso.googleClientId',
     aliases: ['oauth', 'google', 'client id'],
@@ -168,8 +216,8 @@ export const ADMIN_SEARCH_INDEX: AdminSearchEntry[] = [
   {
     id: 'google-client-secret',
     kind: 'setting',
-    tab: 'sso',
-    hash: '#admin#sso',
+    tab: 'system-settings',
+    hash: '#admin#system-settings#sso',
     settingKey: 'GOOGLE_CLIENT_SECRET',
     labelKey: 'sso.googleClientSecret',
     aliases: ['oauth', 'google', 'secret', 'secret client'],
@@ -177,19 +225,19 @@ export const ADMIN_SEARCH_INDEX: AdminSearchEntry[] = [
   {
     id: 'google-callback',
     kind: 'setting',
-    tab: 'sso',
-    hash: '#admin#sso',
+    tab: 'system-settings',
+    hash: '#admin#system-settings#sso',
     settingKey: 'GOOGLE_CALLBACK_URL',
     labelKey: 'sso.googleCallbackUrl',
     aliases: ['callback', 'redirect', 'oauth'],
   },
 
-  // —— Mail ——
+  // —— Mail (System Settings) ——
   {
     id: 'smtp-host',
     kind: 'setting',
-    tab: 'mail-server',
-    hash: '#admin#mail-server',
+    tab: 'system-settings',
+    hash: '#admin#system-settings#mail-server',
     settingKey: 'SMTP_HOST',
     labelKey: 'mail.smtpHost',
     aliases: ['smtp', 'host', 'serveur'],
@@ -197,8 +245,8 @@ export const ADMIN_SEARCH_INDEX: AdminSearchEntry[] = [
   {
     id: 'smtp-port',
     kind: 'setting',
-    tab: 'mail-server',
-    hash: '#admin#mail-server',
+    tab: 'system-settings',
+    hash: '#admin#system-settings#mail-server',
     settingKey: 'SMTP_PORT',
     labelKey: 'mail.smtpPort',
     aliases: ['smtp', 'port'],
@@ -206,8 +254,8 @@ export const ADMIN_SEARCH_INDEX: AdminSearchEntry[] = [
   {
     id: 'smtp-username',
     kind: 'setting',
-    tab: 'mail-server',
-    hash: '#admin#mail-server',
+    tab: 'system-settings',
+    hash: '#admin#system-settings#mail-server',
     settingKey: 'SMTP_USERNAME',
     labelKey: 'mail.smtpUsername',
     aliases: ['smtp', 'username', 'utilisateur'],
@@ -215,8 +263,8 @@ export const ADMIN_SEARCH_INDEX: AdminSearchEntry[] = [
   {
     id: 'smtp-password',
     kind: 'setting',
-    tab: 'mail-server',
-    hash: '#admin#mail-server',
+    tab: 'system-settings',
+    hash: '#admin#system-settings#mail-server',
     settingKey: 'SMTP_PASSWORD',
     labelKey: 'mail.smtpPassword',
     aliases: ['smtp', 'password', 'mot de passe', 'mdp'],
@@ -224,8 +272,8 @@ export const ADMIN_SEARCH_INDEX: AdminSearchEntry[] = [
   {
     id: 'smtp-from-email',
     kind: 'setting',
-    tab: 'mail-server',
-    hash: '#admin#mail-server',
+    tab: 'system-settings',
+    hash: '#admin#system-settings#mail-server',
     settingKey: 'SMTP_FROM_EMAIL',
     labelKey: 'mail.fromEmail',
     aliases: ['from', 'expéditeur', 'expediteur', 'sender'],
@@ -233,8 +281,8 @@ export const ADMIN_SEARCH_INDEX: AdminSearchEntry[] = [
   {
     id: 'smtp-from-name',
     kind: 'setting',
-    tab: 'mail-server',
-    hash: '#admin#mail-server',
+    tab: 'system-settings',
+    hash: '#admin#system-settings#mail-server',
     settingKey: 'SMTP_FROM_NAME',
     labelKey: 'mail.fromName',
     aliases: ['from name', 'nom expéditeur'],
@@ -242,19 +290,19 @@ export const ADMIN_SEARCH_INDEX: AdminSearchEntry[] = [
   {
     id: 'smtp-secure',
     kind: 'setting',
-    tab: 'mail-server',
-    hash: '#admin#mail-server',
+    tab: 'system-settings',
+    hash: '#admin#system-settings#mail-server',
     settingKey: 'SMTP_SECURE',
     labelKey: 'mail.smtpSecurity',
     aliases: ['tls', 'ssl', 'security', 'sécurité'],
   },
 
-  // —— App settings / AI ——
+  // —— AI (System Settings) ——
   {
     id: 'ai-section',
     kind: 'setting',
-    tab: 'app-settings',
-    hash: '#admin#app-settings#ai',
+    tab: 'system-settings',
+    hash: '#admin#system-settings#ai',
     settingKey: 'AI_ENABLED',
     labelKey: 'appSettings.aiEnabled',
     aliases: ['ai', 'ia', 'agent', 'llm', 'openai', 'anthropic'],
@@ -262,8 +310,8 @@ export const ADMIN_SEARCH_INDEX: AdminSearchEntry[] = [
   {
     id: 'ai-provider',
     kind: 'setting',
-    tab: 'app-settings',
-    hash: '#admin#app-settings#ai',
+    tab: 'system-settings',
+    hash: '#admin#system-settings#ai',
     settingKey: 'AI_PROVIDER',
     labelKey: 'appSettings.aiProvider',
     aliases: ['provider', 'fournisseur', 'openai', 'anthropic', 'ollama', 'openrouter'],
@@ -271,8 +319,8 @@ export const ADMIN_SEARCH_INDEX: AdminSearchEntry[] = [
   {
     id: 'ai-api-key',
     kind: 'setting',
-    tab: 'app-settings',
-    hash: '#admin#app-settings#ai',
+    tab: 'system-settings',
+    hash: '#admin#system-settings#ai',
     settingKey: 'AI_API_KEY',
     labelKey: 'appSettings.aiApiKey',
     aliases: ['api key', 'clé api', 'cle api', 'token', 'secret'],
@@ -280,8 +328,8 @@ export const ADMIN_SEARCH_INDEX: AdminSearchEntry[] = [
   {
     id: 'ai-model',
     kind: 'setting',
-    tab: 'app-settings',
-    hash: '#admin#app-settings#ai',
+    tab: 'system-settings',
+    hash: '#admin#system-settings#ai',
     settingKey: 'AI_MODEL',
     labelKey: 'appSettings.aiModel',
     aliases: ['model', 'modèle', 'modele', 'gpt', 'claude'],
@@ -289,8 +337,8 @@ export const ADMIN_SEARCH_INDEX: AdminSearchEntry[] = [
   {
     id: 'ai-base-url',
     kind: 'setting',
-    tab: 'app-settings',
-    hash: '#admin#app-settings#ai',
+    tab: 'system-settings',
+    hash: '#admin#system-settings#ai',
     settingKey: 'AI_API_BASE_URL',
     labelKey: 'appSettings.aiApiBaseUrl',
     aliases: ['base url', 'endpoint', 'url'],
@@ -298,8 +346,8 @@ export const ADMIN_SEARCH_INDEX: AdminSearchEntry[] = [
   {
     id: 'ai-runner-url',
     kind: 'setting',
-    tab: 'app-settings',
-    hash: '#admin#app-settings#ai',
+    tab: 'system-settings',
+    hash: '#admin#system-settings#ai',
     settingKey: 'AI_RUNNER_URL',
     labelKey: 'appSettings.aiRunnerUrl',
     aliases: ['runner', 'agent runner'],
@@ -307,8 +355,8 @@ export const ADMIN_SEARCH_INDEX: AdminSearchEntry[] = [
   {
     id: 'ai-runner-token',
     kind: 'setting',
-    tab: 'app-settings',
-    hash: '#admin#app-settings#ai',
+    tab: 'system-settings',
+    hash: '#admin#system-settings#ai',
     settingKey: 'AI_RUNNER_TOKEN',
     labelKey: 'appSettings.aiRunnerToken',
     aliases: ['runner token', 'jeton runner'],
@@ -316,8 +364,8 @@ export const ADMIN_SEARCH_INDEX: AdminSearchEntry[] = [
   {
     id: 'ai-max-concurrent',
     kind: 'setting',
-    tab: 'app-settings',
-    hash: '#admin#app-settings#ai',
+    tab: 'system-settings',
+    hash: '#admin#system-settings#ai',
     settingKey: 'AI_MAX_CONCURRENT',
     labelKey: 'appSettings.aiMaxConcurrent',
     aliases: ['concurrent', 'simultané', 'limite', 'parallel'],
@@ -334,34 +382,43 @@ export const ADMIN_SEARCH_INDEX: AdminSearchEntry[] = [
     aliases: ['debug', 'logs', 'débogage', 'debogage', 'fe_debug', 'server_debug'],
   },
 
-  // —— File uploads (app settings) ——
+  // —— File uploads (System Settings) ——
   {
     id: 'file-uploads',
     kind: 'setting',
-    tab: 'app-settings',
-    hash: '#admin#app-settings#file-uploads',
+    tab: 'system-settings',
+    hash: '#admin#system-settings#file-uploads',
     settingKey: 'UPLOADS_SECTION',
     labelKey: 'appSettings.fileUploads',
     aliases: ['upload', 'fichiers', 'attachments', 'pièces jointes'],
   },
 
-  // —— Notifications ——
+  // —— Notifications (System Settings) ——
   {
     id: 'notifications',
     kind: 'setting',
-    tab: 'app-settings',
-    hash: '#admin#app-settings#notifications',
+    tab: 'system-settings',
+    hash: '#admin#system-settings#notifications',
     settingKey: 'NOTIFICATIONS_SECTION',
     labelKey: 'appSettings.notifications',
     aliases: ['notification', 'email alerts', 'alertes'],
   },
+  {
+    id: 'notification-queue-retention',
+    kind: 'setting',
+    tab: 'system-settings',
+    hash: '#admin#system-settings#notification-queue',
+    settingKey: 'NOTIFICATION_QUEUE_RETENTION_DAYS',
+    labelKey: 'notificationQueue.retentionDays',
+    aliases: ['retention', 'rétention', 'purge', 'queue cleanup', 'nettoyage file'],
+  },
 
-  // —— Lifecycle ——
+  // —— Lifecycle (Project Settings) ——
   {
     id: 'lifecycle-retention',
     kind: 'setting',
-    tab: 'lifecycle',
-    hash: '#admin#lifecycle',
+    tab: 'project-settings',
+    hash: '#admin#project-settings#lifecycle',
     settingKey: 'LIFECYCLE_DELETED_RETENTION_DAYS',
     labelKey: 'lifecycle.deletedRetention',
     aliases: ['retention', 'rétention', 'purge', 'soft delete', 'suppression récupérable'],
@@ -369,8 +426,8 @@ export const ADMIN_SEARCH_INDEX: AdminSearchEntry[] = [
   {
     id: 'lifecycle-archived',
     kind: 'setting',
-    tab: 'lifecycle',
-    hash: '#admin#lifecycle',
+    tab: 'project-settings',
+    hash: '#admin#project-settings#lifecycle',
     settingKey: 'LIFECYCLE_ARCHIVED_RETENTION_DAYS',
     labelKey: 'lifecycle.archivedRetention',
     aliases: ['archive', 'archivé', 'retention'],

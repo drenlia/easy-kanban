@@ -9,7 +9,16 @@ export const DEFAULT_COLUMNS = [
 
 // Page and navigation constants
 export const PAGE_IDENTIFIERS = ['kanban', 'admin', 'reports', 'task', 'forgot-password', 'reset-password', 'reset-success', 'activate-account'];
-export const ADMIN_TABS = ['users', 'site-settings', 'sso', 'mail-server', 'tags', 'priorities', 'app-settings', 'project-settings', 'sprint-settings', 'reporting', 'lifecycle', 'licensing', 'notification-queue'];
+export const ADMIN_TABS = [
+  'users',
+  'site-settings',
+  'system-settings',
+  'tags',
+  'priorities',
+  'app-settings',
+  'project-settings',
+  'licensing',
+];
 export const REPORT_TABS = ['stats', 'leaderboard', 'burndown', 'team', 'tasks'];
 
 // Routing configuration

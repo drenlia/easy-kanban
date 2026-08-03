@@ -5,6 +5,7 @@ import { X, Activity, Clock, ChevronDown, ChevronUp, GripVertical, Search } from
 import { updateActivityFeedPreference } from '../utils/userPreferences';
 import DOMPurify from 'dompurify';
 import { CHROME_TOOLTIP_RICH_SURFACE_CLASS, KanbanChromeTooltip } from './KanbanChromeTooltip';
+import { generateTaskUrl } from '../utils/routingUtils';
 
 interface ActivityItem {
   id: number;
@@ -16,8 +17,57 @@ interface ActivityItem {
   boardTitle: string;
   columnTitle: string;
   taskId: string;
+  /** Board project identifier (e.g. PROJ-00008) when available */
+  projectId?: string | null;
+  /** Task ticket (e.g. TASK-00238) when the activity is tied to a task */
+  taskTicket?: string | null;
   viaApi?: boolean;
 }
+
+function escapeHtml(text: string): string {
+  return String(text)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+/**
+ * Link only TASK-##### tickets in activity text (not PROJ / board names).
+ */
+function linkTaskTicketsInHtml(
+  text: string,
+  projectId?: string | null
+): string {
+  const escaped = escapeHtml(text);
+  const projectFromText = escaped.match(/\b(PROJ-\d+)\b/i)?.[1];
+  const resolvedProject = (projectId || projectFromText || '').toUpperCase() || undefined;
+
+  return escaped.replace(/\b(TASK-\d+)\b/gi, (ticket) => {
+    const normalized = ticket.toUpperCase();
+    const href = generateTaskUrl(normalized, resolvedProject);
+    return `<a href="${href}" class="text-blue-600 dark:text-blue-400 hover:underline font-medium" title="${normalized}">${ticket}</a>`;
+  });
+}
+
+/** Highlight search matches in HTML without breaking tags. */
+function highlightHtmlSearch(html: string, searchTerm: string): string {
+  if (!searchTerm.trim() || !html) return html;
+  const escapedTerm = searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const regex = new RegExp(`(${escapedTerm})`, 'gi');
+  return html.replace(/(<[^>]+>)|([^<]+)/g, (match, tag, text) => {
+    if (tag) return tag;
+    return text.replace(
+      regex,
+      '<span class="bg-yellow-200 text-yellow-900 px-0.5 rounded font-medium">$1</span>'
+    );
+  });
+}
+
+const ACTIVITY_HTML_PURIFY = {
+  ALLOWED_TAGS: ['a', 'span'],
+  ALLOWED_ATTR: ['href', 'class', 'title'],
+} as const;
 
 interface ActivityFeedProps {
   isVisible: boolean;
@@ -463,11 +513,11 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
   };
 
   const formatActivityDescription = (activity: ActivityItem) => {
-    const { memberName, details, boardTitle, viaApi } = activity;
+    const { memberName, details, boardTitle, viaApi, projectId } = activity;
     const name = memberName || t('activityFeed.unknownUser');
     
     // Extract the main action from details
-    let description = details;
+    let description = details || '';
     
     // Add board context if available and not already included in details
     // Check for both English and French patterns to avoid duplicates
@@ -480,14 +530,30 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
       description += ` ${t('activityFeed.in')} ${boardTitle}`;
     }
 
-    // Simple identifier formatting without clickable links
-    // This could be enhanced later with proper routing functions
-    description = description.replace(/\(([^)]+)\)$/, (_match, identifiers) => {
-      return `(${identifiers})`;
-    });
+    // HTML with TASK-##### links (plain text is escaped inside)
+    const descriptionHtml = linkTaskTicketsInHtml(description, projectId);
 
-    return { name, description, viaApi: Boolean(viaApi) };
+    return { name, description, descriptionHtml, viaApi: Boolean(viaApi) };
   };
+
+  const renderActivityHtml = (html: string, searchTerm: string) => (
+    <span
+      className="text-gray-700 dark:text-gray-200 break-words"
+      style={{ wordBreak: 'break-word', overflowWrap: 'anywhere' }}
+      onClick={(e) => {
+        // Keep link clicks from triggering parent row handlers
+        if ((e.target as HTMLElement).closest('a')) {
+          e.stopPropagation();
+        }
+      }}
+      dangerouslySetInnerHTML={{
+        __html: DOMPurify.sanitize(
+          highlightHtmlSearch(html, searchTerm),
+          ACTIVITY_HTML_PURIFY
+        ),
+      }}
+    />
+  );
 
   const getActionIcon = (action: string) => {
     if (action.includes('agent_job_done')) return '✅';
@@ -592,18 +658,6 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
       setDropdownPosition(optimalPosition);
     }
     setShowMinimizeDropdown(!showMinimizeDropdown);
-  };
-
-  // Highlight search terms in text - returns HTML string for dangerouslySetInnerHTML
-  const highlightTextHTML = (text: string, searchTerm: string): string => {
-    if (!searchTerm.trim() || !text) {
-      return text;
-    }
-
-    const escapedTerm = searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const regex = new RegExp(`(${escapedTerm})`, 'gi');
-    
-    return text.replace(regex, '<span class="bg-yellow-200 text-yellow-900 px-0.5 rounded font-medium">$1</span>');
   };
 
   // Highlight search terms in text - returns React components for regular display
@@ -730,15 +784,21 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
         >
           <div className="min-w-0 flex-1">
             {latestActivity ? (
-              <div className="text-xs text-gray-700 truncate">
-                <span className="font-medium text-blue-600">
+              <div className="text-xs text-gray-700 dark:text-gray-200 truncate">
+                <span className="font-medium text-blue-600 dark:text-blue-400">
                   {highlightText(latestActivity.memberName || t('activityFeed.unknownUser'), filterText)}
                 </span>
                 {latestActivity.viaApi && (
                   <span className="ml-1 text-gray-400 font-normal">{t('activityFeed.viaApi')}</span>
                 )}
                 {' '}
-                <span>{highlightText(latestActivity.details, filterText)}</span>
+                {renderActivityHtml(
+                  linkTaskTicketsInHtml(
+                    latestActivity.details || '',
+                    latestActivity.projectId
+                  ),
+                  filterText
+                )}
               </div>
             ) : (
               <span className="text-xs text-gray-500">{t('activityFeed.noRecentActivity')}</span>
@@ -764,7 +824,15 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
                   <span className="text-gray-400 font-normal">{t('activityFeed.viaApi')}</span>
                 )}
               </div>
-              <div className="text-gray-300">{highlightText(latestActivity.details, filterText)}</div>
+              <div className="text-gray-300 [&_a]:text-blue-300 [&_a]:underline">
+                {renderActivityHtml(
+                  linkTaskTicketsInHtml(
+                    latestActivity.details || '',
+                    latestActivity.projectId
+                  ),
+                  filterText
+                )}
+              </div>
               {latestActivity.boardTitle && (
                 <div className="text-gray-400">{t('activityFeed.in')} {highlightText(latestActivity.boardTitle, filterText)}</div>
               )}
@@ -906,7 +974,7 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
 
         <div className="space-y-1">
           {displayActivities.map((activity) => {
-            const { name, description, viaApi } = formatActivityDescription(activity);
+            const { name, descriptionHtml, viaApi } = formatActivityDescription(activity);
             const isUnread = activity.id > lastSeenActivityId;
             return (
               <div 
@@ -935,16 +1003,9 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
                             <span className="ml-1 text-gray-400 dark:text-gray-500 font-normal">{t('activityFeed.viaApi')}</span>
                           )}
                         </div>
-                        <div 
-                          className="text-gray-700 dark:text-gray-200 text-xs leading-tight break-words"
-                          style={{ wordBreak: 'break-word', overflowWrap: 'anywhere' }}
-                          dangerouslySetInnerHTML={{ 
-                            __html: DOMPurify.sanitize(highlightTextHTML(description, filterText), {
-                              ALLOWED_TAGS: ['a', 'span'],
-                              ALLOWED_ATTR: ['href', 'class', 'title']
-                            })
-                          }}
-                        />
+                        <div className="text-xs leading-tight">
+                          {renderActivityHtml(descriptionHtml, filterText)}
+                        </div>
                       </div>
                     ) : (
                       // Normal layout
@@ -956,16 +1017,7 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
                           <span className="ml-1 text-gray-400 dark:text-gray-500 font-normal">{t('activityFeed.viaApi')}</span>
                         )}
                         {' '}
-                        <span 
-                          className="text-gray-700 dark:text-gray-200 break-words"
-                          style={{ wordBreak: 'break-word', overflowWrap: 'anywhere' }}
-                          dangerouslySetInnerHTML={{ 
-                            __html: DOMPurify.sanitize(highlightTextHTML(description, filterText), {
-                              ALLOWED_TAGS: ['a', 'span'],
-                              ALLOWED_ATTR: ['href', 'class', 'title']
-                            })
-                          }}
-                        />
+                        {renderActivityHtml(descriptionHtml, filterText)}
                       </>
                     )}
                   </div>

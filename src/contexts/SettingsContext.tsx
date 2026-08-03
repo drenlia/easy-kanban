@@ -12,7 +12,7 @@ interface SettingsContextType {
   siteSettings: SiteSettings;
   systemSettings: SiteSettings;
   isLoading: boolean;
-  refreshSettings: () => Promise<void>;
+  refreshSettings: () => Promise<SiteSettings>;
   /** Optimistic single-key update (e.g. after admin auto-save) so the header reacts before refetch. */
   updateSiteSetting: (key: string, value: string) => void;
   /** Optimistic multi-key update (one render) after bulk admin save. */
@@ -204,7 +204,7 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) 
 
   // Refresh settings manually (for manual refresh button, etc.)
   const refreshSettings = useCallback(async () => {
-    await fetchSettings();
+    return fetchSettings();
   }, [fetchSettings]);
 
   const updateSiteSetting = useCallback((key: string, value: string) => {

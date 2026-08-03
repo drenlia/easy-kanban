@@ -4534,7 +4534,7 @@ function AppContent() {
           onClose={() => setBoardLimitDialog(null)}
           onOpenLifecycle={() => {
             setBoardLimitDialog(null);
-            window.location.hash = '#admin#lifecycle';
+            window.location.hash = '#admin#project-settings#lifecycle';
           }}
         />
       )}

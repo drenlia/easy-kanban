@@ -32,9 +32,12 @@ import { wrapQuery } from '../utils/queryLogger.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-function getAttachmentsDir() {
+function getAttachmentsDir(tenantId = null) {
   const basePath =
     process.env.DOCKER_ENV === 'true' ? '/app/server' : dirname(__dirname);
+  if (tenantId && process.env.MULTI_TENANT === 'true') {
+    return path.join(basePath, 'attachments', 'tenants', tenantId);
+  }
   return path.join(basePath, 'attachments');
 }
 
@@ -1263,7 +1266,7 @@ async function toolExportTasks(ctx, args, { dryRun }, allowedBoardIds, format) {
     return { wouldExport: rows.length, format, dryRun: true };
   }
 
-  const attachmentsDir = getAttachmentsDir();
+  const attachmentsDir = getAttachmentsDir(ctx.tenantId || null);
   if (!fs.existsSync(attachmentsDir)) {
     fs.mkdirSync(attachmentsDir, { recursive: true });
   }
@@ -1296,6 +1299,18 @@ async function toolExportTasks(ctx, args, { dryRun }, allowedBoardIds, format) {
   }
 
   fs.writeFileSync(filePath, buffer);
+
+  try {
+    const { commitUploadedFile } = await import('./storage/index.js');
+    await commitUploadedFile(
+      ctx.db,
+      { attachments: attachmentsDir, avatars: null },
+      'attachments',
+      { filename, path: filePath, mimetype: mimeType }
+    );
+  } catch (err) {
+    console.warn('⚠️ Automation export S3 commit failed (file kept on disk):', err.message);
+  }
 
   const attachmentId = crypto.randomUUID();
   const url = `/attachments/${filename}`;
@@ -1623,10 +1638,15 @@ async function reverseJournalEntry(ctx, entry) {
         const filename = String(attachment.url || '')
           .replace('/attachments/', '')
           .replace('/api/files/attachments/', '');
-        const filePath = path.join(getAttachmentsDir(), filename);
-        if (filename && fs.existsSync(filePath)) {
+        if (filename) {
           try {
-            fs.unlinkSync(filePath);
+            const { deleteObject } = await import('./storage/index.js');
+            await deleteObject(
+              ctx.db,
+              { attachments: getAttachmentsDir(ctx.tenantId || null), avatars: null },
+              'attachments',
+              filename
+            );
           } catch {
             /* ignore file delete errors */
           }

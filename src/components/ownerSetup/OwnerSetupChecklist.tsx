@@ -8,6 +8,7 @@ import {
   GripHorizontal,
   Minus,
   Play,
+  RotateCcw,
   SkipForward,
   X,
 } from 'lucide-react';
@@ -21,8 +22,10 @@ import {
   defaultOwnerSetupPositionX,
   filterOwnerSetupGuideFields,
   getEffectiveDisplayStatus,
+  getOwnerSetupStepKind,
   isMultiTenantDeploy,
   ownerSetupGuideSelectors,
+  ownerSetupProgressStats,
 } from '../../utils/ownerSetup';
 
 const EXPANDED_WIDTH = 384; // ~24rem
@@ -74,14 +77,22 @@ const OwnerSetupChecklist: React.FC = () => {
   const [dragLeft, setDragLeft] = useState<number | null>(null);
   /** When true, only the active step is shown (entered via Go there / Guide me). */
   const [stepFocused, setStepFocused] = useState(false);
+  /** Prefer the full step list even on intro/outro bookends. */
+  const [preferStepList, setPreferStepList] = useState(false);
 
   // Leave focus / guide only when dismissed — minimize should preserve resume state
   useEffect(() => {
     if (!progress.visible) {
       setStepFocused(false);
+      setPreferStepList(false);
       closeGuide();
     }
   }, [progress.visible, closeGuide]);
+
+  // Reset list override when the active step changes
+  useEffect(() => {
+    setPreferStepList(false);
+  }, [progress.activeStepId]);
 
   // When Guide me opens (or resumes after expand), enter focus mode on that step
   useEffect(() => {
@@ -201,12 +212,7 @@ const OwnerSetupChecklist: React.FC = () => {
     };
   }, [onDragEnd, onDragMove]);
 
-  const resolvedCount = useMemo(() => {
-    return OWNER_SETUP_STEPS.filter((s) => {
-      const st = progress.steps[s.id];
-      return st === 'done' || st === 'skipped';
-    }).length;
-  }, [progress.steps]);
+  const progressStats = useMemo(() => ownerSetupProgressStats(progress), [progress.steps]);
 
   if (!ready || !isOwner || !progress.visible) {
     return null;
@@ -262,8 +268,8 @@ const OwnerSetupChecklist: React.FC = () => {
             </div>
             <div className="text-xs text-gray-500 dark:text-gray-400">
               {t('ownerSetup.progressCount', {
-                done: resolvedCount,
-                total: OWNER_SETUP_STEPS.length,
+                done: progressStats.done,
+                total: progressStats.total,
               })}
               {coreComplete ? ` · ${t('ownerSetup.coreComplete')}` : ''}
             </div>
@@ -279,6 +285,7 @@ const OwnerSetupChecklist: React.FC = () => {
 
   const activeId = progress.activeStepId;
   const activeStep = OWNER_SETUP_STEPS.find((s) => s.id === activeId) || OWNER_SETUP_STEPS[0];
+  const activeKind = getOwnerSetupStepKind(activeStep);
   const activeDisplay = getEffectiveDisplayStatus(progress, activeId, hints);
 
   const handleGoThere = () => {
@@ -315,7 +322,35 @@ const OwnerSetupChecklist: React.FC = () => {
     markStep(activeId, 'todo');
   };
 
+  const handleGetStarted = () => {
+    setStepFocused(true);
+    markStep('welcome', 'done');
+  };
+
+  const handleDoItLater = () => {
+    minimizeChecklist();
+  };
+
+  const handleCloseGuide = () => {
+    markStep('finish', 'done');
+    dismissChecklist();
+  };
+
+  const handleReviewSteps = () => {
+    setPreferStepList(true);
+    setStepFocused(false);
+    closeGuide();
+  };
+
+  const handleReopenStep = (stepId: OwnerSetupStepId) => {
+    setStepFocused(false);
+    closeGuide();
+    setActiveStep(stepId);
+    markStep(stepId, 'todo');
+  };
+
   const handleSelectStep = (stepId: OwnerSetupStepId) => {
+    setPreferStepList(true);
     setStepFocused(false);
     closeGuide();
     setActiveStep(stepId);
@@ -330,6 +365,9 @@ const OwnerSetupChecklist: React.FC = () => {
     activeId === 'mail' && guideFieldContext.multiTenant
       ? 'ownerSetup.steps.mail.descriptionMultiTenant'
       : `ownerSetup.steps.${activeId}.description`;
+
+  const isBookend = activeKind === 'intro' || activeKind === 'outro';
+  const showStepList = preferStepList || (!stepFocused && !isBookend);
 
   return (
     <div
@@ -357,26 +395,30 @@ const OwnerSetupChecklist: React.FC = () => {
             id="owner-setup-title"
             className="text-sm font-semibold text-gray-900 dark:text-gray-100"
           >
-            {stepFocused
+            {stepFocused || isBookend
               ? t(`ownerSetup.steps.${activeId}.title`)
               : t('ownerSetup.title')}
           </h2>
-          {!stepFocused && (
+          {showStepList && (
             <>
               <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
                 {t('ownerSetup.subtitle')}
               </p>
               <p className="mt-1 text-xs font-medium text-amber-700 dark:text-amber-300">
                 {t('ownerSetup.progressCount', {
-                  done: resolvedCount,
-                  total: OWNER_SETUP_STEPS.length,
+                  done: progressStats.done,
+                  total: progressStats.total,
                 })}
               </p>
             </>
           )}
-          {stepFocused && (
+          {!showStepList && (
             <p className="mt-0.5 text-xs font-medium text-amber-700 dark:text-amber-300">
-              {t('ownerSetup.focusModeHint')}
+              {activeKind === 'intro'
+                ? t('ownerSetup.introBadge')
+                : activeKind === 'outro'
+                  ? t('ownerSetup.outroBadge')
+                  : t('ownerSetup.focusModeHint')}
             </p>
           )}
         </div>
@@ -401,10 +443,10 @@ const OwnerSetupChecklist: React.FC = () => {
       </div>
 
       <div className="flex-1 min-h-0 overflow-y-auto">
-        {stepFocused ? (
+        {!showStepList ? (
           <div className="px-4 py-3 space-y-3">
             <div className="flex items-start gap-2">
-              <StatusIcon status={activeDisplay} />
+              {!isBookend && <StatusIcon status={activeDisplay} />}
               <div className="min-w-0 flex-1 space-y-2">
                 {activeStep.optional && (
                   <span className="text-[10px] uppercase tracking-wide text-gray-400 dark:text-gray-500">
@@ -488,6 +530,7 @@ const OwnerSetupChecklist: React.FC = () => {
               type="button"
               onClick={() => {
                 closeGuide();
+                setPreferStepList(true);
                 setStepFocused(false);
               }}
               className="text-xs font-medium text-blue-600 dark:text-blue-400 hover:underline"
@@ -500,43 +543,71 @@ const OwnerSetupChecklist: React.FC = () => {
             {OWNER_SETUP_STEPS.map((step) => {
               const display = getEffectiveDisplayStatus(progress, step.id, hints);
               const isActive = activeId === step.id;
+              const stepKind = getOwnerSetupStepKind(step);
+              const canReopen =
+                stepKind === 'task' && (display === 'done' || display === 'skipped');
               return (
-                <button
+                <div
                   key={step.id}
-                  type="button"
-                  onClick={() => handleSelectStep(step.id)}
-                  className={`w-full flex items-start gap-2 rounded-md px-2 py-2 text-left transition-colors ${
+                  className={`w-full flex items-start gap-1 rounded-md px-1 py-1 transition-colors ${
                     isActive
                       ? 'bg-amber-50 dark:bg-amber-900/30 ring-1 ring-amber-300 dark:ring-amber-700'
                       : 'hover:bg-gray-50 dark:hover:bg-gray-700/60'
                   }`}
                 >
-                  <StatusIcon status={display} />
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
-                        {t(`ownerSetup.steps.${step.id}.title`)}
-                      </span>
-                      {step.optional && (
-                        <span className="text-[10px] uppercase tracking-wide text-gray-400 dark:text-gray-500 flex-shrink-0">
-                          {t('ownerSetup.optional')}
+                  <button
+                    type="button"
+                    onClick={() => handleSelectStep(step.id)}
+                    className="min-w-0 flex-1 flex items-start gap-2 rounded-md px-1 py-1 text-left"
+                  >
+                    <StatusIcon status={display} kind={stepKind} />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
+                          {t(`ownerSetup.steps.${step.id}.title`)}
                         </span>
+                        {stepKind === 'intro' && (
+                          <span className="text-[10px] uppercase tracking-wide text-gray-400 dark:text-gray-500 flex-shrink-0">
+                            {t('ownerSetup.introBadge')}
+                          </span>
+                        )}
+                        {stepKind === 'outro' && (
+                          <span className="text-[10px] uppercase tracking-wide text-gray-400 dark:text-gray-500 flex-shrink-0">
+                            {t('ownerSetup.outroBadge')}
+                          </span>
+                        )}
+                        {step.optional && (
+                          <span className="text-[10px] uppercase tracking-wide text-gray-400 dark:text-gray-500 flex-shrink-0">
+                            {t('ownerSetup.optional')}
+                          </span>
+                        )}
+                      </div>
+                      {isActive && (
+                        <p className="mt-0.5 text-xs text-gray-600 dark:text-gray-300">
+                          {t(
+                            step.id === 'mail' && guideFieldContext.multiTenant
+                              ? 'ownerSetup.steps.mail.descriptionMultiTenant'
+                              : `ownerSetup.steps.${step.id}.description`
+                          )}
+                        </p>
                       )}
                     </div>
-                    {isActive && (
-                      <p className="mt-0.5 text-xs text-gray-600 dark:text-gray-300">
-                        {t(
-                          step.id === 'mail' && guideFieldContext.multiTenant
-                            ? 'ownerSetup.steps.mail.descriptionMultiTenant'
-                            : `ownerSetup.steps.${step.id}.description`
-                        )}
-                      </p>
-                    )}
-                  </div>
-                  {isActive ? (
-                    <ChevronDown size={14} className="text-gray-400 mt-1 flex-shrink-0" />
-                  ) : null}
-                </button>
+                    {isActive ? (
+                      <ChevronDown size={14} className="text-gray-400 mt-1 flex-shrink-0" />
+                    ) : null}
+                  </button>
+                  {canReopen && (
+                    <button
+                      type="button"
+                      title={t('ownerSetup.reopen')}
+                      aria-label={t('ownerSetup.reopen')}
+                      onClick={() => handleReopenStep(step.id)}
+                      className="mt-0.5 p-1.5 rounded-md text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 flex-shrink-0"
+                    >
+                      <RotateCcw size={14} aria-hidden />
+                    </button>
+                  )}
+                </div>
               );
             })}
           </div>
@@ -548,13 +619,18 @@ const OwnerSetupChecklist: React.FC = () => {
         <div className="flex-shrink-0">
           <ActiveStepActions
             stepId={activeId}
-            stepFocused={stepFocused}
+            stepKind={activeKind}
+            stepFocused={stepFocused || (isBookend && !preferStepList)}
             isGuiding={isGuiding}
             onGo={handleGoThere}
             onGuide={handleGuide}
             onDone={handleMarkDone}
             onSkip={handleSkip}
             onReset={handleReset}
+            onGetStarted={handleGetStarted}
+            onDoItLater={handleDoItLater}
+            onCloseGuide={handleCloseGuide}
+            onReviewSteps={handleReviewSteps}
             display={activeDisplay}
           />
         </div>
@@ -565,9 +641,25 @@ const OwnerSetupChecklist: React.FC = () => {
 
 function StatusIcon({
   status,
+  kind = 'task',
 }: {
   status: 'todo' | 'done' | 'skipped' | 'suggested';
+  kind?: 'task' | 'intro' | 'outro';
 }) {
+  if (kind === 'intro' || kind === 'outro') {
+    if (status === 'done') {
+      return (
+        <span className="mt-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-green-100 dark:bg-green-900/40 text-green-600 dark:text-green-400 flex-shrink-0">
+          <Check size={12} strokeWidth={3} />
+        </span>
+      );
+    }
+    return (
+      <span className="mt-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-amber-100 dark:bg-amber-900/40 text-amber-600 dark:text-amber-400 flex-shrink-0">
+        <Circle size={10} fill="currentColor" />
+      </span>
+    );
+  }
   if (status === 'done') {
     return (
       <span className="mt-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-green-100 dark:bg-green-900/40 text-green-600 dark:text-green-400 flex-shrink-0">
@@ -598,6 +690,7 @@ function StatusIcon({
 
 function ActiveStepActions({
   stepId,
+  stepKind,
   stepFocused,
   isGuiding,
   onGo,
@@ -605,9 +698,14 @@ function ActiveStepActions({
   onDone,
   onSkip,
   onReset,
+  onGetStarted,
+  onDoItLater,
+  onCloseGuide,
+  onReviewSteps,
   display,
 }: {
   stepId: OwnerSetupStepId;
+  stepKind: 'task' | 'intro' | 'outro';
   stepFocused: boolean;
   isGuiding: boolean;
   onGo: () => void;
@@ -615,12 +713,63 @@ function ActiveStepActions({
   onDone: () => void;
   onSkip: () => void;
   onReset: () => void;
+  onGetStarted: () => void;
+  onDoItLater: () => void;
+  onCloseGuide: () => void;
+  onReviewSteps: () => void;
   display: 'todo' | 'done' | 'skipped' | 'suggested';
 }) {
   const { t } = useTranslation('common');
   const def = OWNER_SETUP_STEPS.find((s) => s.id === stepId);
   const canNavigate = Boolean(def?.tourTarget || def?.adminTab || def?.goKanban || def?.guideFields?.length);
   const canGuide = Boolean(def?.guideFields?.length || def?.tourTarget || def?.adminTab || def?.goKanban);
+
+  if (stepKind === 'intro') {
+    return (
+      <div className="border-t border-gray-100 dark:border-gray-700 px-3 py-3 space-y-2">
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={onGetStarted}
+            className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded-md bg-blue-600 text-white hover:bg-blue-700"
+          >
+            <Play size={12} />
+            {t('ownerSetup.getStarted')}
+          </button>
+          <button
+            type="button"
+            onClick={onDoItLater}
+            className="px-2.5 py-1.5 text-xs font-medium rounded-md text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
+          >
+            {t('ownerSetup.doItLater')}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (stepKind === 'outro') {
+    return (
+      <div className="border-t border-gray-100 dark:border-gray-700 px-3 py-3 space-y-2">
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={onCloseGuide}
+            className="px-2.5 py-1.5 text-xs font-medium rounded-md bg-green-600 text-white hover:bg-green-700"
+          >
+            {t('ownerSetup.closeGuide')}
+          </button>
+          <button
+            type="button"
+            onClick={onReviewSteps}
+            className="px-2.5 py-1.5 text-xs font-medium rounded-md text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
+          >
+            {t('ownerSetup.reviewSteps')}
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="border-t border-gray-100 dark:border-gray-700 px-3 py-3 space-y-2">
@@ -656,7 +805,7 @@ function ActiveStepActions({
             {t('ownerSetup.markDone')}
           </button>
         )}
-        {display !== 'skipped' && stepId !== 'finish' && (
+        {display !== 'skipped' && (
           <button
             type="button"
             onClick={onSkip}
@@ -669,8 +818,9 @@ function ActiveStepActions({
           <button
             type="button"
             onClick={onReset}
-            className="px-2.5 py-1.5 text-xs font-medium rounded-md text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700"
+            className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded-md text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700"
           >
+            <RotateCcw size={12} aria-hidden />
             {t('ownerSetup.reopen')}
           </button>
         )}

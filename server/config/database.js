@@ -902,9 +902,22 @@ const initializeDefaultData = async (db, tenantId = null) => {
       ['LIFECYCLE_ARCHIVED_RETENTION_DAYS', '0'], // Tasks in archived columns; 0 = keep forever
       ['STORAGE_LIMIT', '5368709120'], // 5GB storage limit in bytes (5 * 1024^3)
       ['STORAGE_USED', '0'], // Current storage usage in bytes
+      ['STORAGE_BACKEND', 'disk'], // disk | s3
+      ['STORAGE_MANAGED', 'false'],
+      ['S3_ENDPOINT', ''],
+      ['S3_REGION', ''],
+      ['S3_BUCKET', ''],
+      ['S3_ACCESS_KEY_ID', ''],
+      ['S3_SECRET_ACCESS_KEY', ''],
+      ['S3_FORCE_PATH_STYLE', 'false'],
+      ['S3_KEY_PREFIX', ''],
+      ['STORAGE_MIGRATION_STATUS', 'idle'],
+      ['STORAGE_MIGRATION_DETAIL', ''],
+      ['STORAGE_TEST_OK', 'false'],
       ['UPLOAD_MAX_FILESIZE', '10485760'], // 10MB max file size in bytes (10 * 1024^2)
       ['UPLOAD_LIMITS_ENFORCED', 'true'], // Enable/disable file upload restrictions (default true)
       ['NOTIFICATION_DELAY', '30'], // Email notification delay in minutes (default 30)
+      ['NOTIFICATION_QUEUE_RETENTION_DAYS', '0'], // Sent/failed queue rows; 0 = keep forever
       ['NOTIFICATION_DEFAULTS', JSON.stringify({
         newTaskAssigned: true,
         myTaskUpdated: true,
@@ -1038,6 +1051,35 @@ const initializeDefaultData = async (db, tenantId = null) => {
           await wrapQuery(managedSmtpStmt, 'INSERT').run(key, value);
         }
         console.log('✅ Configured managed SMTP settings');
+
+        // Managed S3 (optional — only when MANAGED_S3_BUCKET is set)
+        if (process.env.MANAGED_S3_BUCKET) {
+          const { encryptSettingValue: encryptS3Secret } = await import('../utils/secretCrypto.js');
+          const managedS3SecretPlain = process.env.MANAGED_S3_SECRET_ACCESS_KEY || '';
+          const managedS3SecretStored = managedS3SecretPlain
+            ? encryptS3Secret(managedS3SecretPlain)
+            : '';
+          const tenantPrefix =
+            tenantId && process.env.MULTI_TENANT === 'true'
+              ? `tenants/${tenantId}/`
+              : (process.env.MANAGED_S3_KEY_PREFIX || '');
+          const managedS3Settings = [
+            ['STORAGE_BACKEND', 's3'],
+            ['STORAGE_MANAGED', 'true'],
+            ['S3_ENDPOINT', process.env.MANAGED_S3_ENDPOINT || ''],
+            ['S3_REGION', process.env.MANAGED_S3_REGION || ''],
+            ['S3_BUCKET', process.env.MANAGED_S3_BUCKET],
+            ['S3_ACCESS_KEY_ID', process.env.MANAGED_S3_ACCESS_KEY_ID || ''],
+            ['S3_SECRET_ACCESS_KEY', managedS3SecretStored],
+            ['S3_FORCE_PATH_STYLE', process.env.MANAGED_S3_FORCE_PATH_STYLE || 'false'],
+            ['S3_KEY_PREFIX', tenantPrefix],
+            ['STORAGE_TEST_OK', 'false']
+          ];
+          for (const [key, value] of managedS3Settings) {
+            await wrapQuery(managedSmtpStmt, 'INSERT').run(key, value);
+          }
+          console.log('✅ Configured managed S3 storage settings');
+        }
       }
     }
 

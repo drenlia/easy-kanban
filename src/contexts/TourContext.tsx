@@ -3,6 +3,7 @@ import Joyride, { ACTIONS, CallBackProps, EVENTS, STATUS } from 'react-joyride';
 import { useTranslation } from 'react-i18next';
 import { getTourSteps } from '../components/tour/TourSteps';
 import { parseTaskRoute } from '../utils/routingUtils';
+import { adminHashForTabId } from '../utils/adminNavigation';
 import { useTheme } from './ThemeContext';
 
 interface TourContextType {
@@ -75,12 +76,15 @@ function prepareAdminTourTarget(
       ? tabMatch[1]
       : null;
 
+  // Map tour target ids (incl. System / Project hub subtabs) to Admin hashes
+  const hash = tabName ? adminHashForTabId(tabName) : undefined;
+
   if (onPageChange && (!currentHash.includes('admin') || tabName)) {
-    onPageChange('admin', tabName ? { hash: `admin#${tabName}` } : undefined);
-  } else if (tabName) {
-    const expectedHash = `#admin#${tabName}`;
-    if (!currentHash.includes(`#${tabName}`) || currentHash !== expectedHash) {
-      window.location.hash = `admin#${tabName}`;
+    onPageChange('admin', hash ? { hash } : undefined);
+  } else if (hash) {
+    const expectedHash = `#${hash}`;
+    if (currentHash !== expectedHash) {
+      window.location.hash = hash;
     }
   }
 

@@ -13,6 +13,7 @@ import { getTranslator } from '../utils/i18n.js';
 import { getTenantId, getRequestDatabase } from '../middleware/tenantRouting.js';
 // MIGRATED: Import sqlManager modules
 import { users as userQueries, tasks as taskQueries, adminUsers as adminUserQueries, auth as authQueries, helpers } from '../utils/sqlManager/index.js';
+import { commitUploadedFile, getRequestStoragePaths } from '../services/storage/index.js';
 
 const router = express.Router();
 
@@ -433,7 +434,10 @@ router.post('/', authenticateToken, requireRole(['admin']), async (req, res) => 
     // Generate default avatar SVG for new local users with matching background color
     // Use tenant-specific path if in multi-tenant mode
     const tenantId = getTenantId(req);
-    const avatarPath = createDefaultAvatar(memberName, userId, memberColor, tenantId);
+    const avatarPath = await createDefaultAvatar(memberName, userId, memberColor, tenantId, {
+      db,
+      storagePaths: req.locals?.tenantStoragePaths || req.app.locals?.tenantStoragePaths
+    });
     if (avatarPath) {
       // MIGRATED: Update user with default avatar path using sqlManager
       await userQueries.updateUserAvatar(db, userId, avatarPath);
@@ -715,13 +719,18 @@ router.delete("/:userId", authenticateToken, requireRole(["admin"]), async (req,
         if (!existingSystemUser) {
           // Create SYSTEM user account
           const systemPasswordHash = bcrypt.hashSync(crypto.randomBytes(32).toString('hex'), 10); // Random unguessable password
-          const systemAvatarPath = createDefaultAvatar('System', SYSTEM_USER_ID, '#1E40AF', tenantId);
+          const systemAvatarPath = await createDefaultAvatar('System', SYSTEM_USER_ID, '#1E40AF', tenantId, {
+            db,
+            storagePaths: req.locals?.tenantStoragePaths || req.app.locals?.tenantStoragePaths
+          });
           
           // MIGRATED: Create SYSTEM user using sqlManager
           await userQueries.createUser(db, SYSTEM_USER_ID, 'system@local', systemPasswordHash, 'System', 'User', false, 'local');
           
           // MIGRATED: Update avatar using sqlManager
-          await userQueries.updateUserAvatar(db, SYSTEM_USER_ID, systemAvatarPath);
+          if (systemAvatarPath) {
+            await userQueries.updateUserAvatar(db, SYSTEM_USER_ID, systemAvatarPath);
+          }
           
           // MIGRATED: Assign user role using sqlManager
           const userRole = await userQueries.getRoleByName(db, 'user');
@@ -908,6 +917,7 @@ router.post('/:userId/avatar', authenticateToken, requireRole(['admin']), avatar
   }
 
   try {
+    await commitUploadedFile(db, getRequestStoragePaths(req), 'avatars', req.file);
     const avatarPath = `/avatars/${req.file.filename}`;
     // MIGRATED: Update user's avatar_path using sqlManager
     await userQueries.updateUserAvatar(db, userId, avatarPath);

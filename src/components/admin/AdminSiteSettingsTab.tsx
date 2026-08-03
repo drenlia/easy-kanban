@@ -8,6 +8,12 @@ import { adminSettingsHaveChanges } from '../../utils/adminSettingsDirty';
 import { revertAdminSettingField } from '../../utils/adminSettingsDirty';
 import { AdminFieldDraftControls } from './AdminFieldDraftControls';
 import { AdminUnsavedHint } from './AdminUnsavedChanges';
+import {
+  AdminActionsBar,
+  AdminPageShell,
+  AdminSection,
+  adminInputFullClass,
+} from './AdminSection';
 
 interface Settings {
   SITE_NAME?: string;
@@ -155,7 +161,7 @@ const AdminSiteSettingsTab: React.FC<AdminSiteSettingsTabProps> = ({
               type="url"
               value={value}
               onChange={(e) => handleInputChange(settingKey, e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+              className={adminInputFullClass}
               placeholder={t('siteSettings.logoUrlPlaceholder')}
             />
             <div className="flex flex-wrap gap-2">
@@ -211,59 +217,92 @@ const AdminSiteSettingsTab: React.FC<AdminSiteSettingsTabProps> = ({
   const hideGithub = editingSettings.HIDE_GITHUB_LINK === 'true';
   const hideSiteLogo = editingSettings.HIDE_SITE_LOGO === 'true';
 
-  return (
-    <div className="p-6">
-      <div className="mb-6">
-        <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-2">{t('siteSettings.title')}</h2>
-        <p className="text-gray-600 dark:text-gray-400">
-          {t('siteSettings.description')}
-        </p>
+  const renderToggleRow = (
+    label: string,
+    description: string,
+    enabled: boolean,
+    onToggle: () => void | Promise<void>
+  ) => (
+    <div className="flex items-center justify-between gap-3 py-1">
+      <div className="min-w-0 flex-1">
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+          {label}
+        </label>
+        <p className="text-xs text-gray-500 dark:text-gray-400 leading-snug">{description}</p>
       </div>
-      
-      <div className="space-y-6">
-        <div data-setting-key="SITE_NAME">
-          <label className="flex flex-wrap items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-            <span>{t('siteSettings.siteName')}</span>
-            <AdminFieldDraftControls
-              settingKey="SITE_NAME"
-              saved={settings}
-              draft={editingSettings}
-              onRevert={() => revertField('SITE_NAME')}
-            />
-          </label>
-          <input
-            type="text"
-            value={editingSettings.SITE_NAME ?? ''}
-            onChange={(e) => handleInputChange('SITE_NAME', e.target.value)}
-            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-            placeholder={t('siteSettings.enterSiteName')}
+      <div className="flex shrink-0 items-center gap-2">
+        <span className="text-xs font-medium text-gray-700 dark:text-gray-300">
+          {enabled ? t('siteSettings.enabled') : t('siteSettings.disabled')}
+        </span>
+        <button
+          type="button"
+          onClick={() => void onToggle()}
+          className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+            enabled ? 'bg-blue-600 dark:bg-blue-500' : 'bg-gray-200 dark:bg-gray-600'
+          }`}
+        >
+          <span
+            className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out dark:bg-gray-300 ${
+              enabled ? 'translate-x-5' : 'translate-x-0'
+            }`}
           />
-          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            {t('siteSettings.siteNameEmptyHint')}
-          </p>
-        </div>
-        
-        <div data-setting-key="SITE_URL">
-          <label className="flex flex-wrap items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-            <span>{t('siteSettings.siteUrl')}</span>
-            <AdminFieldDraftControls
-              settingKey="SITE_URL"
-              saved={settings}
-              draft={editingSettings}
-              onRevert={() => revertField('SITE_URL')}
+        </button>
+      </div>
+    </div>
+  );
+
+  const opensNewTab =
+    editingSettings.SITE_OPENS_NEW_TAB === 'true' ||
+    editingSettings.SITE_OPENS_NEW_TAB === undefined;
+
+  return (
+    <AdminPageShell description={t('siteSettings.description')}>
+      <AdminSection dense>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div data-setting-key="SITE_NAME">
+            <label className="flex flex-wrap items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              <span>{t('siteSettings.siteName')}</span>
+              <AdminFieldDraftControls
+                settingKey="SITE_NAME"
+                saved={settings}
+                draft={editingSettings}
+                onRevert={() => revertField('SITE_NAME')}
+              />
+            </label>
+            <input
+              type="text"
+              value={editingSettings.SITE_NAME ?? ''}
+              onChange={(e) => handleInputChange('SITE_NAME', e.target.value)}
+              className={adminInputFullClass}
+              placeholder={t('siteSettings.enterSiteName')}
             />
-          </label>
-          <input
-            type="url"
-            value={editingSettings.SITE_URL || ''}
-            onChange={(e) => handleInputChange('SITE_URL', e.target.value)}
-            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-            placeholder="https://example.com"
-          />
+            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              {t('siteSettings.siteNameEmptyHint')}
+            </p>
+          </div>
+
+          <div data-setting-key="SITE_URL">
+            <label className="flex flex-wrap items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              <span>{t('siteSettings.siteUrl')}</span>
+              <AdminFieldDraftControls
+                settingKey="SITE_URL"
+                saved={settings}
+                draft={editingSettings}
+                onRevert={() => revertField('SITE_URL')}
+              />
+            </label>
+            <input
+              type="url"
+              value={editingSettings.SITE_URL || ''}
+              onChange={(e) => handleInputChange('SITE_URL', e.target.value)}
+              className={adminInputFullClass}
+              placeholder="https://example.com"
+            />
+          </div>
         </div>
-        
-        <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+
+        <div className="pt-1">
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
             {t('siteSettings.websiteUrl')}
           </label>
           <input
@@ -271,19 +310,17 @@ const AdminSiteSettingsTab: React.FC<AdminSiteSettingsTabProps> = ({
             value={editingSettings.WEBSITE_URL || ''}
             readOnly
             disabled
-            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 cursor-not-allowed"
+            className={`${adminInputFullClass} bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 cursor-not-allowed`}
             placeholder="https://customer-portal.example.com"
           />
-          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
             {t('siteSettings.websiteUrlDescription')}
           </p>
         </div>
+      </AdminSection>
 
-        <div className="border-t border-gray-200 dark:border-gray-700 pt-6 space-y-6">
-          <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 uppercase tracking-wide">
-            {t('siteSettings.brandingSection')}
-          </h3>
-
+      <AdminSection title={t('siteSettings.brandingSection')} dense>
+        <div className="space-y-3">
           {renderLogoField(
             'SITE_LOGO',
             t('siteSettings.siteLogo'),
@@ -301,173 +338,103 @@ const AdminSiteSettingsTab: React.FC<AdminSiteSettingsTabProps> = ({
             uploadingDark,
             'dark'
           )}
+        </div>
+      </AdminSection>
 
-          {/* Hide site logo */}
-          <div className="flex items-center justify-between pt-2">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                {t('siteSettings.hideSiteLogo')}
-              </label>
-              <p className="text-sm text-gray-500 dark:text-gray-400">
-                {t('siteSettings.hideSiteLogoDescription')}
-              </p>
-            </div>
-            <div className="flex items-center">
-              <span className="text-sm font-medium mr-3 text-gray-700 dark:text-gray-300">
-                {hideSiteLogo ? t('siteSettings.enabled') : t('siteSettings.disabled')}
-              </span>
-              <button
-                type="button"
-                onClick={async () => {
-                  const newValue = hideSiteLogo ? 'false' : 'true';
-                  handleInputChange('HIDE_SITE_LOGO', newValue);
-                  updateSiteSetting('HIDE_SITE_LOGO', newValue);
-                  try {
-                    if (onAutoSave) {
-                      await onAutoSave('HIDE_SITE_LOGO', newValue);
-                    } else {
-                      await api.put('/admin/settings', { key: 'HIDE_SITE_LOGO', value: newValue });
-                    }
-                  } catch (error) {
-                    console.error('Failed to save hide site logo toggle:', error);
-                    handleInputChange('HIDE_SITE_LOGO', hideSiteLogo ? 'true' : 'false');
-                    updateSiteSetting('HIDE_SITE_LOGO', hideSiteLogo ? 'true' : 'false');
-                  }
-                }}
-                className={`relative inline-flex h-6 w-11 flex-shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 cursor-pointer ${
-                  hideSiteLogo ? 'bg-blue-600 dark:bg-blue-500' : 'bg-gray-200 dark:bg-gray-600'
-                }`}
-              >
-                <span
-                  className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white dark:bg-gray-300 shadow ring-0 transition duration-200 ease-in-out ${
-                    hideSiteLogo ? 'translate-x-5' : 'translate-x-0'
-                  }`}
-                />
-              </button>
-            </div>
-          </div>
+      <AdminSection dense>
+        <div className="divide-y divide-gray-100 dark:divide-gray-800">
+          {renderToggleRow(
+            t('siteSettings.hideSiteLogo'),
+            t('siteSettings.hideSiteLogoDescription'),
+            hideSiteLogo,
+            async () => {
+              const newValue = hideSiteLogo ? 'false' : 'true';
+              handleInputChange('HIDE_SITE_LOGO', newValue);
+              updateSiteSetting('HIDE_SITE_LOGO', newValue);
+              try {
+                if (onAutoSave) {
+                  await onAutoSave('HIDE_SITE_LOGO', newValue);
+                } else {
+                  await api.put('/admin/settings', { key: 'HIDE_SITE_LOGO', value: newValue });
+                }
+              } catch (error) {
+                console.error('Failed to save hide site logo toggle:', error);
+                handleInputChange('HIDE_SITE_LOGO', hideSiteLogo ? 'true' : 'false');
+                updateSiteSetting('HIDE_SITE_LOGO', hideSiteLogo ? 'true' : 'false');
+              }
+            }
+          )}
+          {renderToggleRow(
+            t('siteSettings.opensNewTab'),
+            t('siteSettings.opensNewTabDescription'),
+            opensNewTab,
+            async () => {
+              const currentValue =
+                editingSettings.SITE_OPENS_NEW_TAB === undefined
+                  ? 'true'
+                  : editingSettings.SITE_OPENS_NEW_TAB;
+              const newValue = currentValue === 'true' ? 'false' : 'true';
+              handleInputChange('SITE_OPENS_NEW_TAB', newValue);
+              try {
+                if (onAutoSave) {
+                  await onAutoSave('SITE_OPENS_NEW_TAB', newValue);
+                } else {
+                  await api.put('/admin/settings', { key: 'SITE_OPENS_NEW_TAB', value: newValue });
+                }
+              } catch (error) {
+                console.error('Failed to save opens new tab toggle:', error);
+                handleInputChange('SITE_OPENS_NEW_TAB', currentValue);
+              }
+            }
+          )}
+          {renderToggleRow(
+            t('siteSettings.hideGithubLink'),
+            t('siteSettings.hideGithubLinkDescription'),
+            hideGithub,
+            async () => {
+              const newValue = hideGithub ? 'false' : 'true';
+              handleInputChange('HIDE_GITHUB_LINK', newValue);
+              try {
+                if (onAutoSave) {
+                  await onAutoSave('HIDE_GITHUB_LINK', newValue);
+                } else {
+                  await api.put('/admin/settings', { key: 'HIDE_GITHUB_LINK', value: newValue });
+                }
+              } catch (error) {
+                console.error('Failed to save hide GitHub toggle:', error);
+                handleInputChange('HIDE_GITHUB_LINK', hideGithub ? 'true' : 'false');
+              }
+            }
+          )}
         </div>
-        
-        {/* Open Links in New Tab Toggle */}
-        <div className="border-t border-gray-200 dark:border-gray-700 pt-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                {t('siteSettings.opensNewTab')}
-              </label>
-              <p className="text-sm text-gray-500 dark:text-gray-400">
-                {t('siteSettings.opensNewTabDescription')}
-              </p>
-            </div>
-            <div className="flex items-center">
-              <span className="text-sm font-medium mr-3 text-gray-700 dark:text-gray-300">
-                {(editingSettings.SITE_OPENS_NEW_TAB === 'true' || editingSettings.SITE_OPENS_NEW_TAB === undefined) ? t('siteSettings.enabled') : t('siteSettings.disabled')}
-              </span>
-              <button
-                type="button"
-                onClick={async () => {
-                  const currentValue = editingSettings.SITE_OPENS_NEW_TAB === undefined ? 'true' : editingSettings.SITE_OPENS_NEW_TAB;
-                  const newValue = currentValue === 'true' ? 'false' : 'true';
-                  handleInputChange('SITE_OPENS_NEW_TAB', newValue);
-                  try {
-                    if (onAutoSave) {
-                      await onAutoSave('SITE_OPENS_NEW_TAB', newValue);
-                    } else {
-                      await api.put('/admin/settings', { key: 'SITE_OPENS_NEW_TAB', value: newValue });
-                    }
-                  } catch (error) {
-                    console.error('Failed to save opens new tab toggle:', error);
-                    handleInputChange('SITE_OPENS_NEW_TAB', currentValue);
-                  }
-                }}
-                className={`relative inline-flex h-6 w-11 flex-shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
-                  (editingSettings.SITE_OPENS_NEW_TAB === 'true' || editingSettings.SITE_OPENS_NEW_TAB === undefined)
-                    ? 'bg-blue-600 dark:bg-blue-500 cursor-pointer' 
-                    : 'bg-gray-200 dark:bg-gray-600 cursor-pointer'
-                }`}
-              >
-                <span
-                  className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white dark:bg-gray-300 shadow ring-0 transition duration-200 ease-in-out ${
-                    (editingSettings.SITE_OPENS_NEW_TAB === 'true' || editingSettings.SITE_OPENS_NEW_TAB === undefined) ? 'translate-x-5' : 'translate-x-0'
-                  }`}
-                />
-              </button>
-            </div>
-          </div>
-        </div>
+      </AdminSection>
 
-        {/* Hide GitHub link */}
-        <div className="border-t border-gray-200 dark:border-gray-700 pt-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                {t('siteSettings.hideGithubLink')}
-              </label>
-              <p className="text-sm text-gray-500 dark:text-gray-400">
-                {t('siteSettings.hideGithubLinkDescription')}
-              </p>
-            </div>
-            <div className="flex items-center">
-              <span className="text-sm font-medium mr-3 text-gray-700 dark:text-gray-300">
-                {hideGithub ? t('siteSettings.enabled') : t('siteSettings.disabled')}
-              </span>
-              <button
-                type="button"
-                onClick={async () => {
-                  const newValue = hideGithub ? 'false' : 'true';
-                  handleInputChange('HIDE_GITHUB_LINK', newValue);
-                  try {
-                    if (onAutoSave) {
-                      await onAutoSave('HIDE_GITHUB_LINK', newValue);
-                    } else {
-                      await api.put('/admin/settings', { key: 'HIDE_GITHUB_LINK', value: newValue });
-                    }
-                  } catch (error) {
-                    console.error('Failed to save hide GitHub toggle:', error);
-                    handleInputChange('HIDE_GITHUB_LINK', hideGithub ? 'true' : 'false');
-                  }
-                }}
-                className={`relative inline-flex h-6 w-11 flex-shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 cursor-pointer ${
-                  hideGithub ? 'bg-blue-600 dark:bg-blue-500' : 'bg-gray-200 dark:bg-gray-600'
-                }`}
-              >
-                <span
-                  className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white dark:bg-gray-300 shadow ring-0 transition duration-200 ease-in-out ${
-                    hideGithub ? 'translate-x-5' : 'translate-x-0'
-                  }`}
-                />
-              </button>
-            </div>
-          </div>
+      <AdminActionsBar className="justify-between">
+        <AdminUnsavedHint show={hasChanges} />
+        <div className="flex gap-2 ml-auto">
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={!hasChanges}
+            className="px-4 py-1.5 text-sm bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {t('siteSettings.cancel')}
+          </button>
+          <button
+            type="button"
+            onClick={() => onSave()}
+            disabled={!hasChanges}
+            className={`px-4 py-1.5 text-sm text-white rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed ${
+              hasChanges
+                ? 'bg-blue-600 hover:bg-blue-700 ring-2 ring-amber-400 ring-offset-2'
+                : 'bg-blue-600'
+            }`}
+          >
+            {t('siteSettings.saveChanges')}
+          </button>
         </div>
-
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <AdminUnsavedHint show={hasChanges} />
-          <div className="flex space-x-3 ml-auto">
-            <button
-              type="button"
-              onClick={onCancel}
-              disabled={!hasChanges}
-              className="px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {t('siteSettings.cancel')}
-            </button>
-            <button
-              type="button"
-              onClick={() => onSave()}
-              disabled={!hasChanges}
-              className={`px-4 py-2 text-white rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed ${
-                hasChanges
-                  ? 'bg-blue-600 hover:bg-blue-700 ring-2 ring-amber-400 ring-offset-2'
-                  : 'bg-blue-600'
-              }`}
-            >
-              {t('siteSettings.saveChanges')}
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
+      </AdminActionsBar>
+    </AdminPageShell>
   );
 };
 

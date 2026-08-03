@@ -10,6 +10,7 @@ import notificationService from '../services/notificationService.js';
 import { getTranslator } from '../utils/i18n.js';
 import { getTenantId, getRequestDatabase } from '../middleware/tenantRouting.js';
 import { users as userQueries, tasks as taskQueries } from '../utils/sqlManager/index.js';
+import { commitUploadedFile, getRequestStoragePaths } from '../services/storage/index.js';
 
 const router = express.Router();
 
@@ -48,6 +49,9 @@ router.post('/upload', authenticateToken, createUploadMiddleware, async (req, re
       return res.status(400).json({ error: 'No file uploaded' });
     }
 
+    const db = getRequestDatabase(req);
+    await commitUploadedFile(db, getRequestStoragePaths(req), 'attachments', req.file);
+
     // Generate authenticated URL with token
     const token = req.headers.authorization?.replace('Bearer ', '');
     const authenticatedUrl = token ? `/api/files/attachments/${req.file.filename}?token=${encodeURIComponent(token)}` : `/attachments/${req.file.filename}`;
@@ -73,6 +77,7 @@ router.post('/avatar', authenticateToken, avatarUpload.single('avatar'), async (
 
   try {
     const db = getRequestDatabase(req);
+    await commitUploadedFile(db, getRequestStoragePaths(req), 'avatars', req.file);
     const avatarPath = `/avatars/${req.file.filename}`;
     // MIGRATED: Update user avatar using sqlManager
     await userQueries.updateUserAvatar(db, req.user.id, avatarPath);
@@ -235,7 +240,10 @@ router.delete("/account", authenticateToken, async (req, res) => {
         if (!existingSystemUser) {
           // Create SYSTEM user account
           const systemPasswordHash = bcrypt.hashSync(crypto.randomBytes(32).toString('hex'), 10); // Random unguessable password
-          const systemAvatarPath = createDefaultAvatar('System', SYSTEM_USER_ID, '#1E40AF', tenantId);
+          const systemAvatarPath = await createDefaultAvatar('System', SYSTEM_USER_ID, '#1E40AF', tenantId, {
+            db,
+            storagePaths: req.locals?.tenantStoragePaths || req.app.locals?.tenantStoragePaths
+          });
           
           await wrapQuery(db.prepare(`
             INSERT INTO users (id, email, password_hash, first_name, last_name, avatar_path, auth_provider, is_active) 

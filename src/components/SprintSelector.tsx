@@ -21,13 +21,22 @@ interface SprintSelectorProps {
   onSprintChange: (sprint: Sprint | null) => void;
   tasks?: Task[]; // All tasks for counting
   sprints?: Sprint[]; // Optional: sprints passed from parent (avoids duplicate API calls)
+  /**
+   * filter — board header (All Sprints + Backlog + sprints)
+   * assign — task edit (Backlog + sprints only; null = backlog)
+   */
+  mode?: 'filter' | 'assign';
+  /** Extra classes on the root (e.g. w-full for Task Page) */
+  className?: string;
 }
 
 const SprintSelector: React.FC<SprintSelectorProps> = ({
   selectedSprintId,
   onSprintChange,
   tasks = [],
-  sprints: propSprints
+  sprints: propSprints,
+  mode = 'filter',
+  className = '',
 }) => {
   const { t } = useTranslation('tasks');
   const [sprints, setSprints] = useState<Sprint[]>(propSprints || []);
@@ -121,11 +130,16 @@ const SprintSelector: React.FC<SprintSelectorProps> = ({
   // Get total task count for "All Sprints"
   const totalTaskCount = tasks.length;
 
+  const isAssign = mode === 'assign';
+
   // Check if "backlog" matches the search term
   const showBacklogOption = 'backlog'.includes(searchTerm.toLowerCase()) || searchTerm === '';
 
-  // Total options = "All Sprints" + "Backlog" (if shown) + filtered sprints
-  const totalOptions = 1 + (showBacklogOption ? 1 : 0) + filteredSprints.length;
+  // filter: All Sprints + optional Backlog + sprints
+  // assign: optional Backlog + sprints (null = backlog)
+  const allSprintsOffset = isAssign ? 0 : 1;
+  const backlogOffset = showBacklogOption ? 1 : 0;
+  const totalOptions = allSprintsOffset + backlogOffset + filteredSprints.length;
 
   const handleSelectSprint = (sprint: Sprint | null) => {
     onSprintChange(sprint);
@@ -133,6 +147,32 @@ const SprintSelector: React.FC<SprintSelectorProps> = ({
     setSearchTerm('');
     setHighlightedIndex(-1);
   };
+
+  const handleSelectBacklog = () => {
+    if (isAssign) {
+      // Task assignment: clear sprintId
+      handleSelectSprint(null);
+      return;
+    }
+    onSprintChange({ id: 'backlog', name: 'Backlog', start_date: '', end_date: '' } as any);
+    setIsOpen(false);
+    setSearchTerm('');
+    setHighlightedIndex(-1);
+  };
+
+  const isBacklogSelected = isAssign
+    ? !selectedSprintId
+    : selectedSprintId === 'backlog';
+
+  const triggerLabel = isAssign
+    ? selectedSprint
+      ? selectedSprint.name
+      : t('sprintSelector.backlog')
+    : selectedSprintId === 'backlog'
+      ? t('sprintSelector.backlog')
+      : selectedSprint
+        ? selectedSprint.name
+        : t('sprintSelector.allSprints');
 
   // Handle keyboard navigation
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -155,22 +195,18 @@ const SprintSelector: React.FC<SprintSelectorProps> = ({
         e.preventDefault();
         if (highlightedIndex === -1) {
           return;
-        } else if (highlightedIndex === 0) {
-          // "All Sprints" selected
+        }
+        if (!isAssign && highlightedIndex === 0) {
           handleSelectSprint(null);
-        } else if (highlightedIndex === 1 && showBacklogOption) {
-          // "Backlog" selected - pass special value
-          onSprintChange({ id: 'backlog', name: 'Backlog', start_date: '', end_date: '' } as any);
-          setIsOpen(false);
-          setSearchTerm('');
-          setHighlightedIndex(-1);
+        } else if (
+          (isAssign && highlightedIndex === 0 && showBacklogOption) ||
+          (!isAssign && highlightedIndex === 1 && showBacklogOption)
+        ) {
+          handleSelectBacklog();
         } else {
-          // Specific sprint selected
-          const sprintIndex = showBacklogOption ? highlightedIndex - 2 : highlightedIndex - 1;
-          const selectedSprint = filteredSprints[sprintIndex];
-          if (selectedSprint) {
-            handleSelectSprint(selectedSprint);
-          }
+          const sprintIndex = highlightedIndex - allSprintsOffset - backlogOffset;
+          const picked = filteredSprints[sprintIndex];
+          if (picked) handleSelectSprint(picked);
         }
         break;
       case 'Escape':
@@ -183,10 +219,10 @@ const SprintSelector: React.FC<SprintSelectorProps> = ({
   };
 
   return (
-    <div className="relative" ref={dropdownRef}>
+    <div className={`relative ${className}`} ref={dropdownRef}>
       <KanbanChromeTooltip
         label={
-          selectedSprintId !== null
+          !isAssign && selectedSprintId !== null
             ? `${t('sprintSelector.selectSprint')} · ${t('sprintSelector.filterActive')}`
             : t('sprintSelector.selectSprint')
         }
@@ -194,27 +230,35 @@ const SprintSelector: React.FC<SprintSelectorProps> = ({
         <button
           type="button"
           onClick={() => setIsOpen(!isOpen)}
-          className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors border border-gray-300 dark:border-gray-600 relative"
+          className={`flex items-center gap-2 px-3 text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors border border-gray-300 dark:border-gray-600 relative ${
+            isAssign
+              ? 'w-full py-2 bg-white dark:bg-gray-700 shadow-sm justify-between'
+              : 'py-1.5'
+          } ${isOpen ? 'ring-2 ring-blue-500 border-blue-500' : ''}`}
           aria-label={t('sprintSelector.selectSprint')}
           data-tour-id="sprint-selector"
         >
-          <Calendar className="h-4 w-4" />
-          <span className="max-w-[150px] truncate">
-            {selectedSprintId === 'backlog' ? t('sprintSelector.backlog') : selectedSprint ? selectedSprint.name : t('sprintSelector.allSprints')}
+          <span className="flex items-center gap-2 min-w-0">
+            <Calendar className="h-4 w-4 shrink-0" />
+            <span className={`${isAssign ? 'truncate' : 'max-w-[150px] truncate'}`}>
+              {triggerLabel}
+            </span>
           </span>
-          {/* Red dot indicator when a sprint filter is active */}
-          {selectedSprintId !== null && (
+          {/* Red dot indicator when a sprint filter is active (filter mode only) */}
+          {!isAssign && selectedSprintId !== null && (
             <span
               className="absolute -top-1 -right-1 h-2.5 w-2.5 bg-red-500 rounded-full border-2 border-white dark:border-gray-800"
               aria-hidden
             />
           )}
-          <ChevronDown className="h-4 w-4" />
+          <ChevronDown className={`h-4 w-4 shrink-0 ${isOpen ? 'rotate-180' : ''} transition-transform`} />
         </button>
       </KanbanChromeTooltip>
 
       {isOpen && (
-        <div className="absolute left-0 top-full mt-2 w-72 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 z-50 max-h-96 overflow-hidden flex flex-col">
+        <div className={`absolute left-0 top-full mt-2 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 z-50 max-h-96 overflow-hidden flex flex-col ${
+          isAssign ? 'w-full' : 'w-72'
+        }`}>
           {/* Search Input */}
           <div className="p-3 border-b border-gray-200 dark:border-gray-700">
             <div className="relative">
@@ -245,51 +289,48 @@ const SprintSelector: React.FC<SprintSelectorProps> = ({
               <div className="p-4 text-center text-sm text-gray-500 dark:text-gray-400">
                 {t('sprintSelector.loadingSprints')}
               </div>
-            ) : filteredSprints.length === 0 ? (
+            ) : filteredSprints.length === 0 && !showBacklogOption ? (
               <div className="p-4 text-center text-sm text-gray-500 dark:text-gray-400">
                 {searchTerm ? t('sprintSelector.noSprintsFound') : t('sprintSelector.noSprintsAvailable')}
               </div>
             ) : (
               <>
-                {/* All Sprints Option */}
-                <button
-                  ref={(el) => optionRefs.current[0] = el}
-                  onClick={() => handleSelectSprint(null)}
-                  onMouseEnter={() => setHighlightedIndex(0)}
-                  className={`w-full text-left px-4 py-2.5 text-sm transition-colors flex items-center justify-between ${
-                    highlightedIndex === 0 ? 'bg-gray-50 dark:bg-gray-700' : ''
-                  } ${
-                    !selectedSprintId && selectedSprintId !== 'backlog' ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400' : 'text-gray-700 dark:text-gray-200'
-                  }`}
-                >
-                  <span className="font-medium">{t('sprintSelector.allSprints')}</span>
-                  <div className="flex items-center gap-2">
-                    {totalTaskCount > 0 && (
-                      <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300">
-                        {totalTaskCount}
-                      </span>
-                    )}
-                    {!selectedSprintId && selectedSprintId !== 'backlog' && (
-                      <span className="text-xs text-blue-600 dark:text-blue-400">{t('sprintSelector.noFilter')}</span>
-                    )}
-                  </div>
-                </button>
+                {/* All Sprints Option (filter mode only) */}
+                {!isAssign && (
+                  <button
+                    ref={(el) => { optionRefs.current[0] = el; }}
+                    onClick={() => handleSelectSprint(null)}
+                    onMouseEnter={() => setHighlightedIndex(0)}
+                    className={`w-full text-left px-4 py-2.5 text-sm transition-colors flex items-center justify-between ${
+                      highlightedIndex === 0 ? 'bg-gray-50 dark:bg-gray-700' : ''
+                    } ${
+                      !selectedSprintId && selectedSprintId !== 'backlog' ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400' : 'text-gray-700 dark:text-gray-200'
+                    }`}
+                  >
+                    <span className="font-medium">{t('sprintSelector.allSprints')}</span>
+                    <div className="flex items-center gap-2">
+                      {totalTaskCount > 0 && (
+                        <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300">
+                          {totalTaskCount}
+                        </span>
+                      )}
+                      {!selectedSprintId && selectedSprintId !== 'backlog' && (
+                        <span className="text-xs text-blue-600 dark:text-blue-400">{t('sprintSelector.noFilter')}</span>
+                      )}
+                    </div>
+                  </button>
+                )}
 
                 {/* Backlog Option */}
                 {showBacklogOption && (
                   <button
-                    ref={(el) => optionRefs.current[1] = el}
-                    onClick={() => {
-                      onSprintChange({ id: 'backlog', name: 'Backlog', start_date: '', end_date: '' } as any);
-                      setIsOpen(false);
-                      setSearchTerm('');
-                      setHighlightedIndex(-1);
-                    }}
-                    onMouseEnter={() => setHighlightedIndex(1)}
+                    ref={(el) => { optionRefs.current[allSprintsOffset] = el; }}
+                    onClick={handleSelectBacklog}
+                    onMouseEnter={() => setHighlightedIndex(allSprintsOffset)}
                     className={`w-full text-left px-4 py-2.5 text-sm transition-colors flex items-center justify-between ${
-                      highlightedIndex === 1 ? 'bg-gray-50 dark:bg-gray-700' : ''
+                      highlightedIndex === allSprintsOffset ? 'bg-gray-50 dark:bg-gray-700' : ''
                     } ${
-                      selectedSprintId === 'backlog' ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400' : 'text-gray-700 dark:text-gray-200'
+                      isBacklogSelected ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400' : 'text-gray-700 dark:text-gray-200'
                     }`}
                   >
                     <span className="font-medium">{t('sprintSelector.backlog')}</span>
@@ -299,7 +340,7 @@ const SprintSelector: React.FC<SprintSelectorProps> = ({
                           {getSprintTaskCount(null)}
                         </span>
                       )}
-                      {selectedSprintId === 'backlog' && (
+                      {isBacklogSelected && (
                         <span className="text-xs text-blue-600 dark:text-blue-400">{t('sprintSelector.unassigned')}</span>
                       )}
                     </div>
@@ -310,12 +351,12 @@ const SprintSelector: React.FC<SprintSelectorProps> = ({
 
                 {/* Sprint Options */}
                 {filteredSprints.map((sprint, index) => {
-                  const optionIndex = showBacklogOption ? index + 2 : index + 1;
+                  const optionIndex = allSprintsOffset + backlogOffset + index;
                   const taskCount = getSprintTaskCount(sprint.id);
                   return (
                     <button
                       key={sprint.id}
-                      ref={(el) => optionRefs.current[optionIndex] = el}
+                      ref={(el) => { optionRefs.current[optionIndex] = el; }}
                       onClick={() => handleSelectSprint(sprint)}
                       onMouseEnter={() => setHighlightedIndex(optionIndex)}
                       className={`w-full text-left px-4 py-2.5 text-sm transition-colors ${

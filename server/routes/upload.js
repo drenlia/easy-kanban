@@ -3,6 +3,7 @@ import crypto from 'crypto';
 import { authenticateToken } from '../middleware/auth.js';
 import { createAttachmentUploadMiddleware } from '../config/multer.js';
 import { getRequestDatabase } from '../middleware/tenantRouting.js';
+import { commitUploadedFile, getRequestStoragePaths } from '../services/storage/index.js';
 
 const router = express.Router();
 
@@ -45,6 +46,9 @@ router.post('/', authenticateToken, createUploadMiddleware, async (req, res) => 
     if (!req.file) {
       return res.status(400).json({ error: 'No file uploaded' });
     }
+
+    const db = getRequestDatabase(req);
+    await commitUploadedFile(db, getRequestStoragePaths(req), 'attachments', req.file);
 
     // Generate authenticated URL with token
     const token = req.headers.authorization?.replace('Bearer ', '');

@@ -1,7 +1,7 @@
 import cron from 'node-cron';
 import { createDailyTaskSnapshots, cleanupOldSnapshots } from './taskSnapshots.js';
 import { checkAllUserAchievements } from './achievements.js';
-import { getNotificationThrottler } from '../services/notificationThrottler.js';
+import { cleanupAllTenantNotifications } from '../services/notificationThrottler.js';
 import { isMultiTenant, getAllTenantDatabases } from '../middleware/tenantRouting.js';
 import { tryLaunchQueuedTasks } from '../services/agentJobDispatcher.js';
 import { runLifecycleRetentionForDb } from './lifecycleRetention.js';
@@ -109,12 +109,7 @@ export const initializeScheduler = (db) => {
     cron.schedule('0 3 * * *', async () => {
       console.log('🧹 [CRON] Running notification queue cleanup job...');
       try {
-        const throttler = getNotificationThrottler();
-        if (throttler) {
-          throttler.cleanupOldNotifications();
-        } else {
-          console.warn('⚠️ [CRON] Notification throttler not available for cleanup');
-        }
+        await cleanupAllTenantNotifications();
       } catch (error) {
         console.error('❌ [CRON] Notification cleanup job failed:', error);
       }

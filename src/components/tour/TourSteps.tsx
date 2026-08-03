@@ -185,67 +185,91 @@ export const getTourSteps = (): TourStepsConfig => {
       content: i18n.t('tour.steps.adminSiteSettings', { ns: 'common' }),
       placement: 'bottom',
     },
-    // Step 24: Admin SSO
+    // Step 24: Admin System Settings (hub)
+    {
+      target: '[data-tour-id="admin-system-settings"]',
+      content: i18n.t('tour.steps.adminSystemSettings', { ns: 'common' }),
+      placement: 'bottom',
+    },
+    // Step 25: Admin SSO (System Settings subtab)
     {
       target: '[data-tour-id="admin-sso"]',
       content: i18n.t('tour.steps.adminSso', { ns: 'common' }),
       placement: 'bottom',
     },
-    // Step 25: Admin Mail Server
+    // Step 26: Admin Mail Server (System Settings subtab)
     {
       target: '[data-tour-id="admin-mail-server"]',
       content: i18n.t('tour.steps.adminMailServer', { ns: 'common' }),
       placement: 'bottom',
     },
-    // Step 26: Admin Tags
+    // Step 27: Admin Storage (System Settings subtab)
+    {
+      target: '[data-tour-id="admin-storage"]',
+      content: i18n.t('tour.steps.adminStorage', { ns: 'common' }),
+      placement: 'bottom',
+    },
+    // Step 28: Admin File Uploads (System Settings subtab)
+    {
+      target: '[data-tour-id="admin-file-uploads"]',
+      content: i18n.t('tour.steps.adminFileUploads', { ns: 'common' }),
+      placement: 'bottom',
+    },
+    // Step 29: Admin AI (System Settings subtab)
+    {
+      target: '[data-tour-id="admin-ai"]',
+      content: i18n.t('tour.steps.adminAi', { ns: 'common' }),
+      placement: 'bottom',
+    },
+    // Step 30: Admin Tags
     {
       target: '[data-tour-id="admin-tags"]',
       content: i18n.t('tour.steps.adminTags', { ns: 'common' }),
       placement: 'bottom',
     },
-    // Step 27: Admin Priorities
+    // Step 31: Admin Priorities
     {
       target: '[data-tour-id="admin-priorities"]',
       content: i18n.t('tour.steps.adminPriorities', { ns: 'common' }),
       placement: 'bottom',
     },
-    // Step 28: Admin App Settings
+    // Step 32: Admin App Settings
     {
       target: '[data-tour-id="admin-app-settings"]',
       content: i18n.t('tour.steps.adminAppSettings', { ns: 'common' }),
       placement: 'bottom',
     },
-    // Step 29: Admin Project Settings
+    // Step 33: Admin Project Settings (hub)
     {
       target: '[data-tour-id="admin-project-settings"]',
       content: i18n.t('tour.steps.adminProjectSettings', { ns: 'common' }),
       placement: 'bottom',
     },
-    // Step 30: Admin Sprint Settings
+    // Step 34: Admin Sprint Settings (Project Settings subtab)
     {
       target: '[data-tour-id="admin-sprint-settings"]',
       content: i18n.t('tour.steps.adminSprintSettings', { ns: 'common' }),
       placement: 'bottom',
     },
-    // Step 31: Admin Reporting
+    // Step 35: Admin Reporting (Project Settings subtab)
     {
       target: '[data-tour-id="admin-reporting"]',
       content: i18n.t('tour.steps.adminReporting', { ns: 'common' }),
       placement: 'bottom',
     },
-    // Step 32: Admin Lifecycle
+    // Step 36: Admin Lifecycle (Project Settings subtab)
     {
       target: '[data-tour-id="admin-lifecycle"]',
       content: i18n.t('tour.steps.adminLifecycle', { ns: 'common' }),
       placement: 'bottom',
     },
-    // Step 33: Admin Licensing
+    // Step 37: Admin Licensing
     {
       target: '[data-tour-id="admin-licensing"]',
       content: i18n.t('tour.steps.adminLicensing', { ns: 'common' }),
       placement: 'bottom',
     },
-    // Step 34: System Usage Panel (back on Kanban; panel must be open)
+    // System Usage Panel (back on Kanban; panel must be open)
     {
       target: '[data-tour-id="system-usage-panel"]',
       content: i18n.t('tour.steps.systemUsagePanel', { ns: 'common' }),

@@ -4,18 +4,13 @@ import api, { createUser, updateUser, getUserTaskCount, resendUserInvitation, ge
 import { ADMIN_TABS, ROUTES } from '../constants';
 import { toast } from '../utils/toast';
 import AdminSiteSettingsTab from './admin/AdminSiteSettingsTab';
-import AdminSSOTab from './admin/AdminSSOTab';
 import AdminTagsTab from './admin/AdminTagsTab';
-import AdminMailTab from './admin/AdminMailTab';
 import AdminPrioritiesTab from './admin/AdminPrioritiesTab';
 import AdminUsersTab from './admin/AdminUsersTab';
 import AdminAppSettingsTab from './admin/AdminAppSettingsTab';
-import AdminProjectSettingsTab from './admin/AdminProjectSettingsTab';
-import AdminSprintSettingsTab from './admin/AdminSprintSettingsTab';
-import AdminReportingTab from './admin/AdminReportingTab';
-import AdminLifecycleTab from './admin/AdminLifecycleTab';
+import AdminSystemSettingsTab from './admin/AdminSystemSettingsTab';
+import AdminProjectHubTab from './admin/AdminProjectHubTab';
 import AdminLicensingTab from './admin/AdminLicensingTab';
-import AdminNotificationQueueTab from './admin/AdminNotificationQueueTab';
 import AdminSettingsSearch from './admin/AdminSettingsSearch';
 import { AdminUnsavedChangesBanner } from './admin/AdminUnsavedChanges';
 import type { AdminDraftGate } from './admin/AdminLeaveUnsavedDialog';
@@ -25,12 +20,15 @@ import { isMaskedApiKeyDisplay } from '../utils/maskSecret';
 import {
   adminSettingsHaveChanges,
   getDirtyAdminSettingsTabs,
+  settingValueAsString,
 } from '../utils/adminSettingsDirty';
 import { clampActivityFeedInSettings } from '../utils/adminFieldLimits';
 import {
   ADMIN_NAVIGATE_EVENT,
   AdminNavigateDetail,
+  adminHashForTabId,
   adminTabFromHash,
+  canonicalizeAdminHash,
 } from '../utils/adminNavigation';
 
 interface AdminProps {
@@ -80,15 +78,11 @@ interface Settings {
 const ADMIN_NAV_TABS = [
   'users',
   'site-settings',
-  'sso',
-  'mail-server',
+  'system-settings',
   'tags',
   'priorities',
   'app-settings',
   'project-settings',
-  'sprint-settings',
-  'reporting',
-  'lifecycle',
   'licensing',
 ] as const;
 
@@ -109,25 +103,16 @@ const Admin: React.FC<AdminProps> = ({
   onDraftGateChange,
 }) => {
   const { t } = useTranslation('admin');
-  const { systemSettings, refreshSettings, updateSiteSetting } = useSettings(); // Use SettingsContext for admin settings
+  const { systemSettings, refreshSettings, updateSiteSetting, updateSiteSettings } = useSettings(); // Use SettingsContext for admin settings
   const [activeTab, setActiveTab] = useState(() => {
-    // Get tab from URL hash, fallback to default
-    const fullHash = window.location.hash;
-    
-    // Check for sub-tab patterns like #admin#app-settings#user-interface
-    if (fullHash.startsWith('#admin#app-settings#')) {
-      return 'app-settings';
-    }
-    
-    // Parse compound hash format like #admin#sso
-    const hashParts = fullHash.split('#');
-    const tabHash = hashParts[hashParts.length - 1]; // Get the last part
-    
-    return ADMIN_TABS.includes(tabHash) ? tabHash : ROUTES.DEFAULT_ADMIN_TAB;
+    const tab = adminTabFromHash(window.location.hash);
+    return tab && ADMIN_TABS.includes(tab) ? tab : ROUTES.DEFAULT_ADMIN_TAB;
   });
   const [users, setUsers] = useState<User[]>([]);
   const [settings, setSettings] = useState<Settings>({});
   const [loading, setLoading] = useState(true);
+  /** Prevents refreshSettings / WS context updates from re-running full loadData (unmounts modals). */
+  const adminDataBootstrappedRef = useRef(false);
   // systemInfo removed - Header.tsx handles all system info polling and display
   const [showTestEmailModal, setShowTestEmailModal] = useState(false);
   const [showTestEmailErrorModal, setShowTestEmailErrorModal] = useState(false);
@@ -158,15 +143,32 @@ const Admin: React.FC<AdminProps> = ({
   }, [activeTab]);
 
   useEffect(() => {
-    if (currentUser?.roles?.includes('admin')) {
-      // Only load data when systemSettings are available (from SettingsContext)
-      // This prevents loading with empty settings
-      if (systemSettings && Object.keys(systemSettings).length > 0) {
-        loadData();
-      }
-      fetchOwner();
+    if (!currentUser?.roles?.includes('admin')) {
+      adminDataBootstrappedRef.current = false;
+      return;
+    }
+    fetchOwner();
+    // Bootstrap Admin once when settings first arrive. Do NOT re-run on every
+    // systemSettings reference change (quiet refresh / WebSocket) — that sets
+    // loading=true and unmounts open modals (e.g. storage migration result).
+    if (
+      !adminDataBootstrappedRef.current &&
+      systemSettings &&
+      Object.keys(systemSettings).length > 0
+    ) {
+      adminDataBootstrappedRef.current = true;
+      void loadData();
     }
   }, [currentUser, systemSettings]);
+
+  const applySettingsPatch = useCallback(
+    (patch: Record<string, string | undefined>) => {
+      setSettings((prev) => ({ ...prev, ...patch }));
+      setEditingSettings((prev) => ({ ...prev, ...patch }));
+      updateSiteSettings(patch);
+    },
+    [updateSiteSettings]
+  );
 
   // Fetch instance owner
   const fetchOwner = async () => {
@@ -180,7 +182,13 @@ const Admin: React.FC<AdminProps> = ({
   };
 
   const applyAdminHash = useCallback((fullHash: string) => {
-    const tab = adminTabFromHash(fullHash);
+    const canonical = canonicalizeAdminHash(fullHash);
+    const currentBare = window.location.hash.replace(/^#/, '');
+    if (canonical !== currentBare) {
+      // Rewrite legacy hashes without adding history noise when possible
+      window.history.replaceState(null, '', `#${canonical}`);
+    }
+    const tab = adminTabFromHash(`#${canonical}`);
     if (tab && tab !== activeTab) {
       setActiveTab(tab);
     }
@@ -337,10 +345,17 @@ const Admin: React.FC<AdminProps> = ({
     // Settings event handlers
     const handleSettingsUpdated = async (data: any) => {
       try {
+        const asSettingString = (value: unknown) =>
+          value == null ? '' : typeof value === 'string' ? value : String(value);
+
         // Bulk patch from PUT /admin/settings/bulk
         if (data.settings && typeof data.settings === 'object' && !Array.isArray(data.settings)) {
-          setSettings(prev => ({ ...prev, ...data.settings }));
-          setEditingSettings(prev => ({ ...prev, ...data.settings }));
+          const patch: Record<string, string> = {};
+          for (const [key, value] of Object.entries(data.settings)) {
+            patch[key] = asSettingString(value);
+          }
+          setSettings((prev) => ({ ...prev, ...patch }));
+          setEditingSettings((prev) => ({ ...prev, ...patch }));
           return;
         }
         // Update the specific setting directly from WebSocket data instead of fetching all settings
@@ -356,13 +371,19 @@ const Admin: React.FC<AdminProps> = ({
             return next;
           });
         } else if (data.key && data.value !== undefined) {
-          setSettings(prev => ({
+          const value = asSettingString(data.value);
+          const setFlagKey = `${data.key}_SET`;
+          const setFlag =
+            data[setFlagKey] !== undefined ? asSettingString(data[setFlagKey]) : undefined;
+          setSettings((prev) => ({
             ...prev,
-            [data.key]: data.value
+            [data.key]: value,
+            ...(setFlag !== undefined ? { [setFlagKey]: setFlag } : {}),
           }));
-          setEditingSettings(prev => ({
+          setEditingSettings((prev) => ({
             ...prev,
-            [data.key]: data.value
+            [data.key]: value,
+            ...(setFlag !== undefined ? { [setFlagKey]: setFlag } : {}),
           }));
         } else {
           // Fallback: Refresh from SettingsContext if WebSocket data is incomplete
@@ -403,21 +424,26 @@ const Admin: React.FC<AdminProps> = ({
   // System info fetching removed - Header.tsx handles all system info polling
   // Header is always loaded and has the same admin check, so no need for duplicate polling
 
-  const loadData = async () => {
+  /** @param options.quiet Skip full-page loading state so open modals (e.g. storage migrate) stay mounted. */
+  const loadData = async (options?: { quiet?: boolean }) => {
+    const quiet = Boolean(options?.quiet);
     try {
-      setLoading(true);
-      // Use SettingsContext for settings (already fetched for admins) instead of duplicate API call
-      const [usersResponse, tagsResponse, prioritiesResponse] = await Promise.all([
+      if (!quiet) setLoading(true);
+      // Use SettingsContext for settings (already fetched for admins) instead of duplicate API call.
+      // Quiet reloads refresh settings first so STORAGE_* etc. match the server without unmounting Admin.
+      const [usersResponse, tagsResponse, prioritiesResponse, refreshedSettings] = await Promise.all([
         api.get('/admin/users'),
         getTags(),
-        getPriorities()
+        getPriorities(),
+        quiet ? refreshSettings() : Promise.resolve(null)
       ]);
       
       setUsers(usersResponse.data || []);
       
-      // Use settings from SettingsContext (already fetched for admins)
-      // Ensure default values for settings
-      const loadedSettings = systemSettings || {};
+      const loadedSettings =
+        refreshedSettings && Object.keys(refreshedSettings).length > 0
+          ? refreshedSettings
+          : systemSettings || {};
       const settingsWithDefaults = {
         ...loadedSettings,
         TASK_DELETE_CONFIRM: loadedSettings.TASK_DELETE_CONFIRM || 'true',
@@ -474,7 +500,7 @@ const Admin: React.FC<AdminProps> = ({
       toast.error(t('failedToLoadAdminData'), '');
       console.error(err);
     } finally {
-      setLoading(false);
+      if (!quiet) setLoading(false);
     }
   };
 
@@ -727,7 +753,10 @@ const Admin: React.FC<AdminProps> = ({
       if (hasSmtpSettings) {
         // If SMTP_SECURE is not in editingSettings or is empty, use the dropdown's default value 'tls'
         // This ensures that even after clearing managed settings, the default 'tls' will be saved
-        if (!('SMTP_SECURE' in settingsToSave) || !settingsToSave.SMTP_SECURE || settingsToSave.SMTP_SECURE.trim() === '') {
+        if (
+          !('SMTP_SECURE' in settingsToSave) ||
+          !settingValueAsString(settingsToSave.SMTP_SECURE).trim()
+        ) {
           settingsToSave.SMTP_SECURE = 'tls';
         }
       }
@@ -748,10 +777,16 @@ const Admin: React.FC<AdminProps> = ({
         if (key.endsWith('_SET')) {
           continue;
         }
+
+        // Migration detail / other large JSON blobs — not edited in the form
+        if (key === 'STORAGE_MIGRATION_DETAIL') {
+          continue;
+        }
         
-        // Normalize values for comparison (treat undefined and empty string as the same)
-        const normalizedValue = (value || '').trim();
-        const normalizedCurrent = (settings[key] || '').trim();
+        // Normalize values for comparison (treat undefined and empty string as the same).
+        // Values may be non-strings after WebSocket / patch updates.
+        const normalizedValue = settingValueAsString(value).trim();
+        const normalizedCurrent = settingValueAsString(settings[key]).trim();
         
         // For SMTP_SECURE, ensure default value is set if not present
         let valueToSave = normalizedValue;
@@ -761,7 +796,7 @@ const Admin: React.FC<AdminProps> = ({
 
         // Write-only secrets: empty/mask means keep existing value (do not PUT)
         if (
-          ['SMTP_PASSWORD', 'GOOGLE_CLIENT_SECRET', 'AI_API_KEY', 'AI_RUNNER_TOKEN'].includes(key) &&
+          ['SMTP_PASSWORD', 'GOOGLE_CLIENT_SECRET', 'AI_API_KEY', 'AI_RUNNER_TOKEN', 'S3_SECRET_ACCESS_KEY'].includes(key) &&
           isMaskedApiKeyDisplay(valueToSave)
         ) {
           continue;
@@ -776,6 +811,7 @@ const Admin: React.FC<AdminProps> = ({
               'GOOGLE_CLIENT_SECRET',
               'AI_API_KEY',
               'AI_RUNNER_TOKEN',
+              'S3_SECRET_ACCESS_KEY',
             ];
             console.log(`Saving setting: ${key}`, {
               oldValue: secretKeys.includes(key) ? '(redacted)' : settings[key] || '(empty)',
@@ -791,7 +827,8 @@ const Admin: React.FC<AdminProps> = ({
       if (hasChanges) {
         // Refresh settings from SettingsContext (which will refetch from API via WebSocket or manual refresh)
         await refreshSettings();
-        await loadData(); // Reload data (users, tags, priorities, and settings from context)
+        // Quiet: avoid full-page loading unmount (drops storage draft UI / modals)
+        await loadData({ quiet: true });
         
         // Update the parent component's site settings immediately
         if (onSettingsChanged) {
@@ -1077,7 +1114,7 @@ const Admin: React.FC<AdminProps> = ({
         const currentValue = settings[key];
         
         // Normalize values: treat undefined and empty string as the same
-        let normalizedValue = (value || '').trim();
+        let normalizedValue = settingValueAsString(value).trim();
 
         // Write-only secret: empty or display mask means keep existing stored password
         if (key === 'SMTP_PASSWORD') {
@@ -1092,7 +1129,7 @@ const Admin: React.FC<AdminProps> = ({
           normalizedValue = 'tls'; // Default value - this must be saved even if empty in editingSettings
         }
         
-        const normalizedCurrent = (currentValue || '').trim();
+        const normalizedCurrent = settingValueAsString(currentValue).trim();
         
         // Save if:
         // 1. Value exists (not empty) AND is different from current, OR
@@ -1172,22 +1209,24 @@ const Admin: React.FC<AdminProps> = ({
     }
 
     setActiveTab(tab);
-    // Update URL hash for tab persistence - preserve admin context
-    window.location.hash = `admin#${tab}`;
+    // Compound hubs get a default subtab (SSO / Project / User Interface)
+    window.location.hash = adminHashForTabId(tab);
   };
 
-  /** Navigate from settings search (supports app-settings sub-hashes). */
+  /** Navigate from settings search (supports System / Project / App sub-hashes). */
   const handleSearchNavigate = (tab: string, hash: string) => {
     const stickyOffset = 56;
     const tabsEl = tabsRef.current;
-    if (tab !== activeTab && tabsEl) {
+    const canonical = canonicalizeAdminHash(hash);
+    const resolvedTab = adminTabFromHash(canonical) || tab;
+    if (resolvedTab !== activeTab && tabsEl) {
       const pinY = tabsEl.getBoundingClientRect().top + window.scrollY - stickyOffset;
       pinTabsOnNextTabChangeRef.current = window.scrollY > pinY + 1;
-      setActiveTab(tab);
+      setActiveTab(resolvedTab);
     }
-    window.location.hash = hash.startsWith('#') ? hash : `#${hash}`;
+    window.location.hash = `#${canonical}`;
     // Ensure hashchange fires for same-tab sub-navigation (e.g. AI → troubleshooting)
-    if (tab === activeTab) {
+    if (resolvedTab === activeTab) {
       window.dispatchEvent(new HashChangeEvent('hashchange'));
     }
   };
@@ -1296,15 +1335,11 @@ const Admin: React.FC<AdminProps> = ({
                 <span className="inline-flex items-center gap-1.5">
                   {tab === 'users' && t('tabs.users')}
                   {tab === 'site-settings' && t('tabs.siteSettings')}
-                  {tab === 'sso' && t('tabs.sso')}
-                  {tab === 'mail-server' && t('tabs.mailServer')}
+                  {tab === 'system-settings' && t('tabs.systemSettings')}
                   {tab === 'tags' && t('tabs.tags')}
                   {tab === 'priorities' && t('tabs.priorities')}
                   {tab === 'app-settings' && t('tabs.appSettings')}
                   {tab === 'project-settings' && t('tabs.projectSettings')}
-                  {tab === 'sprint-settings' && t('tabs.sprintSettings')}
-                  {tab === 'reporting' && t('tabs.reporting')}
-                  {tab === 'lifecycle' && t('tabs.lifecycle')}
                   {tab === 'licensing' && t('tabs.licensing')}
                   {isTabDirty(tab) && (
                     <span
@@ -1359,27 +1394,18 @@ const Admin: React.FC<AdminProps> = ({
             </AdminTabPanel>
           )}
 
-          {visitedTabs.has('sso') && (
-            <AdminTabPanel active={activeTab === 'sso'}>
-              <AdminSSOTab
+          {visitedTabs.has('system-settings') && (
+            <AdminTabPanel active={activeTab === 'system-settings'}>
+              <AdminSystemSettingsTab
                 settings={settings}
                 editingSettings={editingSettings}
                 onSettingsChange={setEditingSettings}
                 onSave={handleSaveSettings}
                 onCancel={handleCancelSettings}
+                onAutoSave={handleAutoSaveSetting}
+                onSettingsReload={loadData}
+                onApplySettingsPatch={applySettingsPatch}
                 onReloadOAuth={handleReloadOAuth}
-              />
-            </AdminTabPanel>
-          )}
-
-          {visitedTabs.has('mail-server') && (
-            <AdminTabPanel active={activeTab === 'mail-server'}>
-              <AdminMailTab
-                settings={settings}
-                editingSettings={editingSettings}
-                onSettingsChange={setEditingSettings}
-                onSave={handleSaveSettings}
-                onCancel={handleCancelSettings}
                 onTestEmail={handleTestEmail}
                 onMailServerDisabled={handleMailServerDisabled}
                 isTestingEmail={isTestingEmail}
@@ -1389,8 +1415,10 @@ const Admin: React.FC<AdminProps> = ({
                 showTestEmailErrorModal={showTestEmailErrorModal}
                 testEmailError={testEmailError}
                 onCloseTestErrorModal={() => setShowTestEmailErrorModal(false)}
-                onAutoSave={handleAutoSaveSetting}
-                onSettingsReload={loadData}
+                onLocalDirtyChange={(dirty) =>
+                  handleTabLocalDirty('system-settings', dirty)
+                }
+                discardNonce={settingsDiscardNonce}
               />
             </AdminTabPanel>
           )}
@@ -1438,7 +1466,6 @@ const Admin: React.FC<AdminProps> = ({
                 onSave={handleSaveSettings}
                 onCancel={handleCancelSettings}
                 onAutoSave={handleAutoSaveSetting}
-                onLocalDirtyChange={(dirty) => handleTabLocalDirty('app-settings', dirty)}
                 discardNonce={settingsDiscardNonce}
               />
             </AdminTabPanel>
@@ -1446,36 +1473,16 @@ const Admin: React.FC<AdminProps> = ({
 
           {visitedTabs.has('project-settings') && (
             <AdminTabPanel active={activeTab === 'project-settings'}>
-              <AdminProjectSettingsTab
+              <AdminProjectHubTab
                 settings={settings}
                 editingSettings={editingSettings}
                 onSettingsChange={setEditingSettings}
                 onSave={handleSaveSettings}
                 onCancel={handleCancelSettings}
                 onAutoSave={handleAutoSaveSetting}
-              />
-            </AdminTabPanel>
-          )}
-
-          {visitedTabs.has('sprint-settings') && (
-            <AdminTabPanel active={activeTab === 'sprint-settings'}>
-              <AdminSprintSettingsTab />
-            </AdminTabPanel>
-          )}
-
-          {visitedTabs.has('reporting') && (
-            <AdminTabPanel active={activeTab === 'reporting'}>
-              <AdminReportingTab
-                onLocalDirtyChange={(dirty) => handleTabLocalDirty('reporting', dirty)}
-                discardNonce={settingsDiscardNonce}
-              />
-            </AdminTabPanel>
-          )}
-
-          {visitedTabs.has('lifecycle') && (
-            <AdminTabPanel active={activeTab === 'lifecycle'}>
-              <AdminLifecycleTab
-                onLocalDirtyChange={(dirty) => handleTabLocalDirty('lifecycle', dirty)}
+                onLocalDirtyChange={(dirty) =>
+                  handleTabLocalDirty('project-settings', dirty)
+                }
                 discardNonce={settingsDiscardNonce}
               />
             </AdminTabPanel>
@@ -1487,12 +1494,6 @@ const Admin: React.FC<AdminProps> = ({
                 currentUser={currentUser}
                 settings={settings}
               />
-            </AdminTabPanel>
-          )}
-
-          {visitedTabs.has('notification-queue') && (
-            <AdminTabPanel active={activeTab === 'notification-queue'}>
-              <AdminNotificationQueueTab />
             </AdminTabPanel>
           )}
           </div>

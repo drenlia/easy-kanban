@@ -20,8 +20,13 @@ import {
   upsertSecretSetting
 } from '../utils/settingsSecrets.js';
 import { avatarUpload } from '../config/multer.js';
-import path from 'path';
-import fs from 'fs';
+import { STORAGE_MANAGED_HIDDEN_KEYS } from '../constants/storageSettings.js';
+import {
+  commitUploadedFile,
+  deleteObject,
+  getRequestStoragePaths,
+  filenameFromPublicUrl
+} from '../services/storage/index.js';
 
 const router = express.Router();
 
@@ -139,8 +144,9 @@ router.get('/', authenticateToken, requireRole(['admin']), async (req, res, next
     const settings = await settingsQueries.getAllSettings(db);
     const settingsObj = {};
     
-    // Check if email is managed
+    // Check if email / storage is managed
     const mailManaged = settings.find(s => s.key === 'MAIL_MANAGED')?.value === 'true';
+    const storageManaged = settings.find(s => s.key === 'STORAGE_MANAGED')?.value === 'true';
     
     settings.forEach(setting => {
       // Hide sensitive SMTP fields when email is managed (credentials and server details)
@@ -149,6 +155,11 @@ router.get('/', authenticateToken, requireRole(['admin']), async (req, res, next
         settingsObj[setting.key] = '';
         if (setting.key === 'SMTP_PASSWORD') {
           settingsObj.SMTP_PASSWORD_SET = 'false';
+        }
+      } else if (storageManaged && STORAGE_MANAGED_HIDDEN_KEYS.includes(setting.key)) {
+        settingsObj[setting.key] = '';
+        if (setting.key === 'S3_SECRET_ACCESS_KEY') {
+          settingsObj.S3_SECRET_ACCESS_KEY_SET = 'false';
         }
       } else if (isSecretSettingKey(setting.key)) {
         projectSecretForAdminApi(setting.key, setting.value, settingsObj);
@@ -384,6 +395,16 @@ router.put('/', authenticateToken, requireRole(['admin']), async (req, res, next
         });
       }
     }
+
+    // Managed storage: tenant cannot overwrite platform S3 credentials
+    if (STORAGE_MANAGED_HIDDEN_KEYS.includes(key)) {
+      const storageManaged = (await getSettingValue(db, 'STORAGE_MANAGED')) === 'true';
+      if (storageManaged) {
+        return res.status(403).json({
+          error: 'S3 storage settings are managed by the platform and cannot be updated'
+        });
+      }
+    }
     
     // Prevent updates to APP_URL through general settings endpoint - it's owner-only
     // Use the dedicated /api/settings/app-url endpoint which enforces owner check
@@ -402,6 +423,17 @@ router.put('/', authenticateToken, requireRole(['admin']), async (req, res, next
       // This shouldn't happen with proper client code, but handle it gracefully
       safeValue = JSON.stringify(value);
     }
+
+    // Multi-tenant: do not allow switching to local disk (no shared FS across pods)
+    if (
+      key === 'STORAGE_BACKEND' &&
+      String(safeValue).toLowerCase() === 'disk' &&
+      process.env.MULTI_TENANT === 'true'
+    ) {
+      return res.status(400).json({
+        error: 'Local disk storage is not available in multi-tenant mode. Use S3 (platform or custom).'
+      });
+    }
     
     // Do not clear / overwrite masked secrets when admin leaves the display value
     if (isSecretSettingKey(key)) {
@@ -411,7 +443,7 @@ router.put('/', authenticateToken, requireRole(['admin']), async (req, res, next
           message: 'Setting unchanged',
           key,
           value: upsert.hasValue ? SECRET_SETTING_PLACEHOLDER : '',
-          [`${key}_SET`]: upsert.hasValue
+          [`${key}_SET`]: upsert.hasValue ? 'true' : 'false'
         });
       }
       safeValue = upsert.hasValue ? SECRET_SETTING_PLACEHOLDER : '';
@@ -438,7 +470,8 @@ router.put('/', authenticateToken, requireRole(['admin']), async (req, res, next
         message: 'Setting updated successfully',
         key,
         value: upsert.hasValue ? SECRET_SETTING_PLACEHOLDER : '',
-        [`${key}_SET`]: upsert.hasValue
+        // Always string for admin settings maps (avoid boolean crashing FE .trim())
+        [`${key}_SET`]: upsert.hasValue ? 'true' : 'false'
       });
     }
 
@@ -561,21 +594,18 @@ router.post('/logo', authenticateToken, requireRole(['admin']), (req, res, next)
 
       const variant = (req.query.variant === 'dark' || req.body?.variant === 'dark') ? 'dark' : 'light';
       const settingKey = variant === 'dark' ? 'SITE_LOGO_DARK' : 'SITE_LOGO';
+      const storagePaths = getRequestStoragePaths(req);
+      await commitUploadedFile(db, storagePaths, 'avatars', req.file);
       const logoPath = `/avatars/${req.file.filename}`;
 
-      // Best-effort: remove previous uploaded logo file if it was a local /avatars/ path
+      // Best-effort: remove previous uploaded logo
       try {
         const previous = await settingsQueries.getSettingByKey(db, settingKey);
         const prevValue = previous?.value || '';
         if (prevValue.startsWith('/avatars/') && prevValue !== logoPath) {
-          const storagePaths = req.locals?.tenantStoragePaths
-            || req.app.locals?.tenantStoragePaths
-            || null;
-          if (storagePaths?.avatars) {
-            const prevFile = path.join(storagePaths.avatars, path.basename(prevValue));
-            if (fs.existsSync(prevFile)) {
-              fs.unlinkSync(prevFile);
-            }
+          const prevName = filenameFromPublicUrl(prevValue, 'avatars');
+          if (prevName) {
+            await deleteObject(db, storagePaths, 'avatars', prevName);
           }
         }
       } catch (cleanupErr) {
@@ -685,6 +715,50 @@ router.put('/app-url', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('❌ Error updating APP_URL:', error);
     res.status(500).json({ error: 'Failed to update APP_URL' });
+  }
+});
+
+// Clear managed S3 settings (switch from platform storage to custom)
+router.post('/clear-storage', authenticateToken, requireRole(['admin']), async (req, res, next) => {
+  if (req.baseUrl !== '/api/admin/settings') {
+    return next();
+  }
+
+  try {
+    const db = getRequestDatabase(req);
+    const keysToClear = [...STORAGE_MANAGED_HIDDEN_KEYS];
+    const batchQueries = keysToClear.map((key) => ({
+      query: `INSERT INTO settings (key, value, updated_at) VALUES ($1, $2, CURRENT_TIMESTAMP) ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = CURRENT_TIMESTAMP`,
+      params: [key, '']
+    }));
+
+    batchQueries.push({
+      query: `INSERT INTO settings (key, value, updated_at) VALUES ($1, $2, CURRENT_TIMESTAMP) ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = CURRENT_TIMESTAMP`,
+      params: ['STORAGE_MANAGED', 'false']
+    });
+    batchQueries.push({
+      query: `INSERT INTO settings (key, value, updated_at) VALUES ($1, $2, CURRENT_TIMESTAMP) ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = CURRENT_TIMESTAMP`,
+      params: ['STORAGE_TEST_OK', 'false']
+    });
+    // Keep STORAGE_BACKEND as-is until admin configures custom S3 and migrates
+
+    await db.executeBatchTransaction(batchQueries);
+
+    const tenantId = getTenantId(req);
+    await notificationService.publish('settings-updated', {
+      key: 'STORAGE_SETTINGS_CLEARED',
+      value: 'all',
+      timestamp: new Date().toISOString(),
+      clearedSettings: [...keysToClear, 'STORAGE_MANAGED', 'STORAGE_TEST_OK']
+    }, tenantId);
+
+    res.json({
+      message: 'Storage settings cleared successfully',
+      clearedSettings: [...keysToClear, 'STORAGE_MANAGED', 'STORAGE_TEST_OK']
+    });
+  } catch (error) {
+    console.error('❌ Error clearing storage settings:', error);
+    res.status(500).json({ error: 'Failed to clear storage settings', details: error.message });
   }
 });
 

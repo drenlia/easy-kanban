@@ -232,7 +232,10 @@ router.post('/register', registrationLimiter, authenticateToken, requireRole(['a
     
     // MIGRATED: Update user avatar path using sqlManager
     const tenantId = getTenantId(req);
-    const avatarPath = createDefaultAvatar(`${firstName} ${lastName}`, userId, memberColor, tenantId);
+    const avatarPath = await createDefaultAvatar(`${firstName} ${lastName}`, userId, memberColor, tenantId, {
+      db,
+      storagePaths: req.locals?.tenantStoragePaths || req.app.locals?.tenantStoragePaths
+    });
     if (avatarPath) {
       await authQueries.updateUserAvatarPath(db, userId, avatarPath);
     }

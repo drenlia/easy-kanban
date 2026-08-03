@@ -487,6 +487,24 @@ const migrations = [
 
       console.log('✅ Migration 25: SERVER_DEBUG_GOOGLE_SSO ready');
     }
+  },
+  {
+    version: 26,
+    name: 'add_storage_backend_settings',
+    description: 'Add disk/S3 object storage settings (STORAGE_BACKEND, S3_*, migration status)',
+    up: async (db) => {
+      const { settings: settingsQueries } = await import('../utils/sqlManager/index.js');
+      const { STORAGE_SETTING_DEFAULTS } = await import('../constants/storageSettings.js');
+
+      for (const [key, value] of STORAGE_SETTING_DEFAULTS) {
+        const existing = await settingsQueries.getSettingByKey(db, key);
+        if (!existing) {
+          await settingsQueries.createSetting(db, key, value);
+        }
+      }
+
+      console.log('✅ Migration 26: Storage backend settings ready');
+    }
   }
 ];
 

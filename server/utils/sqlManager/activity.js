@@ -34,13 +34,16 @@ export async function getActivityFeed(db, limit = 20, userLanguage = 'en') {
       m.name as "memberName",
       r.name as "roleName",
       b.title as "boardTitle",
-      c.title as "columnTitle"
+      b.project as "projectId",
+      c.title as "columnTitle",
+      t.ticket as "taskTicket"
     FROM activity a
     LEFT JOIN users u ON a.userid = u.id
     LEFT JOIN members m ON u.id = m.user_id
     LEFT JOIN roles r ON a.roleid = r.id
     LEFT JOIN boards b ON a.boardid = b.id
     LEFT JOIN columns c ON a.columnid = c.id
+    LEFT JOIN tasks t ON a.taskid = t.id
     ORDER BY a.created_at DESC
     LIMIT $1
   `;
@@ -209,6 +212,30 @@ export async function getMemberName(db, memberId) {
   
   const stmt = wrapQuery(db.prepare(query), 'SELECT');
   return await stmt.get(memberId);
+}
+
+/**
+ * Resolve a member id to a display name (null if unassigned / unknown).
+ */
+export async function resolveMemberDisplayName(db, memberId) {
+  if (memberId == null || memberId === '') return null;
+  const row = await getMemberName(db, memberId);
+  return row?.name || null;
+}
+
+/**
+ * Resolve member id → linked user id (for notification routing).
+ */
+export async function getUserIdForMember(db, memberId) {
+  if (memberId == null || memberId === '') return null;
+  const query = `
+    SELECT user_id AS "userId"
+    FROM members
+    WHERE id = $1
+  `;
+  const stmt = wrapQuery(db.prepare(query), 'SELECT');
+  const row = await stmt.get(memberId);
+  return row?.userId || null;
 }
 
 /**

@@ -2,17 +2,26 @@ import { wrapQuery } from '../utils/queryLogger.js';
 import crypto from 'crypto';
 import EmailService from './emailService.js';
 import { EmailTemplates } from './emailTemplates.js';
+import { getAllTenantDatabases, isMultiTenant } from '../middleware/tenantRouting.js';
+import {
+  formatDetailsForEmail,
+  buildTaskEmailUrl,
+} from '../utils/emailContent.js';
+import { parseRetentionDays } from '../utils/retentionSettings.js';
+
+export { formatDetailsForEmail };
 
 /**
  * Notification Throttler Service
  * Handles throttling of notifications to prevent spam
  * Accumulates changes and sends consolidated notifications
- * NOW WITH DATABASE PERSISTENCE - survives server restarts!
+ * DATABASE PERSISTENCE — survives server restarts.
+ * Per-tenant DB instance; global processor claims rows atomically (multi-pod safe).
  */
 class NotificationThrottler {
-  constructor(db) {
+  constructor(db, tenantId = null) {
     this.db = db;
-    this.processingInterval = null;
+    this.tenantId = tenantId;
   }
 
   /**
@@ -32,35 +41,14 @@ class NotificationThrottler {
     }
   }
 
-  /**
-   * Start the notification processing interval
-   * Checks every minute for notifications ready to be sent
-   */
+  /** @deprecated Per-tenant intervals removed — use startGlobalNotificationProcessor() */
   startProcessing() {
-    if (this.processingInterval) {
-      return; // Already running
-    }
-
-    console.log('📧 [THROTTLER] Starting notification queue processor (checks every 60 seconds)');
-    
-    // Process immediately on start (to catch any missed notifications)
-    this.processReadyNotifications();
-    
-    // Then check every minute
-    this.processingInterval = setInterval(() => {
-      this.processReadyNotifications();
-    }, 60 * 1000); // Every 60 seconds
+    startGlobalNotificationProcessor();
   }
 
-  /**
-   * Stop the notification processing interval
-   */
+  /** @deprecated */
   stopProcessing() {
-    if (this.processingInterval) {
-      clearInterval(this.processingInterval);
-      this.processingInterval = null;
-      console.log('📧 [THROTTLER] Notification queue processor stopped');
-    }
+    /* global processor owns the interval */
   }
 
   /**
@@ -173,34 +161,63 @@ class NotificationThrottler {
   }
 
   /**
-   * Process notifications that are ready to be sent
-   * Groups notifications by user_id and task_id, sending consolidated emails
+   * Atomically claim due pending rows (multi-pod safe via FOR UPDATE SKIP LOCKED),
+   * then send. Skips the cycle when this tenant's mail is not configured.
    */
   async processReadyNotifications() {
     try {
-      const now = new Date().toISOString();
-      
-      // Find all notifications scheduled to be sent now or earlier
-      const readyNotifications = await wrapQuery(
-        this.db.prepare(`
-          SELECT *
-          FROM notification_queue
-          WHERE status = 'pending' AND scheduled_send_time <= ?
-          ORDER BY scheduled_send_time ASC
-          LIMIT 50
-        `),
-        'SELECT'
-      ).all(now);
-
-      if (readyNotifications.length === 0) {
-        return; // Nothing to process
+      const mail = await new EmailService(this.db).validateEmailConfig();
+      if (!mail.valid) {
+        return;
       }
 
-      console.log(`📧 [THROTTLER] Processing ${readyNotifications.length} ready notification(s)`);
+      // Recover rows stuck in processing (pod crash mid-send)
+      try {
+        await wrapQuery(
+          this.db.prepare(`
+            UPDATE notification_queue
+            SET status = 'pending', updated_at = CURRENT_TIMESTAMP
+            WHERE status = 'processing'
+              AND updated_at < NOW() - INTERVAL '15 minutes'
+          `),
+          'UPDATE'
+        ).run();
+      } catch (recoverErr) {
+        console.warn('📧 [THROTTLER] Stuck-row recovery skipped:', recoverErr.message);
+      }
 
-      // Group notifications by user_id and task_id
+      const now = new Date().toISOString();
+
+      // Claim up to 50 due rows atomically — other pods skip locked rows
+      const readyNotifications = await wrapQuery(
+        this.db.prepare(`
+          WITH due AS (
+            SELECT id
+            FROM notification_queue
+            WHERE status = 'pending' AND scheduled_send_time <= ?
+            ORDER BY scheduled_send_time ASC
+            LIMIT 50
+            FOR UPDATE SKIP LOCKED
+          )
+          UPDATE notification_queue nq
+          SET status = 'processing', updated_at = CURRENT_TIMESTAMP
+          FROM due
+          WHERE nq.id = due.id
+          RETURNING nq.*
+        `),
+        'UPDATE'
+      ).all(now);
+
+      if (!readyNotifications || readyNotifications.length === 0) {
+        return;
+      }
+
+      const label = this.tenantId || 'default';
+      console.log(
+        `📧 [THROTTLER] [${label}] Claimed ${readyNotifications.length} notification(s)`
+      );
+
       const groupedNotifications = new Map();
-      
       for (const notification of readyNotifications) {
         const key = `${notification.user_id}:${notification.task_id}`;
         if (!groupedNotifications.has(key)) {
@@ -209,19 +226,14 @@ class NotificationThrottler {
         groupedNotifications.get(key).push(notification);
       }
 
-      // Process each group (user-task combination)
-      for (const [key, notifications] of groupedNotifications.entries()) {
-        // Sort by last_change_time DESC (reverse chronological - most recent first)
+      for (const [, notifications] of groupedNotifications.entries()) {
         notifications.sort((a, b) => {
           const timeA = new Date(a.last_change_time).getTime();
           const timeB = new Date(b.last_change_time).getTime();
-          return timeB - timeA; // Descending order
+          return timeB - timeA;
         });
-
-        // Send consolidated notification for this user-task group
         await this.sendGroupedNotification(notifications);
       }
-
     } catch (error) {
       console.error('❌ [THROTTLER] Error processing ready notifications:', error);
     }
@@ -244,9 +256,14 @@ class NotificationThrottler {
       const participants = JSON.parse(baseNotification.participants_data);
       const actor = JSON.parse(baseNotification.actor_data);
 
-      // Get recipient user info
+      // Get recipient user info (alias both casings for template safety)
       const recipientUser = await wrapQuery(
-        this.db.prepare('SELECT id, email, first_name, last_name FROM users WHERE id = ?'),
+        this.db.prepare(`
+          SELECT id, email,
+                 first_name, first_name AS "firstName",
+                 last_name, last_name AS "lastName"
+          FROM users WHERE id = ?
+        `),
         'SELECT'
       ).get(baseNotification.user_id);
 
@@ -254,9 +271,27 @@ class NotificationThrottler {
         throw new Error(`Recipient user ${baseNotification.user_id} not found`);
       }
 
+      const recipientEmail = String(recipientUser.email || '').toLowerCase();
+      if (!recipientEmail || recipientEmail.endsWith('@local')) {
+        console.log(
+          `📧 [THROTTLER] Skipping non-mailable recipient ${baseNotification.user_id} (${recipientUser.email || 'no email'})`
+        );
+        const skipIds = notifications.map((n) => n.id);
+        const skipPlaceholders = skipIds.map(() => '?').join(',');
+        await wrapQuery(
+          this.db.prepare(`
+            UPDATE notification_queue
+            SET status = 'sent', sent_at = CURRENT_TIMESTAMP, error_message = 'skipped_non_mailable'
+            WHERE id IN (${skipPlaceholders})
+          `),
+          'UPDATE'
+        ).run(...skipIds);
+        return;
+      }
+
       // Get board info for task URL
       const boardInfo = await wrapQuery(
-        this.db.prepare('SELECT id, title FROM boards WHERE id = ?'),
+        this.db.prepare('SELECT id, title, project FROM boards WHERE id = ?'),
         'SELECT'
       ).get(task.boardId || task.boardid);
 
@@ -268,10 +303,18 @@ class NotificationThrottler {
       
       let baseUrl = appUrlSetting?.value || process.env.BASE_URL || 'http://localhost:3000';
       baseUrl = baseUrl.replace(/\/$/, '');
-      
-      // Build task URL - use ticket if available, otherwise use task ID
+
+      const projectId =
+        task.projectId ||
+        participants?.projectId ||
+        boardInfo?.project ||
+        null;
       const taskTicket = task.ticket || task.id;
-      const taskUrl = `${baseUrl}/#task#${taskTicket}`;
+      const taskUrl = buildTaskEmailUrl(baseUrl, {
+        projectId,
+        ticket: taskTicket,
+        taskId: task.id,
+      });
 
       // Get site name
       const siteNameSetting = await wrapQuery(
@@ -282,22 +325,32 @@ class NotificationThrottler {
 
       // Determine action type and details
       const actionType = notifications.length > 1 ? 'consolidated_update' : baseNotification.action;
-      const actionDetails = notifications.length > 1 
-        ? `${notifications.length} changes made to this task` 
-        : baseNotification.details;
+      const actionDetails =
+        notifications.length > 1
+          ? `${notifications.length} changes made to this task`
+          : formatDetailsForEmail(baseNotification.details);
+
+      const boardTitle = boardInfo?.title || 'Board';
+      const changedField = actor?.changedField || null;
 
       // Create email template data
       const emailTemplateData = {
         user: recipientUser,
         task: task,
-        board: boardInfo || { id: task.boardId || task.boardid, name: 'Unknown Board' },
-        project: null, // Could be extracted from task if available
+        board: {
+          id: boardInfo?.id || task.boardId || task.boardid,
+          title: boardTitle,
+          name: boardTitle,
+        },
+        project: projectId,
         actionType: actionType,
         actionDetails: actionDetails,
         taskUrl: taskUrl,
         siteName: siteName,
         oldValue: baseNotification.old_value,
         newValue: baseNotification.new_value,
+        changedField,
+        notificationType: baseNotification.notification_type || null,
         timestamp: baseNotification.last_change_time,
         db: this.db
       };
@@ -359,9 +412,14 @@ class NotificationThrottler {
       const participants = JSON.parse(queuedNotification.participants_data);
       const actor = JSON.parse(queuedNotification.actor_data);
 
-      // Get recipient user info
+      // Get recipient user info (alias both casings for template safety)
       const recipientUser = await wrapQuery(
-        this.db.prepare('SELECT id, email, first_name, last_name FROM users WHERE id = ?'),
+        this.db.prepare(`
+          SELECT id, email,
+                 first_name, first_name AS "firstName",
+                 last_name, last_name AS "lastName"
+          FROM users WHERE id = ?
+        `),
         'SELECT'
       ).get(queuedNotification.user_id);
 
@@ -371,7 +429,7 @@ class NotificationThrottler {
 
       // Get board info for task URL
       const boardInfo = await wrapQuery(
-        this.db.prepare('SELECT id, title FROM boards WHERE id = ?'),
+        this.db.prepare('SELECT id, title, project FROM boards WHERE id = ?'),
         'SELECT'
       ).get(task.boardId || task.boardid);
 
@@ -383,10 +441,15 @@ class NotificationThrottler {
       
       let baseUrl = appUrlSetting?.value || process.env.BASE_URL || 'http://localhost:3000';
       baseUrl = baseUrl.replace(/\/$/, '');
-      
-      // Build task URL - use ticket if available, otherwise use task ID
+
+      const projectId =
+        task.projectId || participants?.projectId || boardInfo?.project || null;
       const taskTicket = task.ticket || task.id;
-      const taskUrl = `${baseUrl}/#task#${taskTicket}`;
+      const taskUrl = buildTaskEmailUrl(baseUrl, {
+        projectId,
+        ticket: taskTicket,
+        taskId: task.id,
+      });
 
       // Get site name
       const siteNameSetting = await wrapQuery(
@@ -397,20 +460,28 @@ class NotificationThrottler {
 
       // Determine action type and details
       const actionType = queuedNotification.change_count > 1 ? 'consolidated_update' : queuedNotification.action;
-      const actionDetails = queuedNotification.details;
+      const actionDetails = formatDetailsForEmail(queuedNotification.details);
+      const boardTitle = boardInfo?.title || 'Board';
+      const changedField = actor?.changedField || null;
 
       // Create email template data
       const emailTemplateData = {
         user: recipientUser,
         task: task,
-        board: boardInfo || { id: task.boardId || task.boardid, name: 'Unknown Board' },
-        project: null,
+        board: {
+          id: boardInfo?.id || task.boardId || task.boardid,
+          title: boardTitle,
+          name: boardTitle,
+        },
+        project: projectId,
         actionType: actionType,
         actionDetails: actionDetails,
         taskUrl: taskUrl,
         siteName: siteName,
         oldValue: queuedNotification.old_value,
         newValue: queuedNotification.new_value,
+        changedField,
+        notificationType: queuedNotification.notification_type || null,
         timestamp: queuedNotification.last_change_time,
         db: this.db
       };
@@ -477,34 +548,63 @@ class NotificationThrottler {
   }
 
   /**
-   * Send immediate notification (when delay is 0)
+   * Send immediately when NOTIFICATION_DELAY is 0 (still persists a row for admin audit).
    */
   async sendImmediateNotification(userId, taskId, notificationData) {
     try {
-      console.log(`📧 [THROTTLER] Sending immediate notification to user ${userId} for task ${taskId} (delay=0)`);
-      // Note: Email notification service (getNotificationService) is not yet implemented
-      // const { getNotificationService } = await import('./notificationService.js');
-      // const notificationService = getNotificationService();
-      // 
-      // if (notificationService) {
-      console.warn('⚠️ Email notification service not implemented - skipping email send');
-      return; // Skip email sending until service is implemented
-      
-      // Original code (commented out until email service is implemented):
-      // if (notificationService) {
-      //   // userId parameter is the RECIPIENT, but notificationData.userId is the ACTOR
-      //   // Override notificationData.userId to be the recipient for sendEmailDirectly
-      //   const notificationDataWithRecipient = {
-      //     ...notificationData,
-      //     userid: userid  // Set userid to the recipient (not the actor)
-      //   };
-      //   
-      //   // Send email directly without going through the queue
-      //   await notificationService.sendEmailDirectly(notificationDataWithRecipient);
-      //   console.log(`✅ [THROTTLER] Immediate notification sent successfully to user ${userId} for task ${taskId}`);
-      // } else {
-      //   console.warn(`⚠️ [THROTTLER] Notification service not available for immediate notification to user ${userId}`);
-      // }
+      const mail = await new EmailService(this.db).validateEmailConfig();
+      if (!mail.valid) return;
+
+      console.log(
+        `📧 [THROTTLER] Sending immediate notification to user ${userId} for task ${taskId} (delay=0)`
+      );
+
+      const notificationId = crypto.randomUUID();
+      const now = new Date().toISOString();
+
+      await wrapQuery(
+        this.db.prepare(`
+          INSERT INTO notification_queue (
+            id, user_id, task_id, notification_type, action, details,
+            old_value, new_value, task_data, participants_data, actor_data,
+            status, scheduled_send_time, first_change_time, last_change_time,
+            change_count, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'processing', ?, ?, ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        `),
+        'INSERT'
+      ).run(
+        notificationId,
+        userId,
+        taskId,
+        notificationData.notificationType,
+        notificationData.action,
+        notificationData.details,
+        notificationData.oldValue || null,
+        notificationData.newValue || null,
+        JSON.stringify(notificationData.task),
+        JSON.stringify(notificationData.participants),
+        JSON.stringify(notificationData.actor),
+        now,
+        now,
+        now
+      );
+
+      await this.sendGroupedNotification([
+        {
+          id: notificationId,
+          user_id: userId,
+          task_id: taskId,
+          action: notificationData.action,
+          details: notificationData.details,
+          old_value: notificationData.oldValue || null,
+          new_value: notificationData.newValue || null,
+          task_data: JSON.stringify(notificationData.task),
+          participants_data: JSON.stringify(notificationData.participants),
+          actor_data: JSON.stringify(notificationData.actor),
+          last_change_time: now,
+          change_count: 1,
+        },
+      ]);
     } catch (error) {
       console.error(`❌ [THROTTLER] Failed to send immediate notification to user ${userId}:`, error);
     }
@@ -534,22 +634,46 @@ class NotificationThrottler {
    */
   async flushAllNotifications() {
     console.log('🔄 Flushing all pending notifications...');
-    
+
     try {
+      const mail = await new EmailService(this.db).validateEmailConfig();
+      if (!mail.valid) {
+        console.log('📧 [THROTTLER] Skipping flush — mail not configured');
+        return;
+      }
+
+      // Atomic claim so multi-pod shutdown does not double-send
       const pendingNotifications = await wrapQuery(
         this.db.prepare(`
-          SELECT *
-          FROM notification_queue
-          WHERE status = 'pending'
-          ORDER BY created_at ASC
+          WITH due AS (
+            SELECT id
+            FROM notification_queue
+            WHERE status = 'pending'
+            ORDER BY created_at ASC
+            LIMIT 200
+            FOR UPDATE SKIP LOCKED
+          )
+          UPDATE notification_queue nq
+          SET status = 'processing', updated_at = CURRENT_TIMESTAMP
+          FROM due
+          WHERE nq.id = due.id
+          RETURNING nq.*
         `),
-        'SELECT'
+        'UPDATE'
       ).all();
 
-      console.log(`📧 [THROTTLER] Found ${pendingNotifications.length} pending notification(s) to flush`);
+      console.log(
+        `📧 [THROTTLER] Found ${pendingNotifications.length} pending notification(s) to flush`
+      );
 
+      const grouped = new Map();
       for (const notification of pendingNotifications) {
-        await this.sendNotificationFromQueue(notification);
+        const key = `${notification.user_id}:${notification.task_id}`;
+        if (!grouped.has(key)) grouped.set(key, []);
+        grouped.get(key).push(notification);
+      }
+      for (const [, notifications] of grouped) {
+        await this.sendGroupedNotification(notifications);
       }
 
       console.log('✅ All pending notifications flushed');
@@ -604,12 +728,34 @@ class NotificationThrottler {
   }
 
   /**
-   * Clean up old sent/failed notifications (older than 30 days)
+   * Retention days for sent/failed queue rows (0 = keep forever).
+   */
+  async getQueueRetentionDays() {
+    try {
+      const setting = await wrapQuery(
+        this.db.prepare('SELECT value FROM settings WHERE key = ?'),
+        'SELECT'
+      ).get('NOTIFICATION_QUEUE_RETENTION_DAYS');
+      return parseRetentionDays(setting?.value);
+    } catch (error) {
+      console.warn('Failed to get notification queue retention setting:', error.message);
+      return 0;
+    }
+  }
+
+  /**
+   * Clean up old sent/failed notifications per NOTIFICATION_QUEUE_RETENTION_DAYS.
+   * 0 / unset = keep forever (no automatic purge).
    */
   async cleanupOldNotifications() {
     try {
-      const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
-      
+      const retentionDays = await this.getQueueRetentionDays();
+      if (retentionDays === 0) return;
+
+      const cutoff = new Date(
+        Date.now() - retentionDays * 24 * 60 * 60 * 1000
+      ).toISOString();
+
       const result = await wrapQuery(
         this.db.prepare(`
           DELETE FROM notification_queue
@@ -617,10 +763,12 @@ class NotificationThrottler {
             AND created_at < ?
         `),
         'DELETE'
-      ).run(thirtyDaysAgo);
+      ).run(cutoff);
 
       if (result.changes > 0) {
-        console.log(`🧹 [THROTTLER] Cleaned up ${result.changes} old notification(s)`);
+        console.log(
+          `🧹 [THROTTLER] Cleaned up ${result.changes} notification(s) older than ${retentionDays} day(s)`
+        );
       }
     } catch (error) {
       console.error('Failed to clean up old notifications:', error);
@@ -628,23 +776,112 @@ class NotificationThrottler {
   }
 }
 
-// Export singleton instance
-let notificationThrottler = null;
+/** tenantId|null key → throttler bound to that tenant DB */
+const throttlersByTenant = new Map();
+let globalProcessorInterval = null;
+let defaultThrottler = null;
 
-export const initNotificationThrottler = (db) => {
-  notificationThrottler = new NotificationThrottler(db);
-  
-  // Start the processing interval
-  notificationThrottler.startProcessing();
-  
-  // Clean up old notifications on init
-  notificationThrottler.cleanupOldNotifications();
-  
-  return notificationThrottler;
-};
+function tenantKey(tenantId) {
+  return tenantId || 'default';
+}
 
-export const getNotificationThrottler = () => {
-  return notificationThrottler;
+/**
+ * Get or create a throttler for a tenant database (used when enqueueing).
+ */
+export function getNotificationThrottlerForDb(db, tenantId = null) {
+  const key = tenantKey(tenantId);
+  let throttler = throttlersByTenant.get(key);
+  if (!throttler || throttler.db !== db) {
+    throttler = new NotificationThrottler(db, tenantId);
+    throttlersByTenant.set(key, throttler);
+    if (key === 'default') defaultThrottler = throttler;
+  }
+  return throttler;
+}
+
+/** @deprecated Prefer getNotificationThrottlerForDb(db, tenantId) */
+export const getNotificationThrottler = () => defaultThrottler;
+
+/**
+ * Process due queue rows for every known tenant DB (and single-tenant default).
+ */
+export async function processAllTenantNotificationQueues() {
+  try {
+    if (isMultiTenant()) {
+      const tenants = await getAllTenantDatabases();
+      for (const { tenantId, db } of tenants) {
+        const throttler = getNotificationThrottlerForDb(db, tenantId);
+        await throttler.processReadyNotifications();
+      }
+      return;
+    }
+    if (defaultThrottler) {
+      await defaultThrottler.processReadyNotifications();
+    }
+  } catch (error) {
+    console.error('❌ [THROTTLER] processAllTenantNotificationQueues failed:', error);
+  }
+}
+
+export async function flushAllTenantNotifications() {
+  if (isMultiTenant()) {
+    const tenants = await getAllTenantDatabases();
+    for (const { tenantId, db } of tenants) {
+      const throttler = getNotificationThrottlerForDb(db, tenantId);
+      await throttler.flushAllNotifications();
+    }
+    return;
+  }
+  if (defaultThrottler) {
+    await defaultThrottler.flushAllNotifications();
+  }
+}
+
+export async function cleanupAllTenantNotifications() {
+  if (isMultiTenant()) {
+    const tenants = await getAllTenantDatabases();
+    for (const { tenantId, db } of tenants) {
+      const throttler = getNotificationThrottlerForDb(db, tenantId);
+      await throttler.cleanupOldNotifications();
+    }
+    return;
+  }
+  if (defaultThrottler) {
+    await defaultThrottler.cleanupOldNotifications();
+  }
+}
+
+export function startGlobalNotificationProcessor() {
+  if (globalProcessorInterval) return;
+  console.log(
+    '📧 [THROTTLER] Starting global notification queue processor (every 60s, all tenants)'
+  );
+  void processAllTenantNotificationQueues();
+  globalProcessorInterval = setInterval(() => {
+    void processAllTenantNotificationQueues();
+  }, 60 * 1000);
+}
+
+export function stopGlobalNotificationProcessor() {
+  if (globalProcessorInterval) {
+    clearInterval(globalProcessorInterval);
+    globalProcessorInterval = null;
+    console.log('📧 [THROTTLER] Global notification queue processor stopped');
+  }
+}
+
+/**
+ * Single-tenant: bind default DB + start global processor.
+ * Multi-tenant: call startGlobalNotificationProcessor() with no default DB
+ * (throttlers are created lazily as tenant DBs warm).
+ */
+export const initNotificationThrottler = (db, tenantId = null) => {
+  if (db) {
+    defaultThrottler = getNotificationThrottlerForDb(db, tenantId);
+    void defaultThrottler.cleanupOldNotifications();
+  }
+  startGlobalNotificationProcessor();
+  return defaultThrottler;
 };
 
 export { NotificationThrottler };

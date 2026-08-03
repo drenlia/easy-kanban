@@ -15,6 +15,12 @@ import {
 } from '../../utils/adminFieldLimits';
 import { AdminFieldDraftControls } from './AdminFieldDraftControls';
 import { AdminUnsavedHint } from './AdminUnsavedChanges';
+import {
+  AdminActionsBar,
+  AdminPageShell,
+  AdminSection,
+  adminInputFullClass,
+} from './AdminSection';
 
 interface Settings {
   MAIL_ENABLED?: string;
@@ -58,7 +64,7 @@ interface AdminMailTabProps {
   testEmailError: string;
   onCloseTestErrorModal: () => void;
   onAutoSave?: (key: string, value: string) => Promise<void>;
-  onSettingsReload?: () => Promise<void>;
+  onSettingsReload?: (options?: { quiet?: boolean }) => Promise<void>;
 }
 
 const AdminMailTab: React.FC<AdminMailTabProps> = ({
@@ -133,131 +139,109 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
   // Check if email is managed
   const isManagedEmail = editingSettings.MAIL_MANAGED === 'true';
 
+  const mailFieldClass = (disabled = false) =>
+    `${adminInputFullClass}${disabled ? ' bg-gray-100 dark:bg-gray-800 cursor-not-allowed' : ''}`;
+
   return (
     <>
-      <div className="p-6">
-        <div className="mb-6">
-          <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-2">{t('mail.title')}</h2>
-          <p className="text-gray-600 dark:text-gray-400">
-            {t('mail.description')}
-          </p>
-          
-          {/* Demo Mode Warning */}
-          {isDemoMode && (
-            <div className="mt-4 p-4 bg-amber-50 dark:bg-amber-900 border border-amber-200 dark:border-amber-700 rounded-lg">
-              <div className="flex items-start">
-                <svg className="h-5 w-5 text-amber-400 dark:text-amber-500 mt-0.5 mr-3 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-                </svg>
-                <div>
-                  <h3 className="text-sm font-medium text-amber-800 dark:text-amber-200">{t('mail.demoModeActive')}</h3>
-                  <p className="text-sm text-amber-700 dark:text-amber-300 mt-1">
-                    {t('mail.demoModeDescription')}
-                  </p>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Managed Email Status */}
-          {editingSettings.MAIL_MANAGED === 'true' && (
-            <div className="mt-4 p-4 bg-blue-50 dark:bg-blue-900 border border-blue-200 dark:border-blue-700 rounded-lg">
-              <div className="flex items-start">
-                <svg className="h-5 w-5 text-blue-400 dark:text-blue-500 mt-0.5 mr-3 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-                </svg>
-                <div className="flex-1">
-                  <h3 className="text-sm font-medium text-blue-800 dark:text-blue-200">{t('mail.managedEmailService')}</h3>
-                  <p className="text-sm text-blue-700 dark:text-blue-300 mt-1">
-                    {t('mail.managedEmailDescription')} <code className="bg-blue-100 dark:bg-blue-800 px-1 rounded">{editingSettings.SMTP_FROM_EMAIL || 'noreply@ezkan.cloud'}</code>.
-                  </p>
-                  <div className="mt-3" data-owner-setup="switch-custom-smtp">
-                    <button
-                      type="button"
-                      onClick={() => setShowFirstConfirm(true)}
-                      className="text-sm bg-blue-100 dark:bg-blue-800 text-blue-800 dark:text-blue-200 px-3 py-1 rounded-md hover:bg-blue-200 dark:hover:bg-blue-700 transition-colors"
-                    >
-                      {t('mail.switchToCustomSMTP')}
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-        
-        <div className="max-w-4xl">
-          {/* Mail Server Enable/Disable Toggle */}
-          <div className="mb-6" data-setting-key="MAIL_ENABLED">
-            <div className="flex items-center justify-between">
+      <AdminPageShell description={t('mail.description')}>
+        {/* Demo Mode Warning */}
+        {isDemoMode && (
+          <div className="rounded-lg border border-amber-200 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/40 p-3">
+            <div className="flex items-start gap-2">
+              <svg className="h-5 w-5 text-amber-400 dark:text-amber-500 mt-0.5 shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+              </svg>
               <div>
-                <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('mail.mailServerStatus')}</h3>
-                <p className="text-sm text-gray-500 dark:text-gray-400">
-                  {isDemoMode 
-                    ? t('mail.statusDemoMode')
-                    : !testEmailResult 
-                      ? t('mail.statusTestRequired')
-                      : t('mail.statusTestedSuccessfully')
-                  }
+                <h3 className="text-sm font-medium text-amber-800 dark:text-amber-200">{t('mail.demoModeActive')}</h3>
+                <p className="text-xs text-amber-700 dark:text-amber-300 mt-0.5 leading-snug">
+                  {t('mail.demoModeDescription')}
                 </p>
-              </div>
-              
-              {/* Toggle Button */}
-              <div className="flex items-center">
-                <span className={`text-sm font-medium mr-3 ${
-                  isDemoMode ? 'text-gray-400 dark:text-gray-500' : 'text-gray-700 dark:text-gray-300'
-                }`}>
-                  {isDemoMode ? t('mail.disabledDemo') : editingSettings.MAIL_ENABLED === 'true' ? t('mail.enabled') : t('mail.disabled')}
-                </span>
-                <button
-                  type="button"
-                  onClick={async () => {
-                    if (!isDemoMode && testEmailResult) {
-                      const newValue = editingSettings.MAIL_ENABLED === 'true' ? 'false' : 'true';
-                      
-                      // Update the state first
-                      handleInputChange('MAIL_ENABLED', newValue);
-                      
-                      // Auto-save the toggle change immediately
-                      try {
-                        // Save the specific setting directly
-                        await api.put('/admin/settings', { key: 'MAIL_ENABLED', value: newValue });
-                        
-                        // If disabling, clear test result to require re-testing
-                        if (newValue === 'false' && testEmailResult) {
-                          onMailServerDisabled();
-                        }
-                      } catch (error) {
-                        console.error('Failed to save mail server toggle:', error);
-                        // Revert the change if save failed
-                        handleInputChange('MAIL_ENABLED', editingSettings.MAIL_ENABLED === 'true' ? 'false' : 'true');
-                      }
-                    }
-                  }}
-                  disabled={isDemoMode || !testEmailResult}
-                  className={`relative inline-flex h-6 w-11 flex-shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
-                    isDemoMode || !testEmailResult
-                      ? 'bg-gray-200 dark:bg-gray-600 cursor-not-allowed' 
-                      : editingSettings.MAIL_ENABLED === 'true' 
-                        ? 'bg-blue-600 dark:bg-blue-500 cursor-pointer' 
-                        : 'bg-gray-200 dark:bg-gray-600 cursor-pointer'
-                  }`}
-                >
-                  <span
-                    className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white dark:bg-gray-300 shadow ring-0 transition duration-200 ease-in-out ${
-                      editingSettings.MAIL_ENABLED === 'true' ? 'translate-x-5' : 'translate-x-0'
-                    }`}
-                  />
-                </button>
               </div>
             </div>
           </div>
+        )}
 
-          {/* Two-column layout for SMTP settings */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-            {/* Left Column */}
-            <div className="space-y-4">
-              {/* SMTP Host */}
+        {/* Managed Email Status */}
+        {editingSettings.MAIL_MANAGED === 'true' && (
+          <div className="rounded-lg border border-blue-200 dark:border-blue-700 bg-blue-50 dark:bg-blue-900/40 p-3">
+            <div className="flex items-start gap-2">
+              <svg className="h-5 w-5 text-blue-400 dark:text-blue-500 mt-0.5 shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+              </svg>
+              <div className="flex-1 min-w-0">
+                <h3 className="text-sm font-medium text-blue-800 dark:text-blue-200">{t('mail.managedEmailService')}</h3>
+                <p className="text-xs text-blue-700 dark:text-blue-300 mt-0.5 leading-snug">
+                  {t('mail.managedEmailDescription')} <code className="bg-blue-100 dark:bg-blue-800 px-1 rounded">{editingSettings.SMTP_FROM_EMAIL || 'noreply@ezkan.cloud'}</code>.
+                </p>
+                <div className="mt-2" data-owner-setup="switch-custom-smtp">
+                  <button
+                    type="button"
+                    onClick={() => setShowFirstConfirm(true)}
+                    className="text-xs bg-blue-100 dark:bg-blue-800 text-blue-800 dark:text-blue-200 px-2.5 py-1 rounded-md hover:bg-blue-200 dark:hover:bg-blue-700 transition-colors"
+                  >
+                    {t('mail.switchToCustomSMTP')}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        <AdminSection dense>
+          <div className="flex items-center justify-between gap-3 pb-2 border-b border-gray-100 dark:border-gray-800" data-setting-key="MAIL_ENABLED">
+            <div className="min-w-0">
+              <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300">{t('mail.mailServerStatus')}</h4>
+              <p className="text-xs text-gray-500 dark:text-gray-400 leading-snug">
+                {isDemoMode
+                  ? t('mail.statusDemoMode')
+                  : !testEmailResult
+                    ? t('mail.statusTestRequired')
+                    : t('mail.statusTestedSuccessfully')}
+              </p>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              <span className={`text-xs font-medium ${
+                isDemoMode ? 'text-gray-400 dark:text-gray-500' : 'text-gray-700 dark:text-gray-300'
+              }`}>
+                {isDemoMode ? t('mail.disabledDemo') : editingSettings.MAIL_ENABLED === 'true' ? t('mail.enabled') : t('mail.disabled')}
+              </span>
+              <button
+                type="button"
+                onClick={async () => {
+                  if (!isDemoMode && testEmailResult) {
+                    const newValue = editingSettings.MAIL_ENABLED === 'true' ? 'false' : 'true';
+                    handleInputChange('MAIL_ENABLED', newValue);
+                    try {
+                      await api.put('/admin/settings', { key: 'MAIL_ENABLED', value: newValue });
+                      if (newValue === 'false' && testEmailResult) {
+                        onMailServerDisabled();
+                      }
+                    } catch (error) {
+                      console.error('Failed to save mail server toggle:', error);
+                      handleInputChange('MAIL_ENABLED', editingSettings.MAIL_ENABLED === 'true' ? 'false' : 'true');
+                    }
+                  }
+                }}
+                disabled={isDemoMode || !testEmailResult}
+                className={`relative inline-flex h-6 w-11 flex-shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+                  isDemoMode || !testEmailResult
+                    ? 'bg-gray-200 dark:bg-gray-600 cursor-not-allowed'
+                    : editingSettings.MAIL_ENABLED === 'true'
+                      ? 'bg-blue-600 dark:bg-blue-500 cursor-pointer'
+                      : 'bg-gray-200 dark:bg-gray-600 cursor-pointer'
+                }`}
+              >
+                <span
+                  className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white dark:bg-gray-300 shadow ring-0 transition duration-200 ease-in-out ${
+                    editingSettings.MAIL_ENABLED === 'true' ? 'translate-x-5' : 'translate-x-0'
+                  }`}
+                />
+              </button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
               <div data-setting-key="SMTP_HOST">
                 {mailFieldLabel('SMTP_HOST', t('mail.smtpHost'))}
                 <input
@@ -265,17 +249,12 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
                   value={editingSettings.SMTP_HOST || ''}
                   onChange={(e) => handleInputChange('SMTP_HOST', e.target.value)}
                   onFocus={() => {
-                    // Pre-fill with example value if field is empty
                     if (!editingSettings.SMTP_HOST) {
                       handleInputChange('SMTP_HOST', 'smtp.gmail.com');
                     }
                   }}
                   disabled={isManagedEmail}
-                  className={`w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-gray-900 dark:text-gray-100 ${
-                    isManagedEmail 
-                      ? 'bg-gray-100 dark:bg-gray-800 cursor-not-allowed' 
-                      : 'bg-white dark:bg-gray-700'
-                  }`}
+                  className={mailFieldClass(isManagedEmail)}
                   placeholder="smtp.gmail.com"
                 />
                 <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
@@ -283,7 +262,21 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
                 </p>
               </div>
 
-              {/* SMTP Port */}
+              <div data-setting-key="SMTP_FROM_EMAIL">
+                {mailFieldLabel('SMTP_FROM_EMAIL', t('mail.fromEmail'))}
+                <input
+                  type="email"
+                  value={editingSettings.SMTP_FROM_EMAIL || ''}
+                  onChange={(e) => handleInputChange('SMTP_FROM_EMAIL', e.target.value)}
+                  disabled={isManagedEmail}
+                  className={mailFieldClass(isManagedEmail)}
+                  placeholder="admin@example.com"
+                />
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  {t('mail.fromEmailDescription')}
+                </p>
+              </div>
+
               <div data-setting-key="SMTP_PORT">
                 {mailFieldLabel('SMTP_PORT', t('mail.smtpPort'))}
                 <input
@@ -292,7 +285,6 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
                   value={editingSettings.SMTP_PORT || ''}
                   onChange={(e) => handleInputChange('SMTP_PORT', e.target.value)}
                   onFocus={() => {
-                    // Pre-fill with example value if field is empty
                     if (!editingSettings.SMTP_PORT) {
                       handleInputChange('SMTP_PORT', '587');
                     }
@@ -306,11 +298,7 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
                     );
                   }}
                   disabled={isManagedEmail}
-                  className={`w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-gray-900 dark:text-gray-100 ${ADMIN_NUMERIC_INPUT_CLASS} ${
-                    isManagedEmail
-                      ? 'bg-gray-100 dark:bg-gray-800 cursor-not-allowed'
-                      : 'bg-white dark:bg-gray-700'
-                  }`}
+                  className={`${mailFieldClass(isManagedEmail)} ${ADMIN_NUMERIC_INPUT_CLASS}`}
                   placeholder="587"
                 />
                 <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
@@ -318,7 +306,21 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
                 </p>
               </div>
 
-              {/* SMTP Username */}
+              <div data-setting-key="SMTP_FROM_NAME">
+                {mailFieldLabel('SMTP_FROM_NAME', t('mail.fromName'))}
+                <input
+                  type="text"
+                  value={editingSettings.SMTP_FROM_NAME || ''}
+                  onChange={(e) => handleInputChange('SMTP_FROM_NAME', e.target.value)}
+                  disabled={isManagedEmail}
+                  className={mailFieldClass(isManagedEmail)}
+                  placeholder={t('mail.fromNamePlaceholder')}
+                />
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  {t('mail.fromNameDescription')}
+                </p>
+              </div>
+
               <div data-setting-key="SMTP_USERNAME">
                 {mailFieldLabel('SMTP_USERNAME', t('mail.smtpUsername'))}
                 <input
@@ -326,11 +328,7 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
                   value={editingSettings.SMTP_USERNAME || ''}
                   onChange={(e) => handleInputChange('SMTP_USERNAME', e.target.value)}
                   disabled={isManagedEmail}
-                  className={`w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-gray-900 dark:text-gray-100 ${
-                    isManagedEmail 
-                      ? 'bg-gray-100 dark:bg-gray-800 cursor-not-allowed' 
-                      : 'bg-white dark:bg-gray-700'
-                  }`}
+                  className={mailFieldClass(isManagedEmail)}
                   placeholder="admin@example.com"
                 />
                 <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
@@ -338,8 +336,24 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
                 </p>
               </div>
 
-              {/* SMTP Password (write-only; server returns mask + SMTP_PASSWORD_SET) */}
-              <div data-setting-key="SMTP_PASSWORD">
+              <div data-setting-key="SMTP_SECURE">
+                {mailFieldLabel('SMTP_SECURE', t('mail.smtpSecurity'))}
+                <select
+                  value={editingSettings.SMTP_SECURE || 'tls'}
+                  onChange={(e) => handleInputChange('SMTP_SECURE', e.target.value)}
+                  disabled={isManagedEmail}
+                  className={mailFieldClass(isManagedEmail)}
+                >
+                  <option value="tls">{t('mail.tlsRecommended')}</option>
+                  <option value="ssl">{t('mail.ssl')}</option>
+                  <option value="none">{t('mail.nonePlain')}</option>
+                </select>
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  {t('mail.smtpSecurityDescription')}
+                </p>
+              </div>
+
+              <div data-setting-key="SMTP_PASSWORD" className="md:col-span-2">
                 <label className="flex flex-wrap items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   <span>
                     {t('mail.smtpPassword')}
@@ -370,11 +384,7 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
                   }}
                   disabled={isManagedEmail}
                   autoComplete="new-password"
-                  className={`w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-gray-900 dark:text-gray-100 ${
-                    isManagedEmail 
-                      ? 'bg-gray-100 dark:bg-gray-800 cursor-not-allowed' 
-                      : 'bg-white dark:bg-gray-700'
-                  }`}
+                  className={mailFieldClass(isManagedEmail)}
                   placeholder={
                     smtpPasswordSet
                       ? t('mail.smtpPasswordLeaveBlank')
@@ -385,121 +395,26 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
                   {t('mail.smtpPasswordDescription')}
                 </p>
               </div>
-            </div>
-
-            {/* Right Column */}
-            <div className="space-y-4">
-              {/* From Email */}
-              <div data-setting-key="SMTP_FROM_EMAIL">
-                {mailFieldLabel('SMTP_FROM_EMAIL', t('mail.fromEmail'))}
-                <input
-                  type="email"
-                  value={editingSettings.SMTP_FROM_EMAIL || ''}
-                  onChange={(e) => handleInputChange('SMTP_FROM_EMAIL', e.target.value)}
-                  disabled={isManagedEmail}
-                  className={`w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-gray-900 dark:text-gray-100 ${
-                    isManagedEmail 
-                      ? 'bg-gray-100 dark:bg-gray-800 cursor-not-allowed' 
-                      : 'bg-white dark:bg-gray-700'
-                  }`}
-                  placeholder="admin@example.com"
-                />
-                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                  {t('mail.fromEmailDescription')}
-                </p>
-              </div>
-
-              {/* From Name */}
-              <div data-setting-key="SMTP_FROM_NAME">
-                {mailFieldLabel('SMTP_FROM_NAME', t('mail.fromName'))}
-                <input
-                  type="text"
-                  value={editingSettings.SMTP_FROM_NAME || ''}
-                  onChange={(e) => handleInputChange('SMTP_FROM_NAME', e.target.value)}
-                  disabled={isManagedEmail}
-                  className={`w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-gray-900 dark:text-gray-100 ${
-                    isManagedEmail 
-                      ? 'bg-gray-100 dark:bg-gray-800 cursor-not-allowed' 
-                      : 'bg-white dark:bg-gray-700'
-                  }`}
-                  placeholder={t('mail.fromNamePlaceholder')}
-                />
-                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                  {t('mail.fromNameDescription')}
-                </p>
-              </div>
-
-              {/* SMTP Security */}
-              <div data-setting-key="SMTP_SECURE">
-                {mailFieldLabel('SMTP_SECURE', t('mail.smtpSecurity'))}
-                <select
-                  value={editingSettings.SMTP_SECURE || 'tls'}
-                  onChange={(e) => handleInputChange('SMTP_SECURE', e.target.value)}
-                  disabled={isManagedEmail}
-                  className={`w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-gray-900 dark:text-gray-100 ${
-                    isManagedEmail 
-                      ? 'bg-gray-100 dark:bg-gray-800 cursor-not-allowed' 
-                      : 'bg-white dark:bg-gray-700'
-                  }`}
-                >
-                  <option value="tls">{t('mail.tlsRecommended')}</option>
-                  <option value="ssl">{t('mail.ssl')}</option>
-                  <option value="none">{t('mail.nonePlain')}</option>
-                </select>
-                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                  {t('mail.smtpSecurityDescription')}
-                </p>
-              </div>
-            </div>
           </div>
+        </AdminSection>
 
-          {/* Test Configuration Info */}
-          <div className="bg-blue-50 dark:bg-blue-900 border border-blue-200 dark:border-blue-700 rounded-md p-4 mb-6">
-            <div className="flex">
-              <div className="flex-shrink-0">
-                <svg className="h-5 w-5 text-blue-400 dark:text-blue-500" viewBox="0 0 20 20" fill="currentColor">
-                  <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-                </svg>
-              </div>
-              <div className="ml-3">
-                <h3 className="text-sm font-medium text-blue-800 dark:text-blue-200">{t('mail.testConfiguration')}</h3>
-                <div className="mt-2 text-sm text-blue-700 dark:text-blue-300">
-                  <p>
-                    {t('mail.testConfigurationDescription')}
-                  </p>
-                </div>
-              </div>
-            </div>
+        {!isDemoMode && !testEmailResult && (
+          <div className="rounded-lg border border-amber-200 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/40 p-3">
+            <h4 className="text-sm font-medium text-amber-800 dark:text-amber-200">{t('mail.testingRequired')}</h4>
+            <p className="mt-1 text-xs text-amber-700 dark:text-amber-300 leading-snug">
+              {t('mail.testingRequiredDescription')}
+            </p>
           </div>
-          
-          {/* Success and Error Messages for Mail Server */}
-          {/* Test Required Notice */}
-          {!isDemoMode && !testEmailResult && (
-            <div className="mb-4 p-4 bg-amber-50 dark:bg-amber-900 border border-amber-200 dark:border-amber-700 rounded-md">
-              <div className="flex">
-                <div className="flex-shrink-0">
-                  <svg className="h-5 w-5 text-amber-400 dark:text-amber-500" viewBox="0 0 20 20" fill="currentColor">
-                    <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-                  </svg>
-                </div>
-                <div className="ml-3">
-                  <h3 className="text-sm font-medium text-amber-800 dark:text-amber-200">{t('mail.testingRequired')}</h3>
-                  <div className="mt-2 text-sm text-amber-700 dark:text-amber-300">
-                    <p>{t('mail.testingRequiredDescription')}</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
+        )}
 
-          <div className="flex flex-wrap items-center justify-between gap-3">
+        <AdminActionsBar className="justify-between">
             <AdminUnsavedHint show={hasChanges} />
-            <div className="flex flex-wrap gap-3 ml-auto">
+            <div className="flex flex-wrap gap-2 ml-auto">
               <button
                 type="button"
                 onClick={onCancel}
                 disabled={!hasChanges}
-                className="px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="px-4 py-1.5 text-sm bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {t('mail.cancel')}
               </button>
@@ -507,7 +422,7 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
                 type="button"
                 onClick={() => onSave()}
                 disabled={!hasChanges}
-                className={`px-4 py-2 text-white rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed ${
+                className={`px-4 py-1.5 text-sm text-white rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed ${
                   hasChanges
                     ? 'bg-blue-600 hover:bg-blue-700 ring-2 ring-amber-400 ring-offset-2'
                     : 'bg-blue-600'
@@ -520,7 +435,7 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
                 onClick={isDemoMode || isManagedEmail ? undefined : onTestEmail}
                 disabled={isTestingEmail || isDemoMode || isManagedEmail || !canTestEmail()}
                 data-setting-key="MAIL_TEST_EMAIL"
-                className={`px-4 py-2 text-white rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 ${
+                className={`px-4 py-1.5 text-sm text-white rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 ${
                   isTestingEmail || isDemoMode || isManagedEmail || !canTestEmail()
                     ? 'bg-gray-400 cursor-not-allowed'
                     : 'bg-green-600 hover:bg-green-700 focus:ring-green-500'
@@ -552,9 +467,8 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
                 )}
               </button>
             </div>
-          </div>
-        </div>
-      </div>
+        </AdminActionsBar>
+      </AdminPageShell>
 
       {/* Test Email Success Modal */}
       {showTestEmailModal && testEmailResult && (

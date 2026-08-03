@@ -163,8 +163,10 @@ function tabLabelKey(tab: string): string {
   const map: Record<string, string> = {
     users: 'users',
     'site-settings': 'siteSettings',
+    'system-settings': 'systemSettings',
     sso: 'sso',
     'mail-server': 'mailServer',
+    storage: 'storage',
     tags: 'tags',
     priorities: 'priorities',
     'app-settings': 'appSettings',
@@ -174,6 +176,9 @@ function tabLabelKey(tab: string): string {
     lifecycle: 'lifecycle',
     licensing: 'licensing',
     'notification-queue': 'notificationQueue',
+    notifications: 'notifications',
+    'file-uploads': 'fileUploads',
+    ai: 'ai',
   };
   return map[tab] || tab;
 }

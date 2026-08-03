@@ -19,6 +19,9 @@ export const SMTP_PORT = { min: 1, max: 65535 } as const;
 /** Lifecycle retention days. */
 export const LIFECYCLE_RETENTION_DAYS = { min: 0, max: 3650 } as const;
 
+/** Notification queue retention for sent/failed rows (0 = keep forever). */
+export const NOTIFICATION_QUEUE_RETENTION_DAYS = { min: 0, max: 3650 } as const;
+
 /** Gamification action points (create/complete/move/…). */
 export const REPORTS_ACTION_POINTS = { min: 0, max: 100 } as const;
 /** Effort → points multiplier. */

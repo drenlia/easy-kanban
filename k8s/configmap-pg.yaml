@@ -51,3 +51,14 @@ data:
   # RUNNER_TOKEN is injected from Secret kanban-runner-secret (not stored here)
   AI_RUNNER_URL: "http://kanban-runner:8080"
   AI_CALLBACK_BASE_URL: "http://easy-kanban-service:3222"
+
+  # Platform-managed S3 (optional). When MANAGED_S3_BUCKET is non-empty and
+  # LICENSE_ENABLED=true, new tenants get STORAGE_MANAGED=true + S3 backend.
+  # Credentials come from Secret easy-kanban-managed-s3 (not stored here).
+  # Object keys use tenants/{tenantId}/ unless MANAGED_S3_KEY_PREFIX is set.
+  # SETTINGS_ENCRYPTION_KEY encrypts S3_SECRET_ACCESS_KEY in the tenant settings table.
+  MANAGED_S3_BUCKET: ""
+  MANAGED_S3_REGION: ""
+  MANAGED_S3_ENDPOINT: ""
+  MANAGED_S3_FORCE_PATH_STYLE: "false"
+  MANAGED_S3_KEY_PREFIX: ""

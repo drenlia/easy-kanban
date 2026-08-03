@@ -1203,8 +1203,12 @@
       "sprintAssociation": "Cliquez sur l'icône de calendrier sur une carte de tâche pour l'associer à un sprint. Cela aide à organiser les tâches par périodes et à suivre les progrès dans des sprints spécifiques.",
       "exportMenu": "Dans la vue Liste, les administrateurs peuvent exporter les tâches au format CSV ou XLSX. Utilisez le menu d'exportation dans l'en-tête du tableau pour télécharger les données des tâches pour analyse ou rapport.",
       "columnVisibility": "Dans la vue Liste, vous pouvez afficher ou masquer des colonnes pour personnaliser votre vue. Cliquez sur l'icône de menu dans l'en-tête du tableau pour basculer la visibilité des colonnes.",
+      "adminSystemSettings": "Les Paramètres système regroupent le SSO, la messagerie, le stockage, les téléversements, l'IA et l'envoi des notifications pour cette instance.",
       "adminSso": "Configurez l'authentification Single Sign-On (SSO) à l'aide de Google OAuth. Activez ou désactivez la connexion Google et gérez les identifiants OAuth.",
       "adminMailServer": "Configurez les paramètres du serveur de messagerie pour l'envoi de notifications, d'invitations et d'autres e-mails système. Configurez les détails du serveur SMTP et testez la fonctionnalité e-mail.",
+      "adminStorage": "Choisissez comment les pièces jointes et avatars sont stockés — disque local ou stockage objet compatible S3 — et testez ou migrez entre les backends.",
+      "adminFileUploads": "Définissez les limites de taille et les types de fichiers que les utilisateurs peuvent téléverser.",
+      "adminAi": "Activez l'Agent intégré, connectez un fournisseur LLM et configurez le runner qui exécute les tâches de code.",
       "adminSprintSettings": "Créez et gérez des sprints pour vos projets. Les sprints sont des périodes de planification basées sur le temps utilisées pour organiser les tâches et suivre les progrès. Définissez les noms des sprints, les dates et marquez les sprints actifs.",
       "adminReporting": "Configurez les fonctionnalités de rapport, y compris la gamification, la visibilité du classement et les paramètres d'achievements. Activez ou désactivez diverses capacités de rapport pour votre équipe.",
       "adminLifecycle": "Gérez le cycle de vie des éléments supprimés et archivés. Définissez les périodes de rétention (purge) automatique, restaurez les tâches et tableaux en suppression récupérable, ou purgez-les définitivement lorsqu'ils ne sont plus nécessaires.",
@@ -1230,12 +1234,18 @@
     "guideDone": "Terminé — étape suivante",
     "markDone": "Marquer terminé",
     "skip": "Passer",
-    "reopen": "Rouvrir l'étape",
+    "getStarted": "Commencer",
+    "doItLater": "Plus tard",
+    "closeGuide": "Fermer le guide",
+    "reviewSteps": "Revoir les étapes",
+    "introBadge": "Intro",
+    "outroBadge": "Conclusion",
+    "reopen": "Rouvrir",
     "suggestedHint": "Semble déjà configuré — confirmez avec Marquer terminé quand vous êtes satisfait.",
     "steps": {
       "welcome": {
         "title": "Bienvenue",
-        "description": "Vous êtes le propriétaire de l'instance. Cette liste couvre l'essentiel pour préparer votre espace. Réduisez-la à tout moment et rouvrez-la depuis l'Aide.",
+        "description": "Vous êtes le propriétaire de l'instance. Ce court guide couvre l'essentiel — identité du site, langue, mail, collègues et tableaux — pour préparer l'espace à votre équipe. Vous pouvez le réduire à tout moment et le rouvrir depuis l'Aide.",
         "guide": "Bienvenue dans le guide de configuration."
       },
       "siteIdentity": {
@@ -1258,8 +1268,8 @@
       },
       "mail": {
         "title": "Serveur de messagerie",
-        "description": "Configurez SMTP et envoyez un e-mail de test pour les invitations et réinitialisations. Passez si vous créez les utilisateurs uniquement en local.",
-        "descriptionMultiTenant": "Les locataires démarrent avec l'e-mail géré par la plateforme. Passez d'abord à SMTP personnalisé, puis configurez SMTP et envoyez un e-mail de test pour les invitations et réinitialisations. Passez si vous créez les utilisateurs uniquement en local.",
+        "description": "Sous Admin → Paramètres système → Serveur de messagerie, configurez SMTP et envoyez un e-mail de test pour les invitations et réinitialisations. Passez si vous créez les utilisateurs uniquement en local.",
+        "descriptionMultiTenant": "Les locataires démarrent avec l'e-mail géré par la plateforme. Sous Admin → Paramètres système → Serveur de messagerie, passez d'abord à SMTP personnalisé, puis configurez SMTP et envoyez un e-mail de test pour les invitations et réinitialisations. Passez si vous créez les utilisateurs uniquement en local.",
         "guide": "Remplissez SMTP, testez, puis activez le courrier.",
         "fields": {
           "switchToCustomSmtp": "Cliquez d'abord sur Passer à SMTP personnalisé (confirmer deux fois) pour modifier vos propres paramètres de messagerie.",
@@ -1307,7 +1317,7 @@
       },
       "sprints": {
         "title": "Sprints",
-        "description": "Facultatif : créez des périodes de planification pour les filtres de sprint et le burndown.",
+        "description": "Facultatif : sous Admin → Paramètres du projet → Paramètres du sprint, créez des périodes de planification pour les filtres de sprint et le burndown.",
         "guide": "Créez un sprint quand vous êtes prêt.",
         "fields": {
           "createSprint": "Cliquez sur Créer un sprint pour ajouter une période de planification."
@@ -1315,7 +1325,7 @@
       },
       "sso": {
         "title": "SSO Google",
-        "description": "Facultatif : activez Google OAuth pour que l'équipe se connecte avec Google.",
+        "description": "Facultatif : sous Admin → Paramètres système → Auth. unique, activez Google OAuth pour que l'équipe se connecte avec Google.",
         "guide": "Saisissez les identifiants Google OAuth.",
         "fields": {
           "GOOGLE_CLIENT_ID": "Collez votre Client ID Google OAuth.",
@@ -1333,7 +1343,7 @@
       },
       "reporting": {
         "title": "Rapports",
-        "description": "Facultatif : activez les rapports et la gamification si vous voulez des analyses d'équipe.",
+        "description": "Facultatif : sous Admin → Paramètres du projet → Rapports, activez les rapports et la gamification si vous voulez des analyses d'équipe.",
         "guide": "Activez les rapports si vous le souhaitez.",
         "fields": {
           "REPORTS_ENABLED": "Activez Rapports pour offrir analyses et burndown à l'équipe."

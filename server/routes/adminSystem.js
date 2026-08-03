@@ -8,7 +8,8 @@ import { manualTriggers } from '../jobs/scheduler.js';
 import { getTranslator } from '../utils/i18n.js';
 import { getLicenseManager } from '../config/license.js';
 import { getSystemDiskUsage } from '../utils/diskUsage.js';
-import { getRequestDatabase } from '../middleware/tenantRouting.js';
+import { getRequestDatabase, getTenantId } from '../middleware/tenantRouting.js';
+import notificationService from '../services/notificationService.js';
 // MIGRATED: Import sqlManager
 import { helpers } from '../utils/sqlManager/index.js';
 
@@ -393,6 +394,116 @@ router.get('/email-status', authenticateToken, requireRole(['admin']), async (re
       available: false, 
       error: 'Failed to check email status',
       details: error.message 
+    });
+  }
+});
+
+// Test S3 storage configuration (put/get/delete probe)
+router.post('/test-storage', authenticateToken, requireRole(['admin']), async (req, res) => {
+  try {
+    const db = getRequestDatabase(req);
+    const { testS3Connection } = await import('../services/storage/index.js');
+    const result = await testS3Connection(db, req.body || {});
+
+    // Sync STORAGE_TEST_OK to clients (test probes draft values; does not require Save)
+    try {
+      await notificationService.publish(
+        'settings-updated',
+        {
+          key: 'STORAGE_TEST_OK',
+          value: result.ok ? 'true' : 'false',
+          timestamp: new Date().toISOString()
+        },
+        getTenantId(req)
+      );
+    } catch (publishErr) {
+      console.warn('Failed to publish STORAGE_TEST_OK after storage test:', publishErr?.message);
+    }
+
+    if (!result.ok) {
+      return res.status(400).json({
+        error: result.error || 'S3 storage test failed',
+        errorCode: result.errorCode || 'unknown',
+        technicalDetail: result.technicalDetail || result.error || '',
+        ok: false
+      });
+    }
+    res.json(result);
+  } catch (error) {
+    console.error('❌ Test storage error:', error);
+    res.status(500).json({
+      error: 'Failed to test storage configuration',
+      details: error.message
+    });
+  }
+});
+
+// Start migrate objects between disk and S3 (runs in background; poll status)
+router.post('/migrate-storage', authenticateToken, requireRole(['admin']), async (req, res) => {
+  try {
+    const db = getRequestDatabase(req);
+    const direction = String(req.body?.direction || '');
+    if (direction !== 'disk-to-s3' && direction !== 's3-to-disk') {
+      return res.status(400).json({
+        error: 'direction must be disk-to-s3 or s3-to-disk'
+      });
+    }
+
+    if (direction === 's3-to-disk' && process.env.MULTI_TENANT === 'true') {
+      return res.status(400).json({
+        error: 'Migrating to disk is not supported in multi-tenant mode'
+      });
+    }
+
+    const { startStorageMigration, getRequestStoragePaths } = await import('../services/storage/index.js');
+    const deleteSource = req.body?.deleteSource === true;
+    const result = await startStorageMigration(
+      db,
+      getRequestStoragePaths(req),
+      direction,
+      { deleteSource }
+    );
+
+    res.status(202).json({
+      message: 'Storage migration started',
+      ...result
+    });
+  } catch (error) {
+    console.error('❌ Storage migration error:', error);
+    const status = error.statusCode === 409 ? 409 : 500;
+    res.status(status).json({
+      error: error.message || 'Failed to migrate storage',
+      details: error.message
+    });
+  }
+});
+
+// Poll storage migration progress
+router.get('/migrate-storage/status', authenticateToken, requireRole(['admin']), async (req, res) => {
+  try {
+    const db = getRequestDatabase(req);
+    const { getStorageMigrationStatus } = await import('../services/storage/index.js');
+    const progress = await getStorageMigrationStatus(db);
+    res.json(progress);
+  } catch (error) {
+    console.error('❌ Storage migration status error:', error);
+    res.status(500).json({
+      error: error.message || 'Failed to read migration status'
+    });
+  }
+});
+
+// Compare objects on local disk vs S3 (read-only inventory)
+router.post('/compare-storage', authenticateToken, requireRole(['admin']), async (req, res) => {
+  try {
+    const db = getRequestDatabase(req);
+    const { compareStorageObjects, getRequestStoragePaths } = await import('../services/storage/index.js');
+    const result = await compareStorageObjects(db, getRequestStoragePaths(req));
+    res.json(result);
+  } catch (error) {
+    console.error('❌ Storage compare error:', error);
+    res.status(500).json({
+      error: error.message || 'Failed to compare storage'
     });
   }
 });

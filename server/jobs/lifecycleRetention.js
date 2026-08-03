@@ -6,11 +6,7 @@ import {
   purgeTaskCompletelyAndUpdateStorage,
   purgeBoardCompletely,
 } from '../services/taskPurgeService.js';
-
-function parseRetentionDays(value) {
-  const n = parseInt(String(value ?? '0'), 10);
-  return Number.isFinite(n) && n > 0 ? n : 0;
-}
+import { parseRetentionDays } from '../utils/retentionSettings.js';
 
 /**
  * @param {object} db - tenant database

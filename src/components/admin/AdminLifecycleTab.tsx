@@ -25,6 +25,7 @@ import {
   parseOptionalInt,
 } from '../../utils/adminFieldLimits';
 import { AdminUnsavedHint } from './AdminUnsavedChanges';
+import { AdminSection, adminInputClass } from './AdminSection';
 
 type LifecycleConfirmDialog = {
   title: string;
@@ -499,20 +500,19 @@ const AdminLifecycleTab: React.FC<AdminLifecycleTabProps> = ({
   };
 
   return (
-    <div className="space-y-8" data-tour-id="admin-lifecycle-content">
-      {/* Retention settings */}
-      <section
-        className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-800"
-        data-setting-key="LIFECYCLE_DELETED_RETENTION_DAYS"
+    <div className="space-y-3" data-tour-id="admin-lifecycle-content">
+      <div data-setting-key="LIFECYCLE_DELETED_RETENTION_DAYS">
+      <AdminSection
+        title={t('retentionTitle')}
+        description={t('retentionDescription')}
+        dense
       >
-        <h3 className="mb-1 text-lg font-semibold text-gray-900 dark:text-gray-100">{t('retentionTitle')}</h3>
-        <p className="mb-4 text-sm text-gray-500 dark:text-gray-400">{t('retentionDescription')}</p>
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid gap-3 sm:grid-cols-2">
           <label className="block text-sm">
             <span className="mb-1 block font-medium text-gray-700 dark:text-gray-200">
               {t('deletedRetention')}
             </span>
-            <span className="mb-2 block text-xs text-gray-500 dark:text-gray-400">
+            <span className="mb-1.5 block text-xs text-gray-500 dark:text-gray-400 leading-snug">
               {t('deletedRetentionHint')}
             </span>
             <div className="flex gap-2">
@@ -531,13 +531,13 @@ const AdminLifecycleTab: React.FC<AdminLifecycleTabProps> = ({
                     )
                   )
                 }
-                className={`w-28 rounded-md border border-gray-300 px-3 py-2 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 ${ADMIN_NUMERIC_INPUT_CLASS}`}
+                className={`w-28 ${adminInputClass} ${ADMIN_NUMERIC_INPUT_CLASS}`}
               />
               <button
                 type="button"
                 disabled={savingKey === 'LIFECYCLE_DELETED_RETENTION_DAYS'}
                 onClick={() => void saveRetention('LIFECYCLE_DELETED_RETENTION_DAYS', deletedDays)}
-                className="rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                className="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
               >
                 {t('save')}
               </button>
@@ -547,7 +547,7 @@ const AdminLifecycleTab: React.FC<AdminLifecycleTabProps> = ({
             <span className="mb-1 block font-medium text-gray-700 dark:text-gray-200">
               {t('archivedRetention')}
             </span>
-            <span className="mb-2 block text-xs text-gray-500 dark:text-gray-400">
+            <span className="mb-1.5 block text-xs text-gray-500 dark:text-gray-400 leading-snug">
               {t('archivedRetentionHint')}
             </span>
             <div className="flex gap-2">
@@ -566,45 +566,44 @@ const AdminLifecycleTab: React.FC<AdminLifecycleTabProps> = ({
                     )
                   )
                 }
-                className={`w-28 rounded-md border border-gray-300 px-3 py-2 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 ${ADMIN_NUMERIC_INPUT_CLASS}`}
+                className={`w-28 ${adminInputClass} ${ADMIN_NUMERIC_INPUT_CLASS}`}
               />
               <button
                 type="button"
                 disabled={savingKey === 'LIFECYCLE_ARCHIVED_RETENTION_DAYS'}
                 onClick={() => void saveRetention('LIFECYCLE_ARCHIVED_RETENTION_DAYS', archivedDays)}
-                className="rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                className="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
               >
                 {t('save')}
               </button>
             </div>
           </label>
         </div>
-        <div className="mt-3">
-          <AdminUnsavedHint show={retentionDirty} />
-        </div>
-      </section>
+        <AdminUnsavedHint show={retentionDirty} />
+      </AdminSection>
+      </div>
 
-      {/* Deleted tasks */}
-      <section className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-800">
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
-              {t('deletedTasksTitle')}
-              {!autoDeleteEnabled && (
-                <span className="ml-2 text-sm font-normal text-gray-500 dark:text-gray-400">
-                  {t('noAutoDeleteSet')}
-                </span>
-              )}
-            </h3>
-            <p className="text-sm text-gray-500 dark:text-gray-400">{t('deletedTasksDescription')}</p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
+      <AdminSection
+        title={
+          <>
+            {t('deletedTasksTitle')}
+            {!autoDeleteEnabled && (
+              <span className="ml-2 text-xs font-normal text-gray-500 dark:text-gray-400">
+                {t('noAutoDeleteSet')}
+              </span>
+            )}
+          </>
+        }
+        description={t('deletedTasksDescription')}
+        dense
+      >
+        <div className="mb-3 flex flex-wrap items-center gap-2">
             <input
               type="search"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder={t('searchPlaceholder')}
-              className="rounded-md border border-gray-300 px-3 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+              className={`flex-1 min-w-[12rem] ${adminInputClass}`}
             />
             <button
               type="button"
@@ -632,7 +631,6 @@ const AdminLifecycleTab: React.FC<AdminLifecycleTabProps> = ({
               <Trash2 size={14} />
               {t('purgeSelected')}
             </button>
-          </div>
         </div>
 
         {boardChips.length > 0 && (
@@ -749,30 +747,29 @@ const AdminLifecycleTab: React.FC<AdminLifecycleTabProps> = ({
             </tbody>
           </table>
         </div>
-      </section>
+      </AdminSection>
 
-      {/* Deleted boards */}
-      <section className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-800">
-        <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h3 className="mb-1 text-lg font-semibold text-gray-900 dark:text-gray-100">
-              {t('deletedBoardsTitle')}
-              {!autoDeleteEnabled && (
-                <span className="ml-2 text-sm font-normal text-gray-500 dark:text-gray-400">
-                  {t('noAutoDeleteSet')}
-                </span>
-              )}
-            </h3>
-            <p className="text-sm text-gray-500 dark:text-gray-400">
-              <Trans
-                t={t}
-                i18nKey="deletedBoardsDescription"
-                components={{
-                  boldItalic: <strong className="italic font-semibold" />,
-                }}
-              />
-            </p>
-          </div>
+      <AdminSection
+        title={
+          <>
+            {t('deletedBoardsTitle')}
+            {!autoDeleteEnabled && (
+              <span className="ml-2 text-xs font-normal text-gray-500 dark:text-gray-400">
+                {t('noAutoDeleteSet')}
+              </span>
+            )}
+          </>
+        }
+        description={
+          <Trans
+            t={t}
+            i18nKey="deletedBoardsDescription"
+            components={{
+              boldItalic: <strong className="italic font-semibold" />,
+            }}
+          />
+        }
+        headerRight={
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
@@ -795,8 +792,9 @@ const AdminLifecycleTab: React.FC<AdminLifecycleTabProps> = ({
               {selectedDeletedBoardIds.size > 0 ? ` (${selectedDeletedBoardIds.size})` : ''}
             </button>
           </div>
-        </div>
-
+        }
+        dense
+      >
         {boards.length === 0 ? (
           <p className="text-sm text-gray-500 dark:text-gray-400">{t('noDeletedBoards')}</p>
         ) : (
@@ -891,7 +889,7 @@ const AdminLifecycleTab: React.FC<AdminLifecycleTabProps> = ({
             </table>
           </div>
         )}
-      </section>
+      </AdminSection>
 
       {confirmDialog &&
         createPortal(

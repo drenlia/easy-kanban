@@ -1,5 +1,6 @@
 import { isValidAction } from '../constants/activityActions.js';
 import notificationService from './notificationService.js';
+import { notifyTaskActivity, notifyCommentActivity } from './taskEmailNotificationService.js';
 import { getBilingualTranslation, t } from '../utils/i18n.js';
 import { activity as activityQueries } from '../utils/sqlManager/index.js';
 
@@ -346,23 +347,14 @@ export const logTaskActivity = async (userId, action, taskId, details, additiona
       };
     }
 
-    // Append project and task identifiers (always enabled) - same for both languages
-    // CRITICAL: Always append at the very end, and remove any existing reference to avoid duplicates
-    if (projectIdentifier || taskTicket) {
-      const identifiers = [];
-      if (projectIdentifier) identifiers.push(projectIdentifier);
-      if (taskTicket) identifiers.push(taskTicket);
-      if (identifiers.length > 0) {
-        const suffix = ` (${identifiers.join('/')})`;
-        
-        // Remove any existing project/task reference pattern from the end of the message
-        // Pattern: (PROJ-XXXXX/TASK-XXXXX) or similar
-        const refPattern = /\s*\([^)]*\/[^)]*\)\s*$/;
-        
-        // Append the reference at the very end (after removing any existing one)
-        enhancedDetailsBilingual.en = enhancedDetailsBilingual.en.replace(refPattern, '') + suffix;
-        enhancedDetailsBilingual.fr = enhancedDetailsBilingual.fr.replace(refPattern, '') + suffix;
-      }
+    // Append project identifier after the board mention (task ticket already appears via taskRef)
+    // e.g. ... in board "Security" (PROJ-00008) — not (PROJ-00008/TASK-00383)
+    if (projectIdentifier) {
+      const suffix = ` (${projectIdentifier})`;
+      // Strip prior trailing (PROJ…), (PROJ…/TASK…), or similar identifier suffixes
+      const refPattern = /\s*\([A-Za-z]+-\d+(?:\/[A-Za-z]+-\d+)?\)\s*$/;
+      enhancedDetailsBilingual.en = enhancedDetailsBilingual.en.replace(refPattern, '') + suffix;
+      enhancedDetailsBilingual.fr = enhancedDetailsBilingual.fr.replace(refPattern, '') + suffix;
     }
     
     // Convert to JSON string for storage
@@ -400,27 +392,24 @@ export const logTaskActivity = async (userId, action, taskId, details, additiona
       console.warn('Failed to publish activity update:', error.message);
     }
     
-    // Send notification email in the background (fire-and-forget)
-    // This improves UX by not blocking the API response while emails are being sent
-    // Note: Email notification service (getNotificationService) is not yet implemented
-    // TODO: Implement email notification service when needed
-    // try {
-    //   const emailNotificationService = getNotificationService();
-    //   if (emailNotificationService) {
-    //     emailNotificationService.sendTaskNotification({
-    //       userId,
-    //       action,
-    //       taskId,
-    //       details: enhancedDetails,
-    //       oldValue: additionalData.oldValue,
-    //       newValue: additionalData.newValue
-    //     }).catch(notificationError => {
-    //       console.error('❌ Error sending notification:', notificationError);
-    //     });
-    //   }
-    // } catch (error) {
-    //   // Email notification service not available - silently continue
-    // }
+    // Task activity emails (fire-and-forget; mail gate inside orchestrator)
+    const emailDb = additionalData.db || database;
+    const emailTenantId = additionalData.tenantId || null;
+    notifyTaskActivity(
+      emailDb,
+      {
+        userId,
+        action,
+        taskId,
+        details: enhancedDetails,
+        oldValue: additionalData.oldValue,
+        newValue: additionalData.newValue,
+        changedField: additionalData.changedField || null,
+      },
+      emailTenantId
+    ).catch((notificationError) => {
+      console.error('❌ Error sending task notification email:', notificationError);
+    });
     
   } catch (error) {
     console.error('❌ Error logging activity:', error);
@@ -875,15 +864,11 @@ export const logCommentActivity = async (userId, action, commentId, taskId, deta
       // MIGRATED: Use SQL Manager
       const taskDetails = await activityQueries.getTaskDetailsForActivity(database, taskId);
       
-      if (taskDetails && (taskDetails.project || taskDetails.ticket)) {
-        const identifiers = [];
-        if (taskDetails.project) identifiers.push(taskDetails.project);
-        if (taskDetails.ticket) identifiers.push(taskDetails.ticket);
-        if (identifiers.length > 0) {
-          const suffix = ` (${identifiers.join('/')})`;
-          enhancedDetailsBilingual.en += suffix;
-          enhancedDetailsBilingual.fr += suffix;
-        }
+      if (taskDetails?.project) {
+        // Board context → project id only (task ticket already in taskRef)
+        const suffix = ` (${taskDetails.project})`;
+        enhancedDetailsBilingual.en += suffix;
+        enhancedDetailsBilingual.fr += suffix;
       }
     } catch (prefixError) {
       console.warn('Failed to get project/task identifiers for comment activity:', prefixError.message);
@@ -927,25 +912,21 @@ export const logCommentActivity = async (userId, action, commentId, taskId, deta
       console.warn('Failed to publish comment activity update:', error.message);
     }
     
-    // Send notification email for comment activities in the background (fire-and-forget)
-    // This improves UX by not blocking the API response while emails are being sent
-    // Note: Email notification service (getNotificationService) is not yet implemented
-    // TODO: Implement email notification service when needed
-    // try {
-    //   const emailNotificationService = getNotificationService();
-    //   if (emailNotificationService) {
-    //     emailNotificationService.sendCommentNotification({
-    //       userId,
-    //       action,
-    //       taskId,
-    //       commentContent: additionalData.commentContent
-    //     }).catch(notificationError => {
-    //       console.error('❌ Error sending comment notification:', notificationError);
-    //     });
-    //   }
-    // } catch (error) {
-    //   // Email notification service not available - silently continue
-    // }
+    // Comment emails (fire-and-forget; mail gate inside orchestrator)
+    const emailDb = additionalData.db || database;
+    const emailTenantId = additionalData.tenantId || null;
+    notifyCommentActivity(
+      emailDb,
+      {
+        userId,
+        action,
+        taskId,
+        commentContent: additionalData.commentContent,
+      },
+      emailTenantId
+    ).catch((notificationError) => {
+      console.error('❌ Error sending comment notification email:', notificationError);
+    });
     
   } catch (error) {
     console.error('Failed to log comment activity:', error);

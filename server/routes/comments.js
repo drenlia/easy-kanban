@@ -1,8 +1,4 @@
 import express from 'express';
-import path from 'path';
-import { fileURLToPath } from 'url';
-import { dirname } from 'path';
-import fs from 'fs';
 import { authenticateToken } from '../middleware/auth.js';
 import { wrapQuery } from '../utils/queryLogger.js';
 import { updateStorageUsage } from '../utils/storageUtils.js';
@@ -13,9 +9,9 @@ import notificationService from '../services/notificationService.js';
 import { getTenantId, getRequestDatabase } from '../middleware/tenantRouting.js';
 // MIGRATED: Import sqlManager
 import { comments as commentQueries, helpers, tasks as taskQueries, files as fileQueries } from '../utils/sqlManager/index.js';
+import { deleteObject, getRequestStoragePaths, filenameFromPublicUrl } from '../services/storage/index.js';
 
 const router = express.Router();
-const __dirname = dirname(fileURLToPath(import.meta.url));
 
 // Create comment endpoint
 router.post('/', authenticateToken, async (req, res) => {
@@ -243,34 +239,14 @@ router.delete('/:id', authenticateToken, async (req, res) => {
     // MIGRATED: Get attachments before deleting the comment using sqlManager
     const attachments = await helpers.getAttachmentsForComment(db, id);
 
-    // Get tenant-specific storage paths (set by tenant routing middleware)
-    const getStoragePaths = (req) => {
-      // Check req.locals first (multi-tenant mode) then req.app.locals (single-tenant mode)
-      if (req.locals?.tenantStoragePaths) {
-        return req.locals.tenantStoragePaths;
-      }
-      if (req.app.locals?.tenantStoragePaths) {
-        return req.app.locals.tenantStoragePaths;
-      }
-      // Fallback to base paths (single-tenant mode)
-      const basePath = process.env.DOCKER_ENV === 'true'
-        ? '/app/server'
-        : dirname(__dirname);
-      return {
-        attachments: path.join(basePath, 'attachments'),
-        avatars: path.join(basePath, 'avatars')
-      };
-    };
+    const storagePaths = getRequestStoragePaths(req);
     
-    const storagePaths = getStoragePaths(req);
-    
-    // Delete the files from disk
+    // Delete attachment objects (disk and/or S3)
     for (const attachment of attachments) {
-      // Extract filename from URL (e.g., "/attachments/filename.ext" or "/api/files/attachments/filename.ext" -> "filename.ext")
-      const filename = attachment.url.replace('/attachments/', '').replace('/api/files/attachments/', '');
-      const filePath = path.join(storagePaths.attachments, filename);
+      const filename = filenameFromPublicUrl(attachment.url, 'attachments');
+      if (!filename) continue;
       try {
-        await fs.promises.unlink(filePath);
+        await deleteObject(db, storagePaths, 'attachments', filename);
         console.log(`✅ Deleted file: ${filename}`);
       } catch (error) {
         console.error('Error deleting file:', error);

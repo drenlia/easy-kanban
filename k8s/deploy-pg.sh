@@ -215,6 +215,31 @@ generate_manifests() {
         "${SCRIPT_DIR}/settings-crypto-secret-pg.yaml" > "${TEMP_DIR}/settings-crypto-secret.yaml"
     kubectl apply -f "${TEMP_DIR}/settings-crypto-secret.yaml"
 
+    # Platform-managed S3 credentials (optional; preserve existing values on redeploy)
+    echo "   🔐 Ensuring easy-kanban-managed-s3 Secret..."
+    MANAGED_S3_ACCESS_KEY_ID="${MANAGED_S3_ACCESS_KEY_ID:-MANAGED_S3_ACCESS_KEY_ID_PLACEHOLDER}"
+    MANAGED_S3_SECRET_ACCESS_KEY="${MANAGED_S3_SECRET_ACCESS_KEY:-MANAGED_S3_SECRET_ACCESS_KEY_PLACEHOLDER}"
+    if kubectl get secret easy-kanban-managed-s3 -n "${NAMESPACE}" &>/dev/null; then
+        EXISTING_S3_AK=$(kubectl get secret easy-kanban-managed-s3 -n "${NAMESPACE}" -o jsonpath='{.data.MANAGED_S3_ACCESS_KEY_ID}' 2>/dev/null | base64 -d 2>/dev/null || true)
+        EXISTING_S3_SK=$(kubectl get secret easy-kanban-managed-s3 -n "${NAMESPACE}" -o jsonpath='{.data.MANAGED_S3_SECRET_ACCESS_KEY}' 2>/dev/null | base64 -d 2>/dev/null || true)
+        if [ -n "${EXISTING_S3_AK}" ] && [ "${EXISTING_S3_AK}" != "MANAGED_S3_ACCESS_KEY_ID_PLACEHOLDER" ]; then
+            MANAGED_S3_ACCESS_KEY_ID="${EXISTING_S3_AK}"
+            echo "   ✅ Reusing existing MANAGED_S3_ACCESS_KEY_ID"
+        fi
+        if [ -n "${EXISTING_S3_SK}" ] && [ "${EXISTING_S3_SK}" != "MANAGED_S3_SECRET_ACCESS_KEY_PLACEHOLDER" ]; then
+            MANAGED_S3_SECRET_ACCESS_KEY="${EXISTING_S3_SK}"
+            echo "   ✅ Reusing existing MANAGED_S3_SECRET_ACCESS_KEY"
+        fi
+    fi
+    # Escape sed special chars in secret values (& and \)
+    MANAGED_S3_AK_ESC=$(printf '%s' "${MANAGED_S3_ACCESS_KEY_ID}" | sed -e 's/[\/&]/\\&/g')
+    MANAGED_S3_SK_ESC=$(printf '%s' "${MANAGED_S3_SECRET_ACCESS_KEY}" | sed -e 's/[\/&]/\\&/g')
+    sed -e "s/easy-kanban-pg/${NAMESPACE}/g" \
+        -e "s/MANAGED_S3_ACCESS_KEY_ID_PLACEHOLDER/${MANAGED_S3_AK_ESC}/g" \
+        -e "s/MANAGED_S3_SECRET_ACCESS_KEY_PLACEHOLDER/${MANAGED_S3_SK_ESC}/g" \
+        "${SCRIPT_DIR}/managed-s3-secret-pg.yaml" > "${TEMP_DIR}/managed-s3-secret.yaml"
+    kubectl apply -f "${TEMP_DIR}/managed-s3-secret.yaml"
+
     if ! kubectl get deployment kanban-runner -n "${NAMESPACE}" &>/dev/null; then
         echo "   🤖 Deploying kanban-runner..."
         sed -e "s/easy-kanban-pg/${NAMESPACE}/g" \

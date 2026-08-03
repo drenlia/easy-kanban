@@ -20,6 +20,9 @@ export type OwnerSetupStepId = (typeof OWNER_SETUP_STEP_IDS)[number];
 
 export type OwnerSetupManualStatus = 'todo' | 'done' | 'skipped';
 
+/** Intro/outro are bookends — not counted in setup progress. */
+export type OwnerSetupStepKind = 'task' | 'intro' | 'outro';
+
 /** When to include a Guide me field (default: always). */
 export type OwnerSetupGuideWhen =
   | 'always'
@@ -98,7 +101,9 @@ export function ownerSetupGuideSelectors(
 export interface OwnerSetupStepDef {
   id: OwnerSetupStepId;
   optional: boolean;
-  /** Admin hash tab to open, e.g. site-settings */
+  /** Intro/outro bookends vs real configuration tasks (default: task). */
+  kind?: OwnerSetupStepKind;
+  /** Admin tab / subtab id for navigation (legacy ids map via adminHashForTabId) */
   adminTab?: string;
   /** Switch to kanban before spotlight */
   goKanban?: boolean;
@@ -106,6 +111,28 @@ export interface OwnerSetupStepDef {
   tourTarget?: string;
   /** Fields for Guide me: one instruction list + simultaneous highlights */
   guideFields?: OwnerSetupGuideField[];
+}
+
+export function getOwnerSetupStepKind(step: OwnerSetupStepDef | OwnerSetupStepId): OwnerSetupStepKind {
+  if (typeof step === 'string') {
+    const def = OWNER_SETUP_STEPS.find((s) => s.id === step);
+    return def?.kind ?? 'task';
+  }
+  return step.kind ?? 'task';
+}
+
+/** Real setup steps counted in progress (excludes welcome intro / finish outro). */
+export function isOwnerSetupProgressStep(step: OwnerSetupStepDef): boolean {
+  return getOwnerSetupStepKind(step) === 'task';
+}
+
+export function ownerSetupProgressStats(progress: OwnerSetupProgress): {
+  done: number;
+  total: number;
+} {
+  const counted = OWNER_SETUP_STEPS.filter(isOwnerSetupProgressStep);
+  const done = counted.filter((s) => isStepResolved(progress, s.id)).length;
+  return { done, total: counted.length };
 }
 
 const OWNER_SETUP_HIGHLIGHT_CLASS = 'owner-setup-field-highlight';
@@ -188,7 +215,7 @@ export function applyOwnerSetupFieldHighlights(
 }
 
 export const OWNER_SETUP_STEPS: OwnerSetupStepDef[] = [
-  { id: 'welcome', optional: false },
+  { id: 'welcome', optional: false, kind: 'intro' },
   {
     id: 'siteIdentity',
     optional: false,
@@ -322,7 +349,7 @@ export const OWNER_SETUP_STEPS: OwnerSetupStepDef[] = [
       { selector: '[data-setting-key="REPORTS_ENABLED"]', fieldKey: 'REPORTS_ENABLED' },
     ],
   },
-  { id: 'finish', optional: false },
+  { id: 'finish', optional: false, kind: 'outro' },
 ];
 
 export interface OwnerSetupProgress {
@@ -554,7 +581,9 @@ export function firstIncompleteStepId(progress: OwnerSetupProgress): OwnerSetupS
 }
 
 export function coreStepsComplete(progress: OwnerSetupProgress): boolean {
-  return OWNER_SETUP_STEPS.filter((s) => !s.optional).every((s) => isStepResolved(progress, s.id));
+  return OWNER_SETUP_STEPS.filter((s) => !s.optional && isOwnerSetupProgressStep(s)).every((s) =>
+    isStepResolved(progress, s.id)
+  );
 }
 
 export function getStepDef(stepId: OwnerSetupStepId): OwnerSetupStepDef {
