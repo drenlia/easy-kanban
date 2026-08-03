@@ -203,4 +203,4 @@ export const verifyToken = (token) => {
   return jwt.verify(token, JWT_SECRET);
 };
 
-export { JWT_SECRET, JWT_EXPIRES_IN };
+export { JWT_SECRET, JWT_EXPIRES_IN, isUserActive };

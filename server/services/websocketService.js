@@ -4,7 +4,7 @@ import { createClient } from 'redis';
 import jwt from 'jsonwebtoken';
 import redisService from './redisService.js';
 import postgresNotificationService from './postgresNotificationService.js';
-import { JWT_SECRET } from '../middleware/auth.js';
+import { JWT_SECRET, isUserActive } from '../middleware/auth.js';
 import { extractTenantId, getTenantDatabase } from '../middleware/tenantRouting.js';
 import { wrapQuery } from '../utils/queryLogger.js';
 import { wsVerboseLog } from '../utils/serverDebug.js';
@@ -154,9 +154,16 @@ class WebSocketService {
             return next(new Error('Authentication failed'));
           }
 
-          const userInDb = await wrapQuery(db.prepare('SELECT id FROM users WHERE id = ?'), 'SELECT').get(decoded.id);
+          const userInDb = await wrapQuery(
+            db.prepare('SELECT id, email, is_active FROM users WHERE id = ?'),
+            'SELECT'
+          ).get(decoded.id);
           if (!userInDb) {
             console.log(`❌ WebSocket auth failed: User ${decoded.email} (${decoded.id}) does not exist in database`);
+            return next(new Error('Invalid token'));
+          }
+          if (!isUserActive(userInDb.is_active)) {
+            console.log(`❌ WebSocket auth failed: User ${userInDb.email} (${userInDb.id}) is inactive`);
             return next(new Error('Invalid token'));
           }
         } catch (dbError) {

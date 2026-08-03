@@ -1254,6 +1254,7 @@ function AppContent() {
     websocketClient.onTagCreated(settingsWebSocket.handleTagCreated);
     websocketClient.onTagUpdated(settingsWebSocket.handleTagUpdated);
     websocketClient.onTagDeleted(settingsWebSocket.handleTagDeleted);
+    websocketClient.onTagDeleted(taskWebSocket.handleTagDeleted);
     websocketClient.onPriorityCreated(settingsWebSocket.handlePriorityCreated);
     websocketClient.onPriorityUpdated(settingsWebSocket.handlePriorityUpdated);
     websocketClient.onPriorityDeleted(settingsWebSocket.handlePriorityDeleted);
@@ -1304,6 +1305,7 @@ function AppContent() {
       websocketClient.offTagCreated(settingsWebSocket.handleTagCreated);
       websocketClient.offTagUpdated(settingsWebSocket.handleTagUpdated);
       websocketClient.offTagDeleted(settingsWebSocket.handleTagDeleted);
+      websocketClient.offTagDeleted(taskWebSocket.handleTagDeleted);
       websocketClient.offPriorityCreated(settingsWebSocket.handlePriorityCreated);
       websocketClient.offPriorityUpdated(settingsWebSocket.handlePriorityUpdated);
       websocketClient.offPriorityDeleted(settingsWebSocket.handlePriorityDeleted);

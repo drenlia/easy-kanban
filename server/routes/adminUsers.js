@@ -14,6 +14,7 @@ import { getTenantId, getRequestDatabase } from '../middleware/tenantRouting.js'
 // MIGRATED: Import sqlManager modules
 import { users as userQueries, tasks as taskQueries, adminUsers as adminUserQueries, auth as authQueries, helpers } from '../utils/sqlManager/index.js';
 import { commitUploadedFile, getRequestStoragePaths } from '../services/storage/index.js';
+import { deleteAvatarFileIfUnused } from '../utils/avatarCleanup.js';
 
 const router = express.Router();
 
@@ -830,6 +831,13 @@ router.delete("/:userId", authenticateToken, requireRole(["admin"]), async (req,
         
         console.log(`🗑️ User deleted successfully: ${user.email}`);
     });
+
+    // Remove avatar object after the user row is gone (so ref-check sees no owner)
+    await deleteAvatarFileIfUnused(
+      db,
+      getRequestStoragePaths(req),
+      user.avatar_path || user.avatarPath
+    );
     
     // Publish task-updated events for all reassigned tasks (for real-time updates)
     if (tasksToReassign.length > 0) {
@@ -944,10 +952,15 @@ router.post('/:userId/avatar', authenticateToken, requireRole(['admin']), avatar
   }
 
   try {
+    const previous = await userQueries.getUserByIdForAdmin(db, userId);
+    const previousPath = previous?.avatar_path || previous?.avatarPath || null;
+
     await commitUploadedFile(db, getRequestStoragePaths(req), 'avatars', req.file);
     const avatarPath = `/avatars/${req.file.filename}`;
     // MIGRATED: Update user's avatar_path using sqlManager
     await userQueries.updateUserAvatar(db, userId, avatarPath);
+
+    await deleteAvatarFileIfUnused(db, getRequestStoragePaths(req), previousPath);
     
     // MIGRATED: Get the member ID using sqlManager
     const member = await userQueries.getMemberByUserId(db, userId);
@@ -980,8 +993,13 @@ router.delete("/:userId/avatar", authenticateToken, requireRole(["admin"]), asyn
   const db = getRequestDatabase(req);
   
   try {
+    const previous = await userQueries.getUserByIdForAdmin(db, userId);
+    const previousPath = previous?.avatar_path || previous?.avatarPath || null;
+
     // MIGRATED: Clear avatar_path using sqlManager
     await userQueries.updateUserAvatar(db, userId, null);
+
+    await deleteAvatarFileIfUnused(db, getRequestStoragePaths(req), previousPath);
     
     // MIGRATED: Get the member ID using sqlManager
     const member = await userQueries.getMemberByUserId(db, userId);

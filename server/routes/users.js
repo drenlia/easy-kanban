@@ -10,6 +10,7 @@ import { getTranslator } from '../utils/i18n.js';
 import { getTenantId, getRequestDatabase } from '../middleware/tenantRouting.js';
 import { users as userQueries, tasks as taskQueries, adminUsers as adminUserQueries, settings as settingsQueries } from '../utils/sqlManager/index.js';
 import { commitUploadedFile, getRequestStoragePaths } from '../services/storage/index.js';
+import { deleteAvatarFileIfUnused } from '../utils/avatarCleanup.js';
 
 const SYSTEM_USER_ID = '00000000-0000-0000-0000-000000000000';
 const SYSTEM_MEMBER_ID = '00000000-0000-0000-0000-000000000001';
@@ -79,10 +80,15 @@ router.post('/avatar', authenticateToken, avatarUpload.single('avatar'), async (
 
   try {
     const db = getRequestDatabase(req);
+    const previous = await userQueries.getUserByIdForAdmin(db, req.user.id);
+    const previousPath = previous?.avatar_path || previous?.avatarPath || null;
+
     await commitUploadedFile(db, getRequestStoragePaths(req), 'avatars', req.file);
     const avatarPath = `/avatars/${req.file.filename}`;
     // MIGRATED: Update user avatar using sqlManager
     await userQueries.updateUserAvatar(db, req.user.id, avatarPath);
+
+    await deleteAvatarFileIfUnused(db, getRequestStoragePaths(req), previousPath);
     
     // MIGRATED: Get the member ID using sqlManager
     const member = await userQueries.getMemberByUserId(db, req.user.id);
@@ -118,8 +124,13 @@ router.post('/avatar', authenticateToken, avatarUpload.single('avatar'), async (
 router.delete('/avatar', authenticateToken, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
+    const previous = await userQueries.getUserByIdForAdmin(db, req.user.id);
+    const previousPath = previous?.avatar_path || previous?.avatarPath || null;
+
     // MIGRATED: Update user avatar using sqlManager
     await userQueries.updateUserAvatar(db, req.user.id, null);
+
+    await deleteAvatarFileIfUnused(db, getRequestStoragePaths(req), previousPath);
     
     // MIGRATED: Get the member ID using sqlManager
     const member = await userQueries.getMemberByUserId(db, req.user.id);
@@ -291,6 +302,12 @@ router.delete("/account", authenticateToken, async (req, res) => {
       await adminUserQueries.deleteUser(db, userId);
       console.log(`🗑️ Account deleted successfully for user: ${user.email}`);
     });
+
+    await deleteAvatarFileIfUnused(
+      db,
+      getRequestStoragePaths(req),
+      user.avatar_path || user.avatarPath
+    );
 
     if (tasksToReassign.length > 0) {
       const systemMember = await userQueries.getMemberById(db, SYSTEM_MEMBER_ID);

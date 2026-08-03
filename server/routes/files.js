@@ -1,10 +1,10 @@
 import express from 'express';
 import path from 'path';
 import jwt from 'jsonwebtoken';
-import { authenticateToken, JWT_SECRET } from '../middleware/auth.js';
+import { authenticateToken, JWT_SECRET, isUserActive } from '../middleware/auth.js';
 import { updateStorageUsage } from '../utils/storageUtils.js';
 import notificationService from '../services/notificationService.js';
-import { isMultiTenant, getRequestDatabase } from '../middleware/tenantRouting.js';
+import { getRequestDatabase } from '../middleware/tenantRouting.js';
 import { files as fileQueries, tasks as taskQueries } from '../utils/sqlManager/index.js';
 import {
   getObject,
@@ -35,6 +35,39 @@ function setFileResponseHeaders(res, filename, contentType) {
   }
 }
 
+/**
+ * Verify media query JWT: signature + user exists + is_active (single- and multi-tenant).
+ * @returns {{ ok: true, decoded: object, db: object } | { ok: false, status: number, error: string }}
+ */
+async function assertActiveFileUser(req, token) {
+  let decoded;
+  try {
+    decoded = jwt.verify(token, JWT_SECRET);
+  } catch {
+    return { ok: false, status: 401, error: 'Invalid token' };
+  }
+
+  const db = getRequestDatabase(req);
+  if (!db) {
+    return { ok: false, status: 500, error: 'Database not available' };
+  }
+
+  try {
+    const userInDb = await fileQueries.getUserByIdForFileAccess(db, decoded.id);
+    if (!userInDb) {
+      return { ok: false, status: 401, error: 'Invalid token for this tenant' };
+    }
+    if (!isUserActive(userInDb.is_active)) {
+      return { ok: false, status: 401, error: 'Invalid token' };
+    }
+  } catch (dbError) {
+    console.error('❌ Error checking user for file access:', dbError);
+    return { ok: false, status: 401, error: 'Authentication failed' };
+  }
+
+  return { ok: true, decoded, db };
+}
+
 // Serve attachment files (tenant-aware in multi-tenant mode)
 router.get('/attachments/:filename', async (req, res) => {
   const { filename } = req.params;
@@ -45,30 +78,14 @@ router.get('/attachments/:filename', async (req, res) => {
   }
   
   try {
-    const decoded = jwt.verify(token, JWT_SECRET);
-    
-    const db = getRequestDatabase(req);
-    if (isMultiTenant() && db) {
-      try {
-        const userInDb = await fileQueries.getUserByIdForFileAccess(db, decoded.id);
-        
-        if (!userInDb) {
-          console.log(`❌ File access denied: User ${decoded.email} (${decoded.id}) does not exist in current tenant's database`);
-          return res.status(401).json({ error: 'Invalid token for this tenant' });
-        }
-      } catch (dbError) {
-        console.error('❌ Error checking user in tenant database for file access:', dbError);
-        return res.status(401).json({ error: 'Authentication failed' });
-      }
-    }
-    
-    if (!db) {
-      return res.status(500).json({ error: 'Database not available' });
+    const auth = await assertActiveFileUser(req, token);
+    if (!auth.ok) {
+      return res.status(auth.status).json({ error: auth.error });
     }
 
     const storagePaths = getRequestStoragePaths(req);
     const safeName = path.basename(filename);
-    const obj = await getObject(db, storagePaths, 'attachments', safeName);
+    const obj = await getObject(auth.db, storagePaths, 'attachments', safeName);
     
     if (!obj) {
       return res.status(404).json({ error: 'File not found' });
@@ -92,30 +109,14 @@ router.get('/avatars/:filename', async (req, res) => {
   }
   
   try {
-    const decoded = jwt.verify(token, JWT_SECRET);
-    
-    const db = getRequestDatabase(req);
-    if (isMultiTenant() && db) {
-      try {
-        const userInDb = await fileQueries.getUserByIdForFileAccess(db, decoded.id);
-        
-        if (!userInDb) {
-          console.log(`❌ File access denied: User ${decoded.email} (${decoded.id}) does not exist in current tenant's database`);
-          return res.status(401).json({ error: 'Invalid token for this tenant' });
-        }
-      } catch (dbError) {
-        console.error('❌ Error checking user in tenant database for file access:', dbError);
-        return res.status(401).json({ error: 'Authentication failed' });
-      }
-    }
-    
-    if (!db) {
-      return res.status(500).json({ error: 'Database not available' });
+    const auth = await assertActiveFileUser(req, token);
+    if (!auth.ok) {
+      return res.status(auth.status).json({ error: auth.error });
     }
 
     const storagePaths = getRequestStoragePaths(req);
     const safeName = path.basename(filename);
-    const obj = await getObject(db, storagePaths, 'avatars', safeName);
+    const obj = await getObject(auth.db, storagePaths, 'avatars', safeName);
     
     if (!obj) {
       return res.status(404).json({ error: 'File not found' });

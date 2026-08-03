@@ -11,18 +11,25 @@ export function mergeTaskTagsWithLiveData(taskTags: Tag[], availableTags: Tag[])
     return [];
   }
 
-  return taskTags.map(taskTag => {
-    // Find the corresponding live tag data
-    const liveTag = availableTags.find(availableTag => availableTag.id === taskTag.id);
-    
-    if (liveTag) {
-      // Return the live tag data, which has the most up-to-date color and properties
-      return liveTag;
-    }
-    
-    // If no live tag found, return the original task tag as fallback
-    return taskTag;
-  });
+  return taskTags
+    .map(taskTag => {
+      // Find the corresponding live tag data
+      const liveTag = availableTags.find(availableTag => availableTag.id === taskTag.id);
+
+      if (liveTag) {
+        // Return the live tag data, which has the most up-to-date color and properties
+        return liveTag;
+      }
+
+      // Catalog loaded but tag missing (deleted elsewhere) — drop orphan
+      if (availableTags.length > 0) {
+        return null;
+      }
+
+      // Catalog not loaded yet — keep embedded tags until availableTags arrives
+      return taskTag;
+    })
+    .filter((tag): tag is Tag => tag != null);
 }
 
 /**

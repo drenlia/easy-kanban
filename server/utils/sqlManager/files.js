@@ -35,7 +35,7 @@ export async function getAttachmentById(db, attachmentId) {
  */
 export async function getUserByIdForFileAccess(db, userId) {
   const query = `
-    SELECT id FROM users 
+    SELECT id, email, is_active FROM users 
     WHERE id = $1
   `;
   

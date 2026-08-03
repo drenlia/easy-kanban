@@ -814,8 +814,15 @@ router.post('/reload-oauth', authenticateToken, requireRole(['admin']), (req, re
   }
 });
 
-// Test endpoint to verify callback routing (no auth required for testing)
+// Test endpoint to verify callback routing — disabled in production unless ALLOW_TEST_ENDPOINTS=true
 router.get('/test/callback', async (req, res) => {
+  const allowed =
+    process.env.NODE_ENV !== 'production' ||
+    process.env.ALLOW_TEST_ENDPOINTS === 'true';
+  if (!allowed) {
+    return res.status(404).json({ error: 'Not Found' });
+  }
+
   console.log('🧪 [TEST] Callback test endpoint hit!', {
     url: req.url,
     query: req.query,

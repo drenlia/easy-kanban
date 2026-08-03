@@ -214,11 +214,11 @@ export async function getTasksForMember(db, memberId) {
  */
 export async function getUserBasicInfo(db, userId) {
   const query = `
-    SELECT id, email, first_name, last_name 
-    FROM users 
+    SELECT id, email, first_name, last_name, avatar_path
+    FROM users
     WHERE id = $1 AND is_active = true
   `;
-  
+
   const stmt = wrapQuery(db.prepare(query), 'SELECT');
   return await stmt.get(userId);
 }
@@ -351,12 +351,12 @@ export async function getUserWithRoles(db, userId) {
  */
 export async function getUserByIdForAdmin(db, userId) {
   const query = `
-    SELECT 
-      id, email, first_name, last_name, is_active, auth_provider, google_avatar_url
-    FROM users 
+    SELECT
+      id, email, first_name, last_name, is_active, auth_provider, google_avatar_url, avatar_path
+    FROM users
     WHERE id = $1
   `;
-  
+
   const stmt = wrapQuery(db.prepare(query), 'SELECT');
   return await stmt.get(userId);
 }

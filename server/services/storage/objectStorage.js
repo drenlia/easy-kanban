@@ -389,7 +389,9 @@ async function acquireMigrationLock(db, direction) {
 }
 
 /**
- * Collect attachment/avatar filenames to migrate.
+ * Collect attachment/avatar filenames to migrate / compare.
+ * Google SSO users with a live google_avatar_url keep avatar_path only as a UI
+ * fallback — those paths are not part of disk↔S3 inventory (avoids "missing both" noise).
  */
 async function collectMigrationFilenames(db, storagePaths) {
   const attRows = await wrapQuery(
@@ -414,13 +416,36 @@ async function collectMigrationFilenames(db, storagePaths) {
 
   const userRows = await wrapQuery(
     db.prepare(
-      `SELECT avatar_path FROM users WHERE avatar_path IS NOT NULL AND avatar_path <> '' AND avatar_path NOT LIKE 'http%'`
+      `SELECT avatar_path, auth_provider, google_avatar_url
+       FROM users
+       WHERE avatar_path IS NOT NULL AND avatar_path <> '' AND avatar_path NOT LIKE 'http%'`
     ),
     'SELECT'
   ).all();
   const avatarNames = new Set();
+  /** Filenames that exist only as Google SSO display fallbacks — keep on disk, ignore in sync/compare */
+  const googleFallbackNames = new Set();
   for (const row of userRows || []) {
     const name = filenameFromPublicUrl(row.avatar_path, 'avatars');
+    if (!name) continue;
+    if (isGoogleSsoFallbackAvatar(row)) {
+      googleFallbackNames.add(name);
+      continue;
+    }
+    avatarNames.add(name);
+  }
+
+  // Site logos live under /avatars/ and should participate in sync/compare
+  const logoRows = await wrapQuery(
+    db.prepare(
+      `SELECT value FROM settings
+       WHERE key IN ('SITE_LOGO', 'SITE_LOGO_DARK')
+         AND value IS NOT NULL AND value <> '' AND value NOT LIKE 'http%'`
+    ),
+    'SELECT'
+  ).all();
+  for (const row of logoRows || []) {
+    const name = filenameFromPublicUrl(row.value, 'avatars');
     if (name) avatarNames.add(name);
   }
 
@@ -428,7 +453,10 @@ async function collectMigrationFilenames(db, storagePaths) {
   try {
     const files = await fs.promises.readdir(avDir);
     for (const f of files) {
-      if (!f.startsWith('.')) avatarNames.add(f);
+      if (f.startsWith('.')) continue;
+      // On-disk Google fallbacks would otherwise look like "orphan file on disk"
+      if (googleFallbackNames.has(f) && !avatarNames.has(f)) continue;
+      avatarNames.add(f);
     }
   } catch {
     /* ignore */
@@ -635,7 +663,9 @@ export async function getStorageMigrationStatus(db) {
 }
 
 /**
- * @typedef {{ path: string, filename: string, users?: { id: string, email: string, name: string }[] }} CompareItem
+ * @typedef {{ id: string, email: string, name: string }} CompareUser
+ * @typedef {{ id: string, ticket: string, title: string }} CompareTask
+ * @typedef {{ path: string, filename: string, users?: CompareUser[], tasks?: CompareTask[] }} CompareItem
  */
 
 /**
@@ -652,14 +682,26 @@ function emptyCompareBucket() {
 }
 
 /**
- * Map avatar filenames → users that reference them.
+ * Local avatar_path for Google users who already have google_avatar_url is a
+ * display fallback only — not something admins should sync or compare.
+ * @param {{ auth_provider?: string, authProvider?: string, google_avatar_url?: string, googleAvatarUrl?: string }} row
+ */
+function isGoogleSsoFallbackAvatar(row) {
+  const provider = String(row?.auth_provider || row?.authProvider || '').toLowerCase();
+  const googleUrl = row?.google_avatar_url || row?.googleAvatarUrl || '';
+  return provider === 'google' && Boolean(String(googleUrl).trim());
+}
+
+/**
+ * Map avatar filenames → users that reference them (for compare UI details).
+ * Skips Google SSO fallback paths (same rule as collectMigrationFilenames).
  * @param {*} db
  * @returns {Promise<Map<string, { id: string, email: string, name: string }[]>>}
  */
 async function loadAvatarUserIndex(db) {
   const rows = await wrapQuery(
     db.prepare(
-      `SELECT id, email, first_name, last_name, avatar_path
+      `SELECT id, email, first_name, last_name, avatar_path, auth_provider, google_avatar_url
        FROM users
        WHERE avatar_path IS NOT NULL AND avatar_path <> '' AND avatar_path NOT LIKE 'http%'`
     ),
@@ -669,6 +711,7 @@ async function loadAvatarUserIndex(db) {
   /** @type {Map<string, { id: string, email: string, name: string }[]>} */
   const byFilename = new Map();
   for (const row of rows || []) {
+    if (isGoogleSsoFallbackAvatar(row)) continue;
     const filename = filenameFromPublicUrl(row.avatar_path, 'avatars');
     if (!filename) continue;
     const name = [row.first_name, row.last_name].filter(Boolean).join(' ').trim();
@@ -679,6 +722,46 @@ async function loadAvatarUserIndex(db) {
     };
     const list = byFilename.get(filename) || [];
     list.push(entry);
+    byFilename.set(filename, list);
+  }
+  return byFilename;
+}
+
+/**
+ * Map attachment filenames → tasks (direct task attachments + comment attachments).
+ * @param {*} db
+ * @returns {Promise<Map<string, { id: string, ticket: string, title: string }[]>>}
+ */
+async function loadAttachmentTaskIndex(db) {
+  const rows = await wrapQuery(
+    db.prepare(
+      `SELECT
+         a.url,
+         COALESCE(a.taskid, c.taskid) AS task_id,
+         t.ticket,
+         t.title
+       FROM attachments a
+       LEFT JOIN comments c ON c.id = a.commentid
+       LEFT JOIN tasks t ON t.id = COALESCE(a.taskid, c.taskid)
+       WHERE a.url IS NOT NULL AND a.url <> ''`
+    ),
+    'SELECT'
+  ).all();
+
+  /** @type {Map<string, { id: string, ticket: string, title: string }[]>} */
+  const byFilename = new Map();
+  for (const row of rows || []) {
+    const filename = filenameFromPublicUrl(row.url, 'attachments');
+    if (!filename || !row.task_id) continue;
+    const entry = {
+      id: row.task_id,
+      ticket: row.ticket || row.task_id,
+      title: row.title || ''
+    };
+    const list = byFilename.get(filename) || [];
+    if (!list.some((t) => t.id === entry.id)) {
+      list.push(entry);
+    }
     byFilename.set(filename, list);
   }
   return byFilename;
@@ -701,6 +784,7 @@ export async function compareStorageObjects(db, storagePaths) {
     storagePaths
   );
   const avatarUsers = await loadAvatarUserIndex(db);
+  const attachmentTasks = await loadAttachmentTaskIndex(db);
 
   /**
    * @param {'attachments' | 'avatars'} category
@@ -737,6 +821,10 @@ export async function compareStorageObjects(db, storagePaths) {
         if (category === 'avatars') {
           const users = avatarUsers.get(filename);
           if (users?.length) item.users = users;
+        }
+        if (category === 'attachments') {
+          const tasks = attachmentTasks.get(filename);
+          if (tasks?.length) item.tasks = tasks;
         }
         bucket.items[kind].push(item);
       }

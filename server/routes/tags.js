@@ -5,7 +5,7 @@ import { logActivity } from '../services/activityLogger.js';
 import { TAG_ACTIONS } from '../constants/activityActions.js';
 import * as reportingLogger from '../services/reportingLogger.js';
 import notificationService from '../services/notificationService.js';
-import { getRequestDatabase } from '../middleware/tenantRouting.js';
+import { getRequestDatabase, getTenantId } from '../middleware/tenantRouting.js';
 // MIGRATED: Import sqlManager
 import { tags as tagQueries } from '../utils/sqlManager/index.js';
 
@@ -234,10 +234,15 @@ router.get('/usage/batch', authenticateToken, requireRole(['admin']), async (req
 router.delete('/:tagId', authenticateToken, requireRole(['admin']), async (req, res) => {
   const { tagId } = req.params;
   const db = getRequestDatabase(req);
+  const tenantId = getTenantId(req);
+  const parsedTagId = parseInt(tagId, 10);
   
   try {
     // MIGRATED: Get tag info before deletion using sqlManager
     const tagToDelete = await tagQueries.getTagById(db, tagId);
+
+    // Capture associations before delete so other clients can strip tags from cards
+    const tasksUsingTag = await tagQueries.getTasksUsingTag(db, parsedTagId);
     
     // Use transaction to ensure both operations succeed or fail together
     await dbTransaction(db, async () => {
@@ -248,16 +253,31 @@ router.delete('/:tagId', authenticateToken, requireRole(['admin']), async (req, 
       await tagQueries.deleteTag(db, tagId);
     });
     
-    // Publish to Redis for real-time updates
+    // Publish catalog update
     console.log('📤 Publishing tag-deleted to Redis');
     await notificationService.publish('tag-deleted', {
-      tagId: tagId,
+      tagId: parsedTagId,
       tag: tagToDelete,
       timestamp: new Date().toISOString()
-    });
+    }, tenantId);
     console.log('✅ Tag-deleted published to Redis');
+
+    // Mirror per-task removal so Kanban caches drop the tag (same path as taskRelations)
+    for (const task of tasksUsingTag) {
+      if (!task?.id || !task?.boardId) continue;
+      await notificationService.publish('task-tag-removed', {
+        boardId: task.boardId,
+        taskId: task.id,
+        tagId: parsedTagId,
+        tag: tagToDelete,
+        timestamp: new Date().toISOString()
+      }, tenantId);
+    }
+    if (tasksUsingTag.length > 0) {
+      console.log(`✅ Published task-tag-removed for ${tasksUsingTag.length} task(s)`);
+    }
     
-    res.json({ message: 'Tag deleted successfully' });
+    res.json({ message: 'Tag deleted successfully', affectedTasks: tasksUsingTag.length });
   } catch (error) {
     console.error('Error deleting tag:', error);
     res.status(500).json({ error: 'Failed to delete tag' });

@@ -18,6 +18,8 @@ import {
   projectSecretForAdminApi,
   upsertSecretSetting
 } from '../utils/settingsSecrets.js';
+import { deleteAvatarFileIfUnused } from '../utils/avatarCleanup.js';
+import { getRequestStoragePaths } from '../services/storage/index.js';
 
 const router = express.Router();
 
@@ -660,6 +662,12 @@ router.delete('/users/:userId', authenticateAdminPortal, async (req, res) => {
     const userMember = await userQueries.getMemberByUserId(db, userId);
 
     await adminUserQueries.deleteUser(db, userId);
+
+    await deleteAvatarFileIfUnused(
+      db,
+      getRequestStoragePaths(req),
+      user.avatar_path || user.avatarPath
+    );
 
     console.log(`✅ Admin portal deleted user: ${userId} (${user.email})`);
 
