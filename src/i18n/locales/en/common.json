@@ -227,6 +227,10 @@
     "neverConfirm": "Never Confirm",
     "activityFeed": "Activity Feed",
     "activityFeedDescription": "Show a floating activity feed on the screen to see recent actions and changes.",
+    "preferredLanguage": "Preferred language",
+    "preferredLanguageDescription": "Used for the app interface and your email notifications. You can also switch languages from the header.",
+    "languageEnglish": "English",
+    "languageFrench": "Français",
     "changesSavedAutomatically": "Changes are saved automatically",
     "emailNotifications": "Email Notifications",
     "emailNotificationsDescription": "Choose when you'd like to receive email notifications about task activities.",
@@ -1262,7 +1266,7 @@
         "description": "Choose the default language (EN/FR) in Admin → App Settings for new boards and system messages.",
         "guide": "Choose the default application language.",
         "fields": {
-          "APP_LANGUAGE": "Pick English or Français as the default language for this instance."
+          "APP_LANGUAGE": "Default language for this instance (guest screens, invites, and emails when a user has no preferred language)."
         }
       },
       "mail": {

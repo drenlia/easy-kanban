@@ -19,7 +19,20 @@ class EmailService {
    */
   async getEmailSettings() {
     const emailSettings = {};
-    const settingsKeys = ['MAIL_ENABLED', 'SMTP_HOST', 'SMTP_PORT', 'SMTP_USERNAME', 'SMTP_PASSWORD', 'SMTP_FROM_EMAIL', 'SMTP_FROM_NAME', 'SMTP_SECURE', 'SITE_NAME'];
+    const settingsKeys = [
+      'MAIL_ENABLED',
+      'SMTP_HOST',
+      'SMTP_PORT',
+      'SMTP_USERNAME',
+      'SMTP_PASSWORD',
+      'SMTP_FROM_EMAIL',
+      'SMTP_FROM_NAME',
+      'SMTP_SECURE',
+      'SITE_NAME',
+      'SITE_LOGO',
+      'SITE_LOGO_DARK',
+      'HIDE_SITE_LOGO',
+    ];
     
     // Use Promise.all to fetch all settings in parallel
     const settingPromises = settingsKeys.map(async (key) => {
@@ -249,11 +262,21 @@ class EmailService {
     const settings = validation.settings;
     const transporter = await this.createTransporter(settings);
 
-    // Use EmailTemplates for consistent, translatable content
+    let baseUrl = '';
+    try {
+      baseUrl = new URL(resetUrl).origin;
+    } catch {
+      baseUrl = String(resetUrl || '').replace(/\/#.*$/, '').replace(/\/$/, '');
+    }
+
     const emailTemplate = await EmailTemplates.passwordReset({
       user,
       resetUrl,
       siteName: settings.SITE_NAME || 'Easy Kanban',
+      siteLogo: settings.SITE_LOGO,
+      siteLogoDark: settings.SITE_LOGO_DARK,
+      hideSiteLogo: settings.HIDE_SITE_LOGO === 'true',
+      baseUrl,
       db: this.db
     });
 
@@ -313,7 +336,12 @@ class EmailService {
    * @param {string} baseUrl - App origin, no trailing slash (e.g. https://tenant.example.com)
    * @returns {Promise<{ success: boolean, messageId?: string, reason?: string }>}
    */
-  async sendUserInvitation(user, inviteToken, adminName, baseUrl) {
+  /**
+   * @param {object} [options]
+   * @param {{ avatars?: string, attachments?: string }} [options.storagePaths]
+   * @param {string|null} [options.tenantId]
+   */
+  async sendUserInvitation(user, inviteToken, adminName, baseUrl, options = {}) {
     try {
       if (!user?.email) {
         return { success: false, reason: 'User email missing' };
@@ -342,6 +370,10 @@ class EmailService {
         inviteUrl,
         adminName: adminName || 'Administrator',
         siteName,
+        siteLogo: settings.SITE_LOGO,
+        siteLogoDark: settings.SITE_LOGO_DARK,
+        hideSiteLogo: settings.HIDE_SITE_LOGO === 'true',
+        baseUrl: normalizedBase,
         db: this.db
       });
 
@@ -350,7 +382,7 @@ class EmailService {
         to: user.email,
         subject: emailTemplate.subject,
         text: emailTemplate.text,
-        html: emailTemplate.html
+        html: emailTemplate.html,
       };
 
       console.log('📧 Sending invitation email to:', user.email);

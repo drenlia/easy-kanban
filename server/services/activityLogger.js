@@ -393,23 +393,27 @@ export const logTaskActivity = async (userId, action, taskId, details, additiona
     }
     
     // Task activity emails (fire-and-forget; mail gate inside orchestrator)
-    const emailDb = additionalData.db || database;
-    const emailTenantId = additionalData.tenantId || null;
-    notifyTaskActivity(
-      emailDb,
-      {
-        userId,
-        action,
-        taskId,
-        details: enhancedDetails,
-        oldValue: additionalData.oldValue,
-        newValue: additionalData.newValue,
-        changedField: additionalData.changedField || null,
-      },
-      emailTenantId
-    ).catch((notificationError) => {
-      console.error('❌ Error sending task notification email:', notificationError);
-    });
+    if (!additionalData.skipEmail) {
+      const emailDb = additionalData.db || database;
+      const emailTenantId = additionalData.tenantId || null;
+      notifyTaskActivity(
+        emailDb,
+        {
+          userId,
+          action,
+          taskId,
+          details: enhancedDetails,
+          oldValue: additionalData.oldValue,
+          newValue: additionalData.newValue,
+          changedField: additionalData.changedField || null,
+          projectIdentifier: additionalData.projectIdentifier || projectIdentifier || null,
+          taskTicket: additionalData.taskTicket || taskTicket || null,
+        },
+        emailTenantId
+      ).catch((notificationError) => {
+        console.error('❌ Error sending task notification email:', notificationError);
+      });
+    }
     
   } catch (error) {
     console.error('❌ Error logging activity:', error);

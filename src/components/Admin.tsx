@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import api, { createUser, updateUser, getUserTaskCount, resendUserInvitation, getTags, createTag, updateTag, deleteTag, getTagUsage, getBatchTagUsage, getPriorities, createPriority, updatePriority, deletePriority, reorderPriorities, setDefaultPriority, getPriorityUsage, getBatchPriorityUsage } from '../api';
+import api, { createUser, updateUser, deleteUser, getUserTaskCount, resendUserInvitation, getTags, createTag, updateTag, deleteTag, getTagUsage, getBatchTagUsage, getPriorities, createPriority, updatePriority, deletePriority, reorderPriorities, setDefaultPriority, getPriorityUsage, getBatchPriorityUsage } from '../api';
 import { ADMIN_TABS, ROUTES } from '../constants';
 import { toast } from '../utils/toast';
 import AdminSiteSettingsTab from './admin/AdminSiteSettingsTab';
@@ -542,9 +542,9 @@ const Admin: React.FC<AdminProps> = ({
     }
   };
 
-  const confirmDeleteUser = async (userId: string) => {
+  const confirmDeleteUser = async (userId: string, reassignToUserId?: string | null) => {
     try {
-      await api.delete(`/admin/users/${userId}`);
+      await deleteUser(userId, reassignToUserId);
       await loadData(); // Reload users
       if (onUsersChanged) {
         onUsersChanged();

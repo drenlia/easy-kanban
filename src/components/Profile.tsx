@@ -20,7 +20,7 @@ interface ProfileProps {
 }
 
 export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated, isProfileBeingEdited, onProfileEditingChange, onActivityFeedToggle, onAccountDeleted }: ProfileProps) {
-  const { t } = useTranslation('common');
+  const { t, i18n } = useTranslation('common');
   const { systemSettings: contextSystemSettings, siteSettings } = useSettings(); // Use SettingsContext instead of fetching
   const aiEnabled = siteSettings?.AI_ENABLED === 'true' || contextSystemSettings?.AI_ENABLED === 'true';
   const [activeTab, setActiveTab] = useState<'profile' | 'app-settings' | 'notifications' | 'dev'>('profile');
@@ -320,6 +320,16 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
     } catch (error) {
       console.error('Failed to update activity feed setting:', error);
       setError(t('profile.failedToUpdateActivityFeed'));
+    }
+  };
+
+  const handleLanguageChange = async (lang: 'en' | 'fr') => {
+    try {
+      await i18n.changeLanguage(lang);
+      await updateUserPreference('language', lang, currentUser?.id);
+      setUserPrefs((prev) => ({ ...prev, language: lang }));
+    } catch (err) {
+      console.error('Failed to update language preference:', err);
     }
   };
 
@@ -703,6 +713,32 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
                       <option value="system">{t('profile.useSystemDefault')}</option>
                       <option value="true">{t('profile.alwaysConfirm')}</option>
                       <option value="false">{t('profile.neverConfirm')}</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              {/* Preferred Language */}
+              <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                <div className="flex items-start justify-between">
+                  <div className="flex-1">
+                    <label className="text-sm font-medium text-gray-700 block mb-1">
+                      {t('profile.preferredLanguage')}
+                    </label>
+                    <p className="text-sm text-gray-500">
+                      {t('profile.preferredLanguageDescription')}
+                    </p>
+                  </div>
+                  <div className="ml-6 flex-shrink-0">
+                    <select
+                      value={userPrefs.language === 'fr' ? 'fr' : 'en'}
+                      onChange={(e) =>
+                        handleLanguageChange(e.target.value === 'fr' ? 'fr' : 'en')
+                      }
+                      className="block w-40 px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                    >
+                      <option value="en">{t('profile.languageEnglish')}</option>
+                      <option value="fr">{t('profile.languageFrench')}</option>
                     </select>
                   </div>
                 </div>

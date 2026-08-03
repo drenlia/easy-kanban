@@ -75,6 +75,8 @@ export interface UserPreferences {
   selectedSprintId: string | null; // Selected sprint for filtering
   lastReportTab: string | null; // Last accessed report tab (persists across sessions)
   language: 'en' | 'fr'; // User's preferred language
+  /** IANA timezone from the browser (e.g. America/Toronto) — used for email timestamps */
+  timezone?: string | null;
   /** Per-board visible column IDs (includes Archive when the user unhides it). */
   boardColumnVisibility: { [boardId: string]: string[] };
 
@@ -268,6 +270,7 @@ const BASE_DEFAULT_PREFERENCES: UserPreferences = {
   selectedSprintId: null, // Default to "All Sprints" (no filter)
   lastReportTab: null, // Default to no last report (will use burndown)
   language: 'en', // Default to English
+  timezone: null, // Detected from browser and synced to user_settings
   boardColumnVisibility: {}, // Default: no overrides (archived columns hidden by Kanban UI)
   listViewColumnVisibility: {
     // Default column visibility - all columns visible except some less important ones
@@ -658,7 +661,16 @@ export const saveUserPreferences = async (preferences: UserPreferences, userId: 
           saveIfDefined('ganttScrollPositions', JSON.stringify(preferences.ganttScrollPositions)),
           
           // Language Preference
-          saveIfDefined('language', preferences.language)
+          saveIfDefined('language', preferences.language),
+          // Browser IANA timezone for email timestamps
+          saveIfDefined('timezone', preferences.timezone),
+          // Email notification toggles (server reads these for task emails)
+          saveIfDefined(
+            'notifications',
+            preferences.notifications
+              ? JSON.stringify(preferences.notifications)
+              : undefined
+          ),
         ]);
       } catch (dbError) {
         console.warn('Failed to save preferences to database:', dbError);
@@ -850,8 +862,57 @@ export const loadUserPreferencesAsync = async (userId: string | null = null): Pr
         // Last Report Tab
         lastReportTab: smartMerge(preferences.lastReportTab, dbSettings.lastReportTab, defaults.lastReportTab),
         
-        // Language Preference
-        language: smartMerge(preferences.language, dbSettings.language, defaults.language),
+        // Language Preference — DB is source of truth when set (incl. explicit "en")
+        language: (() => {
+          const dbLang = typeof dbSettings.language === 'string'
+            ? dbSettings.language
+            : undefined;
+          if (dbLang === 'en' || dbLang === 'fr') {
+            if (preferences.language !== dbLang) {
+              needsCookieUpdate = true;
+            }
+            return dbLang;
+          }
+          return preferences.language || defaults.language;
+        })(),
+        timezone: smartMerge(preferences.timezone, dbSettings.timezone, defaults.timezone),
+
+        // Email notification prefs (must round-trip to DB — server uses these for mail)
+        notifications: (() => {
+          let dbNotifs: UserPreferences['notifications'] | undefined;
+          try {
+            const raw = dbSettings.notifications;
+            if (raw == null || raw === '') {
+              dbNotifs = undefined;
+            } else if (typeof raw === 'object') {
+              dbNotifs = raw as UserPreferences['notifications'];
+            } else {
+              dbNotifs = JSON.parse(String(raw));
+            }
+          } catch {
+            dbNotifs = undefined;
+          }
+
+          const local = preferences.notifications || defaults.notifications;
+          const localCustomized = Object.keys(defaults.notifications).some(
+            (k) =>
+              local[k as keyof typeof local] !==
+              defaults.notifications[k as keyof typeof defaults.notifications]
+          );
+          if (localCustomized) {
+            const merged = { ...defaults.notifications, ...local };
+            // Cookie had prefs that never reached the server — sync once
+            if (!dbNotifs) {
+              void updateUserSetting('notifications', JSON.stringify(merged)).catch(() => {});
+            }
+            return merged;
+          }
+          if (dbNotifs && typeof dbNotifs === 'object') {
+            needsCookieUpdate = true;
+            return { ...defaults.notifications, ...dbNotifs };
+          }
+          return { ...defaults.notifications, ...local };
+        })(),
         
         // List View Column Visibility (special handling for object)
         listViewColumnVisibility: (() => {
@@ -964,7 +1025,47 @@ export const loadUserPreferencesAsync = async (userId: string | null = null): Pr
   }
   
   setCachedPreferences(resolvedUserId, preferences);
+
+  // Keep email timestamps accurate: sync browser IANA timezone when it changes
+  if (resolvedUserId) {
+    void syncBrowserTimeZone(resolvedUserId, preferences);
+  }
+
   return preferences;
+};
+
+/** Detect the browser's IANA timezone (e.g. America/Toronto). */
+export const detectBrowserTimeZone = (): string | null => {
+  try {
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    return tz && typeof tz === 'string' ? tz : null;
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * Persist browser timezone to user_settings when missing or changed.
+ * Used so notification emails can format Date/Time in the recipient's local zone.
+ */
+export const syncBrowserTimeZone = async (
+  userId: string | null,
+  currentPrefs?: UserPreferences
+): Promise<void> => {
+  const resolvedUserId = resolvePreferencesUserId(userId);
+  if (!resolvedUserId) return;
+
+  const detected = detectBrowserTimeZone();
+  if (!detected) return;
+
+  const prefs = currentPrefs || getEffectiveUserPreferences(resolvedUserId);
+  if (prefs.timezone === detected) return;
+
+  try {
+    await updateUserPreference('timezone', detected, resolvedUserId);
+  } catch (error) {
+    console.warn('Failed to sync browser timezone:', error);
+  }
 };
 
 // Update specific preference
@@ -1015,6 +1116,8 @@ export const updateUserPreference = async <K extends keyof UserPreferences>(
         'boardColumnVisibility': 'boardColumnVisibility',
         'ganttScrollPositions': 'ganttScrollPositions',
         'language': 'language',
+        'timezone': 'timezone',
+        'notifications': 'notifications',
       };
       
       dbKey = topLevelKeyMap[key as string];
@@ -1035,9 +1138,10 @@ export const updateUserPreference = async <K extends keyof UserPreferences>(
         dbKey === 'listViewColumnWidths' ||
         dbKey === 'boardColumnVisibility' ||
         dbKey === 'ganttScrollPositions' ||
-        dbKey === 'searchFilters'
+        dbKey === 'searchFilters' ||
+        dbKey === 'notifications'
       ) {
-        dbValue = JSON.stringify(value);
+        dbValue = typeof value === 'string' ? value : JSON.stringify(value);
       }
       
       // Null deletes row on server for these keys

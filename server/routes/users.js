@@ -420,8 +420,13 @@ router.put('/settings', authenticateToken, async (req, res) => {
       return res.json({ message: 'Setting skipped (null value)' });
     }
     
-    // Convert value to string safely
-    const valueString = typeof setting_value === 'string' ? setting_value : String(setting_value);
+    // Convert value to string safely (objects/arrays as JSON)
+    const valueString =
+      typeof setting_value === 'string'
+        ? setting_value
+        : typeof setting_value === 'object'
+          ? JSON.stringify(setting_value)
+          : String(setting_value);
     
     // MIGRATED: Upsert user setting using sqlManager
     await userQueries.upsertUserSetting(db, userId, setting_key, valueString);

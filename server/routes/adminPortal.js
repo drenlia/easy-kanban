@@ -1329,7 +1329,11 @@ router.post('/send-invitation', authenticateAdminPortal, async (req, res) => {
       user,
       inviteToken,
       adminName || 'Admin',
-      baseUrl
+      baseUrl,
+      {
+        storagePaths: req.locals?.tenantStoragePaths || req.app.locals?.tenantStoragePaths,
+        tenantId: getTenantId(req),
+      }
     );
 
     if (!emailResult.success) {

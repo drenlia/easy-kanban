@@ -2,22 +2,42 @@
  * Email Templates - Centralized email content for the application
  */
 
-import { getAppLanguage, getTranslator } from '../utils/i18n.js';
+import {
+  getTranslatorForLanguage,
+  resolveCorrespondenceLanguage,
+} from '../utils/i18n.js';
 import { formatDateTimeLocal } from '../utils/dateFormatter.js';
+// recipientTimeZone: IANA tz from user_settings (browser-synced)
 import {
   formatDetailsForEmail,
   stripHtmlForEmail,
   formatWordDiffHtml,
   formatWordDiffText,
   buildTaskEmailUrl,
+  buildEmailSiteLogo,
 } from '../utils/emailContent.js';
+
+/**
+ * Email language: explicit data.lang → recipient user pref → APP_LANGUAGE → en
+ */
+async function getEmailLangAndTranslator(data) {
+  const lang =
+    data.lang ||
+    (data.db
+      ? await resolveCorrespondenceLanguage(
+          data.db,
+          data.user?.id || data.user?.userId || null
+        )
+      : 'en');
+  return { lang, t: getTranslatorForLanguage(lang) };
+}
 
 /** Map activity / queue action codes → emails.taskNotification.common.actionMessage.* keys */
 const ACTION_MESSAGE_KEY_MAP = {
   create_task: 'created',
   copy_task: 'created',
   update_task: 'updated',
-  delete_task: 'updated',
+  delete_task: 'deleted',
   move_task: 'status_changed',
   associate_tag: 'updated',
   disassociate_tag: 'updated',
@@ -45,6 +65,7 @@ const ACTION_MESSAGE_KEY_MAP = {
 
 function resolveActionMessageKey(actionType, changedField, notificationType) {
   if (notificationType === 'newTaskAssigned') return 'assigned';
+  if (notificationType === 'addedAsCollaborator') return 'added_as_collaborator';
   if (changedField === 'memberId') return 'assignee_changed';
   if (changedField === 'requesterId') return 'requester_changed';
   if (!actionType) return 'default';
@@ -81,6 +102,13 @@ function displayBoardName(board) {
   return board?.name || board?.title || 'Board';
 }
 
+/** Task heading for email body: "TASK-00042 — Title" (ticket omitted if missing). */
+function formatTaskHeading(task) {
+  const title = task?.title || 'Task';
+  const ticket = task?.ticket || '';
+  return ticket ? `${ticket} — ${title}` : title;
+}
+
 function escapeHtml(value) {
   return String(value ?? '')
     .replace(/&/g, '&amp;')
@@ -89,20 +117,151 @@ function escapeHtml(value) {
     .replace(/"/g, '&quot;');
 }
 
+/**
+ * Shared chrome for transactional emails (invite, password reset).
+ * Table-based layout for broad client support; no emoji chrome.
+ */
+function wrapTransactionalEmail({ siteName, headline, bodyHtml, footerNote, logoHtml }) {
+  const brand = escapeHtml(siteName || 'Easy Kanban');
+  const headlineSafe = escapeHtml(headline);
+  const headerRow = logoHtml
+    ? `<tr>
+            <td style="background-color:#ffffff;padding:24px 28px 12px 28px;border-bottom:1px solid #e5e7eb;">
+              ${logoHtml}
+            </td>
+          </tr>`
+    : `<tr>
+            <td style="background-color:#111827;padding:20px 28px;">
+              <p style="margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:13px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:#93c5fd;">${brand}</p>
+            </td>
+          </tr>`;
+  return `
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"></head>
+<body style="margin:0;padding:0;background-color:#f3f4f6;">
+  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color:#f3f4f6;">
+    <tr>
+      <td align="center" style="padding:32px 16px;">
+        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="max-width:560px;background-color:#ffffff;border-radius:8px;overflow:hidden;border:1px solid #e5e7eb;">
+          ${headerRow}
+          <tr>
+            <td style="padding:32px 28px 8px 28px;">
+              <h1 style="margin:0 0 20px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:22px;line-height:1.3;font-weight:650;color:#111827;">${headlineSafe}</h1>
+              ${bodyHtml}
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:8px 28px 28px 28px;">
+              <p style="margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:12px;line-height:1.5;color:#9ca3af;">
+                ${footerNote || ''}
+              </p>
+            </td>
+          </tr>
+        </table>
+        <p style="margin:16px 0 0 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:11px;color:#9ca3af;">
+          ${brand}
+        </p>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
+}
+
+function emailPrimaryButton(href, label) {
+  return `
+<table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin:28px 0 8px 0;">
+  <tr>
+    <td align="center" style="border-radius:6px;background-color:#2563eb;">
+      <a href="${href}" target="_blank" style="display:inline-block;padding:12px 28px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none;border-radius:6px;">
+        ${escapeHtml(label)}
+      </a>
+    </td>
+  </tr>
+</table>`;
+}
+
+function emailMutedNote(text) {
+  return `
+<p style="margin:20px 0 0 0;padding:12px 14px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:13px;line-height:1.5;color:#4b5563;background-color:#f9fafb;border:1px solid #e5e7eb;border-radius:6px;">
+  ${escapeHtml(text)}
+</p>`;
+}
+
 export const EmailTemplates = {
   /**
    * User Invitation Template
    * Sent when an admin creates a new local account
    */
   userInvite: async (data) => {
-    const { user, inviteUrl, adminName, siteName, db } = data;
-    const t = db ? await getTranslator(db) : (key, options = {}) => key;
-    
-    return {
-      subject: t('emails.userInvite.subject', { siteName: siteName || 'Easy Kanban' }),
-      text: `${t('emails.userInvite.greeting', { firstName: user.first_name, lastName: user.last_name })}
+    const {
+      user,
+      inviteUrl,
+      adminName,
+      siteName,
+      siteLogo,
+      siteLogoDark,
+      hideSiteLogo,
+      baseUrl,
+      db,
+      lang: langOverride,
+    } = data;
+    const { t } = await getEmailLangAndTranslator({ user, db, lang: langOverride });
+    const brand = siteName || 'Easy Kanban';
+    const firstName = escapeHtml(user.first_name || '');
+    const lastName = escapeHtml(user.last_name || '');
+    const email = escapeHtml(user.email || '');
+    const displayName = `${firstName} ${lastName}`.trim();
 
-${t('emails.userInvite.body1', { adminName, siteName: siteName || 'Easy Kanban' })}
+    const logoPath = hideSiteLogo ? '' : (siteLogo || siteLogoDark || '');
+    const siteLogoEmbed = buildEmailSiteLogo({
+      baseUrl,
+      logoPath,
+      hideSiteLogo,
+      alt: brand,
+    });
+
+    const bodyHtml = `
+      <p style="margin:0 0 16px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;color:#374151;">
+        ${escapeHtml(t('emails.userInvite.greeting', { firstName: displayFirstName(user) }))}
+      </p>
+      <p style="margin:0 0 20px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;color:#4b5563;">
+        ${escapeHtml(t('emails.userInvite.body1', { adminName: adminName || 'Administrator', siteName: brand }))}
+      </p>
+      <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin:0 0 8px 0;background-color:#f8fafc;border:1px solid #e5e7eb;border-radius:6px;">
+        <tr>
+          <td style="padding:16px 18px;">
+            <p style="margin:0 0 10px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:12px;font-weight:600;letter-spacing:0.04em;text-transform:uppercase;color:#6b7280;">
+              ${escapeHtml(t('emails.userInvite.accountDetails'))}
+            </p>
+            <p style="margin:0 0 6px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:14px;color:#374151;">
+              <span style="color:#6b7280;">${escapeHtml(t('emails.userInvite.email'))}</span> ${email}
+            </p>
+            <p style="margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:14px;color:#374151;">
+              <span style="color:#6b7280;">${escapeHtml(t('emails.userInvite.name'))}</span> ${escapeHtml(displayName)}
+            </p>
+          </td>
+        </tr>
+      </table>
+      <p style="margin:20px 0 0 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:14px;line-height:1.6;color:#4b5563;">
+        ${escapeHtml(t('emails.userInvite.body2'))}
+      </p>
+      ${emailPrimaryButton(inviteUrl, t('emails.userInvite.activateAccount'))}
+      ${emailMutedNote(t('emails.userInvite.body3'))}
+      <p style="margin:20px 0 0 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:13px;line-height:1.6;color:#6b7280;">
+        ${escapeHtml(t('emails.userInvite.body4'))}
+      </p>
+      <p style="margin:24px 0 0 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:13px;line-height:1.6;color:#6b7280;">
+        ${escapeHtml(t('emails.userInvite.body5'))}<br>
+        <strong style="color:#374151;">${escapeHtml(t('emails.userInvite.body6', { siteName: brand }))}</strong>
+      </p>`;
+
+    return {
+      subject: t('emails.userInvite.subject', { siteName: brand }),
+      text: `${t('emails.userInvite.greeting', { firstName: displayFirstName(user) })}
+
+${t('emails.userInvite.body1', { adminName, siteName: brand })}
 
 ${t('emails.userInvite.body2')}
 ${inviteUrl}
@@ -112,59 +271,15 @@ ${t('emails.userInvite.body3')}
 ${t('emails.userInvite.body4')}
 
 ${t('emails.userInvite.body5')}
-${t('emails.userInvite.body6', { siteName: siteName || 'Easy Kanban' })}`,
-      html: `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-          <div style="text-align: center; margin-bottom: 30px;">
-            <h1 style="color: #2563eb; margin: 0;">🎉 ${t('emails.userInvite.subject', { siteName: siteName || 'Easy Kanban' })}</h1>
-          </div>
-          
-          <div style="background-color: #f8fafc; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
-            <h2 style="color: #374151; margin-top: 0;">${t('emails.userInvite.greeting', { firstName: user.first_name, lastName: user.last_name })}</h2>
-            <p style="color: #6b7280; line-height: 1.6;">
-              ${t('emails.userInvite.body1', { adminName, siteName: siteName || 'Easy Kanban' })}
-            </p>
-          </div>
-
-          <div style="background-color: #eff6ff; padding: 20px; border-radius: 8px; border-left: 4px solid #2563eb; margin-bottom: 30px;">
-            <h3 style="color: #1d4ed8; margin-top: 0;">🔐 ${t('emails.userInvite.accountDetails')}</h3>
-            <ul style="color: #374151; margin: 0; padding-left: 20px;">
-              <li><strong>${t('emails.userInvite.email')}</strong> ${user.email}</li>
-              <li><strong>${t('emails.userInvite.name')}</strong> ${user.first_name} ${user.last_name}</li>
-              <li><strong>${t('emails.userInvite.accountType')}</strong> ${t('emails.userInvite.localAccount')}</li>
-            </ul>
-          </div>
-          
-          <div style="text-align: center; margin: 30px 0;">
-            <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin: 0 auto;">
-              <tr>
-                <td align="center" style="border-radius: 6px; background-color: #2563eb;">
-                  <a href="${inviteUrl}" target="_blank" style="display: inline-block; padding: 14px 28px; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: bold;">
-                    🚀 ${t('emails.userInvite.activateAccount')}
-                  </a>
-                </td>
-              </tr>
-            </table>
-          </div>
-          
-          <div style="background-color: #fef3c7; padding: 16px; border-radius: 6px; margin-bottom: 20px;">
-            <p style="color: #92400e; margin: 0; font-size: 14px;">
-              ⏰ <strong>Important:</strong> ${t('emails.userInvite.body3')}
-            </p>
-          </div>
-          
-          <p style="color: #6b7280; font-size: 14px; line-height: 1.6;">
-            ${t('emails.userInvite.body4')}
-          </p>
-          
-          <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 30px 0;">
-          
-          <p style="color: #9ca3af; font-size: 12px; text-align: center;">
-            ${t('emails.userInvite.body5')}<br>
-            <strong>${t('emails.userInvite.body6', { siteName: siteName || 'Easy Kanban' })}</strong>
-          </p>
-        </div>
-      `
+${t('emails.userInvite.body6', { siteName: brand })}`,
+      html: wrapTransactionalEmail({
+        siteName: brand,
+        headline: t('emails.userInvite.headline', { siteName: brand }),
+        bodyHtml,
+        footerNote: '',
+        logoHtml: siteLogoEmbed.html,
+      }),
+      attachments: siteLogoEmbed.attachments,
     };
   },
 
@@ -187,15 +302,21 @@ ${t('emails.userInvite.body6', { siteName: siteName || 'Easy Kanban' })}`,
       timestamp,
       changedField = null,
       notificationType = null,
-      db
+      recipientTimeZone = null,
+      db,
+      lang: langOverride,
     } = data;
 
-    const t = db ? await getTranslator(db) : (key) => key;
-    const lang = db ? await getAppLanguage(db) : 'en';
+    const { lang, t } = await getEmailLangAndTranslator({
+      user,
+      db,
+      lang: langOverride,
+    });
     const firstName = displayFirstName(user);
     const boardName = displayBoardName(board);
     const detailsText = formatDetailsForEmail(actionDetails, lang);
     const taskTitle = task?.title || 'Task';
+    const taskHeading = formatTaskHeading(task);
 
     const getActionMessage = () => {
       const actionKey = resolveActionMessageKey(
@@ -289,13 +410,31 @@ ${t('emails.userInvite.body6', { siteName: siteName || 'Easy Kanban' })}`,
         </div>`;
     };
 
-    // Format timestamp for display
-    const formattedTimestamp = timestamp ? formatDateTimeLocal(timestamp) : formatDateTimeLocal(new Date());
+    // Format timestamp in the recipient's timezone when known
+    const formattedTimestamp = formatDateTimeLocal(
+      timestamp || new Date(),
+      recipientTimeZone
+    );
     
     // Get task ticket for subject
     const taskTicket = task?.ticket || '';
     const ticketPrefix = taskTicket ? `[ ${taskTicket} ] ` : '';
     const actionMessage = getActionMessage();
+    const typeSpecificSubject =
+      notificationType === 'addedAsCollaborator'
+        ? t('emails.taskNotification.addedAsCollaborator.subject', { taskTitle })
+        : notificationType === 'newTaskAssigned'
+          ? t('emails.taskNotification.newTaskAssigned.subject', { taskTitle })
+          : null;
+    const emailSubject = typeSpecificSubject
+      ? `${ticketPrefix}${typeSpecificSubject}`
+      : `${ticketPrefix}${actionMessage} - ${taskTitle}`;
+    const receivingReason =
+      notificationType === 'addedAsCollaborator'
+        ? t('emails.taskNotification.addedAsCollaborator.receivingReason')
+        : notificationType === 'newTaskAssigned'
+          ? t('emails.taskNotification.newTaskAssigned.receivingReason')
+          : t('emails.taskNotification.common.receivingReason');
     const beforeText = stripHtmlForEmail(oldValue);
     const afterText = stripHtmlForEmail(newValue);
     let textChangeBlock = '';
@@ -313,12 +452,12 @@ ${t('emails.userInvite.body6', { siteName: siteName || 'Easy Kanban' })}`,
     }
 
     return {
-      subject: `${ticketPrefix}${actionMessage} - ${taskTitle}`,
+      subject: emailSubject,
       text: `${t('emails.taskNotification.common.hi', { firstName })}
 
-${actionMessage} in ${boardName}:
+${t('emails.taskNotification.common.actionInBoard', { actionMessage, boardName })}
 
-Task: ${taskTitle}
+Task: ${taskHeading}
 ${project ? `${t('emails.taskNotification.common.project')} ${project}` : ''}
 ${t('emails.taskNotification.common.details')} ${detailsText}
 ${textChangeBlock}
@@ -335,12 +474,15 @@ ${t('emails.taskNotification.common.teamSignature', { siteName: siteName || 'Eas
           <div style="background-color: #f8fafc; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
             <h2 style="color: #374151; margin-top: 0;">${t('emails.taskNotification.common.hi', { firstName })}</h2>
             <p style="color: #6b7280; line-height: 1.6; font-size: 16px;">
-              ${escapeHtml(actionMessage)} in <strong>${escapeHtml(boardName)}</strong>:
+              ${t('emails.taskNotification.common.actionInBoard', {
+                actionMessage: escapeHtml(actionMessage),
+                boardName: `<strong>${escapeHtml(boardName)}</strong>`,
+              })}
             </p>
           </div>
 
           <div style="background-color: #fff; border: 1px solid #e5e7eb; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
-            <h3 style="color: #1f2937; margin-top: 0; font-size: 18px;">📝 ${escapeHtml(taskTitle)}</h3>
+            <h3 style="color: #1f2937; margin-top: 0; font-size: 18px;">📝 ${escapeHtml(taskHeading)}</h3>
             ${project ? `<p style="color: #6b7280; margin: 5px 0;"><strong>${t('emails.taskNotification.common.project')}</strong> ${escapeHtml(project)}</p>` : ''}
             <p style="color: #6b7280; margin: 5px 0; font-size: 14px;"><strong>${t('emails.taskNotification.common.timestamp')}</strong> ${escapeHtml(formattedTimestamp)}</p>
             <p style="color: #374151; margin: 10px 0;"><strong>${t('emails.taskNotification.common.details')}</strong> ${escapeHtml(detailsText)}</p>
@@ -362,7 +504,7 @@ ${t('emails.taskNotification.common.teamSignature', { siteName: siteName || 'Eas
           <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 30px 0;">
           
           <p style="color: #9ca3af; font-size: 12px; text-align: center;">
-            ${t('emails.taskNotification.common.receivingReason')}<br>
+            ${receivingReason}<br>
             <strong>${t('emails.taskNotification.common.teamSignature', { siteName: siteName || 'Easy Kanban' })}</strong>
           </p>
         </div>
@@ -385,20 +527,35 @@ ${t('emails.taskNotification.common.teamSignature', { siteName: siteName || 'Eas
       taskUrl, 
       siteName,
       timestamp,
-      db
+      recipientTimeZone = null,
+      db,
+      authorAvatarHtml,
+      emailAttachments = [],
+      lang: langOverride,
     } = data;
 
-    const t = db ? await getTranslator(db) : (key) => key;
+    const { t } = await getEmailLangAndTranslator({
+      user,
+      db,
+      lang: langOverride,
+    });
     const firstName = displayFirstName(user);
     const boardName = displayBoardName(board);
     const taskTitle = task?.title || 'Task';
+    const taskHeading = formatTaskHeading(task);
     const authorFirst =
       commentAuthor?.first_name || commentAuthor?.firstName || 'Someone';
     const authorLast = commentAuthor?.last_name || commentAuthor?.lastName || '';
     const authorInitials = `${String(authorFirst).charAt(0)}${String(authorLast).charAt(0)}`;
+    const authorColor = commentAuthor?.color || '#0ea5e9';
+    const avatarHtml =
+      authorAvatarHtml ||
+      `<div style="background-color:${escapeHtml(authorColor)};color:white;width:32px;height:32px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;margin-right:10px;font-weight:bold;font-size:12px;line-height:32px;text-align:center;vertical-align:middle;">${escapeHtml(authorInitials)}</div>`;
 
-    // Format timestamp for display
-    const formattedTimestamp = timestamp ? formatDateTimeLocal(timestamp) : formatDateTimeLocal(new Date());
+    const formattedTimestamp = formatDateTimeLocal(
+      timestamp || new Date(),
+      recipientTimeZone
+    );
     
     // Get task ticket for subject
     const taskTicket = task?.ticket || '';
@@ -411,7 +568,7 @@ ${t('emails.taskNotification.common.teamSignature', { siteName: siteName || 'Eas
 
 ${authorFirst} ${authorLast} ${t('emails.commentNotification.addedCommentToTask')}
 
-Task: ${taskTitle}
+Task: ${taskHeading}
 ${project ? `${t('emails.taskNotification.common.project')} ${project}` : ''}
 ${t('emails.taskNotification.common.board')} ${boardName}
 
@@ -421,6 +578,7 @@ ${t('emails.taskNotification.common.viewTask')}: ${taskUrl}
 
 Best regards,
 ${t('emails.taskNotification.common.teamSignature', { siteName: siteName || 'Easy Kanban' })}`,
+      attachments: emailAttachments,
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
           <div style="text-align: center; margin-bottom: 30px;">
@@ -435,18 +593,16 @@ ${t('emails.taskNotification.common.teamSignature', { siteName: siteName || 'Eas
           </div>
 
           <div style="background-color: #fff; border: 1px solid #e5e7eb; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
-            <h3 style="color: #1f2937; margin-top: 0;">📝 ${escapeHtml(taskTitle)}</h3>
+            <h3 style="color: #1f2937; margin-top: 0;">📝 ${escapeHtml(taskHeading)}</h3>
             ${project ? `<p style="color: #6b7280; margin: 5px 0;"><strong>${t('emails.taskNotification.common.project')}</strong> ${escapeHtml(project)}</p>` : ''}
             <p style="color: #6b7280; margin: 5px 0;"><strong>${t('emails.taskNotification.common.board')}</strong> ${escapeHtml(boardName)}</p>
             <p style="color: #6b7280; margin: 5px 0; font-size: 14px;"><strong>${t('emails.taskNotification.common.timestamp')}</strong> ${escapeHtml(formattedTimestamp)}</p>
           </div>
 
           <div style="background-color: #f0f9ff; border-left: 4px solid #0ea5e9; padding: 16px; margin-bottom: 20px;">
-            <div style="display: flex; align-items: center; margin-bottom: 10px;">
-              <div style="background-color: #0ea5e9; color: white; width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin-right: 10px; font-weight: bold;">
-                ${escapeHtml(authorInitials)}
-              </div>
-              <strong style="color: #0c4a6e;">${escapeHtml(authorFirst)} ${escapeHtml(authorLast)}</strong>
+            <div style="margin-bottom: 10px;">
+              ${avatarHtml}
+              <strong style="color: #0c4a6e; vertical-align: middle;">${escapeHtml(authorFirst)} ${escapeHtml(authorLast)}</strong>
             </div>
             <div style="color: #374151; line-height: 1.6;">
               ${comment?.text || ''}
@@ -481,14 +637,54 @@ ${t('emails.taskNotification.common.teamSignature', { siteName: siteName || 'Eas
    * Sent when users request password reset
    */
   passwordReset: async (data) => {
-    const { user, resetUrl, siteName, db } = data;
-    const t = db ? await getTranslator(db) : (key, options = {}) => key;
-    
-    return {
-      subject: t('emails.passwordReset.subject'),
-      text: `${t('emails.passwordReset.greeting', { firstName: user.first_name, lastName: user.last_name })}
+    const {
+      user,
+      resetUrl,
+      siteName,
+      siteLogo,
+      siteLogoDark,
+      hideSiteLogo,
+      baseUrl,
+      db,
+      lang: langOverride,
+    } = data;
+    const { t } = await getEmailLangAndTranslator({ user, db, lang: langOverride });
+    const brand = siteName || 'Easy Kanban';
 
-${t('emails.passwordReset.body1', { siteName: siteName || 'Easy Kanban' })}
+    const logoPath = hideSiteLogo ? '' : (siteLogo || siteLogoDark || '');
+    const siteLogoEmbed = buildEmailSiteLogo({
+      baseUrl,
+      logoPath,
+      hideSiteLogo,
+      alt: brand,
+    });
+
+    const bodyHtml = `
+      <p style="margin:0 0 16px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;color:#374151;">
+        ${escapeHtml(t('emails.passwordReset.greeting', { firstName: displayFirstName(user) }))}
+      </p>
+      <p style="margin:0 0 8px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;color:#4b5563;">
+        ${escapeHtml(t('emails.passwordReset.body1', { siteName: brand }))}
+      </p>
+      ${emailPrimaryButton(resetUrl, t('emails.passwordReset.resetButton'))}
+      <p style="margin:12px 0 0 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:12px;line-height:1.5;color:#9ca3af;word-break:break-all;">
+        ${escapeHtml(t('emails.passwordReset.body2'))}<br>
+        <a href="${resetUrl}" style="color:#2563eb;text-decoration:underline;">${escapeHtml(resetUrl)}</a>
+      </p>
+      ${emailMutedNote(t('emails.passwordReset.body3'))}
+      <p style="margin:20px 0 0 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:13px;line-height:1.6;color:#6b7280;">
+        ${escapeHtml(t('emails.passwordReset.body4'))}
+      </p>
+      <p style="margin:24px 0 0 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:13px;line-height:1.6;color:#6b7280;">
+        ${escapeHtml(t('emails.passwordReset.body5'))}<br>
+        <strong style="color:#374151;">${escapeHtml(t('emails.passwordReset.body6', { siteName: brand }))}</strong>
+      </p>`;
+
+    return {
+      subject: t('emails.passwordReset.subject', { siteName: brand }),
+      text: `${t('emails.passwordReset.greeting', { firstName: displayFirstName(user) })}
+
+${t('emails.passwordReset.body1', { siteName: brand })}
 
 ${t('emails.passwordReset.body2')}
 ${resetUrl}
@@ -498,50 +694,14 @@ ${t('emails.passwordReset.body3')}
 ${t('emails.passwordReset.body4')}
 
 ${t('emails.passwordReset.body5')}
-${t('emails.passwordReset.body6', { siteName: siteName || 'Easy Kanban' })}`,
-      html: `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-          <div style="text-align: center; margin-bottom: 30px;">
-            <h1 style="color: #2563eb; margin: 0;">🔐 ${t('emails.passwordReset.subject')}</h1>
-          </div>
-          
-          <div style="background-color: #f8fafc; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
-            <h2 style="color: #374151; margin-top: 0;">${t('emails.passwordReset.greeting', { firstName: user.first_name, lastName: user.last_name })}</h2>
-            <p style="color: #6b7280; line-height: 1.6;">
-              ${t('emails.passwordReset.body1', { siteName: siteName || 'Easy Kanban' })}
-            </p>
-          </div>
-          
-          <div style="text-align: center; margin: 30px 0;">
-            <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin: 0 auto;">
-              <tr>
-                <td align="center" style="border-radius: 6px; background-color: #dc2626;">
-                  <a href="${resetUrl}" target="_blank" style="display: inline-block; padding: 14px 28px; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: bold;">
-                    🔄 ${t('emails.passwordReset.resetButton')}
-                  </a>
-                </td>
-              </tr>
-            </table>
-          </div>
-          
-          <div style="background-color: #fef3c7; padding: 16px; border-radius: 6px; margin-bottom: 20px;">
-            <p style="color: #92400e; margin: 0; font-size: 14px;">
-              ⏰ <strong>Important:</strong> ${t('emails.passwordReset.body3')}
-            </p>
-          </div>
-          
-          <p style="color: #6b7280; font-size: 14px; line-height: 1.6;">
-            ${t('emails.passwordReset.body4')}
-          </p>
-          
-          <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 30px 0;">
-          
-          <p style="color: #9ca3af; font-size: 12px; text-align: center;">
-            ${t('emails.passwordReset.body5')}<br>
-            <strong>${t('emails.passwordReset.body6', { siteName: siteName || 'Easy Kanban' })}</strong>
-          </p>
-        </div>
-      `
+${t('emails.passwordReset.body6', { siteName: brand })}`,
+      html: wrapTransactionalEmail({
+        siteName: brand,
+        headline: t('emails.passwordReset.headline'),
+        bodyHtml,
+        footerNote: '',
+        logoHtml: siteLogoEmbed.html,
+      }),
     };
   },
 
@@ -561,16 +721,23 @@ ${t('emails.passwordReset.body6', { siteName: siteName || 'Easy Kanban' })}`,
       baseUrl = '',
       siteName,
       timestamp,
+      recipientTimeZone = null,
       db,
+      lang: langOverride,
     } = data;
 
-    const t = db ? await getTranslator(db) : (key) => key;
+    const { t } = await getEmailLangAndTranslator({
+      user,
+      db,
+      lang: langOverride,
+    });
     const firstName = displayFirstName(user);
     const count = tasks.length;
     const board = boardTitle || 'Board';
-    const formattedTimestamp = db
-      ? await formatDateTimeLocal(timestamp || new Date().toISOString(), db)
-      : String(timestamp || new Date().toISOString());
+    const formattedTimestamp = formatDateTimeLocal(
+      timestamp || new Date(),
+      recipientTimeZone
+    );
 
     const summaryKey =
       field === 'memberId'
@@ -581,7 +748,9 @@ ${t('emails.passwordReset.body6', { siteName: siteName || 'Easy Kanban' })}`,
             ? 'summaryPriority'
             : field === 'sprintId'
               ? 'summarySprint'
-              : 'summaryDefault';
+              : field === 'columnId'
+                ? 'summaryColumnMove'
+                : 'summaryDefault';
     const summary = t(`emails.bulkTaskNotification.${summaryKey}`);
 
     const fieldLabel =
@@ -593,7 +762,9 @@ ${t('emails.passwordReset.body6', { siteName: siteName || 'Easy Kanban' })}`,
             ? t('emails.taskNotification.common.fieldPriority')
             : field === 'sprintId'
               ? t('emails.taskNotification.common.fieldSprint')
-              : t('emails.bulkTaskNotification.whatChanged');
+              : field === 'columnId'
+                ? t('emails.bulkTaskNotification.fieldColumn')
+                : t('emails.bulkTaskNotification.whatChanged');
 
     const before =
       changeBefore || t('emails.taskNotification.common.unassigned');

@@ -144,29 +144,31 @@
   },
   "emails": {
     "userInvite": {
-      "subject": "Welcome to {siteName} - Activate Your Account",
-      "greeting": "Hi {firstName} {lastName},",
-      "body1": "{adminName} has created an account for you on {siteName}.",
-      "body2": "To activate your account and set up your password, please click the link below:",
-      "body3": "This link will expire in 24 hours.",
-      "body4": "If you have any questions, please contact your administrator.",
+      "subject": "Welcome to {siteName} — activate your account",
+      "headline": "Activate your account",
+      "greeting": "Hi {firstName},",
+      "body1": "{adminName} has invited you to join {siteName}.",
+      "body2": "Use the button below to activate your account and choose a password.",
+      "body3": "This activation link expires in 24 hours.",
+      "body4": "If you were not expecting this invitation, you can ignore this email or contact your administrator.",
       "body5": "Best regards,",
       "body6": "The {siteName} Team",
-      "accountDetails": "Account Details",
-      "email": "Email:",
-      "name": "Name:",
-      "accountType": "Account Type:",
-      "localAccount": "Local Account",
-      "activateAccount": "Activate Account"
+      "accountDetails": "Account details",
+      "email": "Email",
+      "name": "Name",
+      "accountType": "Account type",
+      "localAccount": "Local account",
+      "activateAccount": "Activate account"
     },
     "passwordReset": {
-      "subject": "Password Reset Request",
-      "greeting": "Hi {firstName} {lastName},",
-      "body1": "You requested a password reset for your {siteName} account.",
-      "resetButton": "Reset Password",
-      "body2": "Or copy and paste this link into your browser:",
-      "body3": "This link will expire in 1 hour.",
-      "body4": "If you didn't request this reset, please ignore this email.",
+      "subject": "Reset your {siteName} password",
+      "headline": "Reset your password",
+      "greeting": "Hi {firstName},",
+      "body1": "We received a request to reset the password for your {siteName} account.",
+      "resetButton": "Reset password",
+      "body2": "Or paste this link into your browser:",
+      "body3": "This reset link expires in 1 hour.",
+      "body4": "If you did not request a password reset, you can safely ignore this email. Your password will remain unchanged.",
       "body5": "Best regards,",
       "body6": "The {siteName} Team"
     },
@@ -244,16 +246,19 @@
       "common": {
         "taskNotification": "Task Notification",
         "hi": "Hi {firstName},",
+        "actionInBoard": "{actionMessage} in {boardName}:",
         "actionMessage": {
           "created": "A new task has been created",
           "assigned": "You have been assigned to a task",
           "updated": "A task you're involved in has been updated",
+          "deleted": "A task you're involved in has been deleted",
           "commented": "A new comment has been added to a task you're following",
           "status_changed": "Task status has been changed",
           "priority_changed": "Task priority has been changed",
           "due_date_changed": "Task due date has been changed",
           "assignee_changed": "The assignee on a task was changed",
           "requester_changed": "The requester on a task was changed",
+          "added_as_collaborator": "You have been added as a collaborator on a task",
           "consolidated_update": "Multiple changes have been made to a task you're involved in",
           "default": "Task activity notification"
         },
@@ -274,7 +279,8 @@
         "viewTask": "View Task",
         "viewTaskReply": "💬 View Task & Reply",
         "receivingReason": "You received this notification because you're involved in this task.",
-        "teamSignature": "The {siteName} Team"
+        "teamSignature": "The {siteName} Team",
+        "consolidatedChanges": "{count} changes made to this task"
       }
     },
     "bulkTaskNotification": {
@@ -292,6 +298,8 @@
       "summaryRequester": "Requester changed",
       "summaryPriority": "Priority changed",
       "summarySprint": "Sprint changed",
+      "summaryColumnMove": "Tasks moved",
+      "fieldColumn": "Column",
       "summaryDefault": "Tasks updated"
     }
   },

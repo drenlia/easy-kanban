@@ -32,7 +32,7 @@ interface AdminUsersTabProps {
   userTaskCounts: { [userId: string]: number };
   onRoleChange: (userId: string, action: 'promote' | 'demote') => Promise<void>;
   onDeleteUser: (userId: string) => Promise<void>;
-  onConfirmDeleteUser: (userId: string) => Promise<void>;
+  onConfirmDeleteUser: (userId: string, reassignToUserId?: string | null) => Promise<void>;
   onCancelDeleteUser: () => void;
   onAddUser: (userData: any) => Promise<void>;
   onEditUser: (user: User) => void;
@@ -75,6 +75,7 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
   const [avatarPreviewUrl, setAvatarPreviewUrl] = useState<string | null>(null);
   const [hoveredButton, setHoveredButton] = useState<{userId: string, type: 'promote' | 'demote' | 'edit' | 'delete', position: {top: number, left: number}} | null>(null);
   
+  const [deleteReassignToUserId, setDeleteReassignToUserId] = useState<string>(''); // '' = System
   // Refs for button positioning and focus
   const deleteButtonRefs = useRef<{[key: string]: HTMLButtonElement | null}>({});
   const colorButtonRefs = useRef<{[key: string]: HTMLButtonElement | null}>({});
@@ -135,6 +136,7 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
   // Focus the "No" button when any delete dialog opens and handle Enter key
   useEffect(() => {
     if (showDeleteConfirm) {
+      setDeleteReassignToUserId('');
       // Small delay to ensure the dialog has rendered
       setTimeout(() => {
         noButtonRef.current?.focus();
@@ -187,6 +189,27 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
 
     return () => {
       document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [showDeleteConfirm, onCancelDeleteUser]);
+
+  // Outside click dismisses delete confirmation (defer so opening click does not close it)
+  useEffect(() => {
+    if (!showDeleteConfirm) return undefined;
+    let remove: (() => void) | undefined;
+    const timer = window.setTimeout(() => {
+      const handleOutside = (event: MouseEvent) => {
+        const target = event.target as Element;
+        if (!target.closest('.delete-confirmation')) {
+          setDeleteButtonPosition(null);
+          onCancelDeleteUser();
+        }
+      };
+      document.addEventListener('mousedown', handleOutside);
+      remove = () => document.removeEventListener('mousedown', handleOutside);
+    }, 0);
+    return () => {
+      window.clearTimeout(timer);
+      remove?.();
     };
   }, [showDeleteConfirm, onCancelDeleteUser]);
 
@@ -525,10 +548,11 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
                             const viewportHeight = window.innerHeight;
                             const viewportWidth = window.innerWidth;
                             
-                            // Estimate dialog height (larger for system user)
+                            // Estimate dialog height (larger for system user / task reassign)
                             const isSystemUser = user.email === 'system@local';
-                            const estimatedDialogHeight = isSystemUser ? 180 : 100;
-                            const dialogWidth = isSystemUser ? 320 : 200;
+                            const hasTasks = (userTaskCounts[user.id] || 0) > 0;
+                            const estimatedDialogHeight = isSystemUser ? 180 : hasTasks ? 220 : 100;
+                            const dialogWidth = isSystemUser || hasTasks ? 320 : 220;
                             
                             // Check if there's enough space below
                             const spaceBelow = viewportHeight - rect.bottom;
@@ -976,16 +1000,20 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
       {/* Portal-based Delete Confirmation Dialog */}
       {showDeleteConfirm && deleteButtonPosition && deleteButtonPosition.userId === showDeleteConfirm && createPortal(
         <div 
-          className="delete-confirmation fixed bg-white border border-gray-200 rounded-lg shadow-lg p-3 z-[9999]"
+          role="dialog"
+          aria-modal="true"
+          className="delete-confirmation fixed bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg shadow-lg p-3 z-[9999]"
           style={{
             top: `${deleteButtonPosition.top}px`,
             left: `${deleteButtonPosition.left}px`,
-            width: users.find(u => u.id === showDeleteConfirm)?.email === 'system@local' ? '320px' : '200px',
-            maxHeight: deleteButtonPosition.maxHeight ? `${deleteButtonPosition.maxHeight}px` : '300px',
+            width: users.find(u => u.id === showDeleteConfirm)?.email === 'system@local' || (userTaskCounts[showDeleteConfirm] || 0) > 0
+              ? '320px'
+              : '220px',
+            maxHeight: deleteButtonPosition.maxHeight ? `${deleteButtonPosition.maxHeight}px` : '360px',
             overflowY: 'auto'
           }}
         >
-          <div className="text-sm text-gray-700 mb-2 break-words">
+          <div className="text-sm text-gray-700 dark:text-gray-200 mb-2 break-words">
             {(() => {
               const user = users.find(u => u.id === showDeleteConfirm);
               if (!user) return null;
@@ -1000,29 +1028,55 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
                         {t('users.deleteSystemUserWarning')}
                       </div>
                     </div>
-                    <div className="text-xs text-gray-600">
+                    <div className="text-xs text-gray-600 dark:text-gray-400">
                       {t('users.areYouSureProceed')}
                     </div>
                   </>
                 );
               } else if (userTaskCounts[user.id] > 0) {
+                const reassignOptions = users.filter(
+                  (u) =>
+                    u.id !== user.id &&
+                    u.email !== 'agent@local' &&
+                    u.email !== 'system@local' &&
+                    u.isActive
+                );
                 return (
                   <>
                     <div className="font-medium mb-1">{t('users.deleteUser')}</div>
-                    <div className="text-xs text-gray-700">
+                    <div className="text-xs text-gray-700 dark:text-gray-300 mb-2">
                       <span className="font-medium text-amber-700 dark:text-amber-300">
                         {t('users.tasksWillBeRemoved', { count: userTaskCounts[user.id] })}
                       </span>{' '}
-                      {t('users.willBeRemovedFor')}{' '}
+                      {t('users.willBeReassignedFor')}{' '}
                       <span className="font-medium">{user.email}</span>
                     </div>
+                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                      {t('users.reassignTasksTo')}
+                    </label>
+                    <select
+                      value={deleteReassignToUserId}
+                      onChange={(e) => setDeleteReassignToUserId(e.target.value)}
+                      onKeyDown={(e) => {
+                        // Don't let Enter/Escape on the select bubble as dialog cancel
+                        e.stopPropagation();
+                      }}
+                      className="w-full mb-2 px-2 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-100"
+                    >
+                      <option value="">{t('users.reassignToSystem')}</option>
+                      {reassignOptions.map((u) => (
+                        <option key={u.id} value={u.id}>
+                          {(u.displayName || `${u.firstName} ${u.lastName}`).trim()} ({u.email})
+                        </option>
+                      ))}
+                    </select>
                   </>
                 );
               } else {
                 return (
                   <>
                     <div className="font-medium mb-1">{t('users.deleteUser')}</div>
-                    <div className="text-xs text-gray-600">
+                    <div className="text-xs text-gray-600 dark:text-gray-400">
                       {t('users.noTasksAffected')}{' '}
                       <span className="font-medium">{user.email}</span>
                     </div>
@@ -1038,16 +1092,20 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
                 onCancelDeleteUser();
                 setDeleteButtonPosition(null);
               }}
-              className="px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
+              className="px-2 py-1 text-xs bg-gray-300 text-gray-700 rounded hover:bg-gray-400 transition-colors"
             >
               {t('users.no')}
             </button>
             <button
               onClick={() => {
-                onConfirmDeleteUser(showDeleteConfirm);
+                const reassign =
+                  (userTaskCounts[showDeleteConfirm] || 0) > 0 && deleteReassignToUserId
+                    ? deleteReassignToUserId
+                    : null;
+                onConfirmDeleteUser(showDeleteConfirm, reassign);
                 setDeleteButtonPosition(null);
               }}
-              className="px-2 py-1 text-xs bg-gray-300 text-gray-700 rounded hover:bg-gray-400 transition-colors"
+              className="px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
             >
               {t('users.yes')}
             </button>

@@ -24,6 +24,7 @@ import { STORAGE_MANAGED_HIDDEN_KEYS } from '../constants/storageSettings.js';
 import {
   commitUploadedFile,
   deleteObject,
+  getObject,
   getRequestStoragePaths,
   filenameFromPublicUrl
 } from '../services/storage/index.js';
@@ -116,6 +117,7 @@ router.get('/', async (req, res, next) => {
       'TASK_DELETE_CONFIRM',
       'ALLOW_USER_SELF_DELETE',
       'SHOW_ACTIVITY_FEED',
+      'APP_LANGUAGE',
       ...FE_PUBLIC_DEBUG_FLAG_KEYS,
       ...AI_PUBLIC_SETTING_KEYS
     ];
@@ -130,6 +132,63 @@ router.get('/', async (req, res, next) => {
   } catch (error) {
     console.error('Get public settings error:', error);
     res.status(500).json({ error: 'Failed to get public settings' });
+  }
+});
+
+/**
+ * Public site logo for emails / unauthenticated branding.
+ * Only serves the currently configured SITE_LOGO (or SITE_LOGO_DARK) file —
+ * not arbitrary avatar filenames. User avatars remain auth-gated.
+ */
+router.get('/site-logo', async (req, res, next) => {
+  if (req.baseUrl === '/api/admin/settings') {
+    return next();
+  }
+
+  try {
+    const db = getRequestDatabase(req);
+    if (!db) {
+      return res.status(500).json({ error: 'Database not available' });
+    }
+
+    const hide = await settingsQueries.getSettingByKey(db, 'HIDE_SITE_LOGO');
+    if (hide?.value === 'true') {
+      return res.status(404).json({ error: 'Logo hidden' });
+    }
+
+    const variant = String(req.query.variant || '').toLowerCase() === 'dark' ? 'dark' : 'light';
+    const light = await settingsQueries.getSettingByKey(db, 'SITE_LOGO');
+    const dark = await settingsQueries.getSettingByKey(db, 'SITE_LOGO_DARK');
+    const logoPath =
+      variant === 'dark'
+        ? (dark?.value || light?.value || '').trim()
+        : (light?.value || '').trim();
+
+    if (!logoPath || logoPath.startsWith('/kanban') || logoPath.startsWith('/assets/')) {
+      return res.status(404).json({ error: 'No site logo configured' });
+    }
+
+    if (/^https?:\/\//i.test(logoPath)) {
+      return res.redirect(302, logoPath);
+    }
+
+    const filename = filenameFromPublicUrl(logoPath, 'avatars');
+    if (!filename || filename.includes('..') || filename.includes('/')) {
+      return res.status(404).json({ error: 'Invalid logo path' });
+    }
+
+    const storagePaths = getRequestStoragePaths(req);
+    const obj = await getObject(db, storagePaths, 'avatars', filename);
+    if (!obj?.buffer) {
+      return res.status(404).json({ error: 'Logo file not found' });
+    }
+
+    res.setHeader('Content-Type', obj.contentType || 'image/png');
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    res.send(obj.buffer);
+  } catch (error) {
+    console.error('Get public site logo error:', error);
+    res.status(500).json({ error: 'Failed to get site logo' });
   }
 });
 

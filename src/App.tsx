@@ -83,8 +83,9 @@ import { generateUUID } from './utils/uuid';
 import { formatToYYYYMMDD } from './utils/dateUtils';
 import websocketClient from './services/websocketClient';
 import { loadUserPreferences, loadUserPreferencesAsync, mergeClearedKanbanVisibilityFilters, saveUserPreferences, updateUserPreference, updateActivityFeedPreference, loadAdminDefaults, TaskViewMode, ViewMode, isGloballySavingPreferences, registerSavingStateCallback, UserPreferences, clearAllUserPreferenceCookies } from './utils/userPreferences';
+import { resolveGuestLanguage, normalizeAppLanguage } from './utils/guestLanguage';
 import { versionDetection } from './utils/versionDetection';
-import { getAllPriorities, getAllTags, getTags, getPriorities, getSettings, getTaskWatchers, getTaskCollaborators, addTagToTask, removeTagFromTask, getBoardTaskRelationships, getTaskRelationships, getAllSprints } from './api';
+import { getAllPriorities, getAllTags, getTags, getPriorities, getSettings, getTaskWatchers, getTaskCollaborators, addTagToTask, removeTagFromTask, getBoardTaskRelationships, getTaskRelationships, getAllSprints, getUserSettings } from './api';
 import { 
   DEFAULT_COLUMNS, 
   DRAG_COOLDOWN_DURATION, 
@@ -154,7 +155,7 @@ function AppContent() {
   }, [selectedBoard]);
   const [columns, setColumns] = useState<Columns>({});
   // Use SettingsContext instead of local state
-  const { systemSettings, siteSettings, refreshSettings: refreshContextSettings } = useSettings();
+  const { systemSettings, siteSettings, isLoading: settingsLoading, refreshSettings: refreshContextSettings } = useSettings();
   const [kanbanColumnWidth, setKanbanColumnWidth] = useState<number>(300); // Default 300px
   
   // User Status for permission refresh
@@ -822,16 +823,6 @@ function AppContent() {
   // Initialize i18n and change language based on user preferences or browser language
   const { i18n } = useTranslation();
   
-  // Helper function to detect browser language
-  const detectBrowserLanguage = (): 'en' | 'fr' => {
-    const browserLang = navigator.language || (navigator as any).userLanguage || 'en';
-    // Check if browser language starts with 'fr' (fr, fr-FR, fr-CA, etc.)
-    if (browserLang.toLowerCase().startsWith('fr')) {
-      return 'fr';
-    }
-    return 'en';
-  };
-  
   // Load auto-refresh setting and sprint selection from user preferences
   useEffect(() => {
     if (currentUser) {
@@ -840,23 +831,21 @@ function AppContent() {
           // Load preferences from database (not just cookies)
           const prefs = await loadUserPreferencesAsync(currentUser.id);
           
-          // Language logic:
-          // 1. If user has saved preference in DB, use it (it's "set in stone")
-          // 2. Otherwise, check localStorage (what they chose on login page or browser default)
-          // 3. If no localStorage, detect browser language
-          // 4. Save the chosen language to DB as user preference
-          let languageToUse: 'en' | 'fr' = prefs.language;
-          
-          if (!languageToUse) {
-            // No saved preference - check localStorage first (user might have toggled on login page)
-            const localStorageLang = localStorage.getItem('i18nextLng');
-            if (localStorageLang === 'fr' || localStorageLang === 'en') {
-              languageToUse = localStorageLang as 'en' | 'fr';
-            } else {
-              // No localStorage either - detect browser language
-              languageToUse = detectBrowserLanguage();
-            }
-            // Save the chosen language as user preference (makes it "set in stone")
+          // Language:
+          // - If DB has a saved preferred language, use it (do not overwrite)
+          // - Otherwise seed once from guest UI resolution (explicit → APP_LANGUAGE → browser)
+          //   so first login matches emails / login screen on FR instances
+          const dbSettings = await getUserSettings();
+          const dbLang = normalizeAppLanguage(dbSettings?.language);
+          let languageToUse: 'en' | 'fr';
+
+          if (dbLang) {
+            languageToUse = dbLang;
+          } else {
+            languageToUse = resolveGuestLanguage({
+              appLanguage: siteSettings?.APP_LANGUAGE || systemSettings?.APP_LANGUAGE,
+              browserLanguage: navigator.language || (navigator as any).userLanguage,
+            });
             await updateUserPreference('language', languageToUse, currentUser.id);
           }
           
@@ -899,15 +888,20 @@ function AppContent() {
       
       restorePreferences();
     } else {
-      // If no user, detect browser language and use it (saved in localStorage by i18next)
-      const browserLang = detectBrowserLanguage();
-      if (i18n.language !== browserLang) {
-        i18n.changeLanguage(browserLang);
+      // Wait for public settings so APP_LANGUAGE (same as emails) can apply before first paint settles
+      if (settingsLoading) return;
+
+      // Unauthenticated: explicit guest toggle → APP_LANGUAGE (emails) → browser
+      const guestLang = resolveGuestLanguage({
+        appLanguage: siteSettings?.APP_LANGUAGE || systemSettings?.APP_LANGUAGE,
+        browserLanguage: navigator.language || (navigator as any).userLanguage,
+      });
+      if (i18n.language !== guestLang) {
+        void i18n.changeLanguage(guestLang);
       }
-      // Mark language as loaded even for non-authenticated users
       setLanguageLoaded(true);
     }
-  }, [currentUser, i18n]);
+  }, [currentUser, i18n, settingsLoading, siteSettings?.APP_LANGUAGE, systemSettings?.APP_LANGUAGE]);
 
   // Refetch activity feed when language changes
   useEffect(() => {

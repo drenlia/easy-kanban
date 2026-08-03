@@ -191,3 +191,136 @@ export function formatWordDiffText(before, after) {
     })
     .join('');
 }
+
+/**
+ * Build comment-author avatar markup for HTML email.
+ * Prefer public Google photo URLs; otherwise CID-embed local avatars (auth URLs
+ * do not work in email clients). Fall back to a colored initials circle.
+ *
+ * @param {object} opts
+ * @param {object} opts.db
+ * @param {{ avatars?: string, attachments?: string }} opts.storagePaths
+ * @param {object|null} opts.author - user/member row with avatar fields
+ * @param {string} [opts.cid='comment-author-avatar']
+ * @returns {Promise<{ html: string, attachments: object[] }>}
+ */
+export async function buildEmailAuthorAvatar({
+  db,
+  storagePaths,
+  author,
+  cid = 'comment-author-avatar',
+} = {}) {
+  const first =
+    author?.first_name || author?.firstName || author?.name?.split?.(' ')?.[0] || 'U';
+  const last =
+    author?.last_name ||
+    author?.lastName ||
+    author?.name?.split?.(' ')?.slice(1).join(' ') ||
+    '';
+  const displayName =
+    `${first} ${last}`.trim() || author?.name || 'User';
+  const initials = `${String(first).charAt(0)}${String(last).charAt(0)}`
+    .toUpperCase()
+    .replace(/\s/g, '') ||
+    String(displayName).charAt(0).toUpperCase() ||
+    '?';
+  const bgColor = author?.color || author?.memberColor || '#0ea5e9';
+
+  const initialsHtml = `<div style="background-color:${escapeHtml(bgColor)};color:white;width:32px;height:32px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;margin-right:10px;font-weight:bold;font-size:12px;line-height:32px;text-align:center;vertical-align:middle;">${escapeHtml(initials)}</div>`;
+
+  const googleUrl =
+    author?.google_avatar_url || author?.googleAvatarUrl || null;
+  const avatarPath = author?.avatar_path || author?.avatarPath || author?.avatarUrl || null;
+
+  const imgStyle =
+    'width:32px;height:32px;border-radius:50%;object-fit:cover;margin-right:10px;vertical-align:middle;display:inline-block;';
+
+  if (googleUrl && /^https?:\/\//i.test(String(googleUrl))) {
+    return {
+      html: `<img src="${escapeHtml(String(googleUrl))}" alt="${escapeHtml(displayName)}" width="32" height="32" style="${imgStyle}" />`,
+      attachments: [],
+    };
+  }
+
+  if (avatarPath && db && storagePaths) {
+    try {
+      const { getObject, filenameFromPublicUrl } = await import(
+        '../services/storage/index.js'
+      );
+      const filename = filenameFromPublicUrl(avatarPath, 'avatars');
+      if (filename) {
+        // SVG avatars (default generated) are blocked by most email clients — use initials
+        if (/\.svg$/i.test(filename)) {
+          return { html: initialsHtml, attachments: [] };
+        }
+        const obj = await getObject(db, storagePaths, 'avatars', filename);
+        if (obj?.buffer) {
+          return {
+            html: `<img src="cid:${cid}" alt="${escapeHtml(displayName)}" width="32" height="32" style="${imgStyle}" />`,
+            attachments: [
+              {
+                filename: filename,
+                content: obj.buffer,
+                contentType: obj.contentType || 'image/png',
+                cid,
+                contentDisposition: 'inline',
+              },
+            ],
+          };
+        }
+      }
+    } catch (err) {
+      console.warn('Failed to embed author avatar in email:', err.message);
+    }
+  }
+
+  return { html: initialsHtml, attachments: [] };
+}
+
+/**
+ * Build an <img> for the site logo in transactional emails using a public URL
+ * (not CID). Uploaded logos are served at /api/settings/site-logo.
+ *
+ * @returns {{ html: string, attachments: object[] }}
+ */
+export function buildEmailSiteLogo({
+  baseUrl,
+  logoPath,
+  hideSiteLogo = false,
+  alt = 'Logo',
+} = {}) {
+  if (hideSiteLogo) {
+    return { html: '', attachments: [] };
+  }
+
+  const raw = String(logoPath || '').trim();
+  if (!raw) {
+    return { html: '', attachments: [] };
+  }
+
+  const imgStyle =
+    'max-height:40px;max-width:220px;width:auto;height:auto;display:block;border:0;outline:none;text-decoration:none;';
+
+  let src = '';
+  if (/^https?:\/\//i.test(raw)) {
+    src = raw;
+  } else if (raw.startsWith('/kanban') || raw.startsWith('/assets/')) {
+    // Built-in defaults — not a custom site logo
+    return { html: '', attachments: [] };
+  } else {
+    const origin = String(baseUrl || '').replace(/\/$/, '');
+    if (!origin) {
+      return { html: '', attachments: [] };
+    }
+    // Public branding endpoint (only the configured SITE_LOGO file)
+    const cacheKey = raw.includes('/avatars/')
+      ? raw.split('/avatars/').pop()?.split('?')[0] || ''
+      : '';
+    src = `${origin}/api/settings/site-logo${cacheKey ? `?v=${encodeURIComponent(cacheKey)}` : ''}`;
+  }
+
+  return {
+    html: `<img src="${escapeHtml(src)}" alt="${escapeHtml(alt)}" style="${imgStyle}" />`,
+    attachments: [],
+  };
+}

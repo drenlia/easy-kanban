@@ -462,8 +462,11 @@ router.post('/', authenticateToken, requireRole(['admin']), async (req, res) => 
       );
       
       // MIGRATED: Get admin user info using sqlManager
-      const adminUser = await userQueries.getUserByIdForAdmin(db, req.user.userId);
-      const adminName = adminUser ? `${adminUser.first_name} ${adminUser.last_name}` : 'Administrator';
+      const adminUser = await userQueries.getUserByIdForAdmin(db, req.user.id);
+      const adminName =
+        (adminUser?.first_name && String(adminUser.first_name).trim()) ||
+        (adminUser?.email && String(adminUser.email).split('@')[0]) ||
+        'Administrator';
       
       try {
         const EmailService = (await import('../services/emailService.js')).default;
@@ -477,7 +480,11 @@ router.post('/', authenticateToken, requireRole(['admin']), async (req, res) => 
           inviteUser,
           inviteToken,
           adminName,
-          baseUrl
+          baseUrl,
+          {
+            storagePaths: req.locals?.tenantStoragePaths || req.app.locals?.tenantStoragePaths,
+            tenantId: getTenantId(req),
+          }
         );
         if (emailResult.success) {
           emailSent = true;
@@ -609,8 +616,11 @@ router.post('/:userId/resend-invitation', authenticateToken, requireRole(['admin
     );
     
       // MIGRATED: Get admin user info using sqlManager
-      const adminUser = await userQueries.getUserByIdForAdmin(db, req.user.userId);
-      const adminName = adminUser ? `${adminUser.first_name} ${adminUser.last_name}` : 'Administrator';
+      const adminUser = await userQueries.getUserByIdForAdmin(db, req.user.id);
+      const adminName =
+        (adminUser?.first_name && String(adminUser.first_name).trim()) ||
+        (adminUser?.email && String(adminUser.email).split('@')[0]) ||
+        'Administrator';
     
     try {
       const EmailService = (await import('../services/emailService.js')).default;
@@ -619,7 +629,11 @@ router.post('/:userId/resend-invitation', authenticateToken, requireRole(['admin
         user,
         inviteToken,
         adminName,
-        baseUrl
+        baseUrl,
+        {
+          storagePaths: req.locals?.tenantStoragePaths || req.app.locals?.tenantStoragePaths,
+          tenantId: getTenantId(req),
+        }
       );
 
       if (emailResult.success) {
@@ -677,6 +691,10 @@ router.get('/:userId/task-count', authenticateToken, requireRole(['admin']), asy
 // Delete user
 router.delete("/:userId", authenticateToken, requireRole(["admin"]), async (req, res) => {
   const { userId } = req.params;
+  const reassignToUserId =
+    (req.body && req.body.reassignToUserId) ||
+    (typeof req.query?.reassignToUserId === 'string' ? req.query.reassignToUserId : null) ||
+    null;
   const db = getRequestDatabase(req);
   
   try {
@@ -698,12 +716,27 @@ router.delete("/:userId", authenticateToken, requireRole(["admin"]), async (req,
     
     // MIGRATED: Get the member ID using sqlManager
     const userMember = await userQueries.getMemberByUserId(db, userId);
+
+    // Resolve reassignment target (default: System). Must be a different user with a member row.
+    let reassignMemberId = systemMemberId;
+    let reassignLabel = 'SYSTEM';
+    if (reassignToUserId && reassignToUserId !== userId && reassignToUserId !== SYSTEM_USER_ID) {
+      const targetMember = await userQueries.getMemberByUserId(db, reassignToUserId);
+      if (!targetMember?.id) {
+        return res.status(400).json({ error: 'Reassignment target user has no member profile' });
+      }
+      if (userMember && targetMember.id === userMember.id) {
+        return res.status(400).json({ error: 'Cannot reassign tasks to the user being deleted' });
+      }
+      reassignMemberId = targetMember.id;
+      reassignLabel = targetMember.name || reassignToUserId;
+    }
     
     // MIGRATED: Get all tasks that will be reassigned using sqlManager
     let tasksToReassign = [];
     if (userMember) {
       tasksToReassign = await userQueries.getTasksForMember(db, userMember.id);
-      console.log(`📋 Found ${tasksToReassign.length} tasks to reassign from user ${userId} to SYSTEM`);
+      console.log(`📋 Found ${tasksToReassign.length} tasks to reassign from user ${userId} to ${reassignLabel}`);
     }
     
     // Begin transaction for cascading deletion
@@ -781,12 +814,10 @@ router.delete("/:userId", authenticateToken, requireRole(["admin"]), async (req,
         // MIGRATED: Delete user invitations using sqlManager
         await adminUserQueries.deleteUserInvitations(db, userId);
         
-        // MIGRATED: Reassign tasks assigned to the user to the system account using sqlManager
+        // Reassign assignee + requester to chosen member (defaults to System)
         if (userMember) {
-          await adminUserQueries.reassignTasksToSystemMember(db, systemMemberId, userMember.id);
-          
-          // MIGRATED: Reassign tasks requested by the user to the system account using sqlManager
-          await adminUserQueries.reassignTaskRequestersToSystemMember(db, systemMemberId, userMember.id);
+          await adminUserQueries.reassignTasksToSystemMember(db, reassignMemberId, userMember.id);
+          await adminUserQueries.reassignTaskRequestersToSystemMember(db, reassignMemberId, userMember.id);
         }
         
         // MIGRATED: Delete the member record using sqlManager
@@ -802,19 +833,15 @@ router.delete("/:userId", authenticateToken, requireRole(["admin"]), async (req,
     
     // Publish task-updated events for all reassigned tasks (for real-time updates)
     if (tasksToReassign.length > 0) {
-      // MIGRATED: Get system member using sqlManager
-      const systemMember = await userQueries.getMemberById(db, '00000000-0000-0000-0000-000000000001');
+      const targetMember = await userQueries.getMemberById(db, reassignMemberId);
       
-      if (systemMember) {
+      if (targetMember) {
         console.log(`📤 Publishing ${tasksToReassign.length} task-updated events via ${getNotificationSystem()}`);
         for (const task of tasksToReassign) {
           // MIGRATED: Get the full updated task details using sqlManager
           const updatedTask = await taskQueries.getTaskWithRelationships(db, task.id);
           
           if (updatedTask) {
-            // Task already has proper structure from getTaskWithRelationships
-            // No need to parse JSON or transform
-            
             notificationService.publish('task-updated', {
               boardId: task.boardId,
               task: updatedTask,

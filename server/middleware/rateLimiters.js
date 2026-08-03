@@ -30,17 +30,33 @@ export const loginLimiter = rateLimit({
   validate: false, // Disable all validations - we handle trust proxy explicitly
 });
 
-// Password reset rate limiter: 3 attempts per hour
-export const passwordResetLimiter = rateLimit({
+// Password reset request: 3 per hour
+export const passwordResetRequestLimiter = rateLimit({
   windowMs: 60 * 60 * 1000, // 1 hour
-  max: 3, // 3 password reset attempts per hour
+  max: 3,
+  message: {
+    error: 'Too many password reset requests, please try again in 1 hour'
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  trustProxy: shouldTrustProxy,
+  validate: false,
+});
+
+/** @deprecated Prefer passwordResetRequestLimiter */
+export const passwordResetLimiter = passwordResetRequestLimiter;
+
+// Password reset completion: 6 per hour
+export const passwordResetCompletionLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 6,
   message: {
     error: 'Too many password reset attempts, please try again in 1 hour'
   },
   standardHeaders: true,
   legacyHeaders: false,
   trustProxy: shouldTrustProxy,
-  validate: false, // Disable all validations - we handle trust proxy explicitly
+  validate: false,
 });
 
 // Registration rate limiter: 3 attempts per hour

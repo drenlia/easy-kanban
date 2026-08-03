@@ -661,8 +661,10 @@ export const updateUserRole = async (userId: string, action: 'promote' | 'demote
   return data;
 };
 
-export const deleteUser = async (userId: string) => {
-  const { data } = await api.delete(`/admin/users/${userId}`);
+export const deleteUser = async (userId: string, reassignToUserId?: string | null) => {
+  const { data } = await api.delete(`/admin/users/${userId}`, {
+    data: reassignToUserId ? { reassignToUserId } : {},
+  });
   return data;
 };
 

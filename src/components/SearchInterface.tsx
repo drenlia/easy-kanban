@@ -340,6 +340,10 @@ export default function SearchInterface({
           <div className="relative">
             <input
               type="text"
+              name="kanban-text-filter"
+              autoComplete="off"
+              data-1p-ignore
+              data-lpignore="true"
               placeholder={t('searchInterface.searchPlaceholder')}
               value={filters.text}
               onChange={(e) => updateFilter('text', e.target.value)}

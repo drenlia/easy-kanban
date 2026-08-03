@@ -7,7 +7,9 @@ import {
   formatDetailsForEmail,
   buildTaskEmailUrl,
 } from '../utils/emailContent.js';
+import { getUserTimeZone } from '../utils/dateFormatter.js';
 import { parseRetentionDays } from '../utils/retentionSettings.js';
+import { resolveCorrespondenceLanguage, getTranslatorForLanguage } from '../utils/i18n.js';
 
 export { formatDetailsForEmail };
 
@@ -323,15 +325,24 @@ class NotificationThrottler {
       ).get('SITE_NAME');
       const siteName = siteNameSetting?.value || 'Easy Kanban';
 
-      // Determine action type and details
+      // Recipient language: user pref → APP_LANGUAGE → en
+      const recipientId = recipientUser.id || recipientUser.userId;
+      const lang = await resolveCorrespondenceLanguage(this.db, recipientId);
+      const tLang = getTranslatorForLanguage(lang);
       const actionType = notifications.length > 1 ? 'consolidated_update' : baseNotification.action;
       const actionDetails =
         notifications.length > 1
-          ? `${notifications.length} changes made to this task`
-          : formatDetailsForEmail(baseNotification.details);
+          ? tLang('emails.taskNotification.common.consolidatedChanges', {
+              count: notifications.length,
+            })
+          : formatDetailsForEmail(baseNotification.details, lang);
 
       const boardTitle = boardInfo?.title || 'Board';
       const changedField = actor?.changedField || null;
+      const recipientTimeZone = await getUserTimeZone(
+        this.db,
+        recipientId
+      );
 
       // Create email template data
       const emailTemplateData = {
@@ -352,6 +363,8 @@ class NotificationThrottler {
         changedField,
         notificationType: baseNotification.notification_type || null,
         timestamp: baseNotification.last_change_time,
+        recipientTimeZone,
+        lang,
         db: this.db
       };
 
@@ -458,11 +471,23 @@ class NotificationThrottler {
       ).get('SITE_NAME');
       const siteName = siteNameSetting?.value || 'Easy Kanban';
 
-      // Determine action type and details
+      // Recipient language: user pref → APP_LANGUAGE → en
+      const recipientId = recipientUser.id || recipientUser.userId;
+      const lang = await resolveCorrespondenceLanguage(this.db, recipientId);
+      const tLang = getTranslatorForLanguage(lang);
       const actionType = queuedNotification.change_count > 1 ? 'consolidated_update' : queuedNotification.action;
-      const actionDetails = formatDetailsForEmail(queuedNotification.details);
+      const actionDetails =
+        queuedNotification.change_count > 1
+          ? tLang('emails.taskNotification.common.consolidatedChanges', {
+              count: queuedNotification.change_count,
+            })
+          : formatDetailsForEmail(queuedNotification.details, lang);
       const boardTitle = boardInfo?.title || 'Board';
       const changedField = actor?.changedField || null;
+      const recipientTimeZone = await getUserTimeZone(
+        this.db,
+        recipientId
+      );
 
       // Create email template data
       const emailTemplateData = {
@@ -483,6 +508,8 @@ class NotificationThrottler {
         changedField,
         notificationType: queuedNotification.notification_type || null,
         timestamp: queuedNotification.last_change_time,
+        recipientTimeZone,
+        lang,
         db: this.db
       };
 

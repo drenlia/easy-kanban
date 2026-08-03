@@ -2,34 +2,15 @@ import express from 'express';
 import { dbExec } from '../utils/dbAsync.js';
 import bcrypt from 'bcrypt';
 import crypto from 'crypto';
-import rateLimit from 'express-rate-limit';
 import { getRequestDatabase } from '../middleware/tenantRouting.js';
+import {
+  passwordResetRequestLimiter,
+  passwordResetCompletionLimiter,
+} from '../middleware/rateLimiters.js';
 // MIGRATED: Import sqlManager
 import { passwordReset as passwordResetQueries, auth as authQueries } from '../utils/sqlManager/index.js';
 
 const router = express.Router();
-
-// Password reset request rate limiter: 3 attempts per hour
-const passwordResetRequestLimiter = rateLimit({
-  windowMs: 60 * 60 * 1000, // 1 hour
-  max: 3, // 3 password reset requests per hour
-  message: {
-    error: 'Too many password reset requests, please try again in 1 hour'
-  },
-  standardHeaders: true,
-  legacyHeaders: false
-});
-
-// Password reset completion rate limiter: 6 attempts per hour (more generous)
-const passwordResetCompletionLimiter = rateLimit({
-  windowMs: 60 * 60 * 1000, // 1 hour
-  max: 6, // 6 password reset completions per hour
-  message: {
-    error: 'Too many password reset attempts, please try again in 1 hour'
-  },
-  standardHeaders: true,
-  legacyHeaders: false
-});
 
 // Request password reset
 router.post('/request', passwordResetRequestLimiter, async (req, res) => {

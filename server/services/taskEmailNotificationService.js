@@ -3,7 +3,9 @@ import { EmailTemplates } from './emailTemplates.js';
 import { wrapQuery } from '../utils/queryLogger.js';
 import { getNotificationThrottlerForDb } from './notificationThrottler.js';
 import { activity as activityQueries, tasks as taskQueries } from '../utils/sqlManager/index.js';
-import { buildTaskEmailUrl } from '../utils/emailContent.js';
+import { buildTaskEmailUrl, buildEmailAuthorAvatar } from '../utils/emailContent.js';
+import { getUserTimeZone } from '../utils/dateFormatter.js';
+import { getTenantStoragePaths } from '../middleware/tenantRouting.js';
 import {
   AGENT_USER_ID,
   SYSTEM_USER_ID,
@@ -83,7 +85,14 @@ class TaskEmailNotificationService {
 
       if (userSettings?.setting_value) {
         try {
-          return { ...defaults, ...JSON.parse(userSettings.setting_value) };
+          const parsed = JSON.parse(userSettings.setting_value);
+          const merged = { ...defaults, ...parsed };
+          // Coerce string booleans from older / mangled saves
+          for (const key of Object.keys(merged)) {
+            if (merged[key] === 'true') merged[key] = true;
+            if (merged[key] === 'false') merged[key] = false;
+          }
+          return merged;
         } catch {
           return defaults;
         }
@@ -172,7 +181,8 @@ class TaskEmailNotificationService {
   async getActor(userId) {
     const withMember = await wrapQuery(
       this.db.prepare(`
-        SELECT m.name, u.id, u.email, u.first_name, u.last_name
+        SELECT m.name, m.color, u.id, u.email, u.first_name, u.last_name,
+               u.avatar_path, u.google_avatar_url, u.auth_provider
         FROM members m
         JOIN users u ON m.user_id = u.id
         WHERE u.id = ?
@@ -185,6 +195,7 @@ class TaskEmailNotificationService {
     return wrapQuery(
       this.db.prepare(`
         SELECT id, email, first_name, last_name,
+               avatar_path, google_avatar_url, auth_provider,
                TRIM(CONCAT(COALESCE(first_name, ''), ' ', COALESCE(last_name, ''))) AS name
         FROM users WHERE id = ?
       `),
@@ -316,12 +327,23 @@ class TaskEmailNotificationService {
         oldValue,
         newValue,
         changedField = null,
+        projectIdentifier = null,
+        taskTicket: activityTaskTicket = null,
       } = activityData;
       if (!userId || !taskId || !action) return;
       if (this.isDuplicateBurst(userId, action, taskId)) return;
 
       const participants = await this.getTaskParticipants(taskId);
       if (!participants.task) return;
+
+      // Prefer live board project; fall back to values captured at delete/update time
+      if (!participants.projectId && projectIdentifier) {
+        participants.projectId = projectIdentifier;
+        if (participants.task) participants.task.projectId = projectIdentifier;
+      }
+      if (activityTaskTicket && participants.task && !participants.task.ticket) {
+        participants.task.ticket = activityTaskTicket;
+      }
 
       const actor = await this.getActor(userId);
       if (!actor) return;
@@ -433,6 +455,13 @@ class TaskEmailNotificationService {
       ).get('SITE_NAME');
       const siteName = siteNameSetting?.value || 'Easy Kanban';
 
+      const storagePaths = getTenantStoragePaths(this.tenantId);
+      const authorAvatar = await buildEmailAuthorAvatar({
+        db: this.db,
+        storagePaths,
+        author: actor,
+      });
+
       for (const recipientUserId of recipientIds) {
         const userPrefs = await this.getUserNotificationPreferences(recipientUserId);
         if (!userPrefs.commentAdded) continue;
@@ -444,6 +473,8 @@ class TaskEmailNotificationService {
           'SELECT'
         ).get(recipientUserId);
         if (!isMailableRecipient(recipient)) continue;
+
+        const recipientTimeZone = await getUserTimeZone(this.db, recipientUserId);
 
         const emailContent = await EmailTemplates.commentNotification({
           user: recipient,
@@ -461,10 +492,16 @@ class TaskEmailNotificationService {
               actor.last_name ||
               actor.name?.split(' ').slice(1).join(' ') ||
               '',
+            color: actor.color || null,
+            avatar_path: actor.avatar_path || null,
+            google_avatar_url: actor.google_avatar_url || null,
           },
+          authorAvatarHtml: authorAvatar.html,
+          emailAttachments: authorAvatar.attachments,
           taskUrl,
           siteName,
           timestamp: new Date().toISOString(),
+          recipientTimeZone,
           db: this.db,
         });
 
@@ -473,10 +510,103 @@ class TaskEmailNotificationService {
           subject: emailContent.subject,
           text: emailContent.text,
           html: emailContent.html,
+          attachments: emailContent.attachments || [],
         });
       }
     } catch (error) {
       console.error('❌ [TASK-EMAIL] Error sending comment notification:', error);
+    }
+  }
+
+  /**
+   * Email the newly added collaborator immediately (respects addedAsCollaborator pref).
+   * Does not notify other task participants.
+   */
+  async sendCollaboratorAddedNotification({ actorUserId, taskId, memberId }) {
+    try {
+      if (process.env.DEMO_ENABLED === 'true') return;
+      if (!actorUserId || !taskId || !memberId) return;
+
+      const mail = await this.isMailReady();
+      if (!mail.valid) return;
+
+      const recipientUserId = await activityQueries.getUserIdForMember(this.db, memberId);
+      if (!recipientUserId || recipientUserId === actorUserId) return;
+      if (NON_MAILABLE_USER_IDS.has(recipientUserId)) return;
+
+      const userPrefs = await this.getUserNotificationPreferences(recipientUserId);
+      if (!userPrefs.addedAsCollaborator) return;
+
+      const recipient = await wrapQuery(
+        this.db.prepare(
+          'SELECT id, email, first_name, last_name, is_active FROM users WHERE id = ?'
+        ),
+        'SELECT'
+      ).get(recipientUserId);
+      if (!isMailableRecipient(recipient)) return;
+
+      const participants = await this.getTaskParticipants(taskId);
+      if (!participants.task) return;
+
+      const actor = await this.getActor(actorUserId);
+      const actorName =
+        actor?.name ||
+        [actor?.first_name, actor?.last_name].filter(Boolean).join(' ') ||
+        actor?.email ||
+        'Someone';
+
+      const appUrlSetting = await wrapQuery(
+        this.db.prepare('SELECT value FROM settings WHERE key = ?'),
+        'SELECT'
+      ).get('APP_URL');
+      let baseUrl =
+        appUrlSetting?.value || process.env.BASE_URL || 'http://localhost:3000';
+      baseUrl = baseUrl.replace(/\/$/, '');
+      const ticket = participants.task.ticket || participants.task.id;
+      const taskUrl = buildTaskEmailUrl(baseUrl, {
+        projectId: participants.projectId,
+        ticket,
+        taskId: participants.task.id,
+      });
+
+      const siteNameSetting = await wrapQuery(
+        this.db.prepare('SELECT value FROM settings WHERE key = ?'),
+        'SELECT'
+      ).get('SITE_NAME');
+      const siteName = siteNameSetting?.value || 'Easy Kanban';
+      const recipientTimeZone = await getUserTimeZone(this.db, recipientUserId);
+
+      const { getTranslatorForUser } = await import('../utils/i18n.js');
+      const t = await getTranslatorForUser(this.db, recipientUserId);
+      const actionDetails = `${t('emails.taskNotification.addedAsCollaborator.addedBy')} ${actorName}`;
+
+      const emailContent = await EmailTemplates.taskNotification({
+        user: recipient,
+        task: participants.task,
+        board: {
+          id: participants.task.boardId,
+          name: participants.boardTitle || 'Board',
+          title: participants.boardTitle || 'Board',
+        },
+        project: participants.projectId || null,
+        actionType: 'update_task',
+        actionDetails,
+        taskUrl,
+        siteName,
+        notificationType: 'addedAsCollaborator',
+        timestamp: new Date().toISOString(),
+        recipientTimeZone,
+        db: this.db,
+      });
+
+      await this.emailService.sendEmail({
+        to: recipient.email,
+        subject: emailContent.subject,
+        text: emailContent.text,
+        html: emailContent.html,
+      });
+    } catch (error) {
+      console.error('❌ [TASK-EMAIL] Error sending collaborator-added notification:', error);
     }
   }
 
@@ -599,11 +729,8 @@ class TaskEmailNotificationService {
       ).get('SITE_NAME');
       const siteName = siteNameSetting?.value || 'Easy Kanban';
 
-      const { getAppLanguage } = await import('../utils/i18n.js');
-      const lang = await getAppLanguage(this.db);
-      const summaryDetails = details
-        ? (await import('../utils/emailContent.js')).formatDetailsForEmail(details, lang)
-        : '';
+      const { resolveCorrespondenceLanguage } = await import('../utils/i18n.js');
+      const { formatDetailsForEmail } = await import('../utils/emailContent.js');
 
       const actorName =
         actor.name ||
@@ -623,6 +750,12 @@ class TaskEmailNotificationService {
         ).get(recipientUserId);
         if (!isMailableRecipient(recipient)) continue;
 
+        const recipientTimeZone = await getUserTimeZone(this.db, recipientUserId);
+        const lang = await resolveCorrespondenceLanguage(this.db, recipientUserId);
+        const summaryDetails = details
+          ? formatDetailsForEmail(details, lang)
+          : '';
+
         const emailContent = await EmailTemplates.bulkTaskNotification({
           user: recipient,
           actorName,
@@ -635,6 +768,8 @@ class TaskEmailNotificationService {
           baseUrl,
           siteName,
           timestamp: new Date().toISOString(),
+          recipientTimeZone,
+          lang,
           db: this.db,
         });
 
@@ -647,6 +782,152 @@ class TaskEmailNotificationService {
       }
     } catch (error) {
       console.error('❌ [TASK-EMAIL] Error sending bulk task notification:', error);
+    }
+  }
+
+  /**
+   * One digest email per recipient for multi-select / batch column moves.
+   * @param {{ userId: string, moves: Array<{ taskId: string, title?: string, ticket?: string, boardId?: string, fromColumnName?: string, toColumnName?: string }> }} bulkData
+   */
+  async sendBulkColumnMoveNotification(bulkData) {
+    try {
+      if (process.env.DEMO_ENABLED === 'true') return;
+
+      const mail = await this.isMailReady();
+      if (!mail.valid) return;
+
+      const { userId, moves } = bulkData || {};
+      if (!userId || !Array.isArray(moves) || moves.length < 2) return;
+
+      const actor = await this.getActor(userId);
+      if (!actor) return;
+
+      const typePriority = {
+        newTaskAssigned: 100,
+        myTaskUpdated: 90,
+        requesterTaskUpdated: 70,
+        collaboratingTaskUpdated: 60,
+        watchedTaskUpdated: 50,
+      };
+
+      /** @type {Map<string, { notificationType: string, tasks: object[], boardTitle: string }>} */
+      const byRecipient = new Map();
+      let boardTitle = 'Board';
+
+      const toColumnNames = [
+        ...new Set(moves.map((m) => m.toColumnName).filter(Boolean)),
+      ];
+      const fromColumnNames = [
+        ...new Set(moves.map((m) => m.fromColumnName).filter(Boolean)),
+      ];
+      const changeAfter =
+        toColumnNames.length === 1 ? toColumnNames[0] : toColumnNames.join(', ');
+      const changeBefore =
+        fromColumnNames.length === 1 ? fromColumnNames[0] : '';
+
+      for (const move of moves) {
+        const participants = await this.getTaskParticipants(move.taskId);
+        if (!participants?.task) continue;
+        boardTitle = participants.boardTitle || boardTitle;
+
+        const notifications = this.determineNotifications(
+          'move_task',
+          participants,
+          userId,
+          {}
+        );
+
+        const taskSummary = {
+          id: participants.task.id,
+          title: participants.task.title || move.title,
+          ticket: participants.task.ticket || move.ticket,
+          boardId: participants.task.boardId || move.boardId,
+          projectId: participants.projectId || participants.task.projectId || null,
+        };
+
+        for (const { recipientUserId, notificationType } of notifications) {
+          const existing = byRecipient.get(recipientUserId);
+          if (!existing) {
+            byRecipient.set(recipientUserId, {
+              notificationType,
+              tasks: [taskSummary],
+              boardTitle: participants.boardTitle || boardTitle,
+            });
+          } else {
+            if (
+              (typePriority[notificationType] || 0) >
+              (typePriority[existing.notificationType] || 0)
+            ) {
+              existing.notificationType = notificationType;
+            }
+            if (!existing.tasks.some((t) => t.id === taskSummary.id)) {
+              existing.tasks.push(taskSummary);
+            }
+          }
+        }
+      }
+
+      if (byRecipient.size === 0) return;
+
+      const appUrlSetting = await wrapQuery(
+        this.db.prepare('SELECT value FROM settings WHERE key = ?'),
+        'SELECT'
+      ).get('APP_URL');
+      let baseUrl =
+        appUrlSetting?.value || process.env.BASE_URL || 'http://localhost:3000';
+      baseUrl = baseUrl.replace(/\/$/, '');
+
+      const siteNameSetting = await wrapQuery(
+        this.db.prepare('SELECT value FROM settings WHERE key = ?'),
+        'SELECT'
+      ).get('SITE_NAME');
+      const siteName = siteNameSetting?.value || 'Easy Kanban';
+
+      const actorName =
+        actor.name ||
+        [actor.first_name, actor.last_name].filter(Boolean).join(' ') ||
+        actor.email ||
+        'Someone';
+
+      for (const [recipientUserId, payload] of byRecipient.entries()) {
+        const userPrefs = await this.getUserNotificationPreferences(recipientUserId);
+        if (!userPrefs[payload.notificationType]) continue;
+
+        const recipient = await wrapQuery(
+          this.db.prepare(
+            'SELECT id, email, first_name, last_name, is_active FROM users WHERE id = ?'
+          ),
+          'SELECT'
+        ).get(recipientUserId);
+        if (!isMailableRecipient(recipient)) continue;
+
+        const recipientTimeZone = await getUserTimeZone(this.db, recipientUserId);
+
+        const emailContent = await EmailTemplates.bulkTaskNotification({
+          user: recipient,
+          actorName,
+          boardTitle: payload.boardTitle || boardTitle,
+          field: 'columnId',
+          tasks: payload.tasks,
+          changeBefore,
+          changeAfter,
+          summaryDetails: '',
+          baseUrl,
+          siteName,
+          timestamp: new Date().toISOString(),
+          recipientTimeZone,
+          db: this.db,
+        });
+
+        await this.emailService.sendEmail({
+          to: recipient.email,
+          subject: emailContent.subject,
+          text: emailContent.text,
+          html: emailContent.html,
+        });
+      }
+    } catch (error) {
+      console.error('❌ [TASK-EMAIL] Error sending bulk column-move notification:', error);
     }
   }
 }
@@ -668,6 +949,18 @@ export function notifyBulkTaskFieldActivity(db, bulkData, tenantId = null) {
   if (!db) return Promise.resolve();
   const service = new TaskEmailNotificationService(db, tenantId);
   return service.sendBulkTaskFieldNotification(bulkData);
+}
+
+export function notifyCollaboratorAdded(db, data, tenantId = null) {
+  if (!db) return Promise.resolve();
+  const service = new TaskEmailNotificationService(db, tenantId);
+  return service.sendCollaboratorAddedNotification(data);
+}
+
+export function notifyBulkColumnMove(db, data, tenantId = null) {
+  if (!db) return Promise.resolve();
+  const service = new TaskEmailNotificationService(db, tenantId);
+  return service.sendBulkColumnMoveNotification(data);
 }
 
 export { TaskEmailNotificationService };

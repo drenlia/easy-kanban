@@ -17,6 +17,7 @@ import { AUTOMATION_CONFIG_KEYS } from '../constants/automation.js';
 import {
   purgeTaskCompletelyAndUpdateStorage,
 } from '../services/taskPurgeService.js';
+import { notifyCollaboratorAdded, notifyBulkColumnMove } from '../services/taskEmailNotificationService.js';
 
 const router = express.Router();
 
@@ -1630,11 +1631,18 @@ router.post('/batch-update', authenticateToken, async (req, res) => {
     
     // Collect queries and send as a batched transaction
     const batchQueries = [];
-    const updateQuery = `
+    const updateQuerySameColumn = `
       UPDATE tasks SET 
         title = ?, description = ?, memberid = ?, requesterid = ?, startdate = ?, 
         duedate = ?, effort = ?, priority = ?, priority_id = ?, columnid = ?, boardid = ?, position = ?, 
         sprint_id = ?, pre_boardid = ?, pre_columnid = ?, updated_at = ? 
+      WHERE id = ?
+    `;
+    const updateQueryCrossColumn = `
+      UPDATE tasks SET 
+        title = ?, description = ?, memberid = ?, requesterid = ?, startdate = ?, 
+        duedate = ?, effort = ?, priority = ?, priority_id = ?, columnid = ?, boardid = ?, position = ?, 
+        sprint_id = ?, pre_boardid = ?, pre_columnid = ?, column_entered_at = ?, updated_at = ? 
       WHERE id = ?
     `;
     
@@ -1664,15 +1672,27 @@ router.post('/batch-update', authenticateToken, async (req, res) => {
         priorityId = currentTask.priority_id;
         priorityName = currentTask.priority;
       }
-      
-      batchQueries.push({
-        query: updateQuery,
-        params: [
-          task.title, task.description, task.memberId, task.requesterId, task.startDate,
-          task.dueDate, task.effort, priorityName, priorityId, task.columnId, task.boardId, task.position || 0,
-          task.sprintId || null, previousBoardId, previousColumnId, now, task.id
-        ]
-      });
+
+      const columnChanged = task.columnId && task.columnId !== previousColumnId;
+      if (columnChanged) {
+        batchQueries.push({
+          query: updateQueryCrossColumn,
+          params: [
+            task.title, task.description, task.memberId, task.requesterId, task.startDate,
+            task.dueDate, task.effort, priorityName, priorityId, task.columnId, task.boardId, task.position || 0,
+            task.sprintId || null, previousBoardId, previousColumnId, now, now, task.id
+          ]
+        });
+      } else {
+        batchQueries.push({
+          query: updateQuerySameColumn,
+          params: [
+            task.title, task.description, task.memberId, task.requesterId, task.startDate,
+            task.dueDate, task.effort, priorityName, priorityId, task.columnId, task.boardId, task.position || 0,
+            task.sprintId || null, previousBoardId, previousColumnId, now, task.id
+          ]
+        });
+      }
     }
     
     // Execute all updates in a single batched transaction
@@ -2029,7 +2049,7 @@ router.post('/batch-update-positions', authenticateToken, async (req, res) => {
     
     // Execute all updates in a single batched transaction
     const batchQueries = [];
-    const updateQuery = `
+    const sameColumnQuery = `
       UPDATE tasks SET 
         position = $1, 
         columnid = $2,
@@ -2038,20 +2058,46 @@ router.post('/batch-update-positions', authenticateToken, async (req, res) => {
         updated_at = $5
       WHERE id = $6
     `;
+    const crossColumnQuery = `
+      UPDATE tasks SET 
+        position = $1, 
+        columnid = $2,
+        pre_boardid = $3, 
+        pre_columnid = $4,
+        column_entered_at = $5,
+        updated_at = $6
+      WHERE id = $7
+    `;
     
     for (const columnUpdates of updatesByColumn.values()) {
       for (const update of columnUpdates) {
-        batchQueries.push({
-          query: updateQuery,
-          params: [
-            update.position,
-            update.columnId,
-            update.previousBoardId,
-            update.previousColumnId,
-            now,
-            update.taskId
-          ]
-        });
+        const columnChanged = update.previousColumnId !== update.columnId;
+        if (columnChanged) {
+          batchQueries.push({
+            query: crossColumnQuery,
+            params: [
+              update.position,
+              update.columnId,
+              update.previousBoardId,
+              update.previousColumnId,
+              now,
+              now,
+              update.taskId
+            ]
+          });
+        } else {
+          batchQueries.push({
+            query: sameColumnQuery,
+            params: [
+              update.position,
+              update.columnId,
+              update.previousBoardId,
+              update.previousColumnId,
+              now,
+              update.taskId
+            ]
+          });
+        }
       }
     }
     
@@ -2101,12 +2147,16 @@ router.post('/batch-update-positions', authenticateToken, async (req, res) => {
       const columnMap = new Map(columns.filter(c => c).map(c => [c.id, c]));
       taskHttpLog(dbgHttp, `⏱️  [batch-update-positions] Column fetch took ${Date.now() - activityStartTime}ms`);
       
-      // Log activities (fire-and-forget: Don't await to avoid blocking API response)
-      // Start all activity logs in parallel but don't wait for them
+      // Log activities (fire-and-forget).
+      // 2+ column moves → skip per-task emails and send one digest; single move uses normal email.
+      const useBulkDigest = columnMoves.length >= 2;
+      const movesForEmail = [];
       columnMoves.forEach((move) => {
         const oldColumn = columnMap.get(move.previousColumnId);
         const newColumn = columnMap.get(move.columnId);
-        const taskRef = ''; // Batch moves don't include ticket ref in the move object
+        const currentTask = taskMap.get(move.taskId);
+        const taskTicket = currentTask?.ticket || '';
+        const taskRef = taskTicket ? ` (${taskTicket})` : '';
         
         // Create bilingual message for column move (same pattern as regular update route)
         const movedTaskText = JSON.stringify({
@@ -2134,7 +2184,8 @@ router.post('/batch-update-positions', authenticateToken, async (req, res) => {
             boardId: move.previousBoardId,
             tenantId: getTenantId(req),
             authType: req.user?.authType,
-            db: db
+            db: db,
+            skipEmail: useBulkDigest,
           }
         ).catch(error => {
           console.error('Background activity logging failed:', error);
@@ -2150,7 +2201,28 @@ router.post('/batch-update-positions', authenticateToken, async (req, res) => {
         }).catch(error => {
           console.error('Background reporting activity logging failed:', error);
         });
+
+        if (useBulkDigest) {
+          movesForEmail.push({
+            taskId: move.taskId,
+            title: move.title,
+            ticket: taskTicket || null,
+            boardId: move.previousBoardId || currentTask?.boardId || currentTask?.boardid,
+            fromColumnName: oldColumn?.title || 'Unknown',
+            toColumnName: newColumn?.title || 'Unknown',
+          });
+        }
       });
+
+      if (movesForEmail.length >= 2) {
+        notifyBulkColumnMove(
+          db,
+          { userId, moves: movesForEmail },
+          getTenantId(req)
+        ).catch((err) => {
+          console.error('Failed to send bulk column-move email:', err);
+        });
+      }
       // Note: Activity logging is now fire-and-forget, so timing measurement removed
     }
     
@@ -2190,6 +2262,7 @@ router.post('/batch-update-positions', authenticateToken, async (req, res) => {
       // Same-column renumbers stay tiny (peers merge onto existing local cards).
       if (columnChanged && currentColumnId !== targetColumnId) {
         minimalTask.previousColumnId = currentColumnId;
+        minimalTask.columnEnteredAt = now;
         minimalTask.description = currentTask.description ?? '';
         minimalTask.effort = currentTask.effort ?? 0;
         minimalTask.priority = currentTask.priority ?? null;
@@ -2476,10 +2549,11 @@ router.post('/move-to-board', authenticateToken, async (req, res) => {
           position = 0,
           pre_boardid = ?, 
           pre_columnid = ?,
+          column_entered_at = ?,
           updated_at = ?
         WHERE id = ?
       `,
-      params: [targetColumn.id, targetBoardId, originalBoardId, originalColumnId, now, taskId]
+      params: [targetColumn.id, targetBoardId, originalBoardId, originalColumnId, now, now, taskId]
     });
     
     // Execute all updates in a single batched transaction
@@ -2695,6 +2769,14 @@ router.post('/:taskId/collaborators/:memberId', authenticateToken, async (req, r
     
     // MIGRATED: Add collaborator using sqlManager
     await helpers.addCollaborator(db, taskId, memberId);
+
+    notifyCollaboratorAdded(
+      db,
+      { actorUserId: userId, taskId, memberId },
+      getTenantId(req)
+    ).catch((err) => {
+      console.error('Failed to send collaborator-added email:', err);
+    });
     
     // Log to reporting system (fire-and-forget: Don't await to avoid blocking API response)
     logReportingActivity(db, 'collaborator_added', userId, taskId).catch(error => {

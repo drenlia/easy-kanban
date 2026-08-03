@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ArrowLeft, Eye, EyeOff, CheckCircle } from 'lucide-react';
 import { login } from '../api';
+import { setExplicitGuestLanguage } from '../utils/guestLanguage';
 
 interface ActivateAccountProps {
   token: string;
@@ -12,7 +13,7 @@ interface ActivateAccountProps {
 }
 
 export default function ActivateAccount({ token, email, onBackToLogin, onAutoLogin, isLoading: isLoadingProps }: ActivateAccountProps) {
-  const { t } = useTranslation('auth');
+  const { t, i18n } = useTranslation('auth');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -22,6 +23,24 @@ export default function ActivateAccount({ token, email, onBackToLogin, onAutoLog
   const [tokenValid, setTokenValid] = useState<boolean | null>(null);
   const [success, setSuccess] = useState(false);
   const [googleOAuthEnabled, setGoogleOAuthEnabled] = useState(false);
+
+  const currentLanguage = (i18n.language || 'en').toLowerCase().startsWith('fr') ? 'fr' : 'en';
+  const handleLanguageToggle = async () => {
+    const newLanguage = currentLanguage === 'en' ? 'fr' : 'en';
+    setExplicitGuestLanguage(newLanguage);
+    await i18n.changeLanguage(newLanguage);
+  };
+
+  const languageToggle = (
+    <button
+      type="button"
+      onClick={handleLanguageToggle}
+      className="absolute top-4 right-4 px-3 py-1.5 text-sm font-medium text-gray-700 hover:text-blue-600 hover:bg-gray-50 rounded-md transition-colors border border-gray-300 hover:border-blue-400 z-10"
+      title={currentLanguage === 'en' ? 'Switch to French' : 'Passer en anglais'}
+    >
+      {currentLanguage === 'en' ? 'FR' : 'EN'}
+    </button>
+  );
 
   // Debug props to server console - DISABLED
   // React.useEffect(() => {
@@ -171,7 +190,8 @@ export default function ActivateAccount({ token, email, onBackToLogin, onAutoLog
   // Loading state while waiting for token verification
   if (tokenValid === null) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 relative">
+        {languageToggle}
         <div className="max-w-md w-full text-center">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
           <p className="mt-4 text-gray-600">{t('activateAccount.verifyingToken')}</p>
@@ -183,7 +203,8 @@ export default function ActivateAccount({ token, email, onBackToLogin, onAutoLog
   // Invalid token state
   if (tokenValid === false) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 relative">
+        {languageToggle}
         <div className="max-w-md w-full text-center">
           <div className="mx-auto h-12 w-12 bg-red-100 rounded-full flex items-center justify-center">
             <svg className="h-6 w-6 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -212,7 +233,8 @@ export default function ActivateAccount({ token, email, onBackToLogin, onAutoLog
   // Loading state while props are being parsed
   if (isLoadingProps) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4 relative">
+        {languageToggle}
         <div className="max-w-md w-full bg-white rounded-lg shadow-md p-8 text-center">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
           <h2 className="text-xl font-semibold text-gray-900 mb-2">{t('activateAccount.loading')}</h2>
@@ -227,7 +249,8 @@ export default function ActivateAccount({ token, email, onBackToLogin, onAutoLog
   // Success state
   if (success) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 relative">
+        {languageToggle}
         <div className="max-w-md w-full text-center">
           <div className="mx-auto h-12 w-12 bg-green-100 rounded-full flex items-center justify-center">
             <CheckCircle className="h-8 w-8 text-green-600" />
@@ -246,7 +269,8 @@ export default function ActivateAccount({ token, email, onBackToLogin, onAutoLog
 
   // Main activation form
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
+    <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8 relative">
+      {languageToggle}
       <div className="max-w-md w-full space-y-8">
         <div>
           <div className="mx-auto h-12 w-12 bg-blue-600 rounded-full flex items-center justify-center">

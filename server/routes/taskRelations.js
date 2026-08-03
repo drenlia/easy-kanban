@@ -13,6 +13,7 @@ import { updateStorageUsage } from '../utils/storageUtils.js';
 import { getTenantId, getRequestDatabase } from '../middleware/tenantRouting.js';
 import { helpers, tasks as taskQueries, files as fileQueries, activity as activityQueries } from '../utils/sqlManager/index.js';
 import { getBilingualTranslation, getTranslatorForLanguage } from '../utils/i18n.js';
+import { notifyCollaboratorAdded } from '../services/taskEmailNotificationService.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -570,6 +571,14 @@ router.post('/:taskId/collaborators/:memberId', authenticateToken, async (req, r
     
     // MIGRATED: Add collaborator using sqlManager
     await helpers.addCollaborator(db, taskId, memberId);
+
+    notifyCollaboratorAdded(
+      db,
+      { actorUserId: userId, taskId, memberId },
+      getTenantId(req)
+    ).catch((err) => {
+      console.error('Failed to send collaborator-added email:', err);
+    });
     
     // Log to reporting system
     try {

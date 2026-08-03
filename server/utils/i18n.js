@@ -1,7 +1,9 @@
 /**
  * Backend Internationalization (i18n) Utility
- * 
- * Provides translation functionality for the backend based on APP_LANGUAGE setting.
+ *
+ * Emails / correspondence: user language pref → APP_LANGUAGE → en
+ * (see resolveCorrespondenceLanguage / getTranslatorForUser).
+ * Most API error messages still use APP_LANGUAGE via getTranslator(db).
  * Falls back to English if translation not found or language not supported.
  */
 
@@ -68,6 +70,57 @@ export async function getAppLanguage(db) {
 }
 
 /**
+ * Normalize a language value to 'en' | 'fr', or null if unset/unsupported.
+ * @param {unknown} value
+ * @returns {'en'|'fr'|null}
+ */
+export function normalizeLanguage(value) {
+  if (value == null) return null;
+  const v = String(value).trim().toLowerCase();
+  if (!v) return null;
+  if (v === 'fr' || v.startsWith('fr')) return 'fr';
+  if (v === 'en' || v.startsWith('en')) return 'en';
+  return null;
+}
+
+/**
+ * Read the user's preferred UI/correspondence language from user_settings.
+ * @param {Object} db
+ * @param {string|null|undefined} userId
+ * @returns {Promise<'en'|'fr'|null>}
+ */
+export async function getUserLanguage(db, userId) {
+  if (!db || !userId) return null;
+  try {
+    const { wrapQuery } = await import('./queryLogger.js');
+    const row = await wrapQuery(
+      db.prepare(
+        'SELECT setting_value FROM user_settings WHERE userid = ? AND setting_key = ?'
+      ),
+      'SELECT'
+    ).get(userId, 'language');
+    return normalizeLanguage(row?.setting_value);
+  } catch (error) {
+    console.warn('Failed to get user language preference:', error.message);
+    return null;
+  }
+}
+
+/**
+ * Language for emails / server correspondence.
+ * Order: user pref → APP_LANGUAGE → en
+ * @param {Object} db
+ * @param {string|null|undefined} [userId]
+ * @returns {Promise<'en'|'fr'>}
+ */
+export async function resolveCorrespondenceLanguage(db, userId = null) {
+  const userLang = await getUserLanguage(db, userId);
+  if (userLang) return userLang;
+  if (db) return getAppLanguage(db);
+  return 'en';
+}
+
+/**
  * Translate a key using dot notation (e.g., 'errors.columnNotFound')
  * @param {string} key - Translation key in dot notation
  * @param {Object} params - Parameters to replace in the translation (e.g., {resource: 'tasks'})
@@ -124,6 +177,17 @@ export async function getTranslator(db) {
  */
 export function getTranslatorForLanguage(lang = 'en') {
   return (key, params = {}) => t(key, params, lang);
+}
+
+/**
+ * Translator bound to a recipient's correspondence language.
+ * @param {Object} db
+ * @param {string|null|undefined} [userId]
+ * @returns {Promise<(key: string, params?: object) => string>}
+ */
+export async function getTranslatorForUser(db, userId = null) {
+  const lang = await resolveCorrespondenceLanguage(db, userId);
+  return getTranslatorForLanguage(lang);
 }
 
 /**

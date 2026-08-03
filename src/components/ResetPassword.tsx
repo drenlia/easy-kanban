@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ArrowLeft, Eye, EyeOff } from 'lucide-react';
 import { login } from '../api';
+import { setExplicitGuestLanguage } from '../utils/guestLanguage';
 
 interface ResetPasswordProps {
   token: string;
@@ -11,7 +12,7 @@ interface ResetPasswordProps {
 }
 
 export default function ResetPassword({ token, onBackToLogin, onResetSuccess, onAutoLogin }: ResetPasswordProps) {
-  const { t } = useTranslation('auth');
+  const { t, i18n } = useTranslation('auth');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -20,6 +21,23 @@ export default function ResetPassword({ token, onBackToLogin, onResetSuccess, on
   const [error, setError] = useState('');
   const [tokenValid, setTokenValid] = useState<boolean | null>(null);
   const [userEmail, setUserEmail] = useState('');
+
+  const currentLanguage = (i18n.language || 'en').toLowerCase().startsWith('fr') ? 'fr' : 'en';
+  const handleLanguageToggle = async () => {
+    const newLanguage = currentLanguage === 'en' ? 'fr' : 'en';
+    setExplicitGuestLanguage(newLanguage);
+    await i18n.changeLanguage(newLanguage);
+  };
+  const languageToggle = (
+    <button
+      type="button"
+      onClick={handleLanguageToggle}
+      className="absolute top-4 right-4 px-3 py-1.5 text-sm font-medium text-gray-700 hover:text-blue-600 hover:bg-gray-50 rounded-md transition-colors border border-gray-300 hover:border-blue-400 z-10"
+      title={currentLanguage === 'en' ? 'Switch to French' : 'Passer en anglais'}
+    >
+      {currentLanguage === 'en' ? 'FR' : 'EN'}
+    </button>
+  );
 
   // Helper function to translate backend messages
   // Maps English backend messages to translation keys
@@ -133,7 +151,8 @@ export default function ResetPassword({ token, onBackToLogin, onResetSuccess, on
   // Loading state while waiting for token or verifying token
   if (!token || token.length < 10 || tokenValid === null) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 relative">
+        {languageToggle}
         <div className="max-w-md w-full text-center">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
           <p className="mt-4 text-gray-600">
@@ -147,7 +166,8 @@ export default function ResetPassword({ token, onBackToLogin, onResetSuccess, on
   // Invalid token state
   if (tokenValid === false) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8 relative">
+        {languageToggle}
         <div className="max-w-md w-full space-y-8">
           <div>
             <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
@@ -180,7 +200,8 @@ export default function ResetPassword({ token, onBackToLogin, onResetSuccess, on
 
   // Valid token - show reset form
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
+    <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8 relative">
+      {languageToggle}
       <div className="max-w-md w-full space-y-8">
         <div>
           <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">

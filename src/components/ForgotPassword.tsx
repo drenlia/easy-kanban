@@ -1,18 +1,36 @@
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ArrowLeft } from 'lucide-react';
+import { setExplicitGuestLanguage } from '../utils/guestLanguage';
 
 interface ForgotPasswordProps {
   onBackToLogin: () => void;
 }
 
 export default function ForgotPassword({ onBackToLogin }: ForgotPasswordProps) {
-  const { t } = useTranslation('auth');
+  const { t, i18n } = useTranslation('auth');
   const [email, setEmail] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [submitted, setSubmitted] = useState(false);
+
+  const currentLanguage = (i18n.language || 'en').toLowerCase().startsWith('fr') ? 'fr' : 'en';
+  const handleLanguageToggle = async () => {
+    const newLanguage = currentLanguage === 'en' ? 'fr' : 'en';
+    setExplicitGuestLanguage(newLanguage);
+    await i18n.changeLanguage(newLanguage);
+  };
+  const languageToggle = (
+    <button
+      type="button"
+      onClick={handleLanguageToggle}
+      className="absolute top-4 right-4 px-3 py-1.5 text-sm font-medium text-gray-700 hover:text-blue-600 hover:bg-gray-50 rounded-md transition-colors border border-gray-300 hover:border-blue-400 z-10"
+      title={currentLanguage === 'en' ? 'Switch to French' : 'Passer en anglais'}
+    >
+      {currentLanguage === 'en' ? 'FR' : 'EN'}
+    </button>
+  );
 
   // Helper function to translate backend messages
   // Maps English backend messages to translation keys
@@ -65,7 +83,8 @@ export default function ForgotPassword({ onBackToLogin }: ForgotPasswordProps) {
 
   if (submitted) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 py-12 px-4 sm:px-6 lg:px-8">
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 py-12 px-4 sm:px-6 lg:px-8 relative">
+        {languageToggle}
         <div className="max-w-md w-full space-y-8">
           <div>
             <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900 dark:text-gray-100">
@@ -97,7 +116,8 @@ export default function ForgotPassword({ onBackToLogin }: ForgotPasswordProps) {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 py-12 px-4 sm:px-6 lg:px-8">
+    <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 py-12 px-4 sm:px-6 lg:px-8 relative">
+      {languageToggle}
       <div className="max-w-md w-full space-y-8">
         <div>
           <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900 dark:text-gray-100">

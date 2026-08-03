@@ -227,6 +227,10 @@
     "neverConfirm": "Ne jamais confirmer",
     "activityFeed": "Flux d'activité",
     "activityFeedDescription": "Afficher un flux d'activité flottant à l'écran pour voir les actions et modifications récentes.",
+    "preferredLanguage": "Langue préférée",
+    "preferredLanguageDescription": "Utilisée pour l'interface et vos notifications par email. Vous pouvez aussi changer de langue depuis l'en-tête.",
+    "languageEnglish": "English",
+    "languageFrench": "Français",
     "changesSavedAutomatically": "Les modifications sont enregistrées automatiquement",
     "emailNotifications": "Notifications par email",
     "emailNotificationsDescription": "Choisissez quand vous souhaitez recevoir des notifications par email concernant les activités des tâches.",
@@ -1265,7 +1269,7 @@
         "description": "Choisissez la langue par défaut (EN/FR) dans Admin → Paramètres de l'application pour les nouveaux tableaux et messages système.",
         "guide": "Choisissez la langue par défaut de l'application.",
         "fields": {
-          "APP_LANGUAGE": "Choisissez English ou Français comme langue par défaut de l'instance."
+          "APP_LANGUAGE": "Langue par défaut de l'instance (écrans invités, invitations et emails lorsqu'un utilisateur n'a pas de langue préférée)."
         }
       },
       "mail": {

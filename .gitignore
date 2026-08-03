@@ -42,8 +42,8 @@ server/demo-assets/avatars/*
 logs/
 *.log
 
-# QA folder
-qa/*.csv
+# QA / Playwright suite (local only; not tracked)
+qa/
 
 # Runtime data
 pids/

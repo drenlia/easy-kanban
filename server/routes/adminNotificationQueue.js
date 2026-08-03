@@ -3,6 +3,8 @@ import { authenticateToken, requireRole } from '../middleware/auth.js';
 import { getRequestDatabase } from '../middleware/tenantRouting.js';
 import EmailService from '../services/emailService.js';
 import { EmailTemplates } from '../services/emailTemplates.js';
+import { buildTaskEmailUrl } from '../utils/emailContent.js';
+import { getUserTimeZone } from '../utils/dateFormatter.js';
 // MIGRATED: Import sqlManager modules
 import { notificationQueue as notificationQueueQueries, users as userQueries, boards as boardQueries, helpers } from '../utils/sqlManager/index.js';
 
@@ -120,9 +122,17 @@ router.post('/send', authenticateToken, requireRole(['admin']), async (req, res)
         let baseUrl = appUrlSetting || process.env.BASE_URL || 'http://localhost:3000';
         baseUrl = baseUrl.replace(/\/$/, '');
         
-        // Build task URL - use ticket if available, otherwise use task ID
+        const projectId =
+          task.projectId ||
+          participants?.projectId ||
+          boardInfo?.project ||
+          null;
         const taskTicket = task.ticket || task.id;
-        const taskUrl = `${baseUrl}/#task#${taskTicket}`;
+        const taskUrl = buildTaskEmailUrl(baseUrl, {
+          projectId,
+          ticket: taskTicket,
+          taskId: task.id,
+        });
 
         // MIGRATED: Get site name using sqlManager
         const siteNameSetting = await helpers.getSetting(db, 'SITE_NAME');
@@ -133,11 +143,12 @@ router.post('/send', authenticateToken, requireRole(['admin']), async (req, res)
         const actionDetails = notification.details;
 
         // Create email template data
+        const recipientTimeZone = await getUserTimeZone(db, recipientUser.id);
         const emailTemplateData = {
           user: recipientUser,
           task: task,
           board: boardInfo || { id: task.boardId || task.boardid, name: 'Unknown Board' },
-          project: null,
+          project: projectId,
           actionType: actionType,
           actionDetails: actionDetails,
           taskUrl: taskUrl,
@@ -145,6 +156,7 @@ router.post('/send', authenticateToken, requireRole(['admin']), async (req, res)
           oldValue: notification.old_value,
           newValue: notification.new_value,
           timestamp: notification.last_change_time,
+          recipientTimeZone,
           db: db
         };
 

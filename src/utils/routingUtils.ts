@@ -58,11 +58,12 @@ export const parseTaskRoute = (url: string = window.location.href): { isTaskRout
     const hashParts = cleanHash.split('#');
     
     // Handle /task/#TASK-00001 format
-    if (pathname === '/task/' && hashParts.length === 1) {
-      const taskId = hashParts[0];
-      // Validate task ID format (TASK-00000 or similar)
-      if (/^[A-Z]+-\d+$/i.test(taskId)) {
-        return { isTaskRoute: true, taskId };
+    if (pathname === '/task/' || pathname === '/task') {
+      if (hashParts.length === 1) {
+        const taskId = hashParts[0];
+        if (/^[A-Z]+-\d+$/i.test(taskId)) {
+          return { isTaskRoute: true, taskId };
+        }
       }
     }
     
@@ -72,6 +73,14 @@ export const parseTaskRoute = (url: string = window.location.href): { isTaskRout
       // Validate both IDs
       if (/^[A-Z]+-\d+$/i.test(projectId) && /^[A-Z]+-\d+$/i.test(taskId)) {
         return { isTaskRoute: true, taskId, projectId };
+      }
+    }
+
+    // Legacy email format: /#task#TASK-00001 (clients often encode as /#task%23TASK-00001)
+    if ((pathname === '/' || pathname === '') && hashParts.length === 2 && hashParts[0].toLowerCase() === 'task') {
+      const taskId = hashParts[1];
+      if (/^[A-Z]+-\d+$/i.test(taskId)) {
+        return { isTaskRoute: true, taskId };
       }
     }
     
@@ -232,8 +241,8 @@ export const generateTaskUrl = (taskId: string, projectId?: string): string => {
     return `/project/#${projectId}#${taskId}`;
   }
   
-  // Fallback to simple task format (though this should be avoided when possible)
-  return `#task#${taskId}`;
+  // Path-based fallback (email clients encode # → %23; avoid bare /#task#…)
+  return `/task/#${taskId}`;
 };
 
 /**

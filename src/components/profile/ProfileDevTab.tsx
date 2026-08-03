@@ -214,7 +214,7 @@ const ProfileDevTab: React.FC = () => {
         </div>
 
         {/* PAT */}
-        <div className="rounded-md border border-gray-200 dark:border-gray-700 px-3 py-2.5 space-y-2">
+        <div className="relative rounded-md border border-gray-200 dark:border-gray-700 px-3 py-2.5 space-y-2">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
             <h4 className="text-sm font-medium text-gray-900 dark:text-gray-100">
               {t('profile.devGithubPat')}
@@ -260,10 +260,29 @@ const ProfileDevTab: React.FC = () => {
           )}
 
           {showPatForm && (
-            <div className="space-y-1.5">
+            <form
+              className="space-y-1.5"
+              autoComplete="off"
+              onSubmit={(e) => {
+                e.preventDefault();
+                void handleSaveGithub();
+              }}
+            >
+              {/* Absorb credential autofill so browsers don't fill the board search behind the modal */}
+              <div
+                aria-hidden="true"
+                className="absolute -left-[9999px] h-0 w-0 overflow-hidden opacity-0"
+              >
+                <input type="text" name="username" autoComplete="username" tabIndex={-1} />
+                <input type="password" name="password" autoComplete="new-password" tabIndex={-1} />
+              </div>
               <input
                 type="password"
-                autoComplete="off"
+                name="easy-kanban-github-pat"
+                autoComplete="new-password"
+                data-1p-ignore
+                data-lpignore="true"
+                data-form-type="other"
                 spellCheck={false}
                 value={githubDraft}
                 onChange={(e) => setGithubDraft(e.target.value)}
@@ -272,9 +291,8 @@ const ProfileDevTab: React.FC = () => {
               />
               <div className="flex flex-wrap items-center gap-2">
                 <button
-                  type="button"
+                  type="submit"
                   disabled={busy}
-                  onClick={() => void handleSaveGithub()}
                   className="px-2.5 py-1 text-xs font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:opacity-50"
                 >
                   {t('profile.devGithubPatSave')}
@@ -301,7 +319,7 @@ const ProfileDevTab: React.FC = () => {
                   {t('profile.devGithubPatDocs')}
                 </a>
               </div>
-            </div>
+            </form>
           )}
         </div>
 

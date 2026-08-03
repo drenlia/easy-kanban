@@ -77,6 +77,9 @@ const AdminAISettingsTab: React.FC<AdminAISettingsTabProps> = ({
   const [validationError, setValidationError] = useState<string | null>(null);
   const [validationOk, setValidationOk] = useState<string | null>(null);
   const [testingRunner, setTestingRunner] = useState(false);
+  /** Unlock credential-adjacent fields only after user focus (blocks browser autofill). */
+  const [baseUrlEditable, setBaseUrlEditable] = useState(false);
+  const [apiKeyEditable, setApiKeyEditable] = useState(false);
 
   const selectedPreset = useMemo(() => getAiProviderPreset(provider), [provider]);
   const savedKeyMask = editingSettings.AI_API_KEY || '';
@@ -91,6 +94,8 @@ const AdminAISettingsTab: React.FC<AdminAISettingsTabProps> = ({
     setMaxConcurrent(editingSettings.AI_MAX_CONCURRENT || '1');
     setRunnerUrl(editingSettings.AI_RUNNER_URL || 'http://kanban-runner:8080');
     setRunnerTokenDraft(editingSettings.AI_RUNNER_TOKEN || '');
+    setBaseUrlEditable(false);
+    setApiKeyEditable(false);
     setValidationError(null);
     setValidationOk(null);
   };
@@ -107,6 +112,8 @@ const AdminAISettingsTab: React.FC<AdminAISettingsTabProps> = ({
     setMaxConcurrent(editingSettings.AI_MAX_CONCURRENT || '1');
     setRunnerUrl(editingSettings.AI_RUNNER_URL || 'http://kanban-runner:8080');
     setRunnerTokenDraft(editingSettings.AI_RUNNER_TOKEN || '');
+    setBaseUrlEditable(false);
+    setApiKeyEditable(false);
   }, [
     editingSettings.AI_PROVIDER,
     editingSettings.AI_API_BASE_URL,
@@ -662,7 +669,7 @@ const AdminAISettingsTab: React.FC<AdminAISettingsTabProps> = ({
         </section>
 
         {/* 3. LLM */}
-        <section className={sectionClass} aria-labelledby="ai-section-llm">
+        <section className={`${sectionClass} relative`} aria-labelledby="ai-section-llm">
           <div>
             <h4
               id="ai-section-llm"
@@ -673,6 +680,15 @@ const AdminAISettingsTab: React.FC<AdminAISettingsTabProps> = ({
             <p className="mt-0.5 text-sm text-gray-500 dark:text-gray-400">
               {t('appSettings.aiSectionLlmHint')}
             </p>
+          </div>
+
+          {/* Absorb credential autofill so browsers don't overwrite Base URL with a saved email */}
+          <div
+            aria-hidden="true"
+            className="absolute -left-[9999px] h-0 w-0 overflow-hidden opacity-0"
+          >
+            <input type="text" name="username" autoComplete="username" tabIndex={-1} />
+            <input type="password" name="password" autoComplete="new-password" tabIndex={-1} />
           </div>
 
           <div data-setting-key="AI_PROVIDER">
@@ -714,9 +730,18 @@ const AdminAISettingsTab: React.FC<AdminAISettingsTabProps> = ({
               {t('appSettings.aiApiBaseUrlDescription')}
             </p>
             <input
-              type="url"
+              type="text"
+              name="ai-api-base-url"
+              inputMode="url"
+              autoComplete="off"
+              data-1p-ignore
+              data-lpignore="true"
+              data-form-type="other"
+              spellCheck={false}
               value={baseUrl}
+              readOnly={!baseUrlEditable}
               onChange={(e) => setBaseUrl(e.target.value)}
+              onFocus={() => setBaseUrlEditable(true)}
               placeholder={
                 selectedPreset.suggestedBaseUrl || 'https://api.openai.com/v1'
               }
@@ -754,11 +779,17 @@ const AdminAISettingsTab: React.FC<AdminAISettingsTabProps> = ({
             )}
             <input
               type="password"
-              autoComplete="off"
+              name="ai-api-key"
+              autoComplete="new-password"
+              data-1p-ignore
+              data-lpignore="true"
+              data-form-type="other"
               spellCheck={false}
               value={apiKeyDraft}
+              readOnly={!apiKeyEditable}
               onChange={(e) => setApiKeyDraft(e.target.value)}
               onFocus={() => {
+                setApiKeyEditable(true);
                 if (isMaskedApiKeyDisplay(apiKeyDraft)) {
                   setApiKeyDraft('');
                 }

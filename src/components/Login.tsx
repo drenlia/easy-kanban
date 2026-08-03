@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { login } from '../api';
 import { RefreshCw, Github } from 'lucide-react';
 import { useSettings } from '../contexts/SettingsContext';
+import { setExplicitGuestLanguage } from '../utils/guestLanguage';
 
 interface LoginProps {
   onLogin: (userData: any, token: string) => Promise<void>;
@@ -22,17 +23,13 @@ export default function Login({ onLogin, siteSettings, hasDefaultAdmin = true, i
   const [error, setError] = useState('');
   
   // Get current language for toggle
-  // Note: i18next LanguageDetector automatically detects browser language on initial load
-  // and saves it to localStorage. The language is already set when this component mounts.
-  const currentLanguage = i18n.language || 'en';
+  const currentLanguage = (i18n.language || 'en').toLowerCase().startsWith('fr') ? 'fr' : 'en';
   
-  // Handle language toggle on login page
-  // For non-authenticated users: Changes language and saves to localStorage only
-  // This has no effect until user logs in - then App.tsx will read localStorage and save to DB
+  // For non-authenticated users: persist explicit choice so APP_LANGUAGE does not override it
   const handleLanguageToggle = async () => {
     const newLanguage = currentLanguage === 'en' ? 'fr' : 'en';
+    setExplicitGuestLanguage(newLanguage);
     await i18n.changeLanguage(newLanguage);
-    // i18next automatically saves to localStorage, which will be used when user logs in
   };
   const [googleOAuthEnabled, setGoogleOAuthEnabled] = useState(false);
   const [adminCredentials, setAdminCredentials] = useState<{
