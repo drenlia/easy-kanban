@@ -9,16 +9,21 @@ import {
 } from '../middleware/rateLimiters.js';
 // MIGRATED: Import sqlManager
 import { passwordReset as passwordResetQueries, auth as authQueries } from '../utils/sqlManager/index.js';
+import {
+  parseBody,
+  passwordResetRequestBodySchema,
+  passwordResetCompleteBodySchema
+} from '../utils/requestValidation.js';
 
 const router = express.Router();
 
 // Request password reset
 router.post('/request', passwordResetRequestLimiter, async (req, res) => {
-  const { email } = req.body;
-  
-  if (!email) {
-    return res.status(400).json({ error: 'Email is required' });
+  const parsed = parseBody(passwordResetRequestBodySchema, req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error });
   }
+  const { email } = parsed.data;
   
   try {
     const db = getRequestDatabase(req);
@@ -126,15 +131,11 @@ router.post('/request', passwordResetRequestLimiter, async (req, res) => {
 
 // Reset password with token
 router.post('/reset', passwordResetCompletionLimiter, async (req, res) => {
-  const { token, newPassword } = req.body;
-  
-  if (!token || !newPassword) {
-    return res.status(400).json({ error: 'Token and new password are required' });
+  const parsed = parseBody(passwordResetCompleteBodySchema, req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error });
   }
-  
-  if (newPassword.length < 6) {
-    return res.status(400).json({ error: 'Password must be at least 6 characters long' });
-  }
+  const { token, newPassword } = parsed.data;
   
   try {
     const db = getRequestDatabase(req);

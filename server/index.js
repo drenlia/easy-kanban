@@ -170,6 +170,24 @@ app.use((req, res, next) => {
   res.setHeader('X-XSS-Protection', '1; mode=block');
   res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  // Report-Only CSP: observe violations without breaking TipTap / Socket.IO / Vite.
+  // Tighten and switch to enforcing Content-Security-Policy after reviewing reports.
+  const tenantDomain = process.env.TENANT_DOMAIN || 'ezkan.cloud';
+  res.setHeader(
+    'Content-Security-Policy-Report-Only',
+    [
+      "default-src 'self'",
+      "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+      "style-src 'self' 'unsafe-inline'",
+      "img-src 'self' data: blob: https:",
+      "font-src 'self' data:",
+      `connect-src 'self' ws: wss: https: http://localhost:* https://*.${tenantDomain}`,
+      "frame-ancestors 'none'",
+      "base-uri 'self'",
+      "form-action 'self'",
+      "object-src 'none'"
+    ].join('; ')
+  );
   next();
 });
 
@@ -606,7 +624,36 @@ server.listen(PORT, '0.0.0.0', async () => {
 });
 
 // Graceful shutdown handler
-const gracefulShutdown = async () => {
+let isShuttingDown = false;
+const SHUTDOWN_TIMEOUT_MS = Number(process.env.SHUTDOWN_TIMEOUT_MS) || 30000;
+
+const gracefulShutdown = async (signal = 'signal') => {
+  if (isShuttingDown) {
+    return;
+  }
+  isShuttingDown = true;
+  console.log(`\n🔄 Received ${signal}, shutting down gracefully...`);
+
+  const forceTimer = setTimeout(() => {
+    console.error('❌ Graceful shutdown timed out — forcing exit');
+    process.exit(1);
+  }, SHUTDOWN_TIMEOUT_MS);
+  if (typeof forceTimer.unref === 'function') {
+    forceTimer.unref();
+  }
+
+  // Stop accepting new HTTP / Socket.IO connections
+  await new Promise((resolve) => {
+    server.close((err) => {
+      if (err) {
+        console.error('❌ Error closing HTTP server:', err);
+      } else {
+        console.log('✅ HTTP server closed');
+      }
+      resolve();
+    });
+  });
+
   // Close all tenant database connections (multi-tenant mode)
   if (isMultiTenant()) {
     closeAllTenantDatabases();
@@ -632,20 +679,26 @@ const gracefulShutdown = async () => {
   
   // Disconnect WebSocket service (closes Socket.IO server and Redis adapter clients)
   await websocketService.disconnect();
+
+  // Disconnect PostgreSQL LISTEN/NOTIFY
+  try {
+    await postgresNotificationService.disconnect();
+  } catch (error) {
+    console.error('❌ Error disconnecting PostgreSQL notification service:', error);
+  }
   
   // Disconnect Redis service
   await redisService.disconnect();
   
+  clearTimeout(forceTimer);
   console.log('✅ Graceful shutdown complete');
   process.exit(0);
 };
 
 process.on('SIGINT', async () => {
-  console.log('\n🔄 Received SIGINT, shutting down gracefully...');
-  await gracefulShutdown();
+  await gracefulShutdown('SIGINT');
 });
 
 process.on('SIGTERM', async () => {
-  console.log('\n🔄 Received SIGTERM, shutting down gracefully...');
-  await gracefulShutdown();
+  await gracefulShutdown('SIGTERM');
 });

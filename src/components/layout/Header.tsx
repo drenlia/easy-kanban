@@ -522,7 +522,8 @@ const Header: React.FC<HeaderProps> = ({
                 ) {
                   return value;
                 }
-                return getAuthenticatedAvatarUrl(value) || value;
+                // Never fall back to bare `/avatars/...` — SPA catch-all returns 404 for that path
+                return getAuthenticatedAvatarUrl(value);
               };
 
               const logoSrc = rawLogo ? resolveBrandLogo(rawLogo) : undefined;

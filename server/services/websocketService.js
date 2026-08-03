@@ -19,12 +19,35 @@ class WebSocketService {
 
   async initialize(server) {
     // CORS configuration for WebSocket
-    // In multi-tenant mode, nginx handles CORS validation for HTTP requests
-    // For WebSocket, we allow all origins in multi-tenant mode (nginx will validate)
-    // In single-tenant mode, use ALLOWED_ORIGINS from environment
-    const allowedOrigins = process.env.MULTI_TENANT === 'true' 
-      ? true  // Allow all origins in multi-tenant (nginx validates)
-      : (process.env.ALLOWED_ORIGINS?.split(',') || true);
+    // Multi-tenant: allow tenant subdomains of TENANT_DOMAIN (+ optional ALLOWED_ORIGINS).
+    // Single-tenant: ALLOWED_ORIGINS if set, otherwise reflect request origin (dev-friendly).
+    const allowedOriginsEnv = (process.env.ALLOWED_ORIGINS || '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const tenantDomain = process.env.TENANT_DOMAIN || 'ezkan.cloud';
+
+    const allowedOrigins =
+      process.env.MULTI_TENANT === 'true'
+        ? (origin, callback) => {
+            if (!origin) {
+              return callback(null, true);
+            }
+            if (allowedOriginsEnv.includes(origin)) {
+              return callback(null, true);
+            }
+            try {
+              const host = new URL(origin).hostname;
+              if (host === tenantDomain || host.endsWith(`.${tenantDomain}`)) {
+                return callback(null, true);
+              }
+            } catch {
+              /* invalid origin */
+            }
+            console.warn(`⚠️ Socket.IO CORS rejected origin: ${origin}`);
+            return callback(new Error('Not allowed by CORS'));
+          }
+        : (allowedOriginsEnv.length > 0 ? allowedOriginsEnv : true);
     
     this.io = new SocketIOServer(server, {
       cors: {

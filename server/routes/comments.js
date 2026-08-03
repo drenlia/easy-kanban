@@ -9,6 +9,11 @@ import { getTenantId, getRequestDatabase } from '../middleware/tenantRouting.js'
 // MIGRATED: Import sqlManager
 import { comments as commentQueries, helpers, tasks as taskQueries, members as memberQueries } from '../utils/sqlManager/index.js';
 import { deleteObject, getRequestStoragePaths, filenameFromPublicUrl } from '../services/storage/index.js';
+import {
+  parseBody,
+  createCommentBodySchema,
+  updateCommentBodySchema
+} from '../utils/requestValidation.js';
 
 const router = express.Router();
 
@@ -35,7 +40,11 @@ function canModifyComment(user, comment, callerMemberId) {
 
 // Create comment endpoint
 router.post('/', authenticateToken, async (req, res) => {
-  const comment = req.body;
+  const parsed = parseBody(createCommentBodySchema, req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error });
+  }
+  const comment = parsed.data;
   const userId = req.user.id;
   const db = getRequestDatabase(req);
   
@@ -47,6 +56,9 @@ router.post('/', authenticateToken, async (req, res) => {
 
     // Always bind author to the authenticated user's member (ignore client authorId)
     const authorId = callerMemberId;
+    const createdAt = comment.createdAt != null
+      ? String(comment.createdAt)
+      : new Date().toISOString();
     
     // Collect queries and send as a batched transaction
     const batchQueries = [];
@@ -62,7 +74,7 @@ router.post('/', authenticateToken, async (req, res) => {
         comment.taskId,
         comment.text,
         authorId,
-        comment.createdAt
+        createdAt
       ]
     });
     
@@ -184,7 +196,11 @@ router.post('/', authenticateToken, async (req, res) => {
 // Update comment endpoint
 router.put('/:id', authenticateToken, async (req, res) => {
   const { id } = req.params;
-  const { text } = req.body;
+  const parsed = parseBody(updateCommentBodySchema, req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error });
+  }
+  const { text } = parsed.data;
   const userId = req.user.id;
   const db = getRequestDatabase(req);
   

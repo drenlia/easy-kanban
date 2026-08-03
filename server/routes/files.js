@@ -15,6 +15,26 @@ import {
 
 const router = express.Router();
 
+/** Legacy uploads that are scriptable — force download instead of inline render. */
+const FORCE_DOWNLOAD_MIME = new Set([
+  'text/html',
+  'application/xhtml+xml',
+  'image/svg+xml',
+  'text/javascript',
+  'application/javascript',
+  'application/x-javascript'
+]);
+
+function setFileResponseHeaders(res, filename, contentType) {
+  const mime = String(contentType || 'application/octet-stream').split(';')[0].trim().toLowerCase();
+  res.setHeader('Content-Type', contentType || 'application/octet-stream');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Cache-Control', 'public, max-age=31536000');
+  if (FORCE_DOWNLOAD_MIME.has(mime) || /\.(svg|html?|xhtml|js|mjs)$/i.test(filename)) {
+    res.setHeader('Content-Disposition', `attachment; filename="${path.basename(filename)}"`);
+  }
+}
+
 // Serve attachment files (tenant-aware in multi-tenant mode)
 router.get('/attachments/:filename', async (req, res) => {
   const { filename } = req.params;
@@ -54,8 +74,7 @@ router.get('/attachments/:filename', async (req, res) => {
       return res.status(404).json({ error: 'File not found' });
     }
     
-    res.setHeader('Content-Type', obj.contentType);
-    res.setHeader('Cache-Control', 'public, max-age=31536000');
+    setFileResponseHeaders(res, safeName, obj.contentType);
     res.send(obj.buffer);
   } catch (error) {
     console.error('Error serving attachment:', error);
@@ -102,8 +121,7 @@ router.get('/avatars/:filename', async (req, res) => {
       return res.status(404).json({ error: 'File not found' });
     }
     
-    res.setHeader('Content-Type', obj.contentType);
-    res.setHeader('Cache-Control', 'public, max-age=31536000');
+    setFileResponseHeaders(res, safeName, obj.contentType);
     res.send(obj.buffer);
   } catch (error) {
     console.error('Error serving avatar:', error);

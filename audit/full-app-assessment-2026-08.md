@@ -2,7 +2,7 @@
 
 **Date:** August 2026 · **App:** 0.9-beta  
 **Purpose:** Prioritized checklist to raise security posture toward production.  
-**Overall:** Needs Work · **Internet-facing risk:** Medium (P0 + Sprint B done; P2 design items remain)
+**Overall:** Needs Work · **Internet-facing risk:** Medium (P0–P1 + Sprint C shipped; I3 file-URL redesign remains)
 
 **Status legend:** ✅ Implemented · ⬜ Open · 🔶 Design first
 
@@ -182,16 +182,17 @@
 
 ## P2 — Design before shipping (higher UX risk)
 
-### I3 — Remove JWT from file query strings · 🔶 Design first
+### I3 — Remove JWT from file query strings · 🔶 Design first (spike only)
 
 | | |
 |--|--|
 | **Where** | `files.js`, `upload.js`, `authImageUrl.ts` + consumers |
-| **Do** | Short-lived signed URLs **or** cookie auth — FE+BE together |
-| **Done when** | No long-lived JWT in `?token=`; media still loads |
+| **Do** | Short-lived signed URLs **or** HttpOnly cookie auth — FE+BE together; do not swap query JWT alone |
+| **Done when** | No long-lived JWT in `?token=`; media still loads (img tags, exports, emails) |
 | **UX risk** | **High** [^I3] |
+| **Sprint C note** | Not implemented. Interim: I5 blocks new SVG/HTML/JS uploads; `files.js` forces `Content-Disposition: attachment` for legacy scriptable MIME. Prefer cookie session for same-origin `<img>` or HMAC URLs with short TTL + refresh path. Touch every `authImageUrl` caller. |
 
-### I4 — CSP + Socket.IO origin allowlist · 🔶 Design first
+### I4 — CSP + Socket.IO origin allowlist · ✅ Implemented (Report-Only)
 
 | | |
 |--|--|
@@ -199,8 +200,9 @@
 | **Do** | CSP Report-Only first; restrict Socket.IO origins |
 | **Done when** | No unexpected CSP violations; WS works for all tenants |
 | **UX risk** | **Highest** among mediums [^I4] |
+| **Shipped** | `Content-Security-Policy-Report-Only` (permissive TipTap/Vite); multi-tenant Socket.IO origins = `TENANT_DOMAIN` subdomains + `ALLOWED_ORIGINS` (no longer `origin: true`) |
 
-### I5 — Harden upload MIME allowlist · ⬜ Open
+### I5 — Harden upload MIME allowlist · ✅ Implemented
 
 | | |
 |--|--|
@@ -208,17 +210,19 @@
 | **Do** | Block or sandbox SVG/HTML/JS; magic-byte checks |
 | **Done when** | Scriptable types rejected or served safely; PNG/JPEG OK |
 | **UX risk** | Medium [^I5] |
+| **Shipped** | Defaults off for SVG/HTML/JS; always-blocked MIME/ext; avatar filter = raster-only; legacy serve = attachment for scriptable types. Magic-byte checks still open. |
 
-### I6 — Wire request validation · ⬜ Open
+### I6 — Wire request validation · ✅ Implemented (high-risk routes)
 
 | | |
 |--|--|
-| **Where** | schemas → server routes |
+| **Where** | `server/utils/requestValidation.js` → comments / login / password-reset |
 | **Do** | Validate per-route against live shapes |
 | **Done when** | Malformed → 400; happy paths pass |
 | **UX risk** | Medium if too strict [^I6] |
+| **Shipped** | Zod on comment create/update, login, password-reset request/reset. Broader route coverage later. |
 
-### I10 — Graceful shutdown · ⬜ Open
+### I10 — Graceful shutdown · ✅ Implemented
 
 | | |
 |--|--|
@@ -226,6 +230,7 @@
 | **Do** | `server.close()`; disconnect PG NOTIFY; drain |
 | **Done when** | Rolling deploy finishes in-flight requests within grace |
 | **UX risk** | None in steady state [^I10] |
+| **Shipped** | `server.close()` first; flush queues; WS + PG NOTIFY + Redis disconnect; 30s force-exit (`SHUTDOWN_TIMEOUT_MS`) |
 
 ---
 
@@ -259,10 +264,10 @@
 - [x] I8 Redis rate limits (multi-tenant)  
 - [x] I9 CI workflow  
 
-**Sprint C — P2 (design spikes first)**
-- [ ] Spike: I3 file URL auth  
-- [ ] Spike: I4 CSP report-only + WS origins  
-- [ ] I5 uploads; I6 validation; I10 shutdown  
+**Sprint C — P2 (done except I3 full redesign)**
+- [x] I3 spike documented (signed URL / cookie — not shipped)  
+- [x] I4 CSP Report-Only + WS origin allowlist  
+- [x] I5 uploads; I6 validation; I10 shutdown  
 
 ---
 

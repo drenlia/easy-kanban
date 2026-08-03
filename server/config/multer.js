@@ -123,13 +123,30 @@ const avatarStorage = multer.diskStorage({
   }
 });
 
-// File filter for images (avatars)
+// File filter for images (avatars) — raster only; SVG can carry script
+const AVATAR_ALLOWED_MIME = new Set([
+  'image/jpeg',
+  'image/png',
+  'image/gif',
+  'image/webp',
+  'image/bmp',
+  'image/avif',
+  'image/heic',
+  'image/heif'
+]);
+const AVATAR_BLOCKED_EXT = new Set(['.svg', '.svgz', '.html', '.htm', '.js', '.mjs']);
+
 const imageFileFilter = (req, file, cb) => {
-  // Only allow image files
-  if (file.mimetype.startsWith('image/')) {
+  const ext = path.extname(file.originalname || '').toLowerCase();
+  if (AVATAR_BLOCKED_EXT.has(ext)) {
+    cb(new Error('This image type is not allowed for avatars'), false);
+    return;
+  }
+  const mime = String(file.mimetype || '').split(';')[0].trim().toLowerCase();
+  if (AVATAR_ALLOWED_MIME.has(mime)) {
     cb(null, true);
   } else {
-    cb(new Error('Only image files are allowed'), false);
+    cb(new Error('Only raster image files are allowed for avatars'), false);
   }
 };
 

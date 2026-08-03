@@ -76,7 +76,8 @@ const AdminSiteSettingsTab: React.FC<AdminSiteSettingsTabProps> = ({
       ) {
         return trimmed;
       }
-      return getAuthenticatedAvatarUrl(trimmed) || trimmed;
+      // Never fall back to bare `/avatars/...` (Express returns 404 for that path)
+      return getAuthenticatedAvatarUrl(trimmed) || DEFAULT_SITE_LOGO;
     }
     // Match header fallback: dark → light custom → default ico
     if (variant === 'dark') {
@@ -90,7 +91,7 @@ const AdminSiteSettingsTab: React.FC<AdminSiteSettingsTabProps> = ({
         ) {
           return light;
         }
-        return getAuthenticatedAvatarUrl(light) || light;
+        return getAuthenticatedAvatarUrl(light) || DEFAULT_SITE_LOGO;
       }
     }
     return DEFAULT_SITE_LOGO;
