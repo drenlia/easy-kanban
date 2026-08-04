@@ -119,8 +119,24 @@ const getTenantDatabase = async (tenantId) => {
       await wrapQuery(cached.db.prepare('SELECT 1'), 'SELECT').get();
       return cached;
     } catch (error) {
-      // Database closed, remove from cache
-      console.warn(`⚠️ Database cache verification failed for tenant ${tenantId}, reinitializing:`, error.message);
+      const msg = error?.message || String(error);
+      // Never discard a live pool because Postgres is saturated — that leaks more clients.
+      if (/too many clients already|remaining connection slots|Connection terminated/i.test(msg)) {
+        console.warn(
+          `⚠️ Database cache verification failed for tenant ${tenantId} (keeping cached pool):`,
+          msg
+        );
+        return cached;
+      }
+      // Database closed / broken, remove from cache (close old pool to avoid leaks)
+      console.warn(`⚠️ Database cache verification failed for tenant ${tenantId}, reinitializing:`, msg);
+      try {
+        if (cached.db && typeof cached.db.close === 'function') {
+          await cached.db.close();
+        }
+      } catch (_) {
+        /* ignore */
+      }
       dbCache.delete(cacheKey);
     }
   }

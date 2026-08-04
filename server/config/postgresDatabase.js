@@ -101,13 +101,20 @@ class PostgresDatabase {
       console.warn('⚠️ POSTGRES_HOST not set; defaulting to localhost');
     }
 
+    // Multi-tenant + multi-pod: each tenant gets its own Pool. Default 20 × tenants ×
+    // replicas easily exhausts Postgres max_connections (seen: ~75 idle conns per pod).
+    const envMax = parseInt(process.env.POSTGRES_POOL_MAX || '', 10);
+    const defaultMax =
+      process.env.MULTI_TENANT === 'true' || process.env.MULTI_TENANT === '1' ? 5 : 20;
+    const poolMax = options.max || (Number.isFinite(envMax) && envMax > 0 ? envMax : defaultMax);
+
     const config = {
       host,
       port: options.port || parseInt(process.env.POSTGRES_PORT || '5432'),
       database,
       user: options.user || process.env.POSTGRES_USER || 'postgres',
       password: options.password || process.env.POSTGRES_PASSWORD || 'postgres',
-      max: options.max || 20,
+      max: poolMax,
       idleTimeoutMillis: options.idleTimeoutMillis || 30000,
       connectionTimeoutMillis: options.connectionTimeoutMillis || 10000,
     };

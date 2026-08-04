@@ -18,6 +18,9 @@ spec:
       containers:
       - name: postgres
         image: postgres:16-alpine
+        args:
+          - "-c"
+          - "max_connections=150"
         env:
         - name: POSTGRES_DB
           valueFrom:
