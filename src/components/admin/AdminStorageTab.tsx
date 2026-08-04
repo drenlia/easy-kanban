@@ -17,6 +17,7 @@ import {
   adminInputFullClass,
 } from './AdminSection';
 import { isMultiTenantDeploy } from '../../utils/ownerSetup';
+import { useEscapeDismiss } from '../../hooks/useEscapeDismiss';
 
 interface Settings {
   STORAGE_BACKEND?: string;
@@ -506,6 +507,43 @@ const AdminStorageTab: React.FC<AdminStorageTabProps> = ({
       /* ignore */
     }
   };
+
+  useEscapeDismiss(
+    () => {
+      if (showSecondConfirm) {
+        setShowSecondConfirm(false);
+        return;
+      }
+      if (showFirstConfirm) {
+        setShowFirstConfirm(false);
+        return;
+      }
+      if (showTestModal) {
+        setShowTestModal(false);
+        return;
+      }
+      if (showTestErrorModal) {
+        setShowTestErrorModal(false);
+        return;
+      }
+      if (showCompareModal) {
+        closeCompareModal();
+        return;
+      }
+      if (showMigrateModal) {
+        closeMigrateModal();
+      }
+    },
+    {
+      enabled:
+        showFirstConfirm ||
+        showSecondConfirm ||
+        showTestModal ||
+        showTestErrorModal ||
+        showCompareModal ||
+        (showMigrateModal && !isMigrating),
+    }
+  );
 
   const migrateResultMessage =
     migrateProgress?.message ||

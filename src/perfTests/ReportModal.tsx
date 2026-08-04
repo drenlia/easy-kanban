@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react';
 import type { PerfRunRecord } from './metrics';
+import { useEscapeDismiss } from '../hooks/useEscapeDismiss';
 
 interface ReportModalProps {
   title: string;
@@ -14,6 +15,8 @@ function formatLatency(lat: PerfRunRecord['latencyMs']): string {
 
 const ReportModal: React.FC<ReportModalProps> = ({ title, runs, onClose }) => {
   const json = useMemo(() => JSON.stringify(runs, null, 2), [runs]);
+
+  useEscapeDismiss(onClose);
 
   const copyJson = async () => {
     try {

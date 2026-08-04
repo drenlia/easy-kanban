@@ -32,10 +32,47 @@ let isRedirecting = false;
 let hasInvalidToken = false;
 let hadTokenBefore = false; // Track if we ever had a token
 
+/** Call after a successful login / OAuth so axios accepts requests again. */
+export function clearAuthInterceptorBlock(): void {
+  isRedirecting = false;
+  hasInvalidToken = false;
+}
+
+function hashHasOAuthToken(): boolean {
+  try {
+    const hash = window.location.hash || '';
+    return (
+      hash.includes('token=') &&
+      !hash.includes('reset-password') &&
+      !hash.includes('activate-account')
+    );
+  } catch {
+    return false;
+  }
+}
+
+/** Strip accidental "Bearer " prefix if a token was stored that way. */
+export function normalizeAuthToken(raw: string | null | undefined): string | null {
+  if (raw == null) return null;
+  let t = String(raw).trim();
+  if (!t || t === 'undefined' || t === 'null') return null;
+  if (/^bearer\s+/i.test(t)) t = t.replace(/^bearer\s+/i, '').trim();
+  return t || null;
+}
+
 // Function to handle invalid token (only call when token WAS valid but is now invalid)
 const handleInvalidToken = () => {
   if (isRedirecting) {
     if (feDebug('FE_DEBUG_AUTH')) console.log('🔑 handleInvalidToken called but already redirecting, skipping');
+    return;
+  }
+
+  // OAuth callback in progress — do not wipe #login?token=… or reload
+  if (hashHasOAuthToken()) {
+    if (feDebug('FE_DEBUG_AUTH')) {
+      console.log('🔑 handleInvalidToken skipped — OAuth token present in URL hash');
+    }
+    localStorage.removeItem('authToken');
     return;
   }
 
@@ -77,7 +114,7 @@ api.interceptors.request.use((config) => {
     return Promise.reject(new Error('Invalid request configuration'));
   }
   
-  const token = localStorage.getItem('authToken');
+  const token = normalizeAuthToken(localStorage.getItem('authToken'));
   if (!token) {
     // No token available - this is OK if user hasn't logged in yet
     // Don't redirect, just reject the request
@@ -220,7 +257,7 @@ api.interceptors.response.use(
     if ((status === 401 || isIdentity404) && !isRedirecting) {
       // Check if this is a token expiration (we had a token before)
       // vs never having logged in (no token)
-      const currentToken = localStorage.getItem('authToken');
+      const currentToken = normalizeAuthToken(localStorage.getItem('authToken'));
       const hadToken = hadTokenBefore || currentToken;
       
       if (hadToken && currentToken) {
@@ -836,6 +873,28 @@ export const updateUserSetting = async (setting_key: string, setting_value: any)
   return data;
 };
 
+export type CspReportRow = {
+  id: number;
+  createdAt: string;
+  documentUri: string | null;
+  violatedDirective: string | null;
+  blockedUri: string | null;
+  sourceFile: string | null;
+  lineNumber: number | null;
+  userAgent: string | null;
+  raw?: unknown;
+};
+
+export const getCspReports = async (): Promise<{ reports: CspReportRow[]; count: number }> => {
+  const { data } = await api.get('/admin/csp-reports');
+  return data;
+};
+
+export const clearCspReports = async (): Promise<{ ok: boolean }> => {
+  const { data } = await api.delete('/admin/csp-reports');
+  return data;
+};
+
 export const updateSetting = async (key: string, value: string) => {
   const { data } = await api.put('/admin/settings', { key, value });
   return data;
@@ -966,6 +1025,17 @@ export const getAllPriorities = async () => {
 export const getAllSprints = async () => {
   const { data } = await api.get('/admin/sprints');
   return data.sprints || data || [];
+};
+
+export const createSprint = async (sprint: {
+  name: string;
+  start_date: string;
+  end_date: string;
+  is_active?: boolean;
+  description?: string;
+}) => {
+  const { data } = await api.post('/admin/sprints', sprint);
+  return data;
 };
 
 export const getSprintUsage = async (sprintId: string) => {

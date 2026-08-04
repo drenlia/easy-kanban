@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { createPortal } from 'react-dom';
 import { X, Send } from 'lucide-react';
+import { useEscapeDismiss } from '../hooks/useEscapeDismiss';
 
 interface AddCommentModalProps {
   isOpen: boolean;
@@ -40,6 +41,12 @@ export default function AddCommentModal({
       setIsSubmitting(false);
     }
   }, [isOpen, editingComment]);
+
+  const handleClose = useCallback(() => {
+    if (!isSubmitting) onClose();
+  }, [isSubmitting, onClose]);
+
+  useEscapeDismiss(handleClose, { enabled: isOpen });
 
   const handleSubmit = async () => {
     if (commentText.trim() && !isSubmitting) {

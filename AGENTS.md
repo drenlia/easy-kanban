@@ -55,6 +55,7 @@ When designing or changing any screen, treat **density, alignment, and input aff
   - **Password Reset**: `/api/password-reset/request`, `/api/password-reset/reset`, `/api/password-reset/verify/:token`
   - **Health Checks**: `/health`, `/ready`, `/api/ready`, `/api/version`
   - **Public Settings**: `/api/settings` (GET only, for site name, mail status, OAuth config)
+  - **CSP reports**: `/api/csp-report` (POST only — browser Content-Security-Policy violation beacons; rate-limited)
   - **Admin Portal**: `/api/admin-portal/*` (uses `INSTANCE_TOKEN` auth, not user JWT)
 - Use existing auth middleware from `server/middleware/auth.js`:
   - `authenticateToken` - JWT token validation (required for all protected routes)
@@ -63,7 +64,7 @@ When designing or changing any screen, treat **density, alignment, and input aff
  - `loginLimiter` for login attempts
  - `passwordResetRequestLimiter` (3/hour) and `passwordResetCompletionLimiter` (6/hour)
  - `registrationLimiter` and `activationLimiter` for account creation
-- **File media auth (I3):** same-origin `<img>` / attachment loads use HttpOnly cookie `ek_media` (`purpose: media` JWT) set by `POST /api/files/media-session` after login. Do **not** embed the session JWT in `?token=`. File GETs prefer cookie, then Bearer; query `?token=` is accepted only for `purpose: media` tokens (session JWTs in query are rejected). Media tokens must not authorize API routes (`authenticateToken` rejects `purpose: media`).
+- **File media auth (I3):** same-origin `<img>` / attachment loads use HttpOnly cookie `ek_media` (`purpose: media` JWT) set by `POST /api/files/media-session` after login. Default lifetime `MEDIA_TOKEN_EXPIRES_IN` = **8h** (override via env); client refreshes hourly / on tab focus. Do **not** embed the session JWT in `?token=`. File GETs prefer cookie, then Bearer; query `?token=` is accepted only for `purpose: media` tokens (session JWTs in query are rejected). Media tokens must not authorize API routes (`authenticateToken` rejects `purpose: media`).
 - Use sqlManager queries from `server/utils/sqlManager/index.js` (never write raw SQL in routes)
 - Handle multi-tenant database access via `getRequestDatabase(req)` from `server/middleware/tenantRouting.js`
 - Never expose error stack traces to clients (log errors server-side only)
@@ -133,5 +134,5 @@ When restoring **task/comment email** notifications (throttled queue in `notific
 - Multi-tenant isolation: users can only access data from their tenant's database
 - Security headers set globally in `server/index.js` (X-Content-Type-Options, X-Frame-Options, HSTS, etc.)
 - CORS handled by nginx (Express CORS middleware disabled to avoid duplicate headers)
-- File uploads validated via `server/utils/fileValidation.js` (size limits, mime types, extensions)
+- File uploads validated via `server/utils/fileValidation.js` (size / MIME / extensions) and `server/utils/fileMagicBytes.js` (content signatures for avatars, logos, attachments)
 - Instance status checks prevent actions on suspended/terminated instances (`server/middleware/instanceStatus.js`)

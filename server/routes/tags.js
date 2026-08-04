@@ -39,12 +39,12 @@ router.post('/', authenticateToken, async (req, res, next) => {
     return next();
   }
   
-  const { tag, description, color } = req.body;
-  const db = getRequestDatabase(req);
-  
-  if (!tag) {
-    return res.status(400).json({ error: 'Tag name is required' });
+  const parsed = parseBody(createTagBodySchema, req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error });
   }
+  const { tag, description, color } = parsed.data;
+  const db = getRequestDatabase(req);
 
   try {
     // MIGRATED: Create tag using sqlManager

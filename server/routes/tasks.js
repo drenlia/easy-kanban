@@ -28,7 +28,8 @@ import {
   batchUpdatePositionsBodySchema,
   reorderTaskBodySchema,
   moveTaskToBoardBodySchema,
-  permanentBatchBodySchema
+  permanentBatchBodySchema,
+  createTaskRelationshipBodySchema
 } from '../utils/requestValidation.js';
 
 const router = express.Router();
@@ -2903,12 +2904,11 @@ router.post('/:taskId/relationships', authenticateToken, async (req, res) => {
     const dbgHttp = await serverDebug(db, 'SERVER_DEBUG_HTTP');
     const tTranslator = await getTranslator(db);
     const { taskId } = req.params;
-    const { relationship, toTaskId } = req.body;
-    
-    // Validate relationship type
-    if (!['child', 'parent', 'related'].includes(relationship)) {
-      return res.status(400).json({ error: tTranslator('errors.invalidRelationshipType') });
+    const parsed = parseBody(createTaskRelationshipBodySchema, req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error });
     }
+    const { relationship, toTaskId } = parsed.data;
     
     // Prevent self-relationships
     if (taskId === toTaskId) {

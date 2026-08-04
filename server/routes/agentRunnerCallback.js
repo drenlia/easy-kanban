@@ -18,6 +18,7 @@ import { tryLaunchQueuedTasks } from '../services/agentJobDispatcher.js';
 import { requireAiEnabledMiddleware } from '../utils/aiEnabled.js';
 import { markdownToHtml } from '../utils/markdownToHtml.js';
 import { stripModelReasoning } from '../utils/stripModelReasoning.js';
+import { parseBody, agentRunnerCallbackBodySchema } from '../utils/requestValidation.js';
 
 const router = express.Router();
 const requireAi = requireAiEnabledMiddleware(getRequestDatabase);
@@ -49,13 +50,18 @@ async function publishWork(req, taskId) {
 router.post('/callback', async (req, res) => {
   try {
     const db = getRequestDatabase(req);
+    const parsed = parseBody(agentRunnerCallbackBodySchema, req.body || {});
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error });
+    }
+    const body = parsed.data;
     const token =
       req.get('x-agent-callback-token') ||
-      req.body?.callbackToken ||
+      body.callbackToken ||
       '';
-    const taskId = String(req.body?.taskId || '').trim();
-    const jobId = String(req.body?.jobId || '').trim();
-    const event = String(req.body?.event || '').trim().toLowerCase();
+    const taskId = String(body.taskId || '').trim();
+    const jobId = String(body.jobId || '').trim();
+    const event = String(body.event || '').trim().toLowerCase();
 
     if (!taskId || !token || !event) {
       return res.status(400).json({ error: 'taskId, callbackToken, and event are required' });
@@ -78,27 +84,27 @@ router.post('/callback', async (req, res) => {
     const terminal = ['done', 'failed', 'stopped', 'cancelled'].includes(event);
     const alreadyUndone = work.status === 'undone';
 
-    if (req.body?.progress !== undefined && req.body.progress !== null && !alreadyUndone) {
-      updates.progress = String(req.body.progress);
+    if (body.progress !== undefined && body.progress !== null && !alreadyUndone) {
+      updates.progress = String(body.progress);
     }
-    if (req.body?.prUrl) {
-      updates.pr_url = String(req.body.prUrl);
+    if (body.prUrl) {
+      updates.pr_url = String(body.prUrl);
     }
-    if (req.body?.branch) {
-      updates.agent_branch = String(req.body.branch);
-    }
-
-    if (req.body?.log) {
-      await taskWorkQueries.appendWorkLog(db, taskId, String(req.body.log));
+    if (body.branch) {
+      updates.agent_branch = String(body.branch);
     }
 
-    if (req.body?.comment) {
+    if (body.log) {
+      await taskWorkQueries.appendWorkLog(db, taskId, String(body.log));
+    }
+
+    if (body.comment) {
       try {
         const commentId = crypto.randomUUID();
         const createdAt = new Date().toISOString();
         // Agent replies are Markdown; TipTap UI expects HTML
-        const cleaned = stripModelReasoning(String(req.body.comment));
-        const htmlBody = markdownToHtml(cleaned || String(req.body.comment));
+        const cleaned = stripModelReasoning(String(body.comment));
+        const htmlBody = markdownToHtml(cleaned || String(body.comment));
         await commentQueries.createComment(
           db,
           commentId,
@@ -156,8 +162,8 @@ router.post('/callback', async (req, res) => {
     }
 
     if (event === 'progress' || event === 'log') {
-      if (req.body?.status) {
-        updates.status = String(req.body.status);
+      if (body.status) {
+        updates.status = String(body.status);
       }
     } else if (event === 'done') {
       updates.status = 'done';
@@ -171,8 +177,8 @@ router.post('/callback', async (req, res) => {
       updates.status = 'stopped';
       updates.control = 'stop';
       updates.awaiting_apply = '';
-    } else if (req.body?.status) {
-      updates.status = String(req.body.status);
+    } else if (body.status) {
+      updates.status = String(body.status);
     }
 
     if (terminal) {
@@ -190,7 +196,7 @@ router.post('/callback', async (req, res) => {
       const tenantId = getTenantId(req);
       const prUrl =
         updates.pr_url ||
-        req.body?.prUrl ||
+        body.prUrl ||
         work.pr_url ||
         '';
       if (event === 'done') {

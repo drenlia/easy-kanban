@@ -7,6 +7,7 @@ import { loadUserPreferences, updateUserPreference } from '../utils/userPreferen
 import ManageFiltersModal from './ManageFiltersModal';
 import ColumnFilterDropdown from './ColumnFilterDropdown';
 import { getAgentAvatarSrc } from '../utils/agentMemberUi';
+import { useEscapeDismiss } from '../hooks/useEscapeDismiss';
 
 interface SearchFilters {
   text: string;
@@ -72,6 +73,15 @@ export default function SearchInterface({
   const priorityDropdownRef = useRef<HTMLDivElement>(null);
   const tagsDropdownRef = useRef<HTMLDivElement>(null);
   const filterDropdownRef = useRef<HTMLDivElement>(null);
+
+  useEscapeDismiss(
+    () => {
+      if (isSavingFilter) return;
+      setShowSaveDialog(false);
+      setNewFilterName('');
+    },
+    { enabled: showSaveDialog }
+  );
 
   // Helper function to determine text color based on background color
   const getTextColor = (backgroundColor: string): string => {

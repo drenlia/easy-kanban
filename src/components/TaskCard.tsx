@@ -37,6 +37,7 @@ import { getLinkTarget, shouldOpenLinkInNewTab } from '../utils/linkUtils';
 import { feDebug } from '../utils/clientDebug';
 import { commentTextToHtml } from '../utils/commentContent';
 import { isEditableEscapeTarget } from '../utils/escapeKeyUtils';
+import { useEscapeDismiss } from '../hooks/useEscapeDismiss';
 import {
   AGENT_MEMBER_ID,
   SYSTEM_MEMBER_ID,
@@ -1443,6 +1444,14 @@ const TaskCard = React.memo(function TaskCard({
       return () => document.removeEventListener('mousedown', handleClickOutside);
     }
   }, [showTagRemovalMenu]);
+
+  useEscapeDismiss(
+    () => {
+      setShowTagRemovalMenu(false);
+      setSelectedTagForRemoval(null);
+    },
+    { enabled: showTagRemovalMenu }
+  );
 
   // Handle click outside for title and description editing
   useEffect(() => {

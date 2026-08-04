@@ -38,6 +38,7 @@ import {
   Table as TableIcon,
   ChevronDown
 } from 'lucide-react';
+import { useEscapeDismiss } from '../hooks/useEscapeDismiss';
 
 interface ToolbarOptions {
   bold?: boolean;
@@ -186,6 +187,19 @@ export default function TextEditor({
   const [openInNewWindow, setOpenInNewWindow] = useState(opensInNewTab);
   const [showHeadingDropdown, setShowHeadingDropdown] = useState(false);
   const [showTableDropdown, setShowTableDropdown] = useState(false);
+
+  useEscapeDismiss(
+    () => {
+      setShowLinkDialog(false);
+      setLinkUrl('');
+      setLinkText('');
+      setHasSelectedText(false);
+      setIsEditingExistingLink(false);
+      setOpenInNewWindow(opensInNewTab);
+    },
+    { enabled: showLinkDialog }
+  );
+
   // Handle both new files and existing attachments
   const [newAttachments, setNewAttachments] = useState<File[]>([]);
   const [displayedAttachments, setDisplayedAttachments] = useState<Array<{
@@ -925,13 +939,35 @@ export default function TextEditor({
     }
   }, [editor]);
 
-  // Provide removeImageByAttachment function globally for parent to call
+  // Provide helpers for parent (TaskDetails) to sync attachment UI after upload failures
+  const discardPendingAttachments = React.useCallback((names?: string[]) => {
+    const nameSet = names && names.length > 0 ? new Set(names) : null;
+
+    setNewAttachments((prev) => {
+      const removed = nameSet ? prev.filter((f) => nameSet.has(f.name)) : [...prev];
+      removed.forEach((f) => removeImageByAttachment(f.name));
+      const next = nameSet ? prev.filter((f) => !nameSet.has(f.name)) : [];
+      if (onAttachmentsChange) {
+        onAttachmentsChange(next);
+      }
+      return next;
+    });
+
+    setDisplayedAttachments((prev) =>
+      nameSet
+        ? prev.filter((a) => !(a.isNew && nameSet.has(a.name)))
+        : prev.filter((a) => !a.isNew)
+    );
+  }, [onAttachmentsChange, removeImageByAttachment]);
+
   React.useEffect(() => {
     (window as any).textEditorRemoveImage = removeImageByAttachment;
+    (window as any).textEditorDiscardPendingAttachments = discardPendingAttachments;
     return () => {
       delete (window as any).textEditorRemoveImage;
+      delete (window as any).textEditorDiscardPendingAttachments;
     };
-  }, [removeImageByAttachment]);
+  }, [removeImageByAttachment, discardPendingAttachments]);
 
   // Handle paste events for images
   React.useEffect(() => {

@@ -1,7 +1,7 @@
 import express from 'express';
 import path from 'path';
 import jwt from 'jsonwebtoken';
-import { authenticateToken, JWT_SECRET, isUserActive } from '../middleware/auth.js';
+import { authenticateToken, JWT_SECRET, userMayUseSession } from '../middleware/auth.js';
 import { updateStorageUsage } from '../utils/storageUtils.js';
 import notificationService from '../services/notificationService.js';
 import { getRequestDatabase } from '../middleware/tenantRouting.js';
@@ -44,7 +44,7 @@ function setFileResponseHeaders(res, filename, contentType) {
 }
 
 /**
- * Verify media credential: signature + user exists + is_active.
+ * Verify media credential: signature + user exists + active (not deactivated / force_logout).
  * Query-string tokens must be purpose=media (no session JWT in URLs — I3 cutover).
  * Cookie and Bearer may carry media or session JWTs.
  * @returns {{ ok: true, decoded: object, db: object } | { ok: false, status: number, error: string }}
@@ -73,11 +73,8 @@ async function assertActiveFileUser(req, token, via) {
 
   try {
     const userInDb = await fileQueries.getUserByIdForFileAccess(db, decoded.id);
-    if (!userInDb) {
-      return { ok: false, status: 401, error: 'Invalid token for this tenant' };
-    }
-    if (!isUserActive(userInDb.is_active)) {
-      return { ok: false, status: 401, error: 'Invalid token' };
+    if (!userMayUseSession(userInDb)) {
+      return { ok: false, status: 401, error: userInDb ? 'Invalid token' : 'Invalid token for this tenant' };
     }
   } catch (dbError) {
     console.error('❌ Error checking user for file access:', dbError);

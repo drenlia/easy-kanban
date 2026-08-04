@@ -7,6 +7,7 @@ import { useSettings } from '../contexts/SettingsContext';
 import { versionDetection } from '../utils/versionDetection';
 import { updateUserPreference } from '../utils/userPreferences';
 import { CurrentUser } from '../types';
+import { useEscapeDismiss } from '../hooks/useEscapeDismiss';
 
 interface HelpModalProps {
   isOpen: boolean;
@@ -153,6 +154,8 @@ export default function HelpModal({ isOpen, onClose, currentUser }: HelpModalPro
       document.removeEventListener('mousedown', handleClickOutside);
     };
   }, [isOpen, onClose]);
+
+  useEscapeDismiss(onClose, { enabled: isOpen });
 
   if (!isOpen) return null;
 
@@ -747,11 +750,17 @@ export default function HelpModal({ isOpen, onClose, currentUser }: HelpModalPro
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60]">
-      <div ref={modalRef} className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-4/5 max-w-6xl h-[90vh] flex flex-col">
+      <div
+        ref={modalRef}
+        className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-4/5 max-w-6xl h-[90vh] flex flex-col"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="help-modal-title"
+      >
         {/* Sticky Header */}
         <div className="flex items-center justify-between p-6 border-b bg-white dark:bg-gray-800 sticky top-0 z-10">
           <div>
-            <h2 className="text-2xl font-bold text-gray-800 dark:text-gray-100">{t('help.title')}</h2>
+            <h2 id="help-modal-title" className="text-2xl font-bold text-gray-800 dark:text-gray-100">{t('help.title')}</h2>
             <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{t('help.pressF1')}</p>
           </div>
           <div className="flex items-center gap-3 flex-wrap justify-end">

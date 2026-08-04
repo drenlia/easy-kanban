@@ -47,6 +47,8 @@
     "updateTaskMessage": "Your changes were not saved. Please try again.",
     "createTaskTitle": "Couldn't create task",
     "createTaskMessage": "The task could not be created. Please try again.",
+    "createTaskShortcutTitle": "Task created",
+    "createTaskShortcutMessage": "Added to \"{{column}}\" with the N shortcut. Rename it, or delete if this was accidental.",
     "copyTaskTitle": "Couldn't copy task",
     "copyTaskMessage": "The task could not be copied. Please try again.",
     "copyTaskSuccessTitle": "Task copied",

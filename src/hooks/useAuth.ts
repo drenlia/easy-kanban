@@ -5,7 +5,7 @@ import * as api from '../api';
 import { clearAllUserPreferenceCookies, clearOtherUserPreferenceCookies } from '../utils/userPreferences';
 import { registerLogoutCallback, unregisterLogoutCallback, markAsAuthenticated } from '../utils/authErrorHandler';
 import { feDebug } from '../utils/clientDebug';
-import { clearMediaSession, establishMediaSession } from '../utils/mediaSession';
+import { clearMediaSession, establishMediaSession, startMediaSessionRefresh } from '../utils/mediaSession';
 
 // Get intended destination from HTML capture
 const getInitialIntendedDestination = (): string | null => {
@@ -82,10 +82,13 @@ export const useAuth = (callbacks: UseAuthCallbacks): UseAuthReturn => {
 
   // Authentication handlers
   const handleLogin = async (userData: any, token: string, skipEventDispatch = false) => {
-    localStorage.setItem('authToken', token);
+    const normalized = api.normalizeAuthToken(token) || token;
+    api.clearAuthInterceptorBlock();
+    localStorage.setItem('authToken', normalized);
 
     // HttpOnly media cookie before UI renders images (I3)
     await establishMediaSession();
+    startMediaSessionRefresh();
 
     setCurrentUser(userData);
     setIsAuthenticated(true);
@@ -277,20 +280,34 @@ export const useAuth = (callbacks: UseAuthCallbacks): UseAuthReturn => {
       console.log('🔑 Skipping mount auth check - already completed');
       return;
     }
+
+    // OAuth callback owns auth — don't race with a stale localStorage token
+    const hash = window.location.hash || '';
+    if (
+      hash.includes('token=') &&
+      !hash.includes('reset-password') &&
+      !hash.includes('activate-account')
+    ) {
+      console.log('🔑 Skipping mount auth check — OAuth token in URL hash');
+      setAuthChecked(true);
+      return;
+    }
     
     // Skip if already authenticated (e.g., just logged in)
     if (isAuthenticated && currentUser) {
       console.log('🔑 Skipping mount auth check - user already authenticated');
       void establishMediaSession();
+      startMediaSessionRefresh();
       setAuthChecked(true);
       mountCheckCompletedRef.current = true;
       return;
     }
     
-    const token = localStorage.getItem('authToken');
+    const token = api.normalizeAuthToken(localStorage.getItem('authToken'));
     console.log('🔑 Mount auth check starting:', { hasToken: !!token, isAuthenticated, hasCurrentUser: !!currentUser });
     
     if (token) {
+      localStorage.setItem('authToken', token);
       // Verify token and get current user
       api.getCurrentUser()
         .then(async (response) => {
@@ -306,6 +323,7 @@ export const useAuth = (callbacks: UseAuthCallbacks): UseAuthReturn => {
           }
           console.log('🔑 Mount auth check succeeded');
           await establishMediaSession();
+          startMediaSessionRefresh();
           setCurrentUser(response.user);
           setIsAuthenticated(true);
           setAuthChecked(true);
@@ -392,7 +410,7 @@ export const useAuth = (callbacks: UseAuthCallbacks): UseAuthReturn => {
       
       
       if (tokenMatch) {
-        const token = tokenMatch[1];
+        const token = api.normalizeAuthToken(decodeURIComponent(tokenMatch[1])) || decodeURIComponent(tokenMatch[1]);
         
         // Check for stored intended destination from before OAuth redirect
         const storedIntendedDestination = localStorage.getItem('oauthIntendedDestination');
@@ -400,6 +418,8 @@ export const useAuth = (callbacks: UseAuthCallbacks): UseAuthReturn => {
         
         // Clear any activation context (no longer needed with simplified flow)
         localStorage.removeItem('activationContext');
+
+        api.clearAuthInterceptorBlock();
         
         // Store the OAuth token
         localStorage.setItem('authToken', token);

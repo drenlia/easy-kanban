@@ -7,6 +7,7 @@ import { buildTaskEmailUrl } from '../utils/emailContent.js';
 import { getUserTimeZone } from '../utils/dateFormatter.js';
 // MIGRATED: Import sqlManager modules
 import { notificationQueue as notificationQueueQueries, users as userQueries, boards as boardQueries, helpers } from '../utils/sqlManager/index.js';
+import { parseBody, notificationIdsBodySchema } from '../utils/requestValidation.js';
 
 const router = express.Router();
 
@@ -75,11 +76,11 @@ router.get('/', authenticateToken, requireRole(['admin']), async (req, res) => {
  */
 router.post('/send', authenticateToken, requireRole(['admin']), async (req, res) => {
   try {
-    const { notificationIds } = req.body;
-    
-    if (!notificationIds || !Array.isArray(notificationIds) || notificationIds.length === 0) {
-      return res.status(400).json({ error: 'Notification IDs are required' });
+    const parsed = parseBody(notificationIdsBodySchema, req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error });
     }
+    const { notificationIds } = parsed.data;
 
     const db = getRequestDatabase(req);
     const emailService = new EmailService(db);
@@ -200,11 +201,11 @@ router.post('/send', authenticateToken, requireRole(['admin']), async (req, res)
  */
 router.delete('/', authenticateToken, requireRole(['admin']), async (req, res) => {
   try {
-    const { notificationIds } = req.body;
-    
-    if (!notificationIds || !Array.isArray(notificationIds) || notificationIds.length === 0) {
-      return res.status(400).json({ error: 'Notification IDs are required' });
+    const parsed = parseBody(notificationIdsBodySchema, req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error });
     }
+    const { notificationIds } = parsed.data;
 
     const db = getRequestDatabase(req);
     

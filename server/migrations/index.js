@@ -523,6 +523,39 @@ const migrations = [
       }
       console.log('✅ Migration 27: ALLOW_USER_SELF_DELETE ready');
     }
+  },
+  {
+    version: 28,
+    name: 'add_csp_reports_table',
+    description: 'Store Content-Security-Policy violation reports for Admin Troubleshooting review',
+    up: async (db) => {
+      await dbExec(
+        db,
+        `
+          CREATE TABLE IF NOT EXISTS csp_reports (
+            id SERIAL PRIMARY KEY,
+            created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+            document_uri TEXT,
+            violated_directive TEXT,
+            blocked_uri TEXT,
+            source_file TEXT,
+            line_number INTEGER,
+            user_agent TEXT,
+            raw JSONB
+          )
+        `
+      );
+
+      await dbExec(
+        db,
+        `
+          CREATE INDEX IF NOT EXISTS idx_csp_reports_created_at
+          ON csp_reports (created_at DESC)
+        `
+      );
+
+      console.log('✅ Migration 28: csp_reports table ready');
+    }
   }
 ];
 

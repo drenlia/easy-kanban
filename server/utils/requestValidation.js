@@ -299,3 +299,283 @@ export const createMemberBodySchema = z.object({
   name: z.string().min(1, 'Member name is required').max(100),
   color: z.string().min(1, 'Color is required').max(32)
 }).passthrough();
+
+// —— Auth extras / user profile / settings ——
+
+export const activateAccountBodySchema = z.object({
+  token: z.string().min(1).max(256),
+  email: z.string().trim().email('Valid email is required').max(320),
+  newPassword: z.string().min(6, 'Password must be at least 6 characters long').max(1024)
+});
+
+export const registerBodySchema = z.object({
+  email: z.string().trim().toLowerCase().email('Valid email is required').max(320),
+  password: z.string().min(1, 'Password is required').max(1024),
+  firstName: z.string().min(1, 'First name is required').max(100),
+  lastName: z.string().min(1, 'Last name is required').max(100),
+  role: z.enum(['admin', 'user'], { message: 'User role is required' })
+});
+
+export const updateProfileBodySchema = z.object({
+  displayName: z.string().trim().min(1, 'Display name is required').max(30)
+});
+
+/** One user preference per request; value may be JSON-serializable. */
+export const updateUserSettingBodySchema = z.object({
+  setting_key: z.string().min(1, 'Setting key is required').max(128),
+  setting_value: z
+    .union([
+      z.string().max(100_000),
+      z.number(),
+      z.boolean(),
+      z.null(),
+      z.array(z.any()),
+      z.record(z.string(), z.any())
+    ])
+    .optional()
+}).passthrough();
+
+export const updateMemberNameBodySchema = updateProfileBodySchema;
+
+export const updateMemberColorBodySchema = z.object({
+  color: z.string().regex(/^#[0-9A-Fa-f]{6}$/, 'Invalid color format. Use hex format like #FF5733')
+});
+
+export const resendInvitationBodySchema = z.object({
+  baseUrl: z.string().max(2048).optional()
+}).passthrough();
+
+// —— Saved filter views ——
+
+const viewFilterValue = z.union([
+  z.string().max(5000),
+  z.null(),
+  z.array(z.union([z.string().max(256), z.number()])).max(500)
+]);
+
+export const viewFiltersSchema = z
+  .object({
+    textFilter: viewFilterValue.optional(),
+    dateFromFilter: viewFilterValue.optional(),
+    dateToFilter: viewFilterValue.optional(),
+    dueDateFromFilter: viewFilterValue.optional(),
+    dueDateToFilter: viewFilterValue.optional(),
+    memberFilters: viewFilterValue.optional(),
+    priorityFilters: viewFilterValue.optional(),
+    tagFilters: viewFilterValue.optional(),
+    projectFilter: viewFilterValue.optional(),
+    taskFilter: viewFilterValue.optional(),
+    boardColumnFilter: viewFilterValue.optional()
+  })
+  .passthrough();
+
+export const createViewBodySchema = z.object({
+  filterName: z.string().trim().min(1, 'Filter name is required').max(200),
+  filters: viewFiltersSchema,
+  shared: booleanish
+}).passthrough();
+
+export const updateViewBodySchema = z.object({
+  filterName: z.string().trim().min(1).max(200).optional(),
+  filters: viewFiltersSchema.optional(),
+  shared: booleanish
+}).passthrough();
+
+// —— Task attachments / relationships ——
+
+export const taskAttachmentsBodySchema = z.object({
+  attachments: z.array(attachmentSchema).min(1).max(50)
+});
+
+export const createTaskRelationshipBodySchema = z.object({
+  relationship: z.enum(['child', 'parent', 'related']),
+  toTaskId: idSchema
+});
+
+// —— Task work / agent control ——
+
+export const updateTaskWorkBodySchema = z
+  .object({
+    repoUrl: z.string().max(2048).optional(),
+    repoBranch: z.string().max(256).optional(),
+    status: z.string().max(64).optional(),
+    agentMode: z.string().max(64).optional(),
+    automationScope: z.string().max(64).optional(),
+    automationBoardIds: z
+      .union([z.array(idSchema).max(100), z.string().max(4000)])
+      .optional(),
+    llmModel: z.string().max(128).optional(),
+    entries: z
+      .record(
+        z.string().max(128),
+        z.union([z.string().max(100_000), z.number(), z.boolean(), z.null()])
+      )
+      .optional()
+  })
+  .passthrough();
+
+export const taskWorkControlBodySchema = z.object({
+  control: z.preprocess(
+    (v) => String(v ?? '').toLowerCase(),
+    z.enum(['pause', 'stop', 'resume', 'none', 'apply'])
+  )
+});
+
+export const taskIdsBatchBodySchema = permanentBatchBodySchema;
+
+export const boardIdsBatchBodySchema = z.object({
+  boardIds: z.array(idSchema).min(1).max(500)
+});
+
+export const workMapsBodySchema = z.object({
+  taskIds: z.array(idSchema).max(500).default([])
+});
+
+// —— User /dev (PAT, GitHub) ——
+
+export const createDevTokenBodySchema = z.object({
+  name: z.string().max(100).optional()
+}).passthrough();
+
+export const githubTokenBodySchema = z.object({
+  token: z.string().trim().min(20).max(255)
+});
+
+export const githubRepoProbeBodySchema = z.object({
+  repoUrl: z.string().trim().min(1).max(2048)
+});
+
+// —— Admin AI / storage / notifications ——
+
+export const aiCredentialsDraftBodySchema = z
+  .object({
+    provider: z.string().max(64).optional(),
+    baseUrl: z.string().max(2048).optional(),
+    apiKey: z.string().max(4096).optional(),
+    model: z.string().max(256).optional()
+  })
+  .passthrough();
+
+export const aiRunnerProbeBodySchema = z
+  .object({
+    runnerUrl: z.string().max(2048).optional(),
+    runnerToken: z.string().max(4096).optional()
+  })
+  .passthrough();
+
+export const jobsCleanupBodySchema = z
+  .object({
+    retentionDays: z.union([z.number().int().positive().max(3650), z.string().max(16)]).optional()
+  })
+  .passthrough();
+
+export const s3TestOverridesBodySchema = z
+  .object({
+    S3_ENDPOINT: z.string().max(2048).optional(),
+    S3_REGION: z.string().max(64).optional(),
+    S3_BUCKET: z.string().max(256).optional(),
+    S3_ACCESS_KEY_ID: z.string().max(512).optional(),
+    S3_SECRET_ACCESS_KEY: z.string().max(512).optional(),
+    S3_FORCE_PATH_STYLE: z.union([z.boolean(), z.string().max(16)]).optional(),
+    S3_KEY_PREFIX: z.string().max(512).optional()
+  })
+  .passthrough();
+
+export const migrateStorageBodySchema = z.object({
+  direction: z.enum(['disk-to-s3', 's3-to-disk']),
+  deleteSource: booleanish
+}).passthrough();
+
+export const notificationIdsBodySchema = z.object({
+  notificationIds: z
+    .array(z.union([z.string().min(1).max(128), z.number().int()]))
+    .min(1)
+    .max(500)
+});
+
+// —— Agent automation API ——
+
+export const agentClaimBodySchema = z
+  .object({
+    runnerId: z.string().max(128).optional()
+  })
+  .passthrough();
+
+export const agentMoveTaskBodySchema = z.object({
+  columnId: idSchema,
+  position: z.union([z.number(), z.string().max(32)]).optional()
+}).passthrough();
+
+export const agentCommentBodySchema = z.object({
+  text: z.string().min(1).max(10000),
+  id: idSchema.optional(),
+  markWaiting: booleanish
+}).passthrough();
+
+export const agentAttachmentsBodySchema = z.object({
+  attachments: z
+    .array(
+      z.object({
+        id: idSchema.optional(),
+        name: z.string().min(1).max(512),
+        url: z.string().min(1).max(2048),
+        type: z.string().min(1).max(256),
+        size: z.number().int().nonnegative().max(500 * 1024 * 1024).optional()
+      })
+    )
+    .min(1)
+    .max(50)
+});
+
+export const agentPatchTaskBodySchema = z
+  .object({
+    priority: z.union([z.string().max(100), z.null()]).optional(),
+    priorityId: optionalNullableId,
+    priority_id: optionalNullableId,
+    effort: effortSchema,
+    startDate: optionalDate,
+    startdate: optionalDate,
+    dueDate: optionalDate,
+    duedate: optionalDate,
+    columnId: idSchema.optional(),
+    columnid: idSchema.optional(),
+    sprintId: optionalNullableId,
+    sprint_id: optionalNullableId,
+    title: z.any().optional(),
+    description: z.any().optional()
+  })
+  .passthrough();
+
+export const agentUpdateWorkBodySchema = z
+  .object({
+    entries: z
+      .record(
+        z.string().max(128),
+        z.union([z.string().max(100_000), z.number(), z.boolean(), z.null()])
+      )
+      .optional(),
+    appendLog: z.string().max(100_000).optional()
+  })
+  .passthrough();
+
+export const agentToolCallBodySchema = z.object({
+  name: z.string().min(1).max(128),
+  arguments: z.record(z.string(), z.any()).optional(),
+  args: z.record(z.string(), z.any()).optional(),
+  dryRun: booleanish
+}).passthrough();
+
+export const agentRunnerCallbackBodySchema = z
+  .object({
+    taskId: idSchema,
+    event: z.string().min(1).max(64),
+    jobId: z.string().max(128).optional(),
+    progress: z.union([z.number(), z.string().max(32)]).optional(),
+    log: z.string().max(100_000).optional(),
+    comment: z.string().max(10000).optional(),
+    status: z.string().max(64).optional(),
+    prUrl: z.string().max(2048).optional(),
+    branch: z.string().max(256).optional(),
+    callbackToken: z.string().max(512).optional()
+  })
+  .passthrough();

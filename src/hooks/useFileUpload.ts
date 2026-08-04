@@ -14,6 +14,20 @@ import {
   TaskAttachmentUploadOptions
 } from '../utils/fileUploadUtils';
 
+/** Prefer server error body over generic Axios "Request failed with status code …". */
+export function getUploadErrorMessage(error: unknown, fallback = 'Failed to upload files. Please try again.'): string {
+  const err = error as { response?: { status?: number; data?: { error?: string; message?: string } }; message?: string };
+  if (err?.response?.status === 413) {
+    return 'File(s) too large. Please reduce file size or upload fewer files at once.';
+  }
+  const serverMsg = err?.response?.data?.error || err?.response?.data?.message;
+  if (serverMsg && String(serverMsg).trim()) return String(serverMsg).trim();
+  if (err?.message && !/^Request failed with status code \d+$/i.test(err.message)) {
+    return err.message;
+  }
+  return fallback;
+}
+
 export interface UseFileUploadReturn {
   // State
   pendingFiles: File[];
@@ -24,7 +38,7 @@ export interface UseFileUploadReturn {
   // Actions
   addFiles: (files: File[], config?: FileValidationConfig) => void;
   removeFile: (index: number) => void;
-  clearFiles: () => void;
+  clearFiles: (options?: { keepError?: boolean }) => void;
   uploadPendingFiles: (options?: FileUploadOptions) => Promise<UploadedAttachment[]>;
   uploadTaskFiles: (taskId: string, options?: Partial<TaskAttachmentUploadOptions>) => Promise<UploadedAttachment[]>;
   uploadCommentFiles: (options?: FileUploadOptions) => Promise<UploadedAttachment[]>;
@@ -67,10 +81,12 @@ export const useFileUpload = (
     setPendingFiles(prev => prev.filter((_, i) => i !== index));
   }, []);
 
-  const clearFiles = useCallback(() => {
+  const clearFiles = useCallback((options?: { keepError?: boolean }) => {
     setPendingFiles([]);
     setUploadedAttachments([]);
-    setUploadError(null);
+    if (!options?.keepError) {
+      setUploadError(null);
+    }
   }, []);
 
   const uploadPendingFiles = useCallback(async (options: FileUploadOptions = {}): Promise<UploadedAttachment[]> => {
@@ -87,7 +103,7 @@ export const useFileUpload = (
           options.onSuccess?.(attachments);
         },
         onError: (error) => {
-          setUploadError(error.message);
+          setUploadError(getUploadErrorMessage(error));
           options.onError?.(error);
         }
       });
@@ -117,7 +133,7 @@ export const useFileUpload = (
           options.onSuccess?.(attachments);
         },
         onError: (error) => {
-          setUploadError(error.message);
+          setUploadError(getUploadErrorMessage(error));
           options.onError?.(error);
         }
       });
@@ -143,7 +159,7 @@ export const useFileUpload = (
           options.onSuccess?.(attachments);
         },
         onError: (error) => {
-          setUploadError(error.message);
+          setUploadError(getUploadErrorMessage(error));
           options.onError?.(error);
         }
       });

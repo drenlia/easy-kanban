@@ -13,6 +13,7 @@ import {
   getBoardTabDropClasses 
 } from '../utils/crossBoardDragUtils';
 import { KanbanChromeTooltip } from './KanbanChromeTooltip';
+import { useEscapeDismiss } from '../hooks/useEscapeDismiss';
 
 /** Inactive tab — sits on the track */
 const tabTrackInactive =
@@ -344,6 +345,8 @@ const SortableBoardTab: React.FC<{
       {canDelete && showDeleteConfirm === board.id && deleteButtonRef && createPortal(
         <div 
           className="delete-confirmation fixed z-[9999] min-w-[160px] rounded-lg border border-gray-200 bg-white p-3 shadow-xl dark:border-gray-600 dark:bg-gray-800"
+          role="dialog"
+          aria-modal="true"
           style={{
             top: `${deleteButtonRef.getBoundingClientRect().bottom + 5}px`,
             left: `${deleteButtonRef.getBoundingClientRect().left - 120}px`,
@@ -672,6 +675,8 @@ export default function BoardTabs({
       document.removeEventListener('mousedown', handleClickOutside);
     };
   }, [showDeleteConfirm]);
+
+  useEscapeDismiss(cancelDeleteBoard, { enabled: showDeleteConfirm != null });
 
   // Get the current board's project identifier
   const currentBoard = boards.find(board => board.id === selectedBoard);

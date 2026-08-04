@@ -22,6 +22,12 @@ import {
 import { tokenMintLimiter, githubRepoProbeLimiter } from '../middleware/rateLimiters.js';
 import { maskApiKey, isMaskedOrEmptyApiKey } from '../utils/maskSecret.js';
 import { probeGithubRepoWithPat } from '../utils/githubRepoProbe.js';
+import {
+  parseBody,
+  createDevTokenBodySchema,
+  githubTokenBodySchema,
+  githubRepoProbeBodySchema
+} from '../utils/requestValidation.js';
 
 const router = express.Router();
 const requireAi = requireAiEnabledMiddleware(getRequestDatabase);
@@ -69,7 +75,11 @@ router.get('/tokens', authenticateToken, requireAi, async (req, res) => {
 router.post('/tokens', authenticateToken, requireAi, tokenMintLimiter, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
-    const name = (req.body?.name || 'Agent API token').toString().slice(0, 100);
+    const parsed = parseBody(createDevTokenBodySchema, req.body || {});
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error });
+    }
+    const name = (parsed.data.name || 'Agent API token').toString().slice(0, 100);
     const rawToken = `ek_${crypto.randomBytes(32).toString('hex')}`;
     const tokenPrefix = rawToken.slice(0, 11);
     const tokenHash = await bcrypt.hash(rawToken, 10);
@@ -203,13 +213,14 @@ router.get('/github-token', authenticateToken, requireAi, async (req, res) => {
 router.put('/github-token', authenticateToken, requireAi, tokenMintLimiter, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
-    const raw = String(req.body?.token || '').trim();
+    const parsed = parseBody(githubTokenBodySchema, req.body || {});
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error });
+    }
+    const raw = parsed.data.token;
     const existing = await githubTokenQueries.getGithubTokenMeta(db, req.user.id);
     if (isMaskedOrEmptyApiKey(raw, existing?.token_hint || '')) {
       return res.status(400).json({ error: 'Provide a new GitHub personal access token' });
-    }
-    if (raw.length < 20 || raw.length > 255) {
-      return res.status(400).json({ error: 'Invalid token length' });
     }
     const hint = maskApiKey(raw);
     const row = await githubTokenQueries.upsertGithubToken(db, {
@@ -256,14 +267,15 @@ router.post(
   async (req, res) => {
     try {
       const db = getRequestDatabase(req);
-      const repoUrl = String(req.body?.repoUrl || '').trim();
-      if (!repoUrl) {
+      const parsed = parseBody(githubRepoProbeBodySchema, req.body || {});
+      if (!parsed.success) {
         return res.status(400).json({
           ok: false,
           reason: 'invalid_url',
-          error: 'Repository URL is required'
+          error: parsed.error
         });
       }
+      const repoUrl = parsed.data.repoUrl;
 
       let githubToken = '';
       const patRow = await githubTokenQueries.getGithubTokenEncrypted(db, req.user.id);

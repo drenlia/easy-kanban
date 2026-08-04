@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { X, Upload, Trash2 } from 'lucide-react';
 import { uploadAvatar, deleteAccount, getUserSettings } from '../api';
@@ -7,6 +7,7 @@ import api from '../api';
 import { getAuthenticatedAvatarUrl } from '../utils/authImageUrl';
 import { useSettings } from '../contexts/SettingsContext';
 import ProfileDevTab from './profile/ProfileDevTab';
+import { useEscapeDismiss } from '../hooks/useEscapeDismiss';
 
 interface ProfileProps {
   isOpen: boolean;
@@ -344,6 +345,22 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
     // Otherwise, return 'system' to indicate inheriting from system
     return 'system';
   };
+
+  const handleEscape = useCallback(() => {
+    if (isSubmitting || isDeletingAccount) return;
+    if (showDeleteConfirm) {
+      setShowDeleteConfirm(false);
+      setDeleteConfirmation('');
+      return;
+    }
+    if (previewUrl) {
+      URL.revokeObjectURL(previewUrl);
+    }
+    onProfileEditingChange(false);
+    onClose();
+  }, [isSubmitting, isDeletingAccount, showDeleteConfirm, previewUrl, onProfileEditingChange, onClose]);
+
+  useEscapeDismiss(handleEscape, { enabled: isOpen });
 
   if (!isOpen) return null;
 

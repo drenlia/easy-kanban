@@ -21,6 +21,18 @@ function isUserActive(isActive) {
   return true;
 }
 
+function isForceLogout(flag) {
+  return flag === true || flag === 1 || flag === '1' || flag === 'true';
+}
+
+/** Session may proceed only when the DB user is active and not flagged for forced logout. */
+function userMayUseSession(userRow) {
+  if (!userRow) return false;
+  if (!isUserActive(userRow.is_active)) return false;
+  if (isForceLogout(userRow.force_logout)) return false;
+  return true;
+}
+
 function primaryRole(roleNames) {
   return roleNames.includes('admin') ? 'admin' : (roleNames[0] || 'user');
 }
@@ -51,11 +63,11 @@ async function authenticatePersonalAccessToken(req, rawToken) {
     if (!ok) continue;
 
     const userRow = await wrapQuery(
-      db.prepare('SELECT id, email, is_active FROM users WHERE id = $1'),
+      db.prepare('SELECT id, email, is_active, force_logout FROM users WHERE id = $1'),
       'SELECT'
     ).get(row.user_id);
 
-    if (!userRow || !isUserActive(userRow.is_active)) {
+    if (!userMayUseSession(userRow)) {
       return null;
     }
 
@@ -131,7 +143,7 @@ export const authenticateToken = async (req, res, next) => {
     if (db) {
       try {
         const userInDb = await wrapQuery(
-          db.prepare('SELECT id, email, is_active FROM users WHERE id = ?'),
+          db.prepare('SELECT id, email, is_active, force_logout FROM users WHERE id = ?'),
           'SELECT'
         ).get(user.id);
         
@@ -140,8 +152,9 @@ export const authenticateToken = async (req, res, next) => {
           return res.status(401).json({ error: 'Invalid or expired token' });
         }
 
-        if (!isUserActive(userInDb.is_active)) {
-          console.log(`❌ [AUTH] Token validation failed: User ${userInDb.email} (${userInDb.id}) is inactive`);
+        if (!userMayUseSession(userInDb)) {
+          const reason = !isUserActive(userInDb.is_active) ? 'inactive' : 'force_logout';
+          console.log(`❌ [AUTH] Token validation failed: User ${userInDb.email} (${userInDb.id}) is ${reason}`);
           return res.status(401).json({ error: 'Invalid or expired token' });
         }
 
@@ -209,4 +222,4 @@ export const verifyToken = (token) => {
   return jwt.verify(token, JWT_SECRET);
 };
 
-export { JWT_SECRET, JWT_EXPIRES_IN, isUserActive };
+export { JWT_SECRET, JWT_EXPIRES_IN, isUserActive, isForceLogout, userMayUseSession };

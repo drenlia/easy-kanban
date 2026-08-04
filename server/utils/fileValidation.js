@@ -95,27 +95,23 @@ export const getAdminFileSettings = async (db) => {
       };
     }
     
-    // Security: Always block dangerous file types (even when UPLOAD_LIMITS_ENFORCED=false)
+    // Always block native executables (even when UPLOAD_LIMITS_ENFORCED=false).
+    // HTML / SVG / JS follow the admin allowlist (or "all types" when limits are off).
     const blockedTypes = [
       'application/x-executable',
-      'application/x-msdownload', 
+      'application/x-msdownload',
       'application/x-msdos-program',
       'application/x-winexe',
       'application/x-msi',
       'application/x-sh',
       'application/x-bat',
-      'text/html',
-      'application/xhtml+xml',
-      'image/svg+xml',
-      'text/javascript',
-      'application/javascript',
-      'application/x-javascript'
+      'application/x-elf',
+      'application/vnd.microsoft.portable-executable'
     ];
     
     const blockedExtensions = [
-      '.exe', '.bat', '.cmd', '.com', '.pif', '.scr', '.vbs', '.js', '.mjs', '.jar', '.msi',
-      '.sh', '.ps1', '.app', '.dmg', '.deb', '.rpm',
-      '.html', '.htm', '.xhtml', '.svg', '.shtml'
+      '.exe', '.bat', '.cmd', '.com', '.pif', '.scr', '.vbs', '.jar', '.msi',
+      '.sh', '.ps1', '.app', '.dmg', '.deb', '.rpm', '.elf', '.bin'
     ];
     
     return {
@@ -133,23 +129,18 @@ export const getAdminFileSettings = async (db) => {
       allowedTypes: {},
       blockedTypes: [
         'application/x-executable',
-        'application/x-msdownload', 
+        'application/x-msdownload',
         'application/x-msdos-program',
         'application/x-winexe',
         'application/x-msi',
         'application/x-sh',
         'application/x-bat',
-        'text/html',
-        'application/xhtml+xml',
-        'image/svg+xml',
-        'text/javascript',
-        'application/javascript',
-        'application/x-javascript'
+        'application/x-elf',
+        'application/vnd.microsoft.portable-executable'
       ],
       blockedExtensions: [
-        '.exe', '.bat', '.cmd', '.com', '.pif', '.scr', '.vbs', '.js', '.mjs', '.jar', '.msi',
-        '.sh', '.ps1', '.app', '.dmg', '.deb', '.rpm',
-        '.html', '.htm', '.xhtml', '.svg', '.shtml'
+        '.exe', '.bat', '.cmd', '.com', '.pif', '.scr', '.vbs', '.jar', '.msi',
+        '.sh', '.ps1', '.app', '.dmg', '.deb', '.rpm', '.elf', '.bin'
       ],
       limitsEnforced: true // Default to enforced for safety
     };

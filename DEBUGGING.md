@@ -81,7 +81,7 @@ The server caches whether SQL debug is enabled for about **15 seconds** (`server
 
 | Key | Where it applies | What you get |
 |-----|------------------|--------------|
-| `FE_PERF_TESTS` | **Per-admin** `user_settings` (not tenant `settings`). Toggle: Admin → App Settings → Troubleshooting. Overlay in `src/perfTests/` | When `"true"` for **that** admin, they see a floating Perf Tests control center on the Kanban page. Other admins are unaffected. Default off. Not a console debug logger. |
+| `FE_PERF_TESTS` | **Per-admin** `user_settings` (not tenant `settings`). Toggle: Admin → App Settings → Troubleshooting. Overlay in `src/perfTests/` | When `"true"` for **that** admin: Kanban board stress panel + Admin sample-data seed panel. Other admins unaffected. Default off. |
 
 ---
 

@@ -45,7 +45,12 @@ const AdminSettingsSearch: React.FC<AdminSettingsSearchProps> = ({
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== '/' || e.metaKey || e.ctrlKey || e.altKey) return;
+      const isSlash = e.key === '/' && !e.metaKey && !e.ctrlKey && !e.altKey;
+      const isModK =
+        (e.metaKey || e.ctrlKey) &&
+        !e.altKey &&
+        (e.key === 'k' || e.key === 'K');
+      if (!isSlash && !isModK) return;
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement)?.isContentEditable) {
         return;

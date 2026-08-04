@@ -3,13 +3,13 @@
  * Used in an HttpOnly cookie so <img> / attachment URLs need not embed the session JWT.
  */
 import jwt from 'jsonwebtoken';
-import { JWT_SECRET, JWT_EXPIRES_IN } from '../middleware/auth.js';
+import { JWT_SECRET } from '../middleware/auth.js';
 
 export const MEDIA_TOKEN_PURPOSE = 'media';
 export const MEDIA_COOKIE_NAME = 'ek_media';
 
-/** Align with session JWT by default; override with MEDIA_TOKEN_EXPIRES_IN (e.g. 15m). */
-export const MEDIA_TOKEN_EXPIRES_IN = process.env.MEDIA_TOKEN_EXPIRES_IN || JWT_EXPIRES_IN;
+/** Default 8h (tighter than session 24h); override with MEDIA_TOKEN_EXPIRES_IN (e.g. 2h, 15m). */
+export const MEDIA_TOKEN_EXPIRES_IN = process.env.MEDIA_TOKEN_EXPIRES_IN || '8h';
 
 export function signMediaAccessToken(userId) {
   return jwt.sign(

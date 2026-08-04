@@ -11,6 +11,18 @@ export const getAdminValidationConfig = (siteSettings?: { [key: string]: string 
   try {
     // Get max file size from admin settings
     const maxSizeBytes = parseInt(siteSettings.UPLOAD_MAX_FILESIZE || '10485760'); // Default 10MB
+    const limitsEnforced = siteSettings.UPLOAD_LIMITS_ENFORCED !== 'false';
+
+    // When limits are off ("all types"), only keep executable hard-blocks
+    if (!limitsEnforced) {
+      return {
+        maxSize: maxSizeBytes,
+        allowedTypes: [],
+        allowedExtensions: [],
+        blockedTypes: DEFAULT_FILE_CONFIG.blockedTypes,
+        blockedExtensions: DEFAULT_FILE_CONFIG.blockedExtensions
+      };
+    }
     
     // Get allowed file types from admin settings
     const fileTypesJson = siteSettings.UPLOAD_FILETYPES || '{}';
@@ -70,7 +82,7 @@ export const DEFAULT_FILE_CONFIG: FileValidationConfig = {
     'application/x-winexe', 'application/x-msi', 'application/x-sh', 'application/x-bat'
   ],
   blockedExtensions: [
-    '.exe', '.bat', '.cmd', '.com', '.pif', '.scr', '.vbs', '.js', '.jar', '.msi',
+    '.exe', '.bat', '.cmd', '.com', '.pif', '.scr', '.vbs', '.jar', '.msi',
     '.sh', '.ps1', '.app', '.dmg', '.deb', '.rpm'
   ]
 };

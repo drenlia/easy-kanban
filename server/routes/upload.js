@@ -4,6 +4,8 @@ import { authenticateToken } from '../middleware/auth.js';
 import { createAttachmentUploadMiddleware } from '../config/multer.js';
 import { getRequestDatabase } from '../middleware/tenantRouting.js';
 import { commitUploadedFile, getRequestStoragePaths } from '../services/storage/index.js';
+import { validateUploadedFileMagic } from '../utils/fileMagicBytes.js';
+import { getAdminFileSettings } from '../utils/fileValidation.js';
 
 const router = express.Router();
 
@@ -48,6 +50,16 @@ router.post('/', authenticateToken, createUploadMiddleware, async (req, res) => 
     }
 
     const db = getRequestDatabase(req);
+    const settings = await getAdminFileSettings(db);
+    const magic = await validateUploadedFileMagic(req.file, {
+      mode: 'attachment',
+      limitsEnforced: settings.limitsEnforced,
+      allowedTypes: settings.allowedTypes
+    });
+    if (!magic.valid) {
+      return res.status(400).json({ error: magic.error });
+    }
+
     await commitUploadedFile(db, getRequestStoragePaths(req), 'attachments', req.file);
 
   // Generate authenticated URL via media cookie (no session JWT in query string)

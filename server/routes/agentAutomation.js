@@ -26,6 +26,7 @@ import { authenticateToken, requireRole } from '../middleware/auth.js';
 import { COMMENT_ACTIONS } from '../constants/activityActions.js';
 import { logCommentActivity } from '../services/activityLogger.js';
 import { markdownToHtml } from '../utils/markdownToHtml.js';
+import { parseBody, agentToolCallBodySchema } from '../utils/requestValidation.js';
 
 const router = express.Router();
 const requireAi = requireAiEnabledMiddleware(getRequestDatabase);
@@ -83,9 +84,13 @@ router.use(requireAi);
 /** Runner: execute a single tool */
 router.post('/tools', requireAutomationToken, async (req, res) => {
   try {
-    const name = String(req.body?.name || '').trim();
-    const args = req.body?.arguments || req.body?.args || {};
-    const dryRun = Boolean(req.body?.dryRun);
+    const parsed = parseBody(agentToolCallBodySchema, req.body || {});
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error });
+    }
+    const name = String(parsed.data.name || '').trim();
+    const args = parsed.data.arguments || parsed.data.args || {};
+    const dryRun = Boolean(parsed.data.dryRun);
     if (!name) {
       return res.status(400).json({ error: 'name is required' });
     }

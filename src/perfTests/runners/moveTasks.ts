@@ -19,8 +19,16 @@ export interface MoveTasksOptions {
     placement: TaskDropPlacement
   ) => Promise<void>;
   signal: AbortSignal;
+  /** Delay between moves (ms). Defaults 500–2000. */
   minIntervalMs?: number;
   maxIntervalMs?: number;
+  /**
+   * Stop after this many move attempts (success or fail).
+   * Omit / 0 = run until Cancel (classic continuous storm).
+   */
+  maxMoves?: number;
+  /** Called after each move attempt */
+  onProgress?: (attempted: number, maxMoves: number | null) => void;
 }
 
 function placementForIndex(
@@ -52,13 +60,18 @@ async function waitForMoveSettled(signal: AbortSignal, timeoutMs = 5000): Promis
 }
 
 export async function runMoveTasks(opts: MoveTasksOptions): Promise<PerfRunRecord> {
-  const minMs = opts.minIntervalMs ?? 500;
-  const maxMs = opts.maxIntervalMs ?? 2000;
+  const minMs = Math.max(0, opts.minIntervalMs ?? 500);
+  const maxMs = Math.max(minMs, opts.maxIntervalMs ?? 2000);
+  const maxMoves =
+    opts.maxMoves && opts.maxMoves > 0 ? Math.floor(opts.maxMoves) : null;
   const startedAt = new Date().toISOString();
   beginRun();
   let cancelled = false;
+  let attempted = 0;
 
   while (!opts.signal.aborted) {
+    if (maxMoves != null && attempted >= maxMoves) break;
+
     // Never start a move while a previous reorder is still settling
     try {
       await waitForMoveSettled(opts.signal);
@@ -113,10 +126,13 @@ export async function runMoveTasks(opts: MoveTasksOptions): Promise<PerfRunRecor
       opts.moveTask(picked.id, targetColumnId, placement)
     );
     recordOp(sample);
+    attempted += 1;
+    opts.onProgress?.(attempted, maxMoves);
 
     // Wait for API + optimistic/WS settle before the next move (avoids stale column snapshots)
     try {
       await waitForMoveSettled(opts.signal);
+      if (maxMoves != null && attempted >= maxMoves) break;
       await sleep(randomInt(minMs, maxMs), opts.signal);
     } catch (err) {
       if (isAbortError(err)) {
@@ -132,7 +148,12 @@ export async function runMoveTasks(opts: MoveTasksOptions): Promise<PerfRunRecor
   return finishRun({
     scenario: 'move',
     boardId: opts.boardId,
-    params: { minIntervalMs: minMs, maxIntervalMs: maxMs, serialized: true },
+    params: {
+      minIntervalMs: minMs,
+      maxIntervalMs: maxMs,
+      maxMoves,
+      serialized: true,
+    },
     startedAt,
     cancelled,
   });

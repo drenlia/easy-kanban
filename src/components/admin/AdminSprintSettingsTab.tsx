@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import { toast } from '../../utils/toast';
 import { getSprintUsage, deleteSprint } from '../../api';
 import { ModernCheckbox } from '../ModernCheckbox';
+import { useEscapeDismiss } from '../../hooks/useEscapeDismiss';
 
 interface PlanningPeriod {
   id: string;
@@ -102,6 +103,10 @@ const AdminSprintSettingsTab: React.FC = () => {
     };
   }, [showDeleteSprintConfirm]);
 
+  useEscapeDismiss(
+    () => setShowDeleteSprintConfirm(null),
+    { enabled: showDeleteSprintConfirm != null }
+  );
   const fetchSprints = async () => {
     try {
       setLoading(true);

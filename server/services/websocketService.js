@@ -4,10 +4,14 @@ import { createClient } from 'redis';
 import jwt from 'jsonwebtoken';
 import redisService from './redisService.js';
 import postgresNotificationService from './postgresNotificationService.js';
-import { JWT_SECRET, isUserActive } from '../middleware/auth.js';
+import { JWT_SECRET, isUserActive, userMayUseSession } from '../middleware/auth.js';
 import { extractTenantId, getTenantDatabase } from '../middleware/tenantRouting.js';
 import { wrapQuery } from '../utils/queryLogger.js';
 import { wsVerboseLog } from '../utils/serverDebug.js';
+
+function userSocketRoom(tenantId, userId) {
+  return tenantId ? `user-${tenantId}-${userId}` : `user-${userId}`;
+}
 
 class WebSocketService {
   constructor() {
@@ -155,15 +159,16 @@ class WebSocketService {
           }
 
           const userInDb = await wrapQuery(
-            db.prepare('SELECT id, email, is_active FROM users WHERE id = ?'),
+            db.prepare('SELECT id, email, is_active, force_logout FROM users WHERE id = ?'),
             'SELECT'
           ).get(decoded.id);
           if (!userInDb) {
             console.log(`❌ WebSocket auth failed: User ${decoded.email} (${decoded.id}) does not exist in database`);
             return next(new Error('Invalid token'));
           }
-          if (!isUserActive(userInDb.is_active)) {
-            console.log(`❌ WebSocket auth failed: User ${userInDb.email} (${userInDb.id}) is inactive`);
+          if (!userMayUseSession(userInDb)) {
+            const reason = !isUserActive(userInDb.is_active) ? 'inactive' : 'force_logout';
+            console.log(`❌ WebSocket auth failed: User ${userInDb.email} (${userInDb.id}) is ${reason}`);
             return next(new Error('Invalid token'));
           }
         } catch (dbError) {
@@ -177,6 +182,8 @@ class WebSocketService {
         socket.userRole = decoded.role;
         socket.userRoles = decoded.roles;
         socket.tenantId = tenantId; // Store tenantId for room isolation
+        // Per-user room so we can disconnect on deactivate/delete (works across pods with Redis adapter)
+        socket.join(userSocketRoom(tenantId, decoded.id));
         
         console.log('✅ WebSocket authenticated:', decoded.email, tenantId ? `(tenant: ${tenantId})` : '');
         next();
@@ -531,6 +538,11 @@ class WebSocketService {
       } else {
         this.io?.emit('user-updated', data);
       }
+      // S6: drop live sockets immediately when an admin deactivates the user
+      const user = data?.user;
+      if (user?.id && user.isActive === false) {
+        this.disconnectUserSockets(user.id, tenantId);
+      }
     });
 
     postgresNotificationService.subscribeToAllTenants('user-role-updated', (data, tenantId) => {
@@ -546,6 +558,10 @@ class WebSocketService {
         this.io?.to(`tenant-${tenantId}`).emit('user-deleted', data);
       } else {
         this.io?.emit('user-deleted', data);
+      }
+      const userId = data?.user?.id || data?.userId;
+      if (userId) {
+        this.disconnectUserSockets(userId, tenantId);
       }
     });
 
@@ -807,6 +823,17 @@ class WebSocketService {
         this.io?.emit('version-updated', data);
       }
     });
+  }
+
+  /**
+   * Force-disconnect all sockets for a user (S6 — deactivate / delete).
+   * Relies on per-user rooms joined at handshake; Redis adapter fans out across pods.
+   */
+  disconnectUserSockets(userId, tenantId = null) {
+    if (!this.io || !userId) return;
+    const room = userSocketRoom(tenantId, userId);
+    console.log(`🔌 Disconnecting sockets for user ${userId}${tenantId ? ` (tenant: ${tenantId})` : ''}`);
+    this.io.in(room).disconnectSockets(true);
   }
 
   getConnectedClients() {

@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { X, Edit2, Trash2, Save, XCircle, Globe, Lock } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { SavedFilterView, updateSavedFilterView, deleteSavedFilterView } from '../api';
+import { useEscapeDismiss } from '../hooks/useEscapeDismiss';
 
 interface ManageFiltersModalProps {
   isOpen: boolean;
@@ -28,16 +29,36 @@ export default function ManageFiltersModal({
   const [isLoading, setIsLoading] = useState(false);
   const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null);
 
+  const handleCancelEdit = () => {
+    setEditingView(null);
+    setEditName('');
+  };
+
+  const handleCancelDelete = () => {
+    setDeleteConfirmId(null);
+  };
+
+  const handleEscape = useCallback(() => {
+    if (isLoading) return;
+    if (editingView) {
+      setEditingView(null);
+      setEditName('');
+      return;
+    }
+    if (deleteConfirmId != null) {
+      setDeleteConfirmId(null);
+      return;
+    }
+    onClose();
+  }, [isLoading, editingView, deleteConfirmId, onClose]);
+
+  useEscapeDismiss(handleEscape, { enabled: isOpen });
+
   if (!isOpen) return null;
 
   const handleStartEdit = (view: SavedFilterView) => {
     setEditingView(view);
     setEditName(view.filterName);
-  };
-
-  const handleCancelEdit = () => {
-    setEditingView(null);
-    setEditName('');
   };
 
   const handleSaveEdit = async () => {
@@ -104,10 +125,6 @@ export default function ManageFiltersModal({
     } finally {
       setIsLoading(false);
     }
-  };
-
-  const handleCancelDelete = () => {
-    setDeleteConfirmId(null);
   };
 
   const handleToggleShare = async (view: SavedFilterView) => {

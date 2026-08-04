@@ -14,6 +14,7 @@ import { getTenantId, getRequestDatabase } from '../middleware/tenantRouting.js'
 import { helpers, tasks as taskQueries, files as fileQueries, activity as activityQueries } from '../utils/sqlManager/index.js';
 import { getBilingualTranslation, getTranslatorForLanguage } from '../utils/i18n.js';
 import { notifyCollaboratorAdded } from '../services/taskEmailNotificationService.js';
+import { parseBody, taskAttachmentsBodySchema } from '../utils/requestValidation.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -658,7 +659,11 @@ router.get('/:taskId/attachments', authenticateToken, async (req, res) => {
 
 router.post('/:taskId/attachments', authenticateToken, async (req, res) => {
   const { taskId } = req.params;
-  const { attachments } = req.body;
+  const parsed = parseBody(taskAttachmentsBodySchema, req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error });
+  }
+  const { attachments } = parsed.data;
   const userId = req.user.id;
   const db = getRequestDatabase(req);
   

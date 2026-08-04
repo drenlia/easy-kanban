@@ -49,6 +49,9 @@ const ModalManager = lazyWithRetry(() => import('./components/layout/ModalManage
 const PerfTestOverlay = lazyWithRetry(() =>
   import('./perfTests/PerfTestOverlay').then((m) => ({ default: m.default }))
 );
+const AdminSeedOverlay = lazyWithRetry(() =>
+  import('./perfTests/AdminSeedOverlay').then((m) => ({ default: m.default }))
+);
 import { shouldShowPerfTests, subscribePerfTestsPreference, PERF_TESTS_USER_SETTING_KEY, isPerfTestsUserSettingEnabled } from './perfTests';
 import TaskDeleteConfirmation from './components/TaskDeleteConfirmation';
 import CrossBoardMoveConfirmation from './components/CrossBoardMoveConfirmation';
@@ -121,6 +124,7 @@ import { handleSameColumnReorder, handleCrossColumnMove, handleBulkMoveTasks, mo
 import { getTaskColumnId, orderedCheckedTasksInColumn } from './utils/kanbanMultiSelect';
 import { useKanbanMultiSelect } from './hooks/useKanbanMultiSelect';
 import { hasEscapeConsumingOverlay, isEditableEscapeTarget } from './utils/escapeKeyUtils';
+import { focusHeaderTaskSearch } from './utils/keyboardShortcutUtils';
 import { handleInviteUser as handleInviteUserUtil } from './utils/userInvitationUtils';
 import BoardLimitReachedDialog, { BoardLimitInfo } from './components/BoardLimitReachedDialog';
 import { KeyboardSensor, PointerSensor, useSensor, useSensors, DragEndEvent, DragStartEvent, DndContext, DragOverlay } from '@dnd-kit/core';
@@ -771,7 +775,39 @@ function AppContent() {
   
   // Custom hooks
   const showDebug = useDebug();
-  useKeyboardShortcuts(() => modalState.setShowHelpModal(true));
+
+  const keyboardShortcutApiRef = useRef<{
+    openHelp: () => void;
+    focusSearch: () => void;
+    newTask: () => void;
+    setViewMode: (mode: ViewMode) => void;
+  }>({
+    openHelp: () => {},
+    focusSearch: () => {},
+    newTask: () => {},
+    setViewMode: () => {},
+  });
+
+  const openHelpShortcut = useCallback(() => {
+    keyboardShortcutApiRef.current.openHelp();
+  }, []);
+  const focusSearchShortcut = useCallback(() => {
+    keyboardShortcutApiRef.current.focusSearch();
+  }, []);
+  const newTaskShortcut = useCallback(() => {
+    keyboardShortcutApiRef.current.newTask();
+  }, []);
+  const viewModeShortcut = useCallback((mode: ViewMode) => {
+    keyboardShortcutApiRef.current.setViewMode(mode);
+  }, []);
+
+  useKeyboardShortcuts({
+    onHelp: openHelpShortcut,
+    onFocusSearch: focusSearchShortcut,
+    onNewTask: newTaskShortcut,
+    onViewMode: viewModeShortcut,
+    boardShortcutsEnabled: isAuthenticated && currentPage === 'kanban',
+  });
   
   // Initialize task deletion confirmation hook
   const taskDeleteConfirmation = useTaskDeleteConfirmation({
@@ -2647,20 +2683,20 @@ function AppContent() {
     }
   };
 
-  const handleAddTask = async (columnId: string, startDate?: string, dueDate?: string) => {
-    if (!selectedBoard || !currentUser) return;
+  const handleAddTask = async (columnId: string, startDate?: string, dueDate?: string): Promise<boolean> => {
+    if (!selectedBoard || !currentUser) return false;
     
     // Prevent task creation when network is offline
     if (!isOnline) {
       console.warn('⚠️ Task creation blocked - network is offline');
-      return;
+      return false;
     }
     
     // Always assign new tasks to the logged-in user, not the filtered selection
     const currentUserMember = members.find(m => m.user_id === currentUser.id);
     if (!currentUserMember) {
       // console.error('Current user not found in members list');
-      return;
+      return false;
     }
     
     // Use provided dates or default to today
@@ -2784,6 +2820,8 @@ function AppContent() {
       setTimeout(() => {
         setTaskCreationPause(false);
       }, TASK_CREATION_PAUSE_DURATION);
+
+      return true;
       
     } catch (error: any) {
       console.error('Failed to create task at top:', error);
@@ -2825,6 +2863,7 @@ function AppContent() {
         toast.error(t('errors.createTaskTitle'), t('errors.createTaskMessage'));
         await refreshBoardData();
       }
+      return false;
     }
   };
 
@@ -4201,6 +4240,32 @@ function AppContent() {
   };
 
 
+  // Keep shortcut handlers current without reordering hooks past early returns below.
+  keyboardShortcutApiRef.current = {
+    openHelp: () => modalState.setShowHelpModal(true),
+    focusSearch: () => {
+      focusHeaderTaskSearch();
+    },
+    newTask: () => {
+      if (taskLinking.isLinkingMode) return;
+      if (!selectedBoard || !currentUser || !isOnline) return;
+      const sorted = Object.values(columns).sort(
+        (a, b) => (a.position ?? 0) - (b.position ?? 0)
+      );
+      const firstColumn = sorted[0];
+      if (!firstColumn) return;
+      void (async () => {
+        const created = await handleAddTask(firstColumn.id);
+        if (!created) return;
+        toast.info(
+          t('errors.createTaskShortcutTitle'),
+          t('errors.createTaskShortcutMessage', { column: firstColumn.title })
+        );
+      })();
+    },
+    setViewMode: handleViewModeChange,
+  };
+
   // Handle password reset pages (accessible without authentication)
   if (currentPage === 'forgot-password') {
     return <ForgotPassword onBackToLogin={() => window.location.hash = '#kanban'} />;
@@ -4677,6 +4742,13 @@ function AppContent() {
               onMoveTask={handleMoveTaskToColumn}
               onRefreshBoard={() => refreshBoardData({ force: true })}
             />
+          </Suspense>
+        )}
+
+      {shouldShowPerfTests(userPerfTestsEnabled, currentUser) &&
+        currentPage === 'admin' && (
+          <Suspense fallback={null}>
+            <AdminSeedOverlay />
           </Suspense>
         )}
 

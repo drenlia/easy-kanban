@@ -49,6 +49,12 @@ function writeCollapsedPreference(collapsed: boolean) {
   }
 }
 
+function clampInt(raw: string, min: number, max: number, fallback: number): number {
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return fallback;
+  return Math.max(min, Math.min(max, Math.floor(n)));
+}
+
 const PerfTestOverlay: React.FC<PerfTestOverlayProps> = ({
   boardId,
   columns,
@@ -61,6 +67,9 @@ const PerfTestOverlay: React.FC<PerfTestOverlayProps> = ({
   const [collapsed, setCollapsed] = useState(readCollapsedPreference);
   const [memberId, setMemberId] = useState(members[0]?.id || '');
   const [countInput, setCountInput] = useState('20');
+  const [concurrencyInput, setConcurrencyInput] = useState('1');
+  const [moveIntervalInput, setMoveIntervalInput] = useState('200');
+  const [maxMovesInput, setMaxMovesInput] = useState('50');
   const [active, setActive] = useState<ActiveScenario>(null);
   const [status, setStatus] = useState('');
   const [reportKind, setReportKind] = useState<ReportKind>(null);
@@ -93,8 +102,13 @@ const PerfTestOverlay: React.FC<PerfTestOverlayProps> = ({
     [members, memberId]
   );
 
-  // Field stays free-form (empty while typing); clamp only when a run starts
-  const count = Math.max(1, Math.min(500, Number(countInput) || 1));
+  // Fields stay free-form; clamp only when a run starts
+  const count = clampInt(countInput, 1, 500, 20);
+  const concurrency = clampInt(concurrencyInput, 1, 20, 1);
+  const moveIntervalMs = clampInt(moveIntervalInput, 0, 10000, 200);
+  /** Empty max-moves = unlimited until Cancel */
+  const maxMoves =
+    maxMovesInput.trim() === '' ? null : clampInt(maxMovesInput, 1, 5000, 50);
 
   const stopActive = useCallback(() => {
     abortRef.current?.abort();
@@ -118,7 +132,11 @@ const PerfTestOverlay: React.FC<PerfTestOverlayProps> = ({
     const ac = new AbortController();
     abortRef.current = ac;
     setActive('generate');
-    setStatus(`Generating ${count} tasks…`);
+    setStatus(
+      concurrency > 1
+        ? `Burst generating ${count} tasks (×${concurrency})…`
+        : `Generating ${count} tasks…`
+    );
     createdIdsRef.current = [];
     try {
       const run = await runGenerateTasks({
@@ -127,17 +145,25 @@ const PerfTestOverlay: React.FC<PerfTestOverlayProps> = ({
         visibleColumnIds: visibleColumnIdsRef.current,
         member: selectedMember,
         count,
+        concurrency,
         defaultPriority: resolveDefaultPriority(availablePriorities),
         signal: ac.signal,
         onCreated: (id) => {
           createdIdsRef.current.push(id);
-          setStatus(`Generated ${createdIdsRef.current.length}/${count}…`);
+        },
+        onProgress: (done, total) => {
+          setStatus(
+            concurrency > 1
+              ? `Burst ${done}/${total} (×${concurrency})…`
+              : `Generated ${done}/${total}…`
+          );
         },
       });
       setStatus(
         run.cancelled
           ? `Generate cancelled (${run.succeeded}/${run.attempted})`
-          : `Generate done: ${run.succeeded} ok, ${run.failed} fail`
+          : `Generate done: ${run.succeeded} ok, ${run.failed} fail` +
+              (concurrency > 1 ? ` · ×${concurrency}` : '')
       );
     } catch (err) {
       setStatus(err instanceof Error ? err.message : 'Generate failed');
@@ -153,7 +179,11 @@ const PerfTestOverlay: React.FC<PerfTestOverlayProps> = ({
     const ac = new AbortController();
     abortRef.current = ac;
     setActive('move');
-    setStatus('Moving tasks…');
+    setStatus(
+      maxMoves != null
+        ? `Move storm: 0/${maxMoves} @ ${moveIntervalMs}ms…`
+        : `Move storm @ ${moveIntervalMs}ms (until cancel)…`
+    );
     try {
       const run = await runMoveTasks({
         boardId,
@@ -163,6 +193,16 @@ const PerfTestOverlay: React.FC<PerfTestOverlayProps> = ({
           await onMoveTask(taskId, targetColumnId, placement);
         },
         signal: ac.signal,
+        minIntervalMs: moveIntervalMs,
+        maxIntervalMs: moveIntervalMs,
+        maxMoves: maxMoves ?? undefined,
+        onProgress: (attempted, max) => {
+          setStatus(
+            max != null
+              ? `Move storm: ${attempted}/${max} @ ${moveIntervalMs}ms…`
+              : `Move storm: ${attempted} @ ${moveIntervalMs}ms…`
+          );
+        },
       });
       setStatus(
         run.cancelled
@@ -207,6 +247,8 @@ const PerfTestOverlay: React.FC<PerfTestOverlayProps> = ({
   };
 
   const busy = active !== null;
+  const inputClass =
+    'w-full rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-2 py-1.5';
 
   return (
     <>
@@ -236,7 +278,7 @@ const PerfTestOverlay: React.FC<PerfTestOverlayProps> = ({
             <div>
               <label className="block font-medium mb-1">Assignee</label>
               <select
-                className="w-full rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-2 py-1.5"
+                className={inputClass}
                 value={selectedMember?.id || ''}
                 disabled={busy}
                 onChange={(e) => setMemberId(e.target.value)}
@@ -249,57 +291,125 @@ const PerfTestOverlay: React.FC<PerfTestOverlayProps> = ({
               </select>
             </div>
 
-            <div className="flex items-end gap-2">
-              <div className="flex-1">
-                <label className="block font-medium mb-1">Task count</label>
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  className="w-full rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-2 py-1.5"
-                  value={countInput}
-                  disabled={busy}
-                  onChange={(e) => setCountInput(e.target.value.replace(/[^0-9]/g, ''))}
-                />
+            {/* Burst create */}
+            <div className="space-y-2 rounded border border-blue-200 dark:border-blue-900/50 bg-blue-50/40 dark:bg-blue-950/20 p-2">
+              <div className="font-semibold text-blue-900 dark:text-blue-200">
+                Burst create
+              </div>
+              <div className="flex gap-2">
+                <div className="flex-1">
+                  <label className="block font-medium mb-1">Tasks</label>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    className={inputClass}
+                    value={countInput}
+                    disabled={busy}
+                    onChange={(e) => setCountInput(e.target.value.replace(/[^0-9]/g, ''))}
+                  />
+                </div>
+                <div className="w-20">
+                  <label className="block font-medium mb-1" title="Parallel create workers (1–20)">
+                    Conc.
+                  </label>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    className={inputClass}
+                    value={concurrencyInput}
+                    disabled={busy}
+                    onChange={(e) =>
+                      setConcurrencyInput(e.target.value.replace(/[^0-9]/g, ''))
+                    }
+                    title="Parallel workers (1–20). Use &gt;1 for burst stress."
+                  />
+                </div>
               </div>
               <button
                 type="button"
                 disabled={busy && active !== 'generate'}
                 onClick={() => (active === 'generate' ? stopActive() : startGenerate())}
-                className={`px-3 py-1.5 rounded font-medium ${
+                className={`w-full px-3 py-1.5 rounded font-medium ${
                   active === 'generate'
                     ? 'bg-red-600 text-white hover:bg-red-700'
                     : 'bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40'
                 }`}
               >
-                {active === 'generate' ? 'Cancel' : 'Generate'}
+                {active === 'generate'
+                  ? 'Cancel'
+                  : concurrency > 1
+                    ? `Burst generate (×${concurrency})`
+                    : 'Generate'}
               </button>
             </div>
 
-            <div className="flex gap-2">
-              <button
-                type="button"
-                disabled={busy && active !== 'move'}
-                onClick={() => (active === 'move' ? stopActive() : startMove())}
-                className={`flex-1 px-3 py-1.5 rounded font-medium ${
-                  active === 'move'
-                    ? 'bg-red-600 text-white hover:bg-red-700'
-                    : 'bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-40'
-                }`}
-              >
-                {active === 'move' ? 'Cancel' : 'Move tasks'}
-              </button>
-              <button
-                type="button"
-                disabled={busy && active !== 'cleanup'}
-                onClick={() => (active === 'cleanup' ? stopActive() : startCleanup())}
-                className={`flex-1 px-3 py-1.5 rounded font-medium ${
-                  active === 'cleanup'
-                    ? 'bg-red-600 text-white hover:bg-red-700'
-                    : 'bg-gray-700 text-white hover:bg-gray-800 disabled:opacity-40'
-                }`}
-              >
-                {active === 'cleanup' ? 'Cancel' : 'Cleanup'}
-              </button>
+            {/* Move storm */}
+            <div className="space-y-2 rounded border border-indigo-200 dark:border-indigo-900/50 bg-indigo-50/40 dark:bg-indigo-950/20 p-2">
+              <div className="font-semibold text-indigo-900 dark:text-indigo-200">
+                Move storm
+              </div>
+              <div className="flex gap-2">
+                <div className="flex-1">
+                  <label className="block font-medium mb-1" title="Delay between moves (ms)">
+                    Interval ms
+                  </label>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    className={inputClass}
+                    value={moveIntervalInput}
+                    disabled={busy}
+                    onChange={(e) =>
+                      setMoveIntervalInput(e.target.value.replace(/[^0-9]/g, ''))
+                    }
+                  />
+                </div>
+                <div className="flex-1">
+                  <label
+                    className="block font-medium mb-1"
+                    title="Stop after N moves. Leave empty to run until Cancel."
+                  >
+                    Max moves
+                  </label>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    className={inputClass}
+                    value={maxMovesInput}
+                    disabled={busy}
+                    placeholder="∞"
+                    onChange={(e) =>
+                      setMaxMovesInput(e.target.value.replace(/[^0-9]/g, ''))
+                    }
+                  />
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  disabled={busy && active !== 'move'}
+                  onClick={() => (active === 'move' ? stopActive() : startMove())}
+                  className={`flex-1 px-3 py-1.5 rounded font-medium ${
+                    active === 'move'
+                      ? 'bg-red-600 text-white hover:bg-red-700'
+                      : 'bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-40'
+                  }`}
+                >
+                  {active === 'move' ? 'Cancel' : 'Start storm'}
+                </button>
+                <button
+                  type="button"
+                  disabled={busy && active !== 'cleanup'}
+                  onClick={() => (active === 'cleanup' ? stopActive() : startCleanup())}
+                  className={`px-3 py-1.5 rounded font-medium ${
+                    active === 'cleanup'
+                      ? 'bg-red-600 text-white hover:bg-red-700'
+                      : 'bg-gray-700 text-white hover:bg-gray-800 disabled:opacity-40'
+                  }`}
+                >
+                  {active === 'cleanup' ? 'Cancel' : 'Cleanup'}
+                </button>
+              </div>
             </div>
 
             <div className="flex gap-2">

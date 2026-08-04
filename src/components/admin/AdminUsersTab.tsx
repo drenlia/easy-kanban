@@ -6,6 +6,7 @@ import { getAuthenticatedAvatarUrl } from '../../utils/authImageUrl';
 import { toast } from '../../utils/toast';
 import { CHROME_TOOLTIP_SURFACE_CLASS } from '../KanbanChromeTooltip';
 import { ModernCheckbox } from '../ModernCheckbox';
+import { useEscapeDismiss } from '../../hooks/useEscapeDismiss';
 
 interface User {
   id: string;
@@ -445,6 +446,18 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
     setShowAddUserForm(false);
     setNewUser(getEmptyNewUser());
   };
+
+  useEscapeDismiss(
+    () => {
+      if (isAddingUser || isSubmitting) return;
+      if (showAddUserForm) {
+        handleCancelAddUser();
+      } else if (showEditUserForm) {
+        handleCancelEditUser();
+      }
+    },
+    { enabled: (showAddUserForm || showEditUserForm) && !showDeleteConfirm }
+  );
 
   const handleNewUserChange = (field: string, value: string) => {
     setNewUser(prev => ({ ...prev, [field]: value }));

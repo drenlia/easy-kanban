@@ -103,7 +103,7 @@ The sticky header contains branding, sprint context, app navigation, and utiliti
 1. **App navigation**: Kanban · Reports (if enabled) · Admin (admins)
 2. **Invite** (admins): Invite a user by email
 3. **Preferences**: Theme (light/dark) · Language (EN/FR)
-4. **Utilities**: Refresh · System panel toggle (admins) · Help (also F1)
+4. **Utilities**: Refresh · System panel toggle (admins) · Help (F1 or ?)
 5. **GitHub** link (opens in a new tab; can be hidden in Site Settings)
 6. **User avatar** (always last): Profile · Logout
 
@@ -619,9 +619,17 @@ Optional feature. Requires an administrator to enable AI and configure an LLM (a
 ## Keyboard Shortcuts
 
 ### Global Shortcuts
-- **F1**: Open help modal
-- **Escape**: Close modals, exit edit modes
+- **F1** or **?**: Open help modal (`?` ignored while typing in a field)
+- **Escape**: Close modals, confirmation dialogs, and exit edit modes (layered: overlays first, then task details, then multi-select)
 - **Enter**: Confirm actions, save changes
+
+### Board (Kanban page, when not typing / no dialog open)
+- **/** or **Ctrl/Cmd+K**: Focus header task search
+- **N**: Create a new task in the first column
+- **1 / 2 / 3**: Switch Kanban / List / Gantt view
+
+### Admin
+- **/** or **Ctrl/Cmd+K**: Focus settings search
 
 ### Gantt View
 - **Escape**: Exit relationship mode, exit multi-select mode
@@ -629,7 +637,7 @@ Optional feature. Requires an administrator to enable AI and configure an LLM (a
 - **Arrow Keys**: Move task selection (in multi-select mode)
 
 ### Text Editor
-- **Escape**: Cancel editing
+- **Escape**: Cancel editing / close link dialog
 - **Enter**: Save changes
 - **Ctrl/Cmd + Arrow Keys**: Normal text navigation
 - **Backspace/Delete**: Delete text (respects image deletion settings)
@@ -637,6 +645,8 @@ Optional feature. Requires an administrator to enable AI and configure an LLM (a
 ### Task Management
 - **Click**: Select task
 - **Drag**: Move tasks between columns using the handle
+- **S** (while hovering a card): Toggle multi-select checkbox
+- **Ctrl/Cmd + click** on a card: Toggle multi-select
 
 ---
 
@@ -661,7 +671,9 @@ Optional feature. Requires an administrator to enable AI and configure an LLM (a
 
 #### Performance Test Overlay (admin troubleshooting)
 - **Enable**: Admin → App Settings → Troubleshooting → **Performance Test Overlay** (type `TROUBLE` first on multi-tenant/demo). Saves to **your** `user_settings.FE_PERF_TESTS` via `PUT /api/user/settings`
-- **Use**: On the Kanban board as that admin, open the floating **PERF TESTS** panel — Generate tasks, Move tasks (0.5–2s random moves), Cleanup, and report modals (last run / session history)
+- **Use**:
+  - **Kanban**: floating **PERF TESTS** — Burst create, Move storm, Cleanup, reports
+  - **Admin**: floating **PERF TESTS · ADMIN** — seed users (`perf.user…@local`, active, no invite), tags (`perf-tag-…`), sprints (`Perf Sprint …`), Seed all, Cleanup seed
 - **Disable**: Turn the same toggle off when finished; other admins never see the overlay from your preference
 - **Multi-user load**: Each participating admin enables the overlay on their own account; each tab runs its own client-driven scenarios
 
@@ -680,7 +692,7 @@ Optional feature. Requires an administrator to enable AI and configure an LLM (a
 - **Developer reference**: [`docs/AI_INTEGRATION.md`](docs/AI_INTEGRATION.md)
 
 ### Getting Help
-- **Help Modal**: Press F1 or click help button
+- **Help Modal**: Press F1 or ? (or click help button)
 - **Documentation**: This comprehensive guide
 - **Support**: Contact system administrator
 - **GitHub**: Project repository link in the header (unless hidden by admin)

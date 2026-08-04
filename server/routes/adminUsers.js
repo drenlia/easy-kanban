@@ -14,12 +14,16 @@ import { getTenantId, getRequestDatabase } from '../middleware/tenantRouting.js'
 // MIGRATED: Import sqlManager modules
 import { users as userQueries, tasks as taskQueries, adminUsers as adminUserQueries, auth as authQueries, helpers } from '../utils/sqlManager/index.js';
 import { commitUploadedFile, getRequestStoragePaths } from '../services/storage/index.js';
+import { validateUploadedFileMagic } from '../utils/fileMagicBytes.js';
 import { deleteAvatarFileIfUnused } from '../utils/avatarCleanup.js';
 import {
   parseBody,
   adminCreateUserBodySchema,
   adminUpdateUserBodySchema,
-  adminUpdateUserRoleBodySchema
+  adminUpdateUserRoleBodySchema,
+  updateMemberNameBodySchema,
+  updateMemberColorBodySchema,
+  resendInvitationBodySchema
 } from '../utils/requestValidation.js';
 
 const router = express.Router();
@@ -73,17 +77,11 @@ router.put('/:userId/member-name', authenticateToken, requireRole(['admin']), as
     const db = getRequestDatabase(req);
     const t = await getTranslator(db);
     const { userId } = req.params;
-    const { displayName } = req.body;
-    
-    if (!displayName || displayName.trim().length === 0) {
+    const parsed = parseBody(updateMemberNameBodySchema, req.body);
+    if (!parsed.success) {
       return res.status(400).json({ error: t('errors.displayNameRequired') });
     }
-    
-    // Validate display name length (max 30 characters)
-    const trimmedDisplayName = displayName.trim();
-    if (trimmedDisplayName.length > 30) {
-      return res.status(400).json({ error: t('errors.displayNameTooLong') });
-    }
+    const trimmedDisplayName = parsed.data.displayName;
     
     // MIGRATED: Check for duplicate display name using sqlManager
     const existingMember = await userQueries.checkMemberNameExists(db, trimmedDisplayName, userId);
@@ -555,7 +553,11 @@ router.post('/', authenticateToken, requireRole(['admin']), async (req, res) => 
 // Resend user invitation
 router.post('/:userId/resend-invitation', authenticateToken, requireRole(['admin']), async (req, res) => {
   const { userId } = req.params;
-  const { baseUrl: baseUrlFromBody } = req.body;
+  const parsed = parseBody(resendInvitationBodySchema, req.body || {});
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error });
+  }
+  const { baseUrl: baseUrlFromBody } = parsed.data;
   const db = getRequestDatabase(req);
   
   // Get baseUrl for invitation emails - use APP_URL from database (tenant-specific)
@@ -896,17 +898,12 @@ router.delete("/:userId", authenticateToken, requireRole(["admin"]), async (req,
 // Update member color
 router.put('/:userId/color', authenticateToken, requireRole(['admin']), async (req, res) => {
   const { userId } = req.params;
-  const { color } = req.body;
+  const parsed = parseBody(updateMemberColorBodySchema, req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error });
+  }
+  const { color } = parsed.data;
   const db = getRequestDatabase(req);
-  
-  if (!color) {
-    return res.status(400).json({ error: 'Color is required' });
-  }
-
-  // Validate color format (hex color)
-  if (!/^#[0-9A-F]{6}$/i.test(color)) {
-    return res.status(400).json({ error: 'Invalid color format. Use hex format like #FF5733' });
-  }
 
   try {
     // MIGRATED: Get member info before update using sqlManager
@@ -949,6 +946,11 @@ router.post('/:userId/avatar', authenticateToken, requireRole(['admin']), avatar
   }
 
   try {
+    const magic = await validateUploadedFileMagic(req.file, { mode: 'avatar' });
+    if (!magic.valid) {
+      return res.status(400).json({ error: magic.error });
+    }
+
     const previous = await userQueries.getUserByIdForAdmin(db, userId);
     const previousPath = previous?.avatar_path || previous?.avatarPath || null;
 

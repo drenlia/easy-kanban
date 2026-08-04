@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { X } from 'lucide-react';
+import { useEscapeDismiss } from '../hooks/useEscapeDismiss';
 
 interface AddTagModalProps {
   onClose: () => void;
@@ -28,6 +29,12 @@ export default function AddTagModal({ onClose, onTagCreated }: AddTagModalProps)
   const [selectedColor, setSelectedColor] = useState(PRESET_COLORS[0]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
+
+  const handleClose = useCallback(() => {
+    if (!isSubmitting) onClose();
+  }, [isSubmitting, onClose]);
+
+  useEscapeDismiss(handleClose);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

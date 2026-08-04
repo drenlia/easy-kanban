@@ -21,6 +21,7 @@ import {
   AdminSection,
   adminInputFullClass,
 } from './AdminSection';
+import { useEscapeDismiss } from '../../hooks/useEscapeDismiss';
 
 interface Settings {
   MAIL_ENABLED?: string;
@@ -92,6 +93,33 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
   );
   const [showFirstConfirm, setShowFirstConfirm] = useState(false);
   const [showSecondConfirm, setShowSecondConfirm] = useState(false);
+
+  useEscapeDismiss(
+    () => {
+      if (showSecondConfirm) {
+        setShowSecondConfirm(false);
+        return;
+      }
+      if (showFirstConfirm) {
+        setShowFirstConfirm(false);
+        return;
+      }
+      if (showTestEmailModal) {
+        onCloseTestModal();
+        return;
+      }
+      if (showTestEmailErrorModal) {
+        onCloseTestErrorModal();
+      }
+    },
+    {
+      enabled:
+        showFirstConfirm ||
+        showSecondConfirm ||
+        showTestEmailModal ||
+        showTestEmailErrorModal,
+    }
+  );
   
   const handleInputChange = (key: string, value: string) => {
     onSettingsChange({ ...editingSettings, [key]: value });

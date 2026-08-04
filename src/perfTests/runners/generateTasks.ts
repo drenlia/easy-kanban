@@ -12,10 +12,16 @@ export interface GenerateTasksOptions {
   visibleColumnIds?: string[];
   member: TeamMember;
   count: number;
+  /**
+   * Parallel create workers (burst stress). Clamped 1–20; default 1 (sequential).
+   */
+  concurrency?: number;
   defaultPriority: string;
   signal: AbortSignal;
   /** Called after each successful create with the new task id */
   onCreated?: (taskId: string) => void;
+  /** Called after each attempt (success or fail) with completed count */
+  onProgress?: (completed: number, total: number) => void;
 }
 
 export async function runGenerateTasks(opts: GenerateTasksOptions): Promise<PerfRunRecord> {
@@ -26,18 +32,16 @@ export async function runGenerateTasks(opts: GenerateTasksOptions): Promise<Perf
     throw new Error('No columns on the current board');
   }
 
+  const concurrency = Math.max(1, Math.min(20, Math.floor(opts.concurrency ?? 1) || 1));
   const displayName = memberDisplayName(opts.member);
   const today = new Date().toISOString().split('T')[0];
   const startedAt = new Date().toISOString();
   beginRun();
   let cancelled = false;
+  let nextIndex = 1;
+  let completed = 0;
 
-  for (let i = 1; i <= opts.count; i++) {
-    if (opts.signal.aborted) {
-      cancelled = true;
-      break;
-    }
-
+  const createOne = async (i: number) => {
     const columnId = pickRandom(columnIds)!;
     const task: Task = {
       id: generateUUID(),
@@ -63,16 +67,42 @@ export async function runGenerateTasks(opts: GenerateTasksOptions): Promise<Perf
       opts.onCreated?.(task.id);
     }
 
-    try {
-      await sleep(0, opts.signal);
-    } catch (err) {
-      if (isAbortError(err)) {
-        cancelled = true;
-        break;
+    completed += 1;
+    opts.onProgress?.(completed, opts.count);
+  };
+
+  const worker = async () => {
+    while (!opts.signal.aborted) {
+      const i = nextIndex;
+      nextIndex += 1;
+      if (i > opts.count) return;
+
+      try {
+        await createOne(i);
+      } catch (err) {
+        if (isAbortError(err)) {
+          cancelled = true;
+          return;
+        }
+        throw err;
       }
-      throw err;
+
+      // Yield so React/WS can breathe between burst waves
+      try {
+        await sleep(0, opts.signal);
+      } catch (err) {
+        if (isAbortError(err)) {
+          cancelled = true;
+          return;
+        }
+        throw err;
+      }
     }
-  }
+    cancelled = true;
+  };
+
+  const workers = Math.min(concurrency, opts.count);
+  await Promise.all(Array.from({ length: workers }, () => worker()));
 
   if (opts.signal.aborted) cancelled = true;
 
@@ -81,6 +111,7 @@ export async function runGenerateTasks(opts: GenerateTasksOptions): Promise<Perf
     boardId: opts.boardId,
     params: {
       count: opts.count,
+      concurrency,
       memberId: opts.member.id,
       memberName: displayName,
     },

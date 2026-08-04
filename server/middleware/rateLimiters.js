@@ -211,3 +211,11 @@ export const oauthCallbackLimiter = createLimiter({
   message: { error: 'Too many OAuth callback attempts, please try again later' },
   prefix: 'oauth-cb'
 });
+
+// CSP violation reports (public browser beacon): 60 per minute per IP
+export const cspReportLimiter = createLimiter({
+  windowMs: 60 * 1000,
+  max: 60,
+  message: { error: 'Too many CSP reports' },
+  prefix: 'csp-report'
+});

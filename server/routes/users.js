@@ -11,6 +11,13 @@ import { getTenantId, getRequestDatabase } from '../middleware/tenantRouting.js'
 import { users as userQueries, tasks as taskQueries, adminUsers as adminUserQueries, settings as settingsQueries } from '../utils/sqlManager/index.js';
 import { commitUploadedFile, getRequestStoragePaths } from '../services/storage/index.js';
 import { deleteAvatarFileIfUnused } from '../utils/avatarCleanup.js';
+import { validateUploadedFileMagic } from '../utils/fileMagicBytes.js';
+import { getAdminFileSettings } from '../utils/fileValidation.js';
+import {
+  parseBody,
+  updateProfileBodySchema,
+  updateUserSettingBodySchema
+} from '../utils/requestValidation.js';
 
 const SYSTEM_USER_ID = '00000000-0000-0000-0000-000000000000';
 const SYSTEM_MEMBER_ID = '00000000-0000-0000-0000-000000000001';
@@ -53,6 +60,16 @@ router.post('/upload', authenticateToken, createUploadMiddleware, async (req, re
     }
 
     const db = getRequestDatabase(req);
+    const settings = await getAdminFileSettings(db);
+    const magic = await validateUploadedFileMagic(req.file, {
+      mode: 'attachment',
+      limitsEnforced: settings.limitsEnforced,
+      allowedTypes: settings.allowedTypes
+    });
+    if (!magic.valid) {
+      return res.status(400).json({ error: magic.error });
+    }
+
     await commitUploadedFile(db, getRequestStoragePaths(req), 'attachments', req.file);
 
     // Cookie-authenticated files URL (no session JWT in query string)
@@ -78,6 +95,11 @@ router.post('/avatar', authenticateToken, avatarUpload.single('avatar'), async (
   }
 
   try {
+    const magic = await validateUploadedFileMagic(req.file, { mode: 'avatar' });
+    if (!magic.valid) {
+      return res.status(400).json({ error: magic.error });
+    }
+
     const db = getRequestDatabase(req);
     const previous = await userQueries.getUserByIdForAdmin(db, req.user.id);
     const previousPath = previous?.avatar_path || previous?.avatarPath || null;
@@ -158,18 +180,12 @@ router.put('/profile', authenticateToken, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
     const t = await getTranslator(db);
-    const { displayName } = req.body;
-    const userId = req.user.id;
-    
-    if (!displayName || displayName.trim().length === 0) {
+    const parsed = parseBody(updateProfileBodySchema, req.body);
+    if (!parsed.success) {
       return res.status(400).json({ error: t('errors.displayNameRequired') });
     }
-    
-    // Validate display name length (max 30 characters)
-    const trimmedDisplayName = displayName.trim();
-    if (trimmedDisplayName.length > 30) {
-      return res.status(400).json({ error: t('errors.displayNameTooLong') });
-    }
+    const trimmedDisplayName = parsed.data.displayName;
+    const userId = req.user.id;
     
     // MIGRATED: Check for duplicate display name using sqlManager
     const existingMember = await userQueries.checkMemberNameExists(db, trimmedDisplayName, userId);
@@ -415,7 +431,11 @@ router.get('/settings', authenticateToken, async (req, res) => {
 
 router.put('/settings', authenticateToken, async (req, res) => {
   const userId = req.user.id;
-  const { setting_key, setting_value } = req.body;
+  const parsed = parseBody(updateUserSettingBodySchema, req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error });
+  }
+  const { setting_key, setting_value } = parsed.data;
   const db = getRequestDatabase(req);
   
   try {

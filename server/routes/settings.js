@@ -32,8 +32,11 @@ import {
   parseBody,
   updateSettingBodySchema,
   bulkUpdateSettingsBodySchema,
-  updateAppUrlBodySchema
+  updateAppUrlBodySchema,
+  aiCredentialsDraftBodySchema,
+  aiRunnerProbeBodySchema
 } from '../utils/requestValidation.js';
+import { validateUploadedFileMagic } from '../utils/fileMagicBytes.js';
 
 const router = express.Router();
 
@@ -272,11 +275,15 @@ router.post('/ai/validate', authenticateToken, requireRole(['admin']), async (re
   }
   try {
     const db = getRequestDatabase(req);
+    const parsed = parseBody(aiCredentialsDraftBodySchema, req.body || {});
+    if (!parsed.success) {
+      return res.status(400).json({ ok: false, error: parsed.error });
+    }
     const creds = await resolveAiCredentials(db, {
-      provider: req.body?.provider,
-      baseUrl: req.body?.baseUrl,
-      apiKey: req.body?.apiKey,
-      model: req.body?.model
+      provider: parsed.data.provider,
+      baseUrl: parsed.data.baseUrl,
+      apiKey: parsed.data.apiKey,
+      model: parsed.data.model
     });
     const result = await validateAiConnectivity(creds);
     if (!result.ok) {
@@ -317,11 +324,15 @@ router.post('/ai/models', authenticateToken, requireRole(['admin']), async (req,
   }
   try {
     const db = getRequestDatabase(req);
+    const parsed = parseBody(aiCredentialsDraftBodySchema, req.body || {});
+    if (!parsed.success) {
+      return res.status(400).json({ ok: false, error: parsed.error });
+    }
     const creds = await resolveAiCredentials(db, {
-      provider: req.body?.provider,
-      baseUrl: req.body?.baseUrl,
-      apiKey: req.body?.apiKey,
-      model: req.body?.model
+      provider: parsed.data.provider,
+      baseUrl: parsed.data.baseUrl,
+      apiKey: parsed.data.apiKey,
+      model: parsed.data.model
     });
     const result = await listAiModels(creds);
     if (!result.ok) {
@@ -342,13 +353,17 @@ router.post('/ai/runner/probe', authenticateToken, requireRole(['admin']), async
   try {
     const db = getRequestDatabase(req);
     const { probeRunner } = await import('../services/agentRunnerClient.js');
+    const parsed = parseBody(aiRunnerProbeBodySchema, req.body || {});
+    if (!parsed.success) {
+      return res.status(400).json({ ok: false, error: parsed.error });
+    }
     // Multi-tenant: always probe the platform env runner (ignore draft body overrides)
     const overrides =
       process.env.MULTI_TENANT === 'true'
         ? {}
         : {
-            runnerUrl: req.body?.runnerUrl,
-            runnerToken: req.body?.runnerToken
+            runnerUrl: parsed.data.runnerUrl,
+            runnerToken: parsed.data.runnerToken
           };
     const result = await probeRunner(db, overrides);
     if (!result.ok) {
@@ -659,6 +674,11 @@ router.post('/logo', authenticateToken, requireRole(['admin']), (req, res, next)
       const db = getRequestDatabase(req);
       if (!req.file) {
         return res.status(400).json({ error: 'No logo file uploaded' });
+      }
+
+      const magic = await validateUploadedFileMagic(req.file, { mode: 'avatar' });
+      if (!magic.valid) {
+        return res.status(400).json({ error: magic.error });
       }
 
       const variant = (req.query.variant === 'dark' || req.body?.variant === 'dark') ? 'dark' : 'light';

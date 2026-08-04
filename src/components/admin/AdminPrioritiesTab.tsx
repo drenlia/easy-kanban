@@ -6,6 +6,7 @@ import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, us
 import { arrayMove, SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
+import { useEscapeDismiss } from '../../hooks/useEscapeDismiss';
 
 interface Priority {
   id: string;
@@ -82,6 +83,10 @@ const SortablePriorityRow = ({
       document.removeEventListener('mousedown', handleClickOutside);
     };
   }, [showDeletePriorityConfirm, priority.id, onCancelDeletePriority]);
+
+  useEscapeDismiss(onCancelDeletePriority, {
+    enabled: showDeletePriorityConfirm === priority.id,
+  });
 
   const handleDeleteClick = (event: React.MouseEvent) => {
     event.stopPropagation();
@@ -315,6 +320,22 @@ const AdminPrioritiesTab: React.FC<AdminPrioritiesTabProps> = ({
   const [editingPriority, setEditingPriority] = useState<Priority | null>(null);
   const [newPriority, setNewPriority] = useState({ priority: '', color: '#4CD964' });
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEscapeDismiss(
+    () => {
+      if (isSubmitting) return;
+      if (showAddPriorityForm) {
+        setShowAddPriorityForm(false);
+        setNewPriority({ priority: '', color: '#4CD964' });
+        return;
+      }
+      if (showEditPriorityForm) {
+        setShowEditPriorityForm(false);
+        setEditingPriority(null);
+      }
+    },
+    { enabled: showAddPriorityForm || showEditPriorityForm }
+  );
 
   // DnD sensors for priority reordering
   const sensors = useSensors(

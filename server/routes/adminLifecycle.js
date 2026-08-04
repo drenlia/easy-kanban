@@ -7,6 +7,11 @@ import {
   purgeBoardCompletely,
 } from '../services/taskPurgeService.js';
 import notificationService from '../services/notificationService.js';
+import {
+  parseBody,
+  taskIdsBatchBodySchema,
+  boardIdsBatchBodySchema
+} from '../utils/requestValidation.js';
 
 const router = express.Router();
 
@@ -41,10 +46,11 @@ router.get('/boards', async (req, res) => {
 router.post('/tasks/restore-batch', async (req, res) => {
   try {
     const db = getRequestDatabase(req);
-    const { taskIds } = req.body || {};
-    if (!Array.isArray(taskIds) || taskIds.length === 0) {
-      return res.status(400).json({ error: 'taskIds required' });
+    const parsed = parseBody(taskIdsBatchBodySchema, req.body || {});
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error });
     }
+    const { taskIds } = parsed.data;
     // Delegate to same restore logic by calling sql directly for each (client can also call /tasks/:id/restore)
     const restored = [];
     const errors = [];
@@ -147,10 +153,11 @@ router.post('/tasks/restore-batch', async (req, res) => {
 router.post('/tasks/purge-batch', async (req, res) => {
   try {
     const db = getRequestDatabase(req);
-    const { taskIds } = req.body || {};
-    if (!Array.isArray(taskIds) || taskIds.length === 0) {
-      return res.status(400).json({ error: 'taskIds required' });
+    const parsed = parseBody(taskIdsBatchBodySchema, req.body || {});
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error });
     }
+    const { taskIds } = parsed.data;
     const storagePaths =
       req.locals?.tenantStoragePaths || req.app.locals?.tenantStoragePaths || null;
     const purged = [];
@@ -177,10 +184,11 @@ router.post('/tasks/purge-batch', async (req, res) => {
 router.post('/boards/purge-batch', async (req, res) => {
   try {
     const db = getRequestDatabase(req);
-    const { boardIds } = req.body || {};
-    if (!Array.isArray(boardIds) || boardIds.length === 0) {
-      return res.status(400).json({ error: 'boardIds required' });
+    const parsed = parseBody(boardIdsBatchBodySchema, req.body || {});
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error });
     }
+    const { boardIds } = parsed.data;
     const storagePaths =
       req.locals?.tenantStoragePaths || req.app.locals?.tenantStoragePaths || null;
     const purged = [];

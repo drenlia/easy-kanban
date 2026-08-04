@@ -4,6 +4,7 @@ import notificationService from '../services/notificationService.js';
 import { getRequestDatabase } from '../middleware/tenantRouting.js';
 // MIGRATED: Import sqlManager
 import { views as viewQueries } from '../utils/sqlManager/index.js';
+import { parseBody, createViewBodySchema, updateViewBodySchema } from '../utils/requestValidation.js';
 
 const router = express.Router();
 
@@ -166,15 +167,11 @@ router.post('/', authenticateToken, async (req, res) => {
       return res.status(500).json({ error: 'Database not available' });
     }
     const userId = req.user.id;
-    const { filterName, filters, shared = false } = req.body;
-    
-    if (!filterName || !filterName.trim()) {
-      return res.status(400).json({ error: 'Filter name is required' });
+    const parsed = parseBody(createViewBodySchema, req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error });
     }
-    
-    if (!filters || typeof filters !== 'object') {
-      return res.status(400).json({ error: 'Filter data is required' });
-    }
+    const { filterName, filters, shared = false } = parsed.data;
     
     // MIGRATED: Check if view name exists using sqlManager
     const existingView = await viewQueries.checkViewNameExists(db, filterName.trim(), userId);
@@ -236,7 +233,11 @@ router.put('/:id', authenticateToken, async (req, res) => {
     }
     const userId = req.user.id;
     const viewId = req.params.id;
-    const { filterName, filters, shared } = req.body;
+    const parsed = parseBody(updateViewBodySchema, req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error });
+    }
+    const { filterName, filters, shared } = parsed.data;
     
     // MIGRATED: Check if view exists using sqlManager
     const existingView = await viewQueries.getViewById(db, viewId, userId);

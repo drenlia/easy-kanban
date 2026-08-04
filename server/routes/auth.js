@@ -11,7 +11,7 @@ import { getTranslator } from '../utils/i18n.js';
 import { getTenantId, getRequestDatabase } from '../middleware/tenantRouting.js';
 // MIGRATED: Import sqlManager
 import { auth as authQueries, users as userQueries, settings as settingsQueries } from '../utils/sqlManager/index.js';
-import { parseBody, loginBodySchema } from '../utils/requestValidation.js';
+import { parseBody, loginBodySchema, activateAccountBodySchema, registerBodySchema } from '../utils/requestValidation.js';
 
 const router = express.Router();
 
@@ -95,12 +95,12 @@ router.post('/login', loginLimiter, async (req, res) => {
 
 // Account activation endpoint
 router.post('/activate-account', activationLimiter, async (req, res) => {
-  const { token, email, newPassword } = req.body;
-  const db = getRequestDatabase(req);
-  
-  if (!token || !email || !newPassword) {
-    return res.status(400).json({ error: 'Token, email, and new password are required' });
+  const parsed = parseBody(activateAccountBodySchema, req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error });
   }
+  const { token, email, newPassword } = parsed.data;
+  const db = getRequestDatabase(req);
   
   try {
     // MIGRATED: Find the invitation token using sqlManager
@@ -186,12 +186,12 @@ router.post('/activate-account', activationLimiter, async (req, res) => {
 
 // Register endpoint (admin only)
 router.post('/register', registrationLimiter, authenticateToken, requireRole(['admin']), async (req, res) => {
-  const { email, password, firstName, lastName, role } = req.body;
-  const db = getRequestDatabase(req);
-  
-  if (!email || !password || !firstName || !lastName || !role) {
-    return res.status(400).json({ error: 'All fields are required' });
+  const parsed = parseBody(registerBodySchema, req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error });
   }
+  const { email, password, firstName, lastName, role } = parsed.data;
+  const db = getRequestDatabase(req);
   
   try {
     // Check user limit before creating new user
