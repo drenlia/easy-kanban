@@ -1,4 +1,3 @@
-import * as XLSX from 'xlsx';
 import { Task, Board, TeamMember, Tag, Columns, PriorityOption } from '../types';
 
 /**

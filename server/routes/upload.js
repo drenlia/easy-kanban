@@ -50,17 +50,16 @@ router.post('/', authenticateToken, createUploadMiddleware, async (req, res) => 
     const db = getRequestDatabase(req);
     await commitUploadedFile(db, getRequestStoragePaths(req), 'attachments', req.file);
 
-    // Generate authenticated URL with token
-    const token = req.headers.authorization?.replace('Bearer ', '');
-    const authenticatedUrl = token ? `/api/files/attachments/${req.file.filename}?token=${encodeURIComponent(token)}` : `/attachments/${req.file.filename}`;
-    
-    res.json({
-      id: crypto.randomUUID(),
-      name: req.file.originalname,
-      url: authenticatedUrl,
-      type: req.file.mimetype,
-      size: req.file.size
-    });
+  // Generate authenticated URL via media cookie (no session JWT in query string)
+  const authenticatedUrl = `/api/files/attachments/${req.file.filename}`;
+  
+  res.json({
+    id: crypto.randomUUID(),
+    name: req.file.originalname,
+    url: authenticatedUrl,
+    type: req.file.mimetype,
+    size: req.file.size
+  });
   } catch (error) {
     console.error('File upload error:', error);
     res.status(500).json({ error: 'File upload failed' });

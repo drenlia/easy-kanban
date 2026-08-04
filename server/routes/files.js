@@ -12,6 +12,13 @@ import {
   getRequestStoragePaths,
   filenameFromPublicUrl
 } from '../services/storage/index.js';
+import {
+  MEDIA_COOKIE_NAME,
+  mediaCookieOptions,
+  resolveFileAccessCredential,
+  signMediaAccessToken,
+  isMediaPurposeToken
+} from '../utils/mediaAccessToken.js';
 
 const router = express.Router();
 
@@ -29,21 +36,33 @@ function setFileResponseHeaders(res, filename, contentType) {
   const mime = String(contentType || 'application/octet-stream').split(';')[0].trim().toLowerCase();
   res.setHeader('Content-Type', contentType || 'application/octet-stream');
   res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('Cache-Control', 'public, max-age=31536000');
+  // Authenticated media must not be stored in shared caches
+  res.setHeader('Cache-Control', 'private, max-age=3600');
   if (FORCE_DOWNLOAD_MIME.has(mime) || /\.(svg|html?|xhtml|js|mjs)$/i.test(filename)) {
     res.setHeader('Content-Disposition', `attachment; filename="${path.basename(filename)}"`);
   }
 }
 
 /**
- * Verify media query JWT: signature + user exists + is_active (single- and multi-tenant).
+ * Verify media credential: signature + user exists + is_active.
+ * Query-string tokens must be purpose=media (no session JWT in URLs — I3 cutover).
+ * Cookie and Bearer may carry media or session JWTs.
  * @returns {{ ok: true, decoded: object, db: object } | { ok: false, status: number, error: string }}
  */
-async function assertActiveFileUser(req, token) {
+async function assertActiveFileUser(req, token, via) {
   let decoded;
   try {
     decoded = jwt.verify(token, JWT_SECRET);
   } catch {
+    return { ok: false, status: 401, error: 'Invalid token' };
+  }
+
+  if (!decoded?.id) {
+    return { ok: false, status: 401, error: 'Invalid token' };
+  }
+
+  // I3: session JWTs in ?token= are no longer accepted (leak via Referer/history/logs)
+  if (via === 'query' && !isMediaPurposeToken(decoded)) {
     return { ok: false, status: 401, error: 'Invalid token' };
   }
 
@@ -68,66 +87,63 @@ async function assertActiveFileUser(req, token) {
   return { ok: true, decoded, db };
 }
 
-// Serve attachment files (tenant-aware in multi-tenant mode)
-router.get('/attachments/:filename', async (req, res) => {
-  const { filename } = req.params;
-  const token = req.query.token;
-  
-  if (!token) {
-    return res.status(401).json({ error: 'Token required' });
+async function serveAuthenticatedFile(req, res, kind) {
+  const cred = resolveFileAccessCredential(req);
+  if (!cred) {
+    return res.status(401).json({ error: 'Authentication required' });
   }
-  
+
   try {
-    const auth = await assertActiveFileUser(req, token);
+    const auth = await assertActiveFileUser(req, cred.token, cred.via);
     if (!auth.ok) {
       return res.status(auth.status).json({ error: auth.error });
     }
 
     const storagePaths = getRequestStoragePaths(req);
-    const safeName = path.basename(filename);
-    const obj = await getObject(auth.db, storagePaths, 'attachments', safeName);
-    
+    const safeName = path.basename(req.params.filename);
+    const obj = await getObject(auth.db, storagePaths, kind, safeName);
+
     if (!obj) {
       return res.status(404).json({ error: 'File not found' });
     }
-    
+
     setFileResponseHeaders(res, safeName, obj.contentType);
     res.send(obj.buffer);
   } catch (error) {
-    console.error('Error serving attachment:', error);
+    console.error(`Error serving ${kind}:`, error);
     res.status(401).json({ error: 'Invalid token' });
   }
+}
+
+/**
+ * Establish HttpOnly media cookie so same-origin <img>/attachment URLs
+ * do not need ?token=<session JWT>. Call after login / on session restore.
+ */
+router.post('/media-session', authenticateToken, (req, res) => {
+  try {
+    const token = signMediaAccessToken(req.user.id);
+    res.cookie(MEDIA_COOKIE_NAME, token, mediaCookieOptions(req));
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('Error establishing media session:', error);
+    res.status(500).json({ error: 'Failed to establish media session' });
+  }
+});
+
+/** Clear media cookie on logout. */
+router.delete('/media-session', (req, res) => {
+  res.clearCookie(MEDIA_COOKIE_NAME, { path: '/api/files' });
+  res.json({ ok: true });
+});
+
+// Serve attachment files (tenant-aware in multi-tenant mode)
+router.get('/attachments/:filename', async (req, res) => {
+  await serveAuthenticatedFile(req, res, 'attachments');
 });
 
 // Serve avatar files (tenant-aware in multi-tenant mode)
 router.get('/avatars/:filename', async (req, res) => {
-  const { filename } = req.params;
-  const token = req.query.token;
-  
-  if (!token) {
-    return res.status(401).json({ error: 'Token required' });
-  }
-  
-  try {
-    const auth = await assertActiveFileUser(req, token);
-    if (!auth.ok) {
-      return res.status(auth.status).json({ error: auth.error });
-    }
-
-    const storagePaths = getRequestStoragePaths(req);
-    const safeName = path.basename(filename);
-    const obj = await getObject(auth.db, storagePaths, 'avatars', safeName);
-    
-    if (!obj) {
-      return res.status(404).json({ error: 'File not found' });
-    }
-    
-    setFileResponseHeaders(res, safeName, obj.contentType);
-    res.send(obj.buffer);
-  } catch (error) {
-    console.error('Error serving avatar:', error);
-    res.status(401).json({ error: 'Invalid token' });
-  }
+  await serveAuthenticatedFile(req, res, 'avatars');
 });
 
 // Delete attachment endpoint

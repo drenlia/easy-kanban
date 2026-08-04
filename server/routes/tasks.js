@@ -18,6 +18,18 @@ import {
   purgeTaskCompletelyAndUpdateStorage,
 } from '../services/taskPurgeService.js';
 import { notifyCollaboratorAdded, notifyBulkColumnMove } from '../services/taskEmailNotificationService.js';
+import {
+  parseBody,
+  createTaskBodySchema,
+  updateTaskBodySchema,
+  copyTaskBodySchema,
+  bulkFieldActivityBodySchema,
+  batchUpdateTasksBodySchema,
+  batchUpdatePositionsBodySchema,
+  reorderTaskBodySchema,
+  moveTaskToBoardBodySchema,
+  permanentBatchBodySchema
+} from '../utils/requestValidation.js';
 
 const router = express.Router();
 
@@ -545,7 +557,11 @@ router.get('/:id', authenticateToken, async (req, res) => {
 
 // Create task
 router.post('/', authenticateToken, checkTaskLimit, async (req, res) => {
-  const task = req.body;
+  const parsed = parseBody(createTaskBodySchema, req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error });
+  }
+  const task = parsed.data;
   const userId = req.user?.id || 'system'; // Fallback for now
   
   try {
@@ -685,7 +701,11 @@ router.post('/', authenticateToken, checkTaskLimit, async (req, res) => {
 
 // Create task at top
 router.post('/add-at-top', authenticateToken, checkTaskLimit, async (req, res) => {
-  const task = req.body;
+  const parsed = parseBody(createTaskBodySchema, req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error });
+  }
+  const task = parsed.data;
   const userId = req.user?.id || 'system';
   
   try {
@@ -845,12 +865,12 @@ router.post('/add-at-top', authenticateToken, checkTaskLimit, async (req, res) =
 
 // Copy task
 router.post('/copy', authenticateToken, checkTaskLimit, async (req, res) => {
-  const { taskId } = req.body;
-  const userId = req.user?.id || 'system';
-  
-  if (!taskId) {
-    return res.status(400).json({ error: 'taskId is required' });
+  const parsed = parseBody(copyTaskBodySchema, req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error });
   }
+  const { taskId } = parsed.data;
+  const userId = req.user?.id || 'system';
   
   try {
     const db = getRequestDatabase(req);
@@ -1044,7 +1064,11 @@ router.post('/copy', authenticateToken, checkTaskLimit, async (req, res) => {
 // Update task
 router.put('/:id', authenticateToken, async (req, res) => {
   const { id: idParam } = req.params;
-  const task = { ...req.body };
+  const parsed = parseBody(updateTaskBodySchema, req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error });
+  }
+  const task = { ...parsed.data };
   const skipActivity = task.skipActivity === true;
   delete task.skipActivity;
   const userId = req.user?.id || 'system';
@@ -1562,6 +1586,10 @@ router.put('/:id', authenticateToken, async (req, res) => {
 // Log one activity-feed entry for a kanban multi-select field change
 router.post('/bulk-field-activity', authenticateToken, async (req, res) => {
   try {
+    const parsed = parseBody(bulkFieldActivityBodySchema, req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error || 'Invalid bulk activity payload' });
+    }
     const db = getRequestDatabase(req);
     const userId = req.user?.id || 'system';
     const {
@@ -1571,12 +1599,7 @@ router.post('/bulk-field-activity', authenticateToken, async (req, res) => {
       oldValue = null,
       newLabel = null,
       boardId = null,
-    } = req.body || {};
-
-    const allowed = new Set(['memberId', 'requesterId', 'priorityId', 'sprintId']);
-    if (!allowed.has(field) || !Array.isArray(taskIds) || taskIds.length === 0) {
-      return res.status(400).json({ error: 'Invalid bulk activity payload' });
-    }
+    } = parsed.data;
 
     await logBulkTaskFieldActivity(
       userId,
@@ -1598,12 +1621,12 @@ router.post('/bulk-field-activity', authenticateToken, async (req, res) => {
 
 // Batch update tasks (for timeline arrow key movements and other bulk updates)
 router.post('/batch-update', authenticateToken, async (req, res) => {
-  const { tasks } = req.body; // Array of task objects to update
-  const userId = req.user?.id || 'system';
-  
-  if (!Array.isArray(tasks) || tasks.length === 0) {
-    return res.status(400).json({ error: 'Invalid tasks array' });
+  const parsed = parseBody(batchUpdateTasksBodySchema, req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error || 'Invalid tasks array' });
   }
+  const { tasks } = parsed.data;
+  const userId = req.user?.id || 'system';
   
   try {
     const endpointStartTime = Date.now();
@@ -1963,10 +1986,11 @@ router.delete('/:id/permanent', authenticateToken, requireRole(['admin']), async
 
 // Batch permanent purge — admin only
 router.post('/permanent-batch', authenticateToken, requireRole(['admin']), async (req, res) => {
-  const { taskIds } = req.body || {};
-  if (!Array.isArray(taskIds) || taskIds.length === 0) {
-    return res.status(400).json({ error: 'taskIds array required' });
+  const parsed = parseBody(permanentBatchBodySchema, req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error || 'taskIds array required' });
   }
+  const { taskIds } = parsed.data;
   try {
     const db = getRequestDatabase(req);
     const storagePaths = resolveTenantStoragePaths(req);
@@ -1992,12 +2016,12 @@ router.post('/permanent-batch', authenticateToken, requireRole(['admin']), async
 
 // Batch update task positions (optimized for drag-and-drop reordering)
 router.post('/batch-update-positions', authenticateToken, async (req, res) => {
-  const { updates } = req.body; // Array of { taskId, position, columnId }
-  const userId = req.user?.id || 'system';
-  
-  if (!Array.isArray(updates) || updates.length === 0) {
-    return res.status(400).json({ error: 'Invalid updates array' });
+  const parsed = parseBody(batchUpdatePositionsBodySchema, req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error || 'Invalid updates array' });
   }
+  const { updates } = parsed.data;
+  const userId = req.user?.id || 'system';
   
   try {
     const endpointStartTime = Date.now();
@@ -2312,7 +2336,11 @@ router.post('/batch-update-positions', authenticateToken, async (req, res) => {
 
 // Reorder tasks
 router.post('/reorder', authenticateToken, async (req, res) => {
-  const { taskId, newPosition, columnId } = req.body;
+  const parsed = parseBody(reorderTaskBodySchema, req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error });
+  }
+  const { taskId, newPosition, columnId } = parsed.data;
   const userId = req.user?.id || 'system';
   
   try {
@@ -2471,13 +2499,12 @@ router.post('/reorder', authenticateToken, async (req, res) => {
 
 // Move task to different board
 router.post('/move-to-board', authenticateToken, async (req, res) => {
-  const { taskId, targetBoardId } = req.body;
-  const userId = req.user?.id || 'system';
-  
-  if (!taskId || !targetBoardId) {
-    console.error('❌ Missing required fields:', { taskId, targetBoardId });
-    return res.status(400).json({ error: 'taskid and targetBoardId are required' });
+  const parsed = parseBody(moveTaskToBoardBodySchema, req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error || 'taskid and targetBoardId are required' });
   }
+  const { taskId, targetBoardId } = parsed.data;
+  const userId = req.user?.id || 'system';
   
   try {
     const db = getRequestDatabase(req);

@@ -41,8 +41,8 @@ When designing or changing any screen, treat **density, alignment, and input aff
 ## Package Management (npm)
 - Always choose secure, actively maintained packages.
 - Packages currently used in this project:
-  - **Backend**: `express`, `pg`, `redis`, `socket.io`, `bcrypt`, `jsonwebtoken`, `multer`, `nodemailer`, `node-cron`, `express-rate-limit`, `cors`, `axios`, `zod`
-  - **Frontend**: `react`, `react-dom`, `react-i18next`, `i18next`, `i18next-browser-languagedetector`, `@tiptap/*` (rich text editor), `@dnd-kit/*` (drag-and-drop), `lucide-react`, `react-joyride`, `react-window`, `recharts`, `xlsx`, `dompurify`, `socket.io-client`
+ - **Backend**: `express`, `pg`, `redis`, `socket.io`, `bcrypt`, `jsonwebtoken`, `multer`, `nodemailer`, `node-cron`, `express-rate-limit`, `cors`, `axios`, `zod`, `exceljs`
+ - **Frontend**: `react`, `react-dom`, `react-i18next`, `i18next`, `i18next-browser-languagedetector`, `@tiptap/*` (rich text editor), `@dnd-kit/*` (drag-and-drop), `lucide-react`, `react-joyride`, `react-window`, `recharts`, `exceljs`, `dompurify`, `socket.io-client`
   - **Real-time**: `socket.io`, `socket.io-client`, `@socket.io/redis-adapter`, `redis`
   - **Build/Dev**: `vite`, `typescript`, `tailwindcss`, `eslint`, `concurrently`
 - Avoid packages with known vulnerabilities, >1 year without updates, or <1k weekly downloads unless there is a very specific reason.
@@ -60,9 +60,10 @@ When designing or changing any screen, treat **density, alignment, and input aff
   - `authenticateToken` - JWT token validation (required for all protected routes)
   - `requireRole(['admin'])` - Role-based access control for admin-only endpoints
 - Apply rate limiting for sensitive public endpoints (see `server/middleware/rateLimiters.js`):
-  - `loginLimiter` for login attempts
-  - `passwordResetRequestLimiter` (3/hour) and `passwordResetCompletionLimiter` (6/hour)
-  - `registrationLimiter` and `activationLimiter` for account creation
+ - `loginLimiter` for login attempts
+ - `passwordResetRequestLimiter` (3/hour) and `passwordResetCompletionLimiter` (6/hour)
+ - `registrationLimiter` and `activationLimiter` for account creation
+- **File media auth (I3):** same-origin `<img>` / attachment loads use HttpOnly cookie `ek_media` (`purpose: media` JWT) set by `POST /api/files/media-session` after login. Do **not** embed the session JWT in `?token=`. File GETs prefer cookie, then Bearer; query `?token=` is accepted only for `purpose: media` tokens (session JWTs in query are rejected). Media tokens must not authorize API routes (`authenticateToken` rejects `purpose: media`).
 - Use sqlManager queries from `server/utils/sqlManager/index.js` (never write raw SQL in routes)
 - Handle multi-tenant database access via `getRequestDatabase(req)` from `server/middleware/tenantRouting.js`
 - Never expose error stack traces to clients (log errors server-side only)

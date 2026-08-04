@@ -43,6 +43,8 @@ export const markAsAuthenticated = () => {
 const clearAuthMarkers = () => {
   sessionStorage.removeItem('hadAuthToken');
   localStorage.removeItem('authToken');
+  // Best-effort: clear HttpOnly media cookie (fire-and-forget)
+  void fetch('/api/files/media-session', { method: 'DELETE', credentials: 'same-origin' }).catch(() => {});
 };
 
 /**

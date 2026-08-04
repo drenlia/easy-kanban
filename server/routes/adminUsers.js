@@ -15,6 +15,12 @@ import { getTenantId, getRequestDatabase } from '../middleware/tenantRouting.js'
 import { users as userQueries, tasks as taskQueries, adminUsers as adminUserQueries, auth as authQueries, helpers } from '../utils/sqlManager/index.js';
 import { commitUploadedFile, getRequestStoragePaths } from '../services/storage/index.js';
 import { deleteAvatarFileIfUnused } from '../utils/avatarCleanup.js';
+import {
+  parseBody,
+  adminCreateUserBodySchema,
+  adminUpdateUserBodySchema,
+  adminUpdateUserRoleBodySchema
+} from '../utils/requestValidation.js';
 
 const router = express.Router();
 
@@ -136,15 +142,15 @@ router.put('/:userId/member-name', authenticateToken, requireRole(['admin']), as
 // Update user details (MUST come after more specific routes)
 router.put('/:userId', authenticateToken, requireRole(['admin']), async (req, res) => {
   const { userId } = req.params;
-  const { email, firstName, lastName, isActive } = req.body;
+  const parsed = parseBody(adminUpdateUserBodySchema, req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error });
+  }
+  const { email, firstName, lastName, isActive } = parsed.data;
   const db = getRequestDatabase(req);
   const { getTranslator } = await import('../utils/i18n.js');
   const t = getTranslator(db);
   
-  if (!email || !firstName || !lastName) {
-    return res.status(400).json({ error: t('errors.emailFirstNameLastNameRequired') });
-  }
-
   try {
     // MIGRATED: Get current user status using sqlManager
     const currentUser = await userQueries.getUserByIdForAdmin(db, userId);
@@ -209,12 +215,12 @@ router.put('/:userId', authenticateToken, requireRole(['admin']), async (req, re
 // Update user role
 router.put('/:userId/role', authenticateToken, requireRole(['admin']), async (req, res) => {
   const { userId } = req.params;
-  const { role } = req.body;
-  const db = getRequestDatabase(req);
-  
-  if (!role) {
-    return res.status(400).json({ error: 'Role is required' });
+  const parsed = parseBody(adminUpdateUserRoleBodySchema, req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error });
   }
+  const { role } = parsed.data;
+  const db = getRequestDatabase(req);
 
   try {
     // Prevent users from demoting themselves
@@ -318,11 +324,19 @@ router.get('/can-create', authenticateToken, requireRole(['admin']), async (req,
 
 // Create new user
 router.post('/', authenticateToken, requireRole(['admin']), async (req, res) => {
-  const { email, password, firstName, lastName, role, displayName, baseUrl: baseUrlFromBody } = req.body;
+  const parsed = parseBody(adminCreateUserBodySchema, req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error });
+  }
+  const { email, password, firstName, lastName, role, displayName, baseUrl: baseUrlFromBody } = parsed.data;
   // Demo mode cannot send invite emails — always create users as active locally
-  const isActive = process.env.DEMO_ENABLED === 'true' ? true : req.body.isActive;
+  const isActive = process.env.DEMO_ENABLED === 'true' ? true : !!parsed.data.isActive;
   const db = getRequestDatabase(req);
   const t = getTranslator(db);
+
+  if (isActive && !password) {
+    return res.status(400).json({ error: 'Password is required' });
+  }
   
   // Get baseUrl for invitation emails - use APP_URL from database (tenant-specific)
   // Priority: 1) APP_URL from database, 2) baseUrl from request body, 3) Construct from tenantId, 4) Fallback
@@ -344,29 +358,6 @@ router.post('/', authenticateToken, requireRole(['admin']), async (req, res) => 
         baseUrl = req.get('origin') || 'http://localhost:3000';
       }
     }
-  }
-  
-  // Validate required fields with specific error messages
-  if (!email) {
-    return res.status(400).json({ error: 'Email address is required' });
-  }
-  if (!password) {
-    return res.status(400).json({ error: 'Password is required' });
-  }
-  if (!firstName) {
-    return res.status(400).json({ error: 'First name is required' });
-  }
-  if (!lastName) {
-    return res.status(400).json({ error: 'Last name is required' });
-  }
-  if (!role) {
-    return res.status(400).json({ error: 'User role is required' });
-  }
-  
-  // Validate email format
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  if (!emailRegex.test(email)) {
-    return res.status(400).json({ error: 'Invalid email address format' });
   }
   
   try {
@@ -395,8 +386,11 @@ router.post('/', authenticateToken, requireRole(['admin']), async (req, res) => 
     // Generate user ID
     const userId = crypto.randomUUID();
     
-    // Hash password
-    const passwordHash = await bcrypt.hash(password, 10);
+    // Hash password (invite/inactive may omit — use unguessable placeholder until activation)
+    const passwordHash = await bcrypt.hash(
+      password || crypto.randomBytes(32).toString('hex'),
+      10
+    );
     
     // MIGRATED: Create user using sqlManager
     await userQueries.createUser(db, userId, email, passwordHash, firstName, lastName, isActive, 'local');

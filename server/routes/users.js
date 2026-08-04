@@ -55,9 +55,8 @@ router.post('/upload', authenticateToken, createUploadMiddleware, async (req, re
     const db = getRequestDatabase(req);
     await commitUploadedFile(db, getRequestStoragePaths(req), 'attachments', req.file);
 
-    // Generate authenticated URL with token
-    const token = req.headers.authorization?.replace('Bearer ', '');
-    const authenticatedUrl = token ? `/api/files/attachments/${req.file.filename}?token=${encodeURIComponent(token)}` : `/attachments/${req.file.filename}`;
+    // Cookie-authenticated files URL (no session JWT in query string)
+    const authenticatedUrl = `/api/files/attachments/${req.file.filename}`;
     
     res.json({
       id: crypto.randomUUID(),
@@ -106,9 +105,8 @@ router.post('/avatar', authenticateToken, avatarUpload.single('avatar'), async (
       console.log('✅ User-profile-updated published to Redis');
     }
     
-    // Generate authenticated URL with token
-    const token = req.headers.authorization?.replace('Bearer ', '');
-    const authenticatedUrl = token ? `/api/files/avatars/${req.file.filename}?token=${encodeURIComponent(token)}` : avatarPath;
+    // Cookie-authenticated files URL (no session JWT in query string)
+    const authenticatedUrl = `/api/files/avatars/${req.file.filename}`;
     
     res.json({
       message: 'Avatar uploaded successfully',

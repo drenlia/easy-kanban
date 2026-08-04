@@ -12,6 +12,7 @@ import { feDebug } from '../../utils/clientDebug';
 import ResetCountdown from '../ResetCountdown';
 import { KanbanChromeTooltip } from '../KanbanChromeTooltip';
 import { toast } from '../../utils/toast';
+import { getAuthenticatedAvatarUrl } from '../../utils/authImageUrl';
 
 interface SystemInfo {
   memory: {
@@ -157,7 +158,6 @@ const Header: React.FC<HeaderProps> = ({
   };
 
   const [systemInfo, setSystemInfo] = useState<SystemInfo | null>(null);
-  const [authToken, setAuthToken] = useState<string | null>(null);
   const [reportsEnabled, setReportsEnabled] = useState(true); // Default to enabled
   const [reportsVisibleTo, setReportsVisibleTo] = useState('all'); // Default to all users
   
@@ -287,35 +287,6 @@ const Header: React.FC<HeaderProps> = ({
     }
   };
 
-  // Helper function to get authenticated avatar URL using state
-  const getAuthenticatedAvatarUrl = (avatarUrl: string | undefined | null): string | undefined => {
-    if (!avatarUrl) return undefined;
-    
-    // If it's already a token-based URL, return as-is
-    if (avatarUrl.startsWith('/api/files/avatars/')) {
-      return avatarUrl;
-    }
-    
-    // If it's a Google avatar URL (external), return as-is
-    if (avatarUrl.startsWith('http://') || avatarUrl.startsWith('https://')) {
-      return avatarUrl;
-    }
-    
-    // Use the state token instead of localStorage
-    if (!authToken) {
-      return undefined;
-    }
-    
-    // Convert local avatar URL to token-based URL
-    if (avatarUrl.startsWith('/avatars/')) {
-      const filename = avatarUrl.replace('/avatars/', '');
-      return `/api/files/avatars/${filename}?token=${encodeURIComponent(authToken)}`;
-    }
-    
-    // If it doesn't start with /avatars/, assume it's a filename and add the path
-    return `/api/files/avatars/${avatarUrl}?token=${encodeURIComponent(authToken)}`;
-  };
-
   // Close invite / more / profile menus when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -341,22 +312,6 @@ const Header: React.FC<HeaderProps> = ({
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [isInviting]);
-
-  // Track auth token changes
-  useEffect(() => {
-    const token = localStorage.getItem('authToken');
-    setAuthToken(token);
-    
-    // Listen for storage changes (when token is updated in another tab)
-    const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === 'authToken') {
-        setAuthToken(e.newValue);
-      }
-    };
-    
-    window.addEventListener('storage', handleStorageChange);
-    return () => window.removeEventListener('storage', handleStorageChange);
-  }, []);
 
   // Fetch system info with polling when system panel is visible
   // Header is always loaded, so it handles all system info polling (Admin.tsx no longer polls)

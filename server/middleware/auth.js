@@ -117,6 +117,12 @@ export const authenticateToken = async (req, res, next) => {
         }
       });
     });
+
+    // Media-only tokens (HttpOnly cookie / file URLs) must not authorize API routes
+    if (user?.purpose === 'media') {
+      console.log(`❌ [AUTH] Media token rejected for API ${req.method} ${req.path}`);
+      return res.status(401).json({ error: 'Invalid or expired token' });
+    }
     
     // Verify user still exists in the tenant DB (demo resets, deleted accounts, tenant switches).
     // Previously this ran only when MULTI_TENANT=true; single-tenant demo wipe left valid JWTs

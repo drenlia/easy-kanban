@@ -6,11 +6,36 @@ import { z } from 'zod';
 export function parseBody(schema, body) {
   const result = schema.safeParse(body);
   if (!result.success) {
-    const message = result.error.issues?.[0]?.message || 'Invalid request body';
+    const issue = result.error.issues?.[0];
+    const path = issue?.path?.length ? `${issue.path.join('.')}: ` : '';
+    const message = `${path}${issue?.message || 'Invalid request body'}`;
     return { success: false, error: message, issues: result.error.issues };
   }
   return { success: true, data: result.data };
 }
+
+const idSchema = z.string().min(1).max(128);
+
+/** FE often sends "" for cleared fields; priorityId may be a number from the DB/API. */
+const optionalNullableId = z.preprocess((v) => {
+  if (v === '' || v === undefined) return null;
+  if (typeof v === 'number' && Number.isFinite(v)) return String(v);
+  return v;
+}, z.union([idSchema, z.null()]).optional());
+
+const optionalDate = z.preprocess(
+  (v) => (v === '' ? null : v),
+  z.union([z.string().max(64), z.null()]).optional()
+);
+
+const effortSchema = z.union([z.number(), z.string().max(32), z.null()]).optional();
+
+/** DB / FE may send 0/1 or "true"/"false" for blocked flags. */
+const booleanish = z.preprocess((v) => {
+  if (v === 0 || v === '0' || v === 'false' || v === false) return false;
+  if (v === 1 || v === '1' || v === 'true' || v === true) return true;
+  return v;
+}, z.boolean().optional());
 
 const attachmentSchema = z.object({
   id: z.string().min(1).max(128),
@@ -46,3 +71,122 @@ export const passwordResetCompleteBodySchema = z.object({
   token: z.string().min(1).max(256),
   newPassword: z.string().min(6, 'Password must be at least 6 characters long').max(1024)
 });
+
+/** Task create / add-at-top — core fields required; extras passthrough for FE compatibility. */
+export const createTaskBodySchema = z.object({
+  id: idSchema,
+  title: z.string().min(1, 'Title is required').max(500),
+  description: z.string().max(500_000).optional(),
+  memberId: optionalNullableId,
+  requesterId: optionalNullableId,
+  startDate: optionalDate,
+  dueDate: optionalDate,
+  effort: effortSchema,
+  priority: z.union([z.string().max(100), z.null()]).optional(),
+  priorityId: optionalNullableId,
+  columnId: idSchema,
+  boardId: idSchema,
+  position: z.union([z.number(), z.string().max(32)]).optional(),
+  sprintId: optionalNullableId
+}).passthrough();
+
+/** Task update — partial; known fields constrained; unknown keys allowed. */
+export const updateTaskBodySchema = z.object({
+  id: idSchema.optional(),
+  title: z.string().min(1).max(500).optional(),
+  description: z.union([z.string().max(500_000), z.null()]).optional(),
+  memberId: optionalNullableId,
+  requesterId: optionalNullableId,
+  startDate: optionalDate,
+  dueDate: optionalDate,
+  effort: effortSchema,
+  priority: z.union([z.string().max(100), z.null()]).optional(),
+  priorityId: optionalNullableId,
+  columnId: z.preprocess((v) => (v === '' ? undefined : v), idSchema.optional()),
+  boardId: z.preprocess((v) => (v === '' ? undefined : v), idSchema.optional()),
+  position: z.union([z.number(), z.string().max(32), z.null()]).optional(),
+  sprintId: optionalNullableId,
+  isBlocked: booleanish,
+  blockedReason: z.union([z.string().max(2000), z.null()]).optional(),
+  skipActivity: z.boolean().optional()
+}).passthrough();
+
+export const copyTaskBodySchema = z.object({
+  taskId: idSchema,
+  boardId: idSchema.optional()
+}).passthrough();
+
+export const bulkFieldActivityBodySchema = z.object({
+  field: z.enum(['memberId', 'requesterId', 'priorityId', 'sprintId']),
+  taskIds: z.array(idSchema).min(1).max(500),
+  newValue: z.preprocess(
+    (v) => (v === '' ? null : v),
+    z.union([z.string().max(128), z.null()]).optional()
+  ),
+  oldValue: z.preprocess(
+    (v) => (v === '' ? null : v),
+    z.union([z.string().max(128), z.null()]).optional()
+  ),
+  newLabel: z.union([z.string().max(500), z.null()]).optional(),
+  boardId: optionalNullableId
+});
+
+export const batchUpdateTasksBodySchema = z.object({
+  tasks: z.array(
+    z.object({
+      id: idSchema
+    }).passthrough()
+  ).min(1).max(500)
+});
+
+export const batchUpdatePositionsBodySchema = z.object({
+  updates: z.array(
+    z.object({
+      taskId: idSchema,
+      position: z.union([z.number(), z.string().max(32)]),
+      columnId: idSchema.optional()
+    }).passthrough()
+  ).min(1).max(2000)
+});
+
+export const reorderTaskBodySchema = z.object({
+  taskId: idSchema,
+  newPosition: z.union([z.number(), z.string().max(32)]),
+  columnId: idSchema
+}).passthrough();
+
+export const moveTaskToBoardBodySchema = z.object({
+  taskId: idSchema,
+  targetBoardId: idSchema
+});
+
+export const permanentBatchBodySchema = z.object({
+  taskIds: z.array(idSchema).min(1).max(500)
+});
+
+export const adminCreateUserBodySchema = z.object({
+  email: z.string().trim().email('Valid email is required').max(320),
+  // Invite (inactive) may omit password; active local create still needs one (enforced in route).
+  password: z.string().max(1024).optional().default(''),
+  firstName: z.string().min(1, 'First name is required').max(100),
+  lastName: z.string().min(1, 'Last name is required').max(100),
+  role: z.enum(['admin', 'user'], { message: 'User role is required' }),
+  displayName: z.string().max(100).optional(),
+  isActive: booleanish,
+  baseUrl: z.string().max(2048).optional()
+}).passthrough();
+
+export const adminUpdateUserBodySchema = z.object({
+  email: z.string().trim().email().max(320),
+  firstName: z.string().min(1).max(100),
+  lastName: z.string().min(1).max(100),
+  isActive: booleanish
+}).passthrough();
+
+/** Accept either `{ role }` (Admin.tsx) or `{ action: promote|demote }` (api helper). */
+export const adminUpdateUserRoleBodySchema = z.union([
+  z.object({ role: z.enum(['admin', 'user']) }),
+  z.object({ action: z.enum(['promote', 'demote']) }).transform(({ action }) => ({
+    role: action === 'promote' ? 'admin' : 'user'
+  }))
+]);

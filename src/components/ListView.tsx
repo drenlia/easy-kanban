@@ -18,6 +18,9 @@ import { CHROME_TOOLTIP_POPOVER_CLASS, CHROME_TOOLTIP_PANEL_SURFACE_CLASS, Kanba
 import AgentPanel from './AgentPanel';
 import type { AgentPanelView } from './AgentPanel';
 import ExportMenu from './ExportMenu';
+import DateRangePicker from './DateRangePicker';
+import TextEditor from './TextEditor';
+import AddTagModal from './AddTagModal';
 import { putTaskWork, getTaskWork, setTaskWorkControl, type TaskWorkMap } from '../api';
 import { AGENT_MEMBER_ID, SYSTEM_MEMBER_ID } from '../constants/appConstants';
 import {

@@ -3,6 +3,7 @@ import { TeamMember, Board, Task, Column, Comment } from './types';
 import { versionDetection } from './utils/versionDetection';
 import { handleAuthError } from './utils/authErrorHandler';
 import { feDebug } from './utils/clientDebug';
+import { clearMediaSession } from './utils/mediaSession';
 
 function summarizeApiPayload(data: unknown, max = 400): string {
   if (data == null) return '';
@@ -48,6 +49,7 @@ const handleInvalidToken = () => {
   
   // Clear token
   localStorage.removeItem('authToken');
+  void clearMediaSession();
   if (feDebug('FE_DEBUG_AUTH')) console.log('🔑 Token cleared by handleInvalidToken');
   
   // Set a flag to prevent reload loops
