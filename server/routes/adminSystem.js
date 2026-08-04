@@ -419,19 +419,21 @@ router.post('/test-storage', authenticateToken, requireRole(['admin']), async (r
     const { testS3Connection } = await import('../services/storage/index.js');
     const result = await testS3Connection(db, parsed.data);
 
-    // Sync STORAGE_TEST_OK to clients (test probes draft values; does not require Save)
-    try {
-      await notificationService.publish(
-        'settings-updated',
-        {
-          key: 'STORAGE_TEST_OK',
-          value: result.ok ? 'true' : 'false',
-          timestamp: new Date().toISOString()
-        },
-        getTenantId(req)
-      );
-    } catch (publishErr) {
-      console.warn('Failed to publish STORAGE_TEST_OK after storage test:', publishErr?.message);
+    // Sync STORAGE_TEST_OK to clients (live probes only — not destination drafts)
+    if (!result.asDestination) {
+      try {
+        await notificationService.publish(
+          'settings-updated',
+          {
+            key: 'STORAGE_TEST_OK',
+            value: result.ok ? 'true' : 'false',
+            timestamp: new Date().toISOString()
+          },
+          getTenantId(req)
+        );
+      } catch (publishErr) {
+        console.warn('Failed to publish STORAGE_TEST_OK after storage test:', publishErr?.message);
+      }
     }
 
     if (!result.ok) {
@@ -460,7 +462,7 @@ router.post('/migrate-storage', authenticateToken, requireRole(['admin']), async
     if (!parsed.success) {
       return res.status(400).json({
         error: parsed.error.includes('direction')
-          ? 'direction must be disk-to-s3 or s3-to-disk'
+          ? 'direction must be disk-to-s3, s3-to-disk, or s3-to-s3'
           : parsed.error
       });
     }
@@ -478,7 +480,10 @@ router.post('/migrate-storage', authenticateToken, requireRole(['admin']), async
       db,
       getRequestStoragePaths(req),
       direction,
-      { deleteSource }
+      {
+        deleteSource,
+        destination: parsed.data.destination || undefined
+      }
     );
 
     res.status(202).json({

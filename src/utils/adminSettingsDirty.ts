@@ -128,7 +128,7 @@ function isAppSettingsKey(key: string): boolean {
 
 /** Map a settings key to its Admin tab (or null if not a draftable settings tab). */
 export function adminTabForSettingKey(key: string): AdminSettingsTabId | null {
-  if (SKIP_KEYS.has(key) || key.endsWith('_SET')) return null;
+  if (SKIP_KEYS.has(key) || key.endsWith('_SET') || !isValidAdminSettingKey(key)) return null;
   if (isSiteSettingsKey(key)) return 'site-settings';
   if (isSystemSettingsKey(key)) return 'system-settings';
   if (isProjectSettingsKey(key)) return 'project-settings';
@@ -140,13 +140,33 @@ export function adminTabForSettingKey(key: string): AdminSettingsTabId | null {
 export function settingValueAsString(value: unknown): string {
   if (value == null) return '';
   if (typeof value === 'string') return value;
-  if (typeof value === 'boolean' || typeof value === 'number') return String(value);
-  // Avoid "[object Object]" surprises for accidental non-scalars
-  try {
-    return JSON.stringify(value);
-  } catch {
+  if (typeof value === 'boolean' || typeof value === 'number' || typeof value === 'bigint') {
     return String(value);
   }
+  // Functions / symbols / toJSON→undefined must never yield undefined (breaks .trim())
+  if (typeof value === 'function' || typeof value === 'symbol') return '';
+  try {
+    const json = JSON.stringify(value);
+    return json == null ? '' : json;
+  } catch {
+    return '';
+  }
+}
+
+/** True when a click/handler mistakenly passed a DOM/React event as the settings map. */
+export function isLikelyDomEvent(value: unknown): boolean {
+  if (value == null || typeof value !== 'object') return false;
+  const v = value as Record<string, unknown>;
+  return (
+    typeof v.preventDefault === 'function' ||
+    typeof v.stopPropagation === 'function' ||
+    typeof (v as { nativeEvent?: unknown }).nativeEvent === 'object'
+  );
+}
+
+/** Admin setting keys are SCREAMING_SNAKE (reject SyntheticEvent props etc.). */
+export function isValidAdminSettingKey(key: string): boolean {
+  return /^[A-Z][A-Z0-9_]*$/.test(key);
 }
 
 function valuesDiffer(
@@ -180,7 +200,7 @@ export function adminSettingsHaveChanges(
   const keys = new Set([...Object.keys(saved), ...Object.keys(draft)]);
 
   for (const key of keys) {
-    if (SKIP_KEYS.has(key) || key.endsWith('_SET')) continue;
+    if (SKIP_KEYS.has(key) || key.endsWith('_SET') || !isValidAdminSettingKey(key)) continue;
     if (valuesDiffer(key, saved, draft)) return true;
   }
 
@@ -196,7 +216,7 @@ export function getDirtyAdminSettingsTabs(
   const keys = new Set([...Object.keys(saved), ...Object.keys(draft)]);
 
   for (const key of keys) {
-    if (SKIP_KEYS.has(key) || key.endsWith('_SET')) continue;
+    if (SKIP_KEYS.has(key) || key.endsWith('_SET') || !isValidAdminSettingKey(key)) continue;
     if (!valuesDiffer(key, saved, draft)) continue;
     const tab = adminTabForSettingKey(key);
     if (tab) dirty.add(tab);
@@ -209,7 +229,7 @@ export function getDirtyAdminSettingsTabs(
 export type AppSettingsSubTabId = 'ui' | 'troubleshooting';
 
 export function appSettingsSubTabForKey(key: string): AppSettingsSubTabId | null {
-  if (SKIP_KEYS.has(key) || key.endsWith('_SET')) return null;
+  if (SKIP_KEYS.has(key) || key.endsWith('_SET') || !isValidAdminSettingKey(key)) return null;
   if (!isAppSettingsKey(key)) return null;
   if (
     key.startsWith('FE_DEBUG_') ||
@@ -229,7 +249,7 @@ export function getDirtyAppSettingsSubTabs(
   const keys = new Set([...Object.keys(saved), ...Object.keys(draft)]);
 
   for (const key of keys) {
-    if (SKIP_KEYS.has(key) || key.endsWith('_SET')) continue;
+    if (SKIP_KEYS.has(key) || key.endsWith('_SET') || !isValidAdminSettingKey(key)) continue;
     if (!valuesDiffer(key, saved, draft)) continue;
     const sub = appSettingsSubTabForKey(key);
     if (sub) dirty.add(sub);
@@ -239,7 +259,7 @@ export function getDirtyAppSettingsSubTabs(
 }
 
 export function systemSettingsSubTabForKey(key: string): SystemSettingsSubTabId | null {
-  if (SKIP_KEYS.has(key) || key.endsWith('_SET')) return null;
+  if (SKIP_KEYS.has(key) || key.endsWith('_SET') || !isValidAdminSettingKey(key)) return null;
   if (isSsoKey(key)) return 'sso';
   if (isMailKey(key)) return 'mail-server';
   if (isStorageKey(key)) return 'storage';
@@ -258,7 +278,7 @@ export function getDirtySystemSettingsSubTabs(
   const keys = new Set([...Object.keys(saved), ...Object.keys(draft)]);
 
   for (const key of keys) {
-    if (SKIP_KEYS.has(key) || key.endsWith('_SET')) continue;
+    if (SKIP_KEYS.has(key) || key.endsWith('_SET') || !isValidAdminSettingKey(key)) continue;
     if (!valuesDiffer(key, saved, draft)) continue;
     const sub = systemSettingsSubTabForKey(key);
     if (sub) dirty.add(sub);
@@ -278,7 +298,7 @@ export function getDirtyProjectHubSubTabs(
   const keys = new Set([...Object.keys(saved), ...Object.keys(draft)]);
 
   for (const key of keys) {
-    if (SKIP_KEYS.has(key) || key.endsWith('_SET')) continue;
+    if (SKIP_KEYS.has(key) || key.endsWith('_SET') || !isValidAdminSettingKey(key)) continue;
     if (!valuesDiffer(key, saved, draft)) continue;
     if (isProjectGeneralKey(key)) dirty.add('project');
     if (isLifecycleKey(key)) dirty.add('lifecycle');
@@ -295,7 +315,7 @@ export function isAdminSettingFieldDirty(
   saved: Record<string, string | undefined>,
   draft: Record<string, string | undefined>
 ): boolean {
-  if (SKIP_KEYS.has(key) || key.endsWith('_SET')) return false;
+  if (SKIP_KEYS.has(key) || key.endsWith('_SET') || !isValidAdminSettingKey(key)) return false;
   return valuesDiffer(key, saved, draft);
 }
 

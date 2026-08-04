@@ -21,6 +21,8 @@ import { isMaskedApiKeyDisplay } from '../utils/maskSecret';
 import {
   adminSettingsHaveChanges,
   getDirtyAdminSettingsTabs,
+  isLikelyDomEvent,
+  isValidAdminSettingKey,
   settingValueAsString,
 } from '../utils/adminSettingsDirty';
 import { clampActivityFeedInSettings } from '../utils/adminFieldLimits';
@@ -782,9 +784,11 @@ const Admin: React.FC<AdminProps> = ({
       
       let hasChanges = false;
       const changedKeys: string[] = [];
-      // Use passed settings if available, otherwise use editingSettings
-      const settingsToSave = clampActivityFeedInSettings(newSettings || editingSettings);
-      if (settingsToSave !== (newSettings || editingSettings)) {
+      // Prefer explicit draft; ignore click events mistakenly passed via onClick={onSave}
+      const draftSource =
+        newSettings && !isLikelyDomEvent(newSettings) ? newSettings : editingSettings;
+      const settingsToSave = clampActivityFeedInSettings(draftSource);
+      if (settingsToSave !== draftSource) {
         setEditingSettings(settingsToSave);
       }
       
@@ -804,6 +808,11 @@ const Admin: React.FC<AdminProps> = ({
       
       // Save each setting individually
       for (const [key, value] of Object.entries(settingsToSave)) {
+        // Skip accidental DOM/React event props (from a prior buggy Save) and invalid keys
+        if (!isValidAdminSettingKey(key)) {
+          continue;
+        }
+
         // Skip WEBSITE_URL - it's read-only and set during instance purchase
         if (key === 'WEBSITE_URL') {
           continue;

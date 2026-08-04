@@ -220,6 +220,9 @@ router.get('/', authenticateToken, requireRole(['admin']), async (req, res, next
     const storageManaged = settings.find(s => s.key === 'STORAGE_MANAGED')?.value === 'true';
     
     settings.forEach(setting => {
+      if (!/^[A-Z][A-Z0-9_]*$/.test(setting.key)) {
+        return; // ignore corrupt keys (e.g. leftover React event props)
+      }
       // Hide sensitive SMTP fields when email is managed (credentials and server details)
       // But allow SMTP_FROM_EMAIL and SMTP_FROM_NAME to be visible/editable
       if (mailManaged && ['SMTP_HOST', 'SMTP_PORT', 'SMTP_USERNAME', 'SMTP_PASSWORD', 'SMTP_SECURE'].includes(setting.key)) {

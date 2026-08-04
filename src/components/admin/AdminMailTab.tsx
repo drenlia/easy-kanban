@@ -383,14 +383,7 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
 
               <div data-setting-key="SMTP_PASSWORD" className="md:col-span-2">
                 <label className="flex flex-wrap items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  <span>
-                    {t('mail.smtpPassword')}
-                    {smtpPasswordSet && !isManagedEmail && (
-                      <span className="ml-2 text-xs font-normal text-green-600 dark:text-green-400">
-                        {t('mail.smtpPasswordSet')}
-                      </span>
-                    )}
-                  </span>
+                  <span>{t('mail.smtpPassword')}</span>
                   {!isManagedEmail && (
                     <AdminFieldDraftControls
                       settingKey="SMTP_PASSWORD"

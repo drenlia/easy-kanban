@@ -2022,20 +2022,23 @@ const TaskCard = React.memo(function TaskCard({
           return null;
         })()}
 
-        {/* Title Row - Full Width */}
+        {/* Title row: float spacer matches assignee avatar (w-8) so line boxes wrap
+            beside it, then reclaim full card width once past the avatar height. */}
         <div className="mb-2 mt-1">
           {isEditingTitle ? (
-            <input
-              type="text"
-              value={editedTitle}
-              onChange={(e) => setEditedTitle(e.target.value)}
-              onBlur={handleTitleBlur}
-              onKeyDown={handleTitleKeyDown}
-              onFocus={handleInputFocus}
-              className="font-medium text-gray-800 dark:text-gray-100 bg-white dark:bg-gray-700 border border-blue-400 rounded px-1 py-0.5 outline-none focus:border-blue-500 w-full text-sm"
-              onClick={(e) => e.stopPropagation()}
-              autoFocus
-            />
+            <div className="pr-10">
+              <input
+                type="text"
+                value={editedTitle}
+                onChange={(e) => setEditedTitle(e.target.value)}
+                onBlur={handleTitleBlur}
+                onKeyDown={handleTitleKeyDown}
+                onFocus={handleInputFocus}
+                className="font-medium text-gray-800 dark:text-gray-100 bg-white dark:bg-gray-700 border border-blue-400 rounded px-1 py-0.5 outline-none focus:border-blue-500 w-full text-sm"
+                onClick={(e) => e.stopPropagation()}
+                autoFocus
+              />
+            </div>
           ) : (
             <div
               className={`relative ${
@@ -2064,7 +2067,7 @@ const TaskCard = React.memo(function TaskCard({
                 </label>
               )}
               <FirstLineEndAnchor
-                contentClassName="min-w-0"
+                contentClassName="min-w-0 flow-root"
                 anchor={
                   isHoveringTitle ? (
                     <KanbanChromeTooltip label={t('taskCard.editTitle')} wrapperClassName="inline-flex">
@@ -2085,6 +2088,10 @@ const TaskCard = React.memo(function TaskCard({
                   ) : null
                 }
               >
+                <div
+                  className="float-right h-8 w-8 ml-1 mb-0.5 pointer-events-none"
+                  aria-hidden
+                />
                 <h3
                   className="font-medium text-gray-800 dark:text-gray-100 px-1 py-0.5 rounded text-sm"
                   onDoubleClick={(e) => {

@@ -242,12 +242,20 @@ const settingValueSchema = z.union([
 ]);
 
 export const updateSettingBodySchema = z.object({
-  key: z.string().min(1, 'Setting key is required').max(128),
+  // SCREAMING_SNAKE only — rejects React SyntheticEvent props accidentally POSTed as keys
+  key: z
+    .string()
+    .min(1, 'Setting key is required')
+    .max(128)
+    .regex(/^[A-Z][A-Z0-9_]*$/, 'Setting key must be SCREAMING_SNAKE_CASE'),
   value: settingValueSchema
 }).passthrough();
 
 export const bulkUpdateSettingsBodySchema = z.object({
-  settings: z.record(z.string().max(128), settingValueSchema)
+  settings: z.record(
+    z.string().max(128).regex(/^[A-Z][A-Z0-9_]*$/, 'Setting key must be SCREAMING_SNAKE_CASE'),
+    settingValueSchema
+  )
 });
 
 export const updateAppUrlBodySchema = z.object({
@@ -477,14 +485,39 @@ export const s3TestOverridesBodySchema = z
     S3_ACCESS_KEY_ID: z.string().max(512).optional(),
     S3_SECRET_ACCESS_KEY: z.string().max(512).optional(),
     S3_FORCE_PATH_STYLE: z.union([z.boolean(), z.string().max(16)]).optional(),
-    S3_KEY_PREFIX: z.string().max(512).optional()
+    S3_KEY_PREFIX: z.string().max(512).optional(),
+    /** Probe a destination draft without writing STORAGE_TEST_OK or merging live secrets. */
+    asDestination: booleanish
   })
   .passthrough();
 
-export const migrateStorageBodySchema = z.object({
-  direction: z.enum(['disk-to-s3', 's3-to-disk']),
-  deleteSource: booleanish
-}).passthrough();
+const s3DestinationFieldsSchema = z.object({
+  S3_ENDPOINT: z.string().max(2048).optional(),
+  S3_REGION: z.string().max(64).optional(),
+  S3_BUCKET: z.string().max(256),
+  S3_ACCESS_KEY_ID: z.string().max(512),
+  S3_SECRET_ACCESS_KEY: z.string().max(512),
+  S3_FORCE_PATH_STYLE: z.union([z.boolean(), z.string().max(16)]).optional(),
+  S3_KEY_PREFIX: z.string().max(512).optional()
+});
+
+export const migrateStorageBodySchema = z
+  .object({
+    direction: z.enum(['disk-to-s3', 's3-to-disk', 's3-to-s3']),
+    deleteSource: booleanish,
+    /** Required for s3-to-s3: destination bucket (source = current live settings). */
+    destination: s3DestinationFieldsSchema.optional()
+  })
+  .passthrough()
+  .superRefine((val, ctx) => {
+    if (val.direction === 's3-to-s3' && !val.destination) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'destination is required for s3-to-s3',
+        path: ['destination']
+      });
+    }
+  });
 
 export const notificationIdsBodySchema = z.object({
   notificationIds: z

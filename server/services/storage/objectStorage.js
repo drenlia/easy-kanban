@@ -201,13 +201,69 @@ export async function deleteObject(db, storagePaths, category, filename) {
   }
 }
 
+const EMPTY_S3_BASE = Object.freeze({
+  backend: 's3',
+  managed: false,
+  endpoint: '',
+  region: '',
+  bucket: '',
+  accessKeyId: '',
+  secretAccessKey: '',
+  forcePathStyle: false,
+  keyPrefix: '',
+  testOk: false
+});
+
+/**
+ * @param {import('./storageConfig.js').StorageConfig} a
+ * @param {import('./storageConfig.js').StorageConfig} b
+ */
+function sameS3Target(a, b) {
+  const normEp = (v) => String(v || '').trim().replace(/\/+$/, '').toLowerCase();
+  return (
+    String(a.bucket || '').trim() === String(b.bucket || '').trim() &&
+    String(a.keyPrefix || '') === String(b.keyPrefix || '') &&
+    normEp(a.endpoint) === normEp(b.endpoint) &&
+    String(a.region || '').trim() === String(b.region || '').trim()
+  );
+}
+
+/**
+ * Write destination config as the live tenant S3 settings (cutover after s3-to-s3).
+ * @param {*} db
+ * @param {import('./storageConfig.js').StorageConfig} config
+ */
+async function persistLiveS3Config(db, config) {
+  const { upsertSecretSetting } = await import('../../utils/settingsSecrets.js');
+  await settingsQueries.upsertSetting(db, 'STORAGE_BACKEND', 's3');
+  await settingsQueries.upsertSetting(db, 'STORAGE_MANAGED', 'false');
+  await settingsQueries.upsertSetting(db, 'S3_ENDPOINT', config.endpoint || '');
+  await settingsQueries.upsertSetting(db, 'S3_REGION', config.region || '');
+  await settingsQueries.upsertSetting(db, 'S3_BUCKET', config.bucket || '');
+  await settingsQueries.upsertSetting(db, 'S3_ACCESS_KEY_ID', config.accessKeyId || '');
+  await upsertSecretSetting(db, 'S3_SECRET_ACCESS_KEY', config.secretAccessKey || '');
+  await settingsQueries.upsertSetting(
+    db,
+    'S3_FORCE_PATH_STYLE',
+    config.forcePathStyle ? 'true' : 'false'
+  );
+  await settingsQueries.upsertSetting(db, 'S3_KEY_PREFIX', config.keyPrefix || '');
+  await settingsQueries.upsertSetting(db, 'STORAGE_TEST_OK', 'true');
+}
+
 /**
  * Probe put/get/delete on S3. Optionally use draft overrides from admin UI.
  * @param {*} db
- * @param {Record<string, string | undefined>} [overrides]
+ * @param {Record<string, string | boolean | undefined>} [overrides]
  */
 export async function testS3Connection(db, overrides = {}) {
-  const base = await loadStorageConfig(db);
+  const asDestination =
+    overrides.asDestination === true ||
+    overrides.asDestination === 'true' ||
+    overrides.asDestination === 1 ||
+    overrides.asDestination === '1';
+
+  const base = asDestination ? { ...EMPTY_S3_BASE } : await loadStorageConfig(db);
   const config = storageConfigFromOverrides(overrides, base);
   const validation = validateS3Config(config);
   if (!validation.ok) {
@@ -231,7 +287,10 @@ export async function testS3Connection(db, overrides = {}) {
     }
     await s3Delete(client, config, probeKey);
 
-    await settingsQueries.upsertSetting(db, 'STORAGE_TEST_OK', 'true');
+    // Destination probes must not flip live STORAGE_TEST_OK (source stays authoritative).
+    if (!asDestination) {
+      await settingsQueries.upsertSetting(db, 'STORAGE_TEST_OK', 'true');
+    }
 
     return {
       ok: true,
@@ -239,16 +298,20 @@ export async function testS3Connection(db, overrides = {}) {
       bucket: config.bucket,
       region: config.region || null,
       endpoint: config.endpoint || null,
-      prefix: config.keyPrefix || '(none)'
+      prefix: config.keyPrefix || '(none)',
+      asDestination: Boolean(asDestination)
     };
   } catch (err) {
-    await settingsQueries.upsertSetting(db, 'STORAGE_TEST_OK', 'false');
+    if (!asDestination) {
+      await settingsQueries.upsertSetting(db, 'STORAGE_TEST_OK', 'false');
+    }
     const explained = explainS3TestError(err);
     return {
       ok: false,
       error: explained.message,
       errorCode: explained.code,
-      technicalDetail: explained.technical
+      technicalDetail: explained.technical,
+      asDestination: Boolean(asDestination)
     };
   }
 }
@@ -292,17 +355,52 @@ async function reclaimStaleMigrationLock(db) {
 }
 
 /**
- * Copy one file between disk and S3.
- * @param {'disk-to-s3' | 's3-to-disk'} direction
- * @param {*} [sharedClient] reuse one S3 client for the whole migration
+ * Copy one file between disk and S3, or between two S3 configs.
+ * @param {'disk-to-s3' | 's3-to-disk' | 's3-to-s3'} direction
+ * @param {*} [sharedClient] single client for disk↔S3; ignored for s3-to-s3
+ * @param {*} [sourceClient]
+ * @param {*} [destClient]
+ * @param {import('./storageConfig.js').StorageConfig | null} [destConfig]
  */
-async function copyOne(config, storagePaths, category, filename, direction, sharedClient) {
+async function copyOne(
+  config,
+  storagePaths,
+  category,
+  filename,
+  direction,
+  sharedClient,
+  sourceClient = null,
+  destClient = null,
+  destConfig = null
+) {
   const dir = localDirForCategory(storagePaths, category);
   const diskFile = localPath(dir, filename);
   const { createS3Client, s3Put, s3Get, s3Exists, streamToBuffer } = await s3();
+  const ct = guessContentType(filename);
+
+  if (direction === 's3-to-s3') {
+    const srcClient = sourceClient || (await createS3Client(config));
+    const dstClient = destClient || (await createS3Client(destConfig));
+    const srcKey = buildObjectKey(config, category, filename);
+    const dstKey = buildObjectKey(destConfig, category, filename);
+    const onSrc = await s3Exists(srcClient, config, srcKey);
+    const onDst = await s3Exists(dstClient, destConfig, dstKey);
+
+    if (!onSrc) {
+      return onDst ? 'skipped' : 'missing';
+    }
+    if (onDst) {
+      return 'skipped';
+    }
+    const got = await s3Get(srcClient, config, srcKey);
+    if (!got) return 'missing';
+    const buffer = await streamToBuffer(got.body);
+    await s3Put(dstClient, destConfig, dstKey, buffer, ct);
+    return 'copied';
+  }
+
   const client = sharedClient || (await createS3Client(config));
   const key = buildObjectKey(config, category, filename);
-  const ct = guessContentType(filename);
 
   if (direction === 'disk-to-s3') {
     const onDisk = await pathExists(diskFile);
@@ -343,21 +441,46 @@ async function persistMigrationDetail(db, detail) {
 
 /**
  * Validate config and acquire the migration lock. Throws on conflict / bad config.
- * @returns {Promise<{ config: object, startedAt: string, detail: object }>}
+ * @param {*} db
+ * @param {'disk-to-s3' | 's3-to-disk' | 's3-to-s3'} direction
+ * @param {{ destination?: Record<string, string> }} [options]
+ * @returns {Promise<{ config: object, destConfig: object | null, startedAt: string, detail: object }>}
  */
-async function acquireMigrationLock(db, direction) {
+async function acquireMigrationLock(db, direction, options = {}) {
   if (direction === 's3-to-disk' && process.env.MULTI_TENANT === 'true') {
     throw new Error('Migrating to disk is not supported in multi-tenant mode (no shared local disk across pods)');
   }
 
   const config = await loadStorageConfig(db);
-  const validation = validateS3Config(config);
-  if (!validation.ok) {
-    throw new Error(validation.error || 'S3 is not configured');
-  }
+  let destConfig = null;
 
-  if (direction === 'disk-to-s3' && !config.testOk && !config.managed) {
-    throw new Error('Run a successful S3 connection test before migrating to S3');
+  if (direction === 's3-to-s3') {
+    if (config.backend !== 's3') {
+      throw new Error('Current storage backend must be S3 before migrating S3 → S3');
+    }
+    const sourceValidation = validateS3Config(config);
+    if (!sourceValidation.ok) {
+      throw new Error(sourceValidation.error || 'Source S3 is not configured');
+    }
+    if (!options.destination || typeof options.destination !== 'object') {
+      throw new Error('destination S3 configuration is required for s3-to-s3');
+    }
+    destConfig = storageConfigFromOverrides(options.destination, { ...EMPTY_S3_BASE });
+    const destValidation = validateS3Config(destConfig);
+    if (!destValidation.ok) {
+      throw new Error(destValidation.error || 'Destination S3 is not configured');
+    }
+    if (sameS3Target(config, destConfig)) {
+      throw new Error('Source and destination resolve to the same bucket, endpoint, region, and prefix');
+    }
+  } else {
+    const validation = validateS3Config(config);
+    if (!validation.ok) {
+      throw new Error(validation.error || 'S3 is not configured');
+    }
+    if (direction === 'disk-to-s3' && !config.testOk && !config.managed) {
+      throw new Error('Run a successful S3 connection test before migrating to S3');
+    }
   }
 
   await reclaimStaleMigrationLock(db);
@@ -379,13 +502,14 @@ async function acquireMigrationLock(db, direction) {
     currentFile: null,
     attachments: { copied: 0, skipped: 0, missing: 0, failed: 0 },
     avatars: { copied: 0, skipped: 0, missing: 0, failed: 0 },
-    errors: []
+    errors: [],
+    cutoverApplied: false
   };
 
   await settingsQueries.upsertSetting(db, 'STORAGE_MIGRATION_STATUS', 'running');
   await persistMigrationDetail(db, detail);
 
-  return { config, startedAt, detail };
+  return { config, destConfig, startedAt, detail };
 }
 
 /**
@@ -467,13 +591,23 @@ async function collectMigrationFilenames(db, storagePaths) {
 
 /**
  * Run migration work after the lock is held. Updates STORAGE_MIGRATION_DETAIL as it goes.
+ * @param {*} db
+ * @param {{ attachments?: string, avatars?: string }} storagePaths
+ * @param {'disk-to-s3' | 's3-to-disk' | 's3-to-s3'} direction
+ * @param {{ deleteSource?: boolean }} options
+ * @param {import('./storageConfig.js').StorageConfig} config source (or sole) S3/disk config
+ * @param {object} detail
+ * @param {import('./storageConfig.js').StorageConfig | null} [destConfig]
  */
-async function executeMigrationWork(db, storagePaths, direction, options, config, detail) {
+async function executeMigrationWork(db, storagePaths, direction, options, config, detail, destConfig = null) {
   const { deleteSource = false } = options;
 
   try {
     const { createS3Client, s3Delete } = await s3();
-    const client = await createS3Client(config);
+    const isS3ToS3 = direction === 's3-to-s3';
+    const client = isS3ToS3 ? null : await createS3Client(config);
+    const sourceClient = isS3ToS3 ? await createS3Client(config) : null;
+    const destClient = isS3ToS3 ? await createS3Client(destConfig) : null;
 
     const { attNames, avatarNames, attDir, avDir } = await collectMigrationFilenames(
       db,
@@ -485,17 +619,26 @@ async function executeMigrationWork(db, storagePaths, direction, options, config
     detail.phase = attNames.size > 0 ? 'attachments' : avatarNames.size > 0 ? 'avatars' : 'done';
     await persistMigrationDetail(db, detail);
 
+    const sourceLabel =
+      direction === 'disk-to-s3' ? 'disk' : direction === 's3-to-disk' ? 'S3' : 'source S3';
+
     for (const filename of attNames) {
       detail.currentFile = `attachments/${filename}`;
       try {
-        const result = await copyOne(config, storagePaths, 'attachments', filename, direction, client);
+        const result = await copyOne(
+          config,
+          storagePaths,
+          'attachments',
+          filename,
+          direction,
+          client,
+          sourceClient,
+          destClient,
+          destConfig
+        );
         detail.attachments[result] = (detail.attachments[result] || 0) + 1;
         if (result === 'missing' && detail.errors.length < 20) {
-          detail.errors.push(
-            `attachments/${filename}: referenced but not found on ${
-              direction === 'disk-to-s3' ? 'disk' : 'S3'
-            }`
-          );
+          detail.errors.push(`attachments/${filename}: referenced but not found on ${sourceLabel}`);
         }
         if (result === 'copied' && deleteSource) {
           if (direction === 'disk-to-s3') {
@@ -504,8 +647,10 @@ async function executeMigrationWork(db, storagePaths, direction, options, config
             } catch {
               /* ignore */
             }
-          } else {
+          } else if (direction === 's3-to-disk') {
             await s3Delete(client, config, buildObjectKey(config, 'attachments', filename));
+          } else if (direction === 's3-to-s3') {
+            await s3Delete(sourceClient, config, buildObjectKey(config, 'attachments', filename));
           }
         }
       } catch (err) {
@@ -524,14 +669,20 @@ async function executeMigrationWork(db, storagePaths, direction, options, config
     for (const filename of avatarNames) {
       detail.currentFile = `avatars/${filename}`;
       try {
-        const result = await copyOne(config, storagePaths, 'avatars', filename, direction, client);
+        const result = await copyOne(
+          config,
+          storagePaths,
+          'avatars',
+          filename,
+          direction,
+          client,
+          sourceClient,
+          destClient,
+          destConfig
+        );
         detail.avatars[result] = (detail.avatars[result] || 0) + 1;
         if (result === 'missing' && detail.errors.length < 20) {
-          detail.errors.push(
-            `avatars/${filename}: referenced but not found on ${
-              direction === 'disk-to-s3' ? 'disk' : 'S3'
-            }`
-          );
+          detail.errors.push(`avatars/${filename}: referenced but not found on ${sourceLabel}`);
         }
         if (result === 'copied' && deleteSource) {
           if (direction === 'disk-to-s3') {
@@ -540,8 +691,10 @@ async function executeMigrationWork(db, storagePaths, direction, options, config
             } catch {
               /* ignore */
             }
-          } else {
+          } else if (direction === 's3-to-disk') {
             await s3Delete(client, config, buildObjectKey(config, 'avatars', filename));
+          } else if (direction === 's3-to-s3') {
+            await s3Delete(sourceClient, config, buildObjectKey(config, 'avatars', filename));
           }
         }
       } catch (err) {
@@ -562,11 +715,18 @@ async function executeMigrationWork(db, storagePaths, direction, options, config
     const statusValue = hardFail ? 'failed' : missing > 0 ? 'completed_with_warnings' : 'completed';
 
     if (!hardFail) {
-      await settingsQueries.upsertSetting(
-        db,
-        'STORAGE_BACKEND',
-        direction === 'disk-to-s3' ? 's3' : 'disk'
-      );
+      if (direction === 's3-to-s3') {
+        await persistLiveS3Config(db, destConfig);
+        detail.cutoverApplied = true;
+        detail.cutoverBucket = destConfig.bucket;
+        detail.cutoverPrefix = destConfig.keyPrefix || '';
+      } else {
+        await settingsQueries.upsertSetting(
+          db,
+          'STORAGE_BACKEND',
+          direction === 'disk-to-s3' ? 's3' : 'disk'
+        );
+      }
     }
 
     await settingsQueries.upsertSetting(db, 'STORAGE_MIGRATION_STATUS', statusValue);
@@ -592,12 +752,12 @@ async function executeMigrationWork(db, storagePaths, direction, options, config
  * Migrate all known attachment/avatar objects between backends (awaits completion).
  * @param {*} db
  * @param {{ attachments?: string, avatars?: string }} storagePaths
- * @param {'disk-to-s3' | 's3-to-disk'} direction
- * @param {{ deleteSource?: boolean }} [options]
+ * @param {'disk-to-s3' | 's3-to-disk' | 's3-to-s3'} direction
+ * @param {{ deleteSource?: boolean, destination?: Record<string, string> }} [options]
  */
 export async function migrateStorageObjects(db, storagePaths, direction, options = {}) {
-  const { config, detail } = await acquireMigrationLock(db, direction);
-  return executeMigrationWork(db, storagePaths, direction, options, config, detail);
+  const { config, destConfig, detail } = await acquireMigrationLock(db, direction, options);
+  return executeMigrationWork(db, storagePaths, direction, options, config, detail, destConfig);
 }
 
 /**
@@ -605,12 +765,14 @@ export async function migrateStorageObjects(db, storagePaths, direction, options
  * Progress is written to STORAGE_MIGRATION_STATUS / STORAGE_MIGRATION_DETAIL.
  */
 export async function startStorageMigration(db, storagePaths, direction, options = {}) {
-  const { config, detail } = await acquireMigrationLock(db, direction);
+  const { config, destConfig, detail } = await acquireMigrationLock(db, direction, options);
 
   setImmediate(() => {
-    executeMigrationWork(db, storagePaths, direction, options, config, detail).catch((err) => {
-      console.error('❌ Background storage migration failed:', err?.message || err);
-    });
+    executeMigrationWork(db, storagePaths, direction, options, config, detail, destConfig).catch(
+      (err) => {
+        console.error('❌ Background storage migration failed:', err?.message || err);
+      }
+    );
   });
 
   return { started: true, direction, detail };
