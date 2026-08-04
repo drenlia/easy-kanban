@@ -408,7 +408,7 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
 
   return (
     <div
-      className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50"
+      className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-[10030]"
       role="presentation"
       onClick={handleClose}
     >

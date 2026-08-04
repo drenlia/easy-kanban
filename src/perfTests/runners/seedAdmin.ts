@@ -46,8 +46,9 @@ const TAG_WORDS = [
   'quartz', 'river', 'solar', 'tide', 'ultra', 'vortex', 'wave', 'xenon',
 ];
 
+/** Matches only emails created by runSeedUsers (`perf.user.<batch>.<n>@local`). */
 export function isPerfSeedUserEmail(email: string): boolean {
-  return /^perf\.user\..+@local$/i.test(String(email || '').trim());
+  return /^perf\.user\.\d+\.\d+@local$/i.test(String(email || '').trim());
 }
 
 export function isPerfSeedTagName(name: string): boolean {
@@ -55,7 +56,30 @@ export function isPerfSeedTagName(name: string): boolean {
 }
 
 export function isPerfSeedSprintName(name: string): boolean {
-  return /^Perf Sprint /i.test(String(name || '').trim());
+  return /^Perf Sprint \d+-\d+$/i.test(String(name || '').trim());
+}
+
+const PROTECTED_SEED_CLEANUP_EMAILS = new Set([
+  'system@local',
+  'agent@local',
+  'admin@kanban.local',
+]);
+
+function isProtectedCleanupUser(u: {
+  id?: string;
+  email?: string;
+  roles?: string[] | string;
+}): boolean {
+  const email = String(u.email || '')
+    .trim()
+    .toLowerCase();
+  if (PROTECTED_SEED_CLEANUP_EMAILS.has(email)) return true;
+  const roles = Array.isArray(u.roles)
+    ? u.roles
+    : typeof u.roles === 'string'
+      ? u.roles.split(',')
+      : [];
+  return roles.some((r) => String(r).trim().toLowerCase() === 'admin');
 }
 
 function toDateInput(d: Date): string {
@@ -298,13 +322,21 @@ export async function runSeedAll(opts: SeedAllOptions): Promise<PerfRunRecord[]>
 
 export async function runSeedCleanup(opts: {
   signal: AbortSignal;
+  /** Never delete this account (logged-in session). */
+  excludeUserId?: string | null;
+  excludeUserEmail?: string | null;
   onProgress?: (message: string) => void;
 }): Promise<PerfRunRecord> {
   const startedAt = new Date().toISOString();
   beginRun();
   let cancelled = false;
+  const excludeId = opts.excludeUserId ? String(opts.excludeUserId) : '';
+  const excludeEmail = String(opts.excludeUserEmail || '')
+    .trim()
+    .toLowerCase();
+  let usersSkipped = 0;
 
-  // Users
+  // Users — only exact seed emails; never touch session / protected / admins
   opts.onProgress?.('Finding seed users…');
   let users: any[] = [];
   try {
@@ -312,17 +344,40 @@ export async function runSeedCleanup(opts: {
   } catch {
     users = [];
   }
-  const seedUsers = (Array.isArray(users) ? users : []).filter((u) =>
-    isPerfSeedUserEmail(u.email || '')
-  );
+  const allUsers = Array.isArray(users) ? users : [];
+  const seedUsers = allUsers.filter((u) => {
+    if (!isPerfSeedUserEmail(u.email || '')) return false;
+    if (excludeId && String(u.id) === excludeId) {
+      usersSkipped += 1;
+      return false;
+    }
+    if (excludeEmail && String(u.email || '').trim().toLowerCase() === excludeEmail) {
+      usersSkipped += 1;
+      return false;
+    }
+    if (isProtectedCleanupUser(u)) {
+      usersSkipped += 1;
+      return false;
+    }
+    return Boolean(u.id);
+  });
   for (const u of seedUsers) {
     if (opts.signal.aborted) {
       cancelled = true;
       break;
     }
     opts.onProgress?.(`Deleting user ${u.email}…`);
-    const { sample } = await timeOp(() => deleteUser(u.id));
+    const { sample } = await timeOp(() => deleteUser(String(u.id)));
     recordOp(sample);
+    // Ease connection-pool pressure from delete + websocket list refreshes
+    try {
+      await sleep(25, opts.signal);
+    } catch (err) {
+      if (isAbortError(err)) {
+        cancelled = true;
+        break;
+      }
+    }
   }
 
   // Tags
@@ -378,6 +433,7 @@ export async function runSeedCleanup(opts: {
     boardId: 'admin',
     params: {
       usersMatched: seedUsers.length,
+      usersSkipped,
     },
     startedAt,
     cancelled,

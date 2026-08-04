@@ -61,7 +61,10 @@ const inputClass =
  * Admin-context PERF TESTS panel: seed users (@local, active, no invite),
  * tags, and sprints — plus cleanup by naming convention.
  */
-const AdminSeedOverlay: React.FC = () => {
+const AdminSeedOverlay: React.FC<{
+  currentUserId?: string | null;
+  currentUserEmail?: string | null;
+}> = ({ currentUserId, currentUserEmail }) => {
   const [collapsed, setCollapsed] = useState(readCollapsedPreference);
   const [usersInput, setUsersInput] = useState('5');
   const [tagsInput, setTagsInput] = useState('10');
@@ -210,6 +213,8 @@ const AdminSeedOverlay: React.FC = () => {
     try {
       const run = await runSeedCleanup({
         signal: ac.signal,
+        excludeUserId: currentUserId,
+        excludeUserEmail: currentUserEmail,
         onProgress: setStatus,
       });
       setStatus(summarize(run));

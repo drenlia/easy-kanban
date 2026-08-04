@@ -2698,11 +2698,28 @@ function AppContent() {
       // console.error('Current user not found in members list');
       return false;
     }
-    
-    // Use provided dates or default to today
-    const taskStartDate = startDate || new Date().toISOString().split('T')[0];
-    const taskDueDate = dueDate || taskStartDate;
-    
+
+    // Auto-assign the header sprint filter when a concrete sprint is selected
+    // (not "All" / null, and not Backlog).
+    const filterSprintId = taskFilters.selectedSprintId;
+    const autoSprintId =
+      filterSprintId && filterSprintId !== 'backlog' ? filterSprintId : null;
+    const autoSprint = autoSprintId
+      ? availableSprints.find((s: any) => s.id === autoSprintId)
+      : null;
+
+    // Prefer caller dates (e.g. Gantt drag); otherwise sprint window, else today.
+    const taskStartDate =
+      startDate ||
+      (autoSprint?.start_date
+        ? formatToYYYYMMDD(autoSprint.start_date)
+        : new Date().toISOString().split('T')[0]);
+    const taskDueDate =
+      dueDate ||
+      (autoSprint?.end_date
+        ? formatToYYYYMMDD(autoSprint.end_date)
+        : taskStartDate);
+
     const newTask: Task = {
       id: generateUUID(),
       title: 'New Task',
@@ -2716,7 +2733,8 @@ function AppContent() {
       priority: getDefaultPriority(), // Use frontend default priority
       requesterId: currentUserMember.id,
       boardId: selectedBoard,
-      comments: []
+      comments: [],
+      sprintId: autoSprintId,
     };
 
     // OPTIMISTIC UPDATE: Add task to UI immediately for instant feedback
@@ -4748,7 +4766,10 @@ function AppContent() {
       {shouldShowPerfTests(userPerfTestsEnabled, currentUser) &&
         currentPage === 'admin' && (
           <Suspense fallback={null}>
-            <AdminSeedOverlay />
+            <AdminSeedOverlay
+              currentUserId={currentUser?.id}
+              currentUserEmail={currentUser?.email}
+            />
           </Suspense>
         )}
 

@@ -70,6 +70,10 @@ router.delete('/api/admin/users/:id',
 
 **Public routes** are explicitly listed in AGENTS.md. All other routes MUST use `authenticateToken`.
 
+**Media files (avatars, attachments):** browser `<img>` / downloads use HttpOnly cookie `ek_media` (`purpose: media` JWT) from `POST /api/files/media-session`. Do **not** put the session JWT in `?token=`. PATs (`ek_…`) authenticate JSON APIs via `Authorization: Bearer`; they do not replace the media cookie for same-origin image loads. Inactive / `force_logout` users fail media and WebSocket auth (`userMayUseSession`).
+
+**JSON body validation:** use Zod `parseBody` from `server/utils/requestValidation.js` on write routes. Multipart uploads stay on multer + magic-byte checks.
+
 ### 4. Real-Time Updates
 
 Publish events after database changes:
@@ -103,7 +107,8 @@ await notificationService.publish('task-created', {
 - [ ] Add real-time event publishing if data changes
 - [ ] Apply rate limiting for sensitive operations
 - [ ] Handle errors without exposing stack traces
-- [ ] Test with both SQLite and PostgreSQL if possible
+- [ ] Validate JSON bodies with Zod `parseBody` when adding write routes
+- [ ] Test against PostgreSQL (the only supported database)
 ```
 
 **Example:**
@@ -114,18 +119,18 @@ import { authenticateToken } from '../middleware/auth.js';
 import { getRequestDatabase, getTenantId } from '../middleware/tenantRouting.js';
 import { tasks as taskQueries } from '../utils/sqlManager/index.js';
 import notificationService from '../services/notificationService.js';
+import { parseBody, createTaskBodySchema } from '../utils/requestValidation.js';
 
 const router = express.Router();
 
 router.post('/', authenticateToken, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
-    const { title, description, boardId } = req.body;
-    
-    // Validate input
-    if (!title || !boardId) {
-      return res.status(400).json({ error: 'Title and boardId are required' });
+    const parsed = parseBody(createTaskBodySchema, req.body || {});
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error });
     }
+    const { title, description, boardId } = parsed.data;
     
     // Create task via sqlManager
     const taskId = crypto.randomUUID();
@@ -163,7 +168,7 @@ export default router;
 **Checklist:**
 ```
 - [ ] Add migration to MIGRATIONS array in chronological order
-- [ ] Include both SQLite and PostgreSQL syntax
+- [ ] Use PostgreSQL DDL only (`$1` placeholders / PG types)
 - [ ] Use parameterized queries for data operations
 - [ ] Test rollback if provided
 - [ ] Update version number
@@ -176,29 +181,14 @@ export default router;
   version: 42,
   name: 'add_task_priority_column',
   up: async (db) => {
-    const isPostgres = isPostgresDatabase(db);
-    
-    if (isPostgres) {
-      await dbExec(db, `
-        ALTER TABLE tasks 
-        ADD COLUMN priority VARCHAR(20) DEFAULT 'medium';
-      `);
-    } else {
-      await dbExec(db, `
-        ALTER TABLE tasks 
-        ADD COLUMN priority TEXT DEFAULT 'medium';
-      `);
-    }
-    
+    await dbExec(db, `
+      ALTER TABLE tasks
+      ADD COLUMN IF NOT EXISTS priority VARCHAR(20) DEFAULT 'medium';
+    `);
     console.log('✅ Migration 42: Added priority column to tasks');
   },
   down: async (db) => {
-    // SQLite doesn't support DROP COLUMN easily, so we'd need to recreate table
-    // PostgreSQL supports it:
-    const isPostgres = isPostgresDatabase(db);
-    if (isPostgres) {
-      await dbExec(db, 'ALTER TABLE tasks DROP COLUMN priority;');
-    }
+    await dbExec(db, 'ALTER TABLE tasks DROP COLUMN IF EXISTS priority;');
   }
 }
 ```
@@ -357,14 +347,7 @@ When testing multi-tenant features:
 
 ### Database Compatibility
 
-Test queries work with both:
-- **SQLite**: Local development, single-tenant deployments
-- **PostgreSQL**: Production, multi-tenant deployments
-
-Key differences:
-- Parameter placeholders: `?` (SQLite) vs `$1, $2` (PostgreSQL)
-- Boolean values: `0/1` (SQLite) vs `true/false` (PostgreSQL)
-- Timestamps: `datetime('now')` (SQLite) vs `CURRENT_TIMESTAMP` (PostgreSQL)
+PostgreSQL is the only supported database (Docker and Kubernetes). Use `$1` placeholders, boolean `true`/`false`, and `CURRENT_TIMESTAMP` / `::text` casts for date fields exposed to the UI.
 
 ## Security Checklist
 
@@ -374,11 +357,12 @@ Before merging code, verify:
 - [ ] Multi-tenant isolation: `getRequestDatabase(req)` used correctly
 - [ ] No raw SQL in routes (sqlManager only)
 - [ ] Parameterized queries (no SQL injection)
-- [ ] Input validation on user-controlled data
+- [ ] JSON writes use Zod `parseBody` where applicable
 - [ ] No error stack traces exposed to clients
 - [ ] Rate limiting applied to sensitive endpoints
 - [ ] JWT tokens contain minimal user info (id, email, role only)
-- [ ] File uploads validated (size, mime type, extension)
+- [ ] File uploads validated (size, mime type, extension, magic bytes)
+- [ ] Media URLs do not embed the session JWT in `?token=`
 
 ## File Structure Reference
 

@@ -85,6 +85,7 @@ Typical keys in `k8s/configmap-pg.yaml` / app env:
 - `TENANT_DOMAIN=ezkan.cloud` (hostname → tenant id)
 - `DB_TYPE=postgresql` / `POSTGRES_*` pointing at in-cluster Postgres
 - `REDIS_URL` for the Socket.IO adapter
+- Keep `DEMO_ENABLED` unset/`false` and do not set `ALLOW_TEST_ENDPOINTS` on real production hosts
 
 ### Secrets (do not put in ConfigMap)
 

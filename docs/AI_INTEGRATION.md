@@ -250,7 +250,8 @@ Automation jobs run `runner/src/automationLoop.js` (discover → `submit_dry_run
 ## Auth notes
 
 - Standard routes: `Authorization: Bearer <JWT>`.
-- PATs (`ek_…`) are accepted by `authenticateToken` when JWT verify fails / token looks like a PAT (`server/middleware/auth.js`).
+- PATs (`ek_…`) are accepted by `authenticateToken` when JWT verify fails / token looks like a PAT (`server/middleware/auth.js`). Use PATs for JSON `/api/agent` (and other API) calls from tools/runners — not for browser `<img>` loads.
+- **Browser media** (avatars, attachment previews): HttpOnly `ek_media` cookie (`purpose: media` JWT) from `POST /api/files/media-session`. Session JWTs must not appear in `?token=` on file URLs. Media tokens cannot authorize normal API routes.
 - **Automation job tokens** (`ea_…`): short-lived, sha256-hashed in `agent_automation_tokens`, scoped to boards; not user Profile Dev PATs.
 - Runner ↔ app: shared `RUNNER_TOKEN` for job APIs; **per-job** callback token for callbacks (do not reuse runner token as callback auth).
 - Never log raw API keys, PATs, or SSH private keys. Admin GETs mask `AI_API_KEY` / `AI_RUNNER_TOKEN` like SMTP secrets.

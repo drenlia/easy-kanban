@@ -222,8 +222,11 @@ npm run docker:dev
 
 - Change the default admin password immediately after first login
 - Set a strong `JWT_SECRET` in your environment variables
-- Configure HTTPS/SSL for production
-- Review and restrict `ALLOWED_ORIGINS` for CORS
+- Keep `DEMO_ENABLED=false` unless you intentionally run the demo compose stack
+- Do not enable `ALLOW_TEST_ENDPOINTS` on production
+- Configure HTTPS/TLS for production
+- Review and restrict `ALLOWED_ORIGINS` for CORS / Socket.IO where applicable
+- Media files authenticate via HttpOnly `ek_media` cookie (session JWT must not appear in file URL query strings)
 - Consider additional network security measures (firewall, VPN, etc.)
 - Regularly update Docker images and dependencies
 

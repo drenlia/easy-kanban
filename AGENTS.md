@@ -64,7 +64,9 @@ When designing or changing any screen, treat **density, alignment, and input aff
  - `loginLimiter` for login attempts
  - `passwordResetRequestLimiter` (3/hour) and `passwordResetCompletionLimiter` (6/hour)
  - `registrationLimiter` and `activationLimiter` for account creation
-- **File media auth (I3):** same-origin `<img>` / attachment loads use HttpOnly cookie `ek_media` (`purpose: media` JWT) set by `POST /api/files/media-session` after login. Default lifetime `MEDIA_TOKEN_EXPIRES_IN` = **8h** (override via env); client refreshes hourly / on tab focus. Do **not** embed the session JWT in `?token=`. File GETs prefer cookie, then Bearer; query `?token=` is accepted only for `purpose: media` tokens (session JWTs in query are rejected). Media tokens must not authorize API routes (`authenticateToken` rejects `purpose: media`).
+- **File media auth (I3):** same-origin `<img>` / attachment loads use HttpOnly cookie `ek_media` (`purpose: media` JWT) set by `POST /api/files/media-session` after login. Default lifetime `MEDIA_TOKEN_EXPIRES_IN` = **8h** (override via env); client refreshes hourly / on tab focus. Do **not** embed the session JWT in `?token=`. File GETs prefer cookie, then Bearer; query `?token=` is accepted only for `purpose: media` tokens (session JWTs in query are rejected). Media tokens must not authorize API routes (`authenticateToken` rejects `purpose: media`). Inactive / `force_logout` users are rejected on media and WebSocket paths (`userMayUseSession`); deactivate/delete kicks live sockets.
+- **CSP:** `Content-Security-Policy-Report-Only` with `report-uri` / `Report-To` → public `POST /api/csp-report` (rate-limited). Admins review/clear via `GET`/`DELETE /api/admin/csp-reports` and **Admin → Troubleshooting → CSP reports**. Stay Report-Only until that list is quiet, then enforce.
+- **Request validation:** Zod `parseBody` from `server/utils/requestValidation.js` on tenant + agent JSON write routes. Multipart uploads use multer + magic-byte checks instead.
 - Use sqlManager queries from `server/utils/sqlManager/index.js` (never write raw SQL in routes)
 - Handle multi-tenant database access via `getRequestDatabase(req)` from `server/middleware/tenantRouting.js`
 - Never expose error stack traces to clients (log errors server-side only)
@@ -121,18 +123,18 @@ When restoring **task/comment email** notifications (throttled queue in `notific
 - **Enqueue** using the **request-scoped tenant DB** (`getRequestDatabase(req)` / `additionalData.db` from activity logging), same as today’s activity logger pattern.
 - **Process** by iterating **each tenant database** that the instance knows about (same idea as `getAllTenantDatabases()` in `tenantRouting.js` for cron), not only `defaultDb`.
 
-### New tenants must be visible on every pod (onboarding caveat)
+### New tenants must be visible on every pod (onboarding)
 
-- Tenant DB handles are typically held in a **per-process cache** (`dbCache` in `tenantRouting.js`). **`getAllTenantDatabases()` only returns tenants already cached on that pod** (usually after at least one HTTP request opened that tenant).
-- **Implication:** background jobs (queue processor, cleanup, etc.) on a given pod may **not** see **newly onboarded** tenants until that pod has loaded their DB (first request to that host, explicit warm-up, or a future **tenant registry** that opens connections per known tenant ID).
-- When implementing or changing onboarding, **always consider**: ensuring **every pod** eventually has the new tenant in cache, or providing a **registry-driven** iteration path so scheduled work is not skipped for new tenants.
+- Multi-tenant `getAllTenantDatabases()` lists `tenant_*` schemas from PostgreSQL `information_schema`, then opens each DB (cache used as a fast path). Prefer that registry path for cron/queue so new tenants are not skipped just because a pod never served their Host yet.
+- When changing onboarding, keep the schema-registry iteration working so scheduled jobs cover every tenant.
 
 ## Security Checklist (agent must verify)
 - No hardcoded secrets (use environment variables: `JWT_SECRET`, `INSTANCE_TOKEN`, `SMTP_*`)
 - All database queries go through sqlManager (PostgreSQL parameterized queries)
 - JWT tokens validated via `authenticateToken` middleware before accessing protected routes
 - Multi-tenant isolation: users can only access data from their tenant's database
-- Security headers set globally in `server/index.js` (X-Content-Type-Options, X-Frame-Options, HSTS, etc.)
+- Security headers set globally in `server/index.js` (X-Content-Type-Options, X-Frame-Options, HSTS, CSP Report-Only, etc.)
 - CORS handled by nginx (Express CORS middleware disabled to avoid duplicate headers)
 - File uploads validated via `server/utils/fileValidation.js` (size / MIME / extensions) and `server/utils/fileMagicBytes.js` (content signatures for avatars, logos, attachments)
+- Test/debug endpoints (`/api/test/*`, `/api/auth/test/callback`) return 404 in production unless `ALLOW_TEST_ENDPOINTS=true`; `demo-credentials` requires `DEMO_ENABLED=true`
 - Instance status checks prevent actions on suspended/terminated instances (`server/middleware/instanceStatus.js`)

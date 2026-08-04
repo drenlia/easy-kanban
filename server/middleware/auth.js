@@ -177,8 +177,11 @@ export const authenticateToken = async (req, res, next) => {
         };
         return next();
       } catch (dbError) {
+        // Transient DB errors (pool exhaustion, lock timeouts during bulk admin
+        // deletes, etc.) must not look like an invalid session — the axios
+        // interceptor clears authToken on 401 and logs the user out.
         console.error('❌ [AUTH] Error checking user in database:', dbError);
-        return res.status(401).json({ error: 'Authentication failed' });
+        return res.status(503).json({ error: 'Authentication temporarily unavailable' });
       }
     }
     

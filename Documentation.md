@@ -618,6 +618,8 @@ Optional feature. Requires an administrator to enable AI and configure an LLM (a
 
 ## Keyboard Shortcuts
 
+In the app, open **Help → Shortcuts** (F1 or **?**) for the same reference.
+
 ### Global Shortcuts
 - **F1** or **?**: Open help modal (`?` ignored while typing in a field)
 - **Escape**: Close modals, confirmation dialogs, and exit edit modes (layered: overlays first, then task details, then multi-select)
@@ -627,6 +629,7 @@ Optional feature. Requires an administrator to enable AI and configure an LLM (a
 - **/** or **Ctrl/Cmd+K**: Focus header task search
 - **N**: Create a new task in the first column
 - **1 / 2 / 3**: Switch Kanban / List / Gantt view
+- **Escape** (in search/filter panel): Clear the focused field, then clear all filters (same as the X controls)
 
 ### Admin
 - **/** or **Ctrl/Cmd+K**: Focus settings search
@@ -645,7 +648,7 @@ Optional feature. Requires an administrator to enable AI and configure an LLM (a
 ### Task Management
 - **Click**: Select task
 - **Drag**: Move tasks between columns using the handle
-- **S** (while hovering a card): Toggle multi-select checkbox
+- **S** (Kanban view only, while hovering a card): Toggle multi-select checkbox
 - **Ctrl/Cmd + click** on a card: Toggle multi-select
 
 ---
@@ -676,6 +679,12 @@ Optional feature. Requires an administrator to enable AI and configure an LLM (a
   - **Admin**: floating **PERF TESTS · ADMIN** — seed users (`perf.user…@local`, active, no invite), tags (`perf-tag-…`), sprints (`Perf Sprint …`), Seed all, Cleanup seed
 - **Disable**: Turn the same toggle off when finished; other admins never see the overlay from your preference
 - **Multi-user load**: Each participating admin enables the overlay on their own account; each tab runs its own client-driven scenarios
+
+#### CSP reports (security hardening)
+- **Where**: Admin → App Settings → Troubleshooting → **CSP reports**
+- **What**: Browser Content-Security-Policy (Report-Only) violations collected at `POST /api/csp-report` and stored per tenant
+- **Use**: Review the list after normal usage; Clear when done. Keep CSP Report-Only until the list stays quiet, then enforce
+- **Details**: See `DEBUGGING.md` (CSP reports section) and `audit/security-assessment-current-2026-08.md` (S4)
 
 #### Performance Issues
 - **Symptoms**: Slow loading, laggy interface
