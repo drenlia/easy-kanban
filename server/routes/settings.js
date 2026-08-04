@@ -521,6 +521,39 @@ router.put('/', authenticateToken, requireRole(['admin']), async (req, res, next
         error: 'Local disk storage is not available in multi-tenant mode. Use S3 (platform or custom).'
       });
     }
+
+    // Do not activate S3 without a successful connection test (platform-managed is exempt)
+    if (key === 'STORAGE_BACKEND' && String(safeValue).toLowerCase() === 's3') {
+      const currentBackend = String(
+        (await getSettingValue(db, 'STORAGE_BACKEND')) || 'disk'
+      ).toLowerCase();
+      if (currentBackend !== 's3') {
+        const storageManaged = (await getSettingValue(db, 'STORAGE_MANAGED')) === 'true';
+        const testOk = (await getSettingValue(db, 'STORAGE_TEST_OK')) === 'true';
+        if (!storageManaged) {
+          if (!testOk) {
+            return res.status(400).json({
+              error:
+                'S3 storage cannot be activated until Test S3 connection succeeds. Configure credentials and run the test first.',
+              code: 'STORAGE_TEST_REQUIRED'
+            });
+          }
+          const { loadStorageConfig, validateS3Config } = await import(
+            '../services/storage/storageConfig.js'
+          );
+          const config = await loadStorageConfig(db);
+          const validation = validateS3Config(config);
+          if (!validation.ok) {
+            return res.status(400).json({
+              error:
+                validation.error ||
+                'S3 storage cannot be activated until credentials are configured and Test S3 connection succeeds.',
+              code: 'STORAGE_CONFIG_INCOMPLETE'
+            });
+          }
+        }
+      }
+    }
     
     // Do not clear / overwrite masked secrets when admin leaves the display value
     if (isSecretSettingKey(key)) {

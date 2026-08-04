@@ -410,6 +410,7 @@
     "backendS3Hint": "Les fichiers sont dans un bucket S3 ou compatible S3.",
     "backendActive": "Actif",
     "backendPendingSave": "Sélectionné — enregistrer pour appliquer",
+    "saveS3NeedsTest": "Configurez S3 et réussissez le test de connexion avant d’enregistrer pour basculer vers S3.",
     "diskModeTitle": "Disque local actif",
     "diskModeDescription": "Les pièces jointes et avatars sont lus et écrits sur le disque de cette instance. Configurez S3 ci-dessous si vous prévoyez de basculer ou de migrer.",
     "s3ModeTitle": "Stockage objet S3 actif",

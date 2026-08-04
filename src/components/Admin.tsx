@@ -806,6 +806,58 @@ const Admin: React.FC<AdminProps> = ({
         }
       }
       
+      // Do not activate S3 without a successful connection test (managed platform S3 is exempt)
+      const nextBackend =
+        settingValueAsString(settingsToSave.STORAGE_BACKEND || settings.STORAGE_BACKEND)
+          .trim()
+          .toLowerCase() || 'disk';
+      const currBackend =
+        settingValueAsString(settings.STORAGE_BACKEND).trim().toLowerCase() || 'disk';
+      if (nextBackend === 's3' && currBackend !== 's3') {
+        const managed =
+          settingValueAsString(
+            settingsToSave.STORAGE_MANAGED || settings.STORAGE_MANAGED
+          ).trim() === 'true';
+        const testOk =
+          settingValueAsString(
+            settingsToSave.STORAGE_TEST_OK || settings.STORAGE_TEST_OK
+          ).trim() === 'true';
+        const hasBucket = Boolean(
+          settingValueAsString(
+            settingsToSave.S3_BUCKET || settings.S3_BUCKET
+          ).trim()
+        );
+        const hasRegionOrEndpoint = Boolean(
+          settingValueAsString(
+            settingsToSave.S3_REGION || settings.S3_REGION
+          ).trim() ||
+            settingValueAsString(
+              settingsToSave.S3_ENDPOINT || settings.S3_ENDPOINT
+            ).trim()
+        );
+        const hasAccessKey = Boolean(
+          settingValueAsString(
+            settingsToSave.S3_ACCESS_KEY_ID || settings.S3_ACCESS_KEY_ID
+          ).trim()
+        );
+        const secretSet =
+          settingValueAsString(
+            settingsToSave.S3_SECRET_ACCESS_KEY_SET || settings.S3_SECRET_ACCESS_KEY_SET
+          ).trim() === 'true' ||
+          Boolean(
+            settingValueAsString(
+              settingsToSave.S3_SECRET_ACCESS_KEY || settings.S3_SECRET_ACCESS_KEY
+            ).trim()
+          );
+        if (
+          !managed &&
+          !(testOk && hasBucket && hasRegionOrEndpoint && hasAccessKey && secretSet)
+        ) {
+          toast.error(t('storage.saveS3NeedsTest'), '');
+          return false;
+        }
+      }
+
       // Save each setting individually
       for (const [key, value] of Object.entries(settingsToSave)) {
         // Skip accidental DOM/React event props (from a prior buggy Save) and invalid keys

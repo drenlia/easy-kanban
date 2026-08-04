@@ -409,6 +409,7 @@
     "backendS3Hint": "Files live in an S3 or S3-compatible bucket.",
     "backendActive": "Active",
     "backendPendingSave": "Selected — save to apply",
+    "saveS3NeedsTest": "Configure S3 and run Test S3 connection successfully before saving to switch to S3.",
     "diskModeTitle": "Using local disk",
     "diskModeDescription": "Attachments and avatars are read from and written to this instance’s disk. Configure S3 below if you plan to switch or migrate.",
     "s3ModeTitle": "Using S3 object storage",

@@ -237,6 +237,12 @@ const AdminStorageTab: React.FC<AdminStorageTabProps> = ({
         secretReady
     );
 
+  /** Switching disk → S3 requires credentials + a successful Test (managed S3 is already live). */
+  const s3ActivationBlocked =
+    backendPending && isS3 && !isManaged && !(canTestS3() && testOk);
+  const canSaveStorage =
+    hasChanges && !isManaged && !configuringDest && !s3ActivationBlocked;
+
   /** Managed env, or complete credentials + a successful Test connection. */
   const canMigrateS3 = isManaged || (canTestS3() && testOk);
 
@@ -866,6 +872,11 @@ const AdminStorageTab: React.FC<AdminStorageTabProps> = ({
                 {t('storage.multiTenantHint')}
               </p>
             )}
+            {s3ActivationBlocked && (
+              <p className="text-xs text-amber-700 dark:text-amber-300 mt-2">
+                {t('storage.saveS3NeedsTest')}
+              </p>
+            )}
           </div>
 
           {/* Mode summary */}
@@ -1338,8 +1349,9 @@ const AdminStorageTab: React.FC<AdminStorageTabProps> = ({
             <button
               type="button"
               onClick={() => void onSave()}
-              disabled={!hasChanges || isManaged || configuringDest}
+              disabled={!canSaveStorage}
               className="px-3 py-1.5 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 disabled:opacity-50"
+              title={s3ActivationBlocked ? t('storage.saveS3NeedsTest') : undefined}
             >
               {t('storage.save')}
             </button>
