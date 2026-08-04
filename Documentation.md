@@ -660,10 +660,10 @@ Optional feature. Requires an administrator to enable AI and configure an LLM (a
 - **Prevention**: Ensure proper user role assignment
 
 #### Performance Test Overlay (admin troubleshooting)
-- **Enable**: Admin → Site Settings → **Performance Test Overlay** (`FE_PERF_TESTS`), or `PUT /api/admin/settings` with `{ "key": "FE_PERF_TESTS", "value": "true" }`
-- **Use**: On the Kanban board as an admin, open the floating **PERF TESTS** panel — Generate tasks, Move tasks (0.5–2s random moves), Cleanup, and report modals (last run / session history)
-- **Disable**: Turn the same setting off when finished so the overlay does not mount
-- **Multi-user load**: Open multiple browsers/accounts with the flag enabled; each tab runs its own client-driven scenarios
+- **Enable**: Admin → App Settings → Troubleshooting → **Performance Test Overlay** (type `TROUBLE` first on multi-tenant/demo). Saves to **your** `user_settings.FE_PERF_TESTS` via `PUT /api/user/settings`
+- **Use**: On the Kanban board as that admin, open the floating **PERF TESTS** panel — Generate tasks, Move tasks (0.5–2s random moves), Cleanup, and report modals (last run / session history)
+- **Disable**: Turn the same toggle off when finished; other admins never see the overlay from your preference
+- **Multi-user load**: Each participating admin enables the overlay on their own account; each tab runs its own client-driven scenarios
 
 #### Performance Issues
 - **Symptoms**: Slow loading, laggy interface

@@ -351,14 +351,32 @@ const Header: React.FC<HeaderProps> = ({
     return () => clearInterval(interval);
   }, [currentUser?.roles, showSystemPanel, isSystemPanelAvailable]);
 
-  // Tour can force the metrics panel open without flipping a closed preference the wrong way
+  // Tour can force the metrics panel open without flipping a closed preference the wrong way.
+  // Remember the pre-tour visibility so finish/skip can restore it.
+  const showSystemPanelRef = useRef(showSystemPanel);
+  showSystemPanelRef.current = showSystemPanel;
+  const systemPanelBeforeTourRef = useRef<boolean | null>(null);
+
   useEffect(() => {
     if (!isSystemPanelAvailable) return;
     const openForTour = () => {
+      if (systemPanelBeforeTourRef.current === null) {
+        systemPanelBeforeTourRef.current = showSystemPanelRef.current;
+      }
       setShowSystemPanel(true);
     };
+    const restoreAfterTour = () => {
+      if (systemPanelBeforeTourRef.current !== null) {
+        setShowSystemPanel(systemPanelBeforeTourRef.current);
+        systemPanelBeforeTourRef.current = null;
+      }
+    };
     window.addEventListener('tour:ensure-system-panel', openForTour);
-    return () => window.removeEventListener('tour:ensure-system-panel', openForTour);
+    window.addEventListener('tour:restore-system-panel', restoreAfterTour);
+    return () => {
+      window.removeEventListener('tour:ensure-system-panel', openForTour);
+      window.removeEventListener('tour:restore-system-panel', restoreAfterTour);
+    };
   }, [isSystemPanelAvailable]);
 
   const handleInviteClick = () => {

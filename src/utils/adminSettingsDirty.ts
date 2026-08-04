@@ -120,7 +120,6 @@ function isAppSettingsKey(key: string): boolean {
     key.startsWith('DEFAULT_') ||
     key.startsWith('FE_DEBUG_') ||
     key.startsWith('SERVER_DEBUG_') ||
-    key === 'FE_PERF_TESTS' ||
     key === 'SHOW_ACTIVITY_FEED' ||
     key === 'TASK_DELETE_CONFIRM' ||
     key === 'ALLOW_USER_SELF_DELETE'
@@ -214,8 +213,7 @@ export function appSettingsSubTabForKey(key: string): AppSettingsSubTabId | null
   if (!isAppSettingsKey(key)) return null;
   if (
     key.startsWith('FE_DEBUG_') ||
-    key.startsWith('SERVER_DEBUG_') ||
-    key === 'FE_PERF_TESTS'
+    key.startsWith('SERVER_DEBUG_')
   ) {
     return 'troubleshooting';
   }

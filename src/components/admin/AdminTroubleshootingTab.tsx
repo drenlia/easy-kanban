@@ -1,6 +1,6 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import api from '../../api';
+import api, { getUserSettings, updateUserSetting } from '../../api';
 import {
   FE_CLIENT_DEBUG_KEYS,
   SERVER_DEBUG_KEYS,
@@ -8,9 +8,14 @@ import {
   type ServerDebugKey,
 } from '../../constants/clientDebugKeys';
 import { useSettings } from '../../contexts/SettingsContext';
+import {
+  isPerfTestsUserSettingEnabled,
+  notifyPerfTestsPreference,
+  PERF_TESTS_USER_SETTING_KEY,
+} from '../../perfTests';
 import { toast } from '../../utils/toast';
 
-type TroubleshootKey = FeClientDebugKey | ServerDebugKey | 'FE_PERF_TESTS';
+type TroubleshootKey = FeClientDebugKey | ServerDebugKey;
 
 interface AdminTroubleshootingTabProps {
   editingSettings: { [key: string]: string | undefined };
@@ -30,6 +35,28 @@ const AdminTroubleshootingTab: React.FC<AdminTroubleshootingTabProps> = ({
   const { t } = useTranslation('admin');
   const { updateSiteSettings } = useSettings();
   const [savingKey, setSavingKey] = useState<string | null>(null);
+  const [perfTestsEnabled, setPerfTestsEnabled] = useState(false);
+  const [perfTestsLoaded, setPerfTestsLoaded] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const settings = await getUserSettings();
+        if (cancelled) return;
+        setPerfTestsEnabled(
+          isPerfTestsUserSettingEnabled(settings?.[PERF_TESTS_USER_SETTING_KEY])
+        );
+      } catch (error) {
+        console.error('Failed to load perf tests preference:', error);
+      } finally {
+        if (!cancelled) setPerfTestsLoaded(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const toggle = useCallback(
     async (key: TroubleshootKey) => {
@@ -48,6 +75,24 @@ const AdminTroubleshootingTab: React.FC<AdminTroubleshootingTabProps> = ({
     },
     [editingSettings, onAutoSave, onSettingsChange]
   );
+
+  const togglePerfTests = useCallback(async () => {
+    const previous = perfTestsEnabled;
+    const next = !previous;
+    setPerfTestsEnabled(next);
+    setSavingKey(PERF_TESTS_USER_SETTING_KEY);
+    try {
+      await updateUserSetting(PERF_TESTS_USER_SETTING_KEY, next ? 'true' : 'false');
+      notifyPerfTestsPreference(next);
+      toast.success(t('appSettings.settingSaved'), '');
+    } catch (error) {
+      console.error('Failed to save perf tests preference:', error);
+      setPerfTestsEnabled(previous);
+      toast.error(t('failedToSaveSetting', { key: PERF_TESTS_USER_SETTING_KEY }), '');
+    } finally {
+      setSavingKey(null);
+    }
+  }, [perfTestsEnabled, t]);
 
   const setMany = useCallback(
     async (keys: readonly string[], value: 'true' | 'false') => {
@@ -114,6 +159,11 @@ const AdminTroubleshootingTab: React.FC<AdminTroubleshootingTabProps> = ({
     );
   };
 
+  const perfBusy =
+    !perfTestsLoaded ||
+    savingKey === PERF_TESTS_USER_SETTING_KEY ||
+    savingKey === 'bulk';
+
   return (
     <div className="space-y-8" data-setting-key="TROUBLESHOOTING_SECTION">
       <div>
@@ -125,7 +175,7 @@ const AdminTroubleshootingTab: React.FC<AdminTroubleshootingTabProps> = ({
         </p>
       </div>
 
-      {/* Performance Test Overlay */}
+      {/* Performance Test Overlay — per admin (user_settings) */}
       <section className="bg-white dark:bg-gray-800 shadow rounded-lg">
         <div className="px-6 py-4 flex items-start justify-between gap-4">
           <div className="min-w-0 flex-1">
@@ -135,28 +185,30 @@ const AdminTroubleshootingTab: React.FC<AdminTroubleshootingTabProps> = ({
             <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
               {t('appSettings.perfTestsDescription')}
             </p>
-            <p className="mt-0.5 font-mono text-xs text-gray-400 dark:text-gray-500">FE_PERF_TESTS</p>
+            <p className="mt-0.5 font-mono text-xs text-gray-400 dark:text-gray-500">
+              user_settings.{PERF_TESTS_USER_SETTING_KEY}
+            </p>
           </div>
           <div className="flex flex-shrink-0 items-center pt-0.5">
             <span className="mr-3 text-sm font-medium text-gray-700 dark:text-gray-300">
-              {isEnabled(editingSettings.FE_PERF_TESTS)
+              {perfTestsEnabled
                 ? t('appSettings.enabled')
                 : t('appSettings.disabled')}
             </span>
             <button
               type="button"
-              disabled={savingKey === 'FE_PERF_TESTS' || savingKey === 'bulk'}
-              onClick={() => toggle('FE_PERF_TESTS')}
-              aria-pressed={isEnabled(editingSettings.FE_PERF_TESTS)}
+              disabled={perfBusy}
+              onClick={() => togglePerfTests()}
+              aria-pressed={perfTestsEnabled}
               className={`relative inline-flex h-6 w-11 flex-shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 ${
-                isEnabled(editingSettings.FE_PERF_TESTS)
+                perfTestsEnabled
                   ? 'bg-blue-600 dark:bg-blue-500'
                   : 'bg-gray-200 dark:bg-gray-600'
               }`}
             >
               <span
                 className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white dark:bg-gray-300 shadow ring-0 transition duration-200 ease-in-out ${
-                  isEnabled(editingSettings.FE_PERF_TESTS) ? 'translate-x-5' : 'translate-x-0'
+                  perfTestsEnabled ? 'translate-x-5' : 'translate-x-0'
                 }`}
               />
             </button>

@@ -28,6 +28,12 @@ import {
   getRequestStoragePaths,
   filenameFromPublicUrl
 } from '../services/storage/index.js';
+import {
+  parseBody,
+  updateSettingBodySchema,
+  bulkUpdateSettingsBodySchema,
+  updateAppUrlBodySchema
+} from '../utils/requestValidation.js';
 
 const router = express.Router();
 
@@ -362,10 +368,11 @@ router.put('/bulk', authenticateToken, requireRole(['admin']), async (req, res, 
   }
   try {
     const db = getRequestDatabase(req);
-    const incoming = req.body?.settings;
-    if (!incoming || typeof incoming !== 'object' || Array.isArray(incoming)) {
-      return res.status(400).json({ error: 'settings object is required' });
+    const parsed = parseBody(bulkUpdateSettingsBodySchema, req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error || 'settings object is required' });
     }
+    const incoming = parsed.data.settings;
 
     const allowed = new Set(BULK_DEBUG_SETTING_KEYS);
     const entries = [];
@@ -426,11 +433,11 @@ router.put('/', authenticateToken, requireRole(['admin']), async (req, res, next
   }
   try {
     const db = getRequestDatabase(req);
-    const { key, value } = req.body;
-    
-    if (!key) {
-      return res.status(400).json({ error: 'Setting key is required' });
+    const parsed = parseBody(updateSettingBodySchema, req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error });
     }
+    const { key, value } = parsed.data;
     
     // Prevent updates to WEBSITE_URL - it's read-only and set during instance purchase
     if (key === 'WEBSITE_URL') {
@@ -701,7 +708,11 @@ router.put('/app-url', authenticateToken, async (req, res) => {
     const db = getRequestDatabase(req);
     const dbgHttp = await serverDebug(db, 'SERVER_DEBUG_HTTP');
     if (dbgHttp) console.log('📞 APP_URL update endpoint called');
-    const { appUrl } = req.body;
+    const parsed = parseBody(updateAppUrlBodySchema, req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error });
+    }
+    const { appUrl } = parsed.data;
     const userId = req.user.id;
 
     if (dbgHttp) console.log('📞 Request data:', { userId, appUrl });
@@ -733,13 +744,7 @@ router.put('/app-url', authenticateToken, async (req, res) => {
       return res.status(403).json({ error: 'Only the owner or default admin can update APP_URL' });
     }
     
-    // Validate appUrl
-    if (!appUrl || typeof appUrl !== 'string') {
-      if (dbgHttp) console.log('❌ Invalid appUrl:', appUrl);
-      return res.status(400).json({ error: 'appUrl is required and must be a string' });
-    }
-    
-    // Validate URL format
+    // Validate URL scheme (shape already checked by Zod)
     const trimmedUrl = appUrl.trim();
     if (!trimmedUrl.startsWith('http://') && !trimmedUrl.startsWith('https://')) {
       if (dbgHttp) console.log('❌ Invalid URL format:', trimmedUrl);

@@ -60,7 +60,9 @@
     "createColumnTitle": "Impossible de créer la colonne",
     "createColumnMessage": "La colonne n'a pas pu être créée. Veuillez réessayer.",
     "deleteColumnTitle": "Impossible de supprimer la colonne",
-    "deleteColumnMessage": "La colonne n'a pas pu être supprimée. Veuillez réessayer."
+    "deleteColumnMessage": "La colonne n'a pas pu être supprimée. Veuillez réessayer.",
+    "columnNotEmpty": "Déplacez ou supprimez toutes les tâches de cette colonne avant de la supprimer.",
+    "columnTrashNeedsFallback": "Ajoutez d'abord une autre colonne — la Corbeille référence encore celle-ci."
   },
   "watcher": {
     "singular": "observateur",
@@ -150,6 +152,7 @@
     "editColumn": "Modifier",
     "addColumn": "Ajouter une colonne",
     "deleteColumn": "Supprimer la colonne",
+    "deleteColumnMustBeEmpty": "Déplacez ou supprimez toutes les tâches de cette colonne avant de la supprimer",
     "markAsFinishedColumn": "Marquer comme terminée",
     "markAsArchivedColumn": "Marquer comme archivée",
     "autoDetected": "Détect. auto",

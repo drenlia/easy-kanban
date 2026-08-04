@@ -49,7 +49,7 @@ const ModalManager = lazyWithRetry(() => import('./components/layout/ModalManage
 const PerfTestOverlay = lazyWithRetry(() =>
   import('./perfTests/PerfTestOverlay').then((m) => ({ default: m.default }))
 );
-import { shouldShowPerfTests } from './perfTests';
+import { shouldShowPerfTests, subscribePerfTestsPreference, PERF_TESTS_USER_SETTING_KEY, isPerfTestsUserSettingEnabled } from './perfTests';
 import TaskDeleteConfirmation from './components/TaskDeleteConfirmation';
 import CrossBoardMoveConfirmation from './components/CrossBoardMoveConfirmation';
 import ActivityFeed from './components/ActivityFeed';
@@ -564,6 +564,33 @@ function AppContent() {
     },
   });
   const { loading, withLoading } = useLoadingState();
+
+  // Per-admin Performance Test Overlay preference (user_settings.FE_PERF_TESTS)
+  const isAdminUser = Boolean(currentUser?.roles?.includes('admin'));
+  const [userPerfTestsEnabled, setUserPerfTestsEnabled] = useState(false);
+  useEffect(() => {
+    if (!currentUser?.id || !isAdminUser) {
+      setUserPerfTestsEnabled(false);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const settings = await getUserSettings();
+        if (cancelled) return;
+        setUserPerfTestsEnabled(
+          isPerfTestsUserSettingEnabled(settings?.[PERF_TESTS_USER_SETTING_KEY])
+        );
+      } catch {
+        if (!cancelled) setUserPerfTestsEnabled(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [currentUser?.id, isAdminUser]);
+
+  useEffect(() => subscribePerfTestsPreference(setUserPerfTestsEnabled), []);
   
   // Initialize Task Filters hook (requires columns, members, boards, and updateCurrentUserPreference)
   const taskFilters = useTaskFilters({
@@ -3397,10 +3424,11 @@ function AppContent() {
         }
       }));
       
-      // If column becomes archived, remove it from visible columns
-      if (is_archived && selectedBoard) {
-        const currentVisibleColumns = boardColumnVisibility[selectedBoard] || Object.keys(columns);
-        const updatedVisibleColumns = currentVisibleColumns.filter(id => id !== columnId);
+      // If column becomes archived, remove it from an explicit visibility list (default already hides archives)
+      if (is_archived && selectedBoard && boardColumnVisibility[selectedBoard]) {
+        const updatedVisibleColumns = boardColumnVisibility[selectedBoard].filter(
+          (id) => id !== columnId
+        );
         handleBoardColumnVisibilityChange(selectedBoard, updatedVisibleColumns);
       }
       
@@ -3410,39 +3438,51 @@ function AppContent() {
     }
   };
 
-  // Helper function to count tasks in a column
+  // Helper function to count live tasks in a column
   const getColumnTaskCount = (columnId: string): number => {
     return columns[columnId]?.tasks?.length || 0;
   };
 
-  // Show column delete confirmation (or delete immediately if no tasks)
+  // Delete column only when empty of live tasks (server also enforces this)
   const handleRemoveColumn = async (columnId: string) => {
     const taskCount = getColumnTaskCount(columnId);
-    // console.log(`🗑️ Delete column ${columnId}, task count: ${taskCount}`);
-    
-    if (taskCount === 0) {
-      // No tasks - delete immediately without confirmation
-      // console.log(`🗑️ Deleting empty column immediately`);
-      await handleConfirmColumnDelete(columnId);
-    } else {
-      // Has tasks - show confirmation dialog
-      // console.log(`🗑️ Showing confirmation dialog for column with ${taskCount} tasks`);
-      // console.log(`🗑️ Setting showColumnDeleteConfirm to: ${columnId}`);
-      setShowColumnDeleteConfirm(columnId);
+    if (taskCount > 0) {
+      toast.error(
+        t('errors.deleteColumnTitle'),
+        t('errors.columnNotEmpty', { count: taskCount })
+      );
+      return;
     }
+    await handleConfirmColumnDelete(columnId);
   };
 
   // Confirm column deletion
   const handleConfirmColumnDelete = async (columnId: string) => {
-    // console.log(`✅ Confirming deletion of column ${columnId}`);
     try {
       await deleteColumn(columnId);
       const { [columnId]: removed, ...remainingColumns } = columns;
       setColumns(remainingColumns);
       setShowColumnDeleteConfirm(null);
       await fetchQueryLogs();
-    } catch (error) {
-      toast.error(t('errors.deleteColumnTitle'), t('errors.deleteColumnMessage'));
+    } catch (error: any) {
+      const code = error?.response?.data?.code;
+      const apiMessage = error?.response?.data?.error;
+      if (code === 'column_not_empty') {
+        toast.error(
+          t('errors.deleteColumnTitle'),
+          apiMessage || t('errors.columnNotEmpty', { count: error?.response?.data?.taskCount || 0 })
+        );
+      } else if (code === 'column_trash_needs_fallback') {
+        toast.error(
+          t('errors.deleteColumnTitle'),
+          apiMessage || t('errors.columnTrashNeedsFallback')
+        );
+      } else {
+        toast.error(
+          t('errors.deleteColumnTitle'),
+          apiMessage || t('errors.deleteColumnMessage')
+        );
+      }
     }
   };
 
@@ -3795,16 +3835,21 @@ function AppContent() {
           window.justUpdatedFromWebSocket = false;
         }, 1000);
 
-        const currentVisibleColumns =
-          boardColumnVisibility[selectedBoard] || Object.keys(columns);
-        const visibleSet = new Set([...currentVisibleColumns, columnId]);
-        const newVisible = sorted.map(c => c.id).filter(id => visibleSet.has(id));
-        handleBoardColumnVisibilityChange(selectedBoard, newVisible);
+        // Only touch saved visibility when the user already customized it.
+        // Otherwise default visibility hides Archive and includes the new column automatically.
+        if (boardColumnVisibility[selectedBoard]) {
+          const currentVisibleColumns = boardColumnVisibility[selectedBoard];
+          const visibleSet = new Set([...currentVisibleColumns, columnId]);
+          const newVisible = sorted.map((c) => c.id).filter((id) => visibleSet.has(id));
+          handleBoardColumnVisibilityChange(selectedBoard, newVisible);
+        }
       } else {
-        const currentVisibleColumns =
-          boardColumnVisibility[selectedBoard] || Object.keys(columns);
-        const updatedVisibleColumns = [...currentVisibleColumns, columnId];
-        handleBoardColumnVisibilityChange(selectedBoard, updatedVisibleColumns);
+        if (boardColumnVisibility[selectedBoard]) {
+          handleBoardColumnVisibilityChange(selectedBoard, [
+            ...boardColumnVisibility[selectedBoard],
+            columnId,
+          ]);
+        }
         await refreshBoardData();
         if (selectedBoard) await renumberColumns(selectedBoard);
       }
@@ -4616,7 +4661,7 @@ function AppContent() {
         userId={currentUser?.id || null}
       />
 
-      {shouldShowPerfTests(siteSettings, currentUser) &&
+      {shouldShowPerfTests(userPerfTestsEnabled, currentUser) &&
         currentPage === 'kanban' &&
         selectedBoard && (
           <Suspense fallback={null}>

@@ -5,6 +5,7 @@ import notificationService from '../services/notificationService.js';
 import { getRequestDatabase } from '../middleware/tenantRouting.js';
 import { members as memberQueries } from '../utils/sqlManager/index.js';
 import { isAiEnabled } from '../utils/aiEnabled.js';
+import { parseBody, createMemberBodySchema } from '../utils/requestValidation.js';
 
 const router = express.Router();
 
@@ -36,10 +37,14 @@ router.get('/', authenticateToken, async (req, res) => {
 
 // Create member (admin only — user invite flows create members via auth/admin routes)
 router.post('/', authenticateToken, requireRole(['admin']), checkUserLimit, async (req, res) => {
-  const { id, name, color } = req.body;
+  const parsed = parseBody(createMemberBodySchema, req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error });
+  }
+  const { id, name, color } = parsed.data;
   try {
     const db = getRequestDatabase(req);
-    
+
     // MIGRATED: Check for duplicate member name using sqlManager
     const existingMember = await memberQueries.checkMemberNameExists(db, name);
     

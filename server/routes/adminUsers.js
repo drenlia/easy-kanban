@@ -179,10 +179,10 @@ router.put('/:userId', authenticateToken, requireRole(['admin']), async (req, re
       }
     }
 
-    // MIGRATED: Check if email already exists using sqlManager
+    // MIGRATED: Check if email already exists using sqlManager (case-insensitive)
     const existingUser = await userQueries.checkEmailExists(db, email, userId);
     if (existingUser) {
-      return res.status(400).json({ error: 'Email already exists' });
+      return res.status(400).json({ error: `User with email ${email} already exists` });
     }
 
     // MIGRATED: Update user using sqlManager
@@ -545,6 +545,9 @@ router.post('/', authenticateToken, requireRole(['admin']), async (req, res) => 
     
   } catch (error) {
     console.error('Registration error:', error);
+    if (error.code === '23505' || String(error.message || '').toLowerCase().includes('unique')) {
+      return res.status(400).json({ error: `User with email ${email} already exists` });
+    }
     res.status(500).json({ error: 'Registration failed' });
   }
 });

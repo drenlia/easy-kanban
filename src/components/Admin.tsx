@@ -928,8 +928,14 @@ const Admin: React.FC<AdminProps> = ({
       }
     } catch (error: any) {
       console.error('Failed to create user:', error);
-      toast.error(error.message || t('failedToCreateUser'), '');
-      throw error; // Re-throw so the UI can handle it
+      const message =
+        error.response?.data?.error ||
+        error.message ||
+        t('failedToCreateUser');
+      // Re-throw so AdminUsersTab can show a single toast (avoid double toast)
+      const wrapped = new Error(message);
+      (wrapped as any).response = error.response;
+      throw wrapped;
     }
   };
 
@@ -1014,8 +1020,10 @@ const Admin: React.FC<AdminProps> = ({
         errorMessage = err.response?.data?.message || err.response?.data?.error || t('users.userLimitReached');
       }
       
-      toast.error(errorMessage, '');
-      throw err; // Re-throw so the calling component can handle it
+      // Let AdminUsersTab show the toast once
+      const wrapped = new Error(errorMessage);
+      (wrapped as any).response = err.response;
+      throw wrapped;
     }
   };
 

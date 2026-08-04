@@ -3,8 +3,9 @@
  *
  * Naming:
  * - FE_DEBUG_* — Browser console only. Exposed on public GET /api/settings so non-admin clients can gate logs.
- * - FE_PERF_TESTS — Feature flag for the Performance Test Overlay (public settings; UI also requires admin).
  * - SERVER_DEBUG_* — Node.js server logs only. Not included in public /api/settings; admins see them in /api/admin/settings.
+ *
+ * Performance Test Overlay is per-admin via `user_settings.FE_PERF_TESTS` (not a tenant flag).
  *
  * Keep FE_DEBUG_* in sync with `src/constants/clientDebugKeys.ts`.
  */
@@ -22,8 +23,7 @@ export const FE_PUBLIC_DEBUG_FLAG_KEYS = Object.freeze([
   'FE_DEBUG_TASK_DETAILS',
   'FE_DEBUG_SETTINGS_CONTEXT',
   'FE_DEBUG_API',
-  'FE_DEBUG_DND',
-  'FE_PERF_TESTS'
+  'FE_DEBUG_DND'
 ]);
 
 /** Defaults inserted for new DBs (database.js) and migration 12 for existing tenants. @type {readonly [string, string][]} */

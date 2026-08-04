@@ -307,23 +307,36 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
   const handleAddUser = async () => {
     if (isAddingUser) return;
     const userPayload = isDemoMode ? { ...newUser, isActive: true } : newUser;
+    const emailNorm = String(userPayload.email || '').trim().toLowerCase();
+    if (!emailNorm) {
+      toast.error(t('users.email'), '');
+      return;
+    }
+    if (users.some((u) => String(u.email || '').trim().toLowerCase() === emailNorm)) {
+      toast.error(t('users.emailAlreadyExists', { email: emailNorm }), '');
+      return;
+    }
     const creatingLocally = Boolean(userPayload.isActive);
     setIsAddingUser(true);
     try {
-      await onAddUser(userPayload);
+      await onAddUser({ ...userPayload, email: emailNorm });
       setShowAddUserForm(false);
       setNewUser(getEmptyNewUser());
       if (creatingLocally) {
         toast.success(t('users.userCreatedSuccessfully'), '');
       } else {
         toast.success(
-          t('users.userInvitedSuccessfully', { email: userPayload.email }),
+          t('users.userInvitedSuccessfully', { email: emailNorm }),
           ''
         );
       }
     } catch (err: any) {
       console.error('Failed to add user:', err);
-      const errorMessage = err.response?.data?.error || t('failedToCreateUser');
+      const backendError = err.response?.data?.error || err.message || '';
+      const errorMessage =
+        /already exists/i.test(String(backendError))
+          ? t('users.emailAlreadyExists', { email: emailNorm })
+          : backendError || t('failedToCreateUser');
       toast.error(errorMessage, '');
     } finally {
       setIsAddingUser(false);
@@ -357,7 +370,18 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
   const handleSaveUser = async () => {
     try {
       setIsSubmitting(true);
-      await onSaveUser(editingUserData);
+      const emailNorm = String(editingUserData.email || '').trim().toLowerCase();
+      if (
+        users.some(
+          (u) =>
+            u.id !== editingUserData.id &&
+            String(u.email || '').trim().toLowerCase() === emailNorm
+        )
+      ) {
+        toast.error(t('users.emailAlreadyExists', { email: emailNorm }), '');
+        return;
+      }
+      await onSaveUser({ ...editingUserData, email: emailNorm });
       
       // Clean up preview URL after successful save
       if (avatarPreviewUrl) {
@@ -368,7 +392,12 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
       setShowEditUserForm(false);
     } catch (err: any) {
       console.error('Failed to save user:', err);
-      const errorMessage = err.response?.data?.error || t('failedToUpdateUser');
+      const backendError = err.response?.data?.error || err.message || '';
+      const errorMessage = /already exists/i.test(String(backendError))
+        ? t('users.emailAlreadyExists', {
+            email: String(editingUserData.email || '').trim().toLowerCase(),
+          })
+        : backendError || t('failedToUpdateUser');
       toast.error(errorMessage, '');
     } finally {
       setIsSubmitting(false);

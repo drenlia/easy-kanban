@@ -1521,6 +1521,34 @@ export async function reassignTrashTasksFromColumn(db, columnId, fallbackColumnI
 }
 
 /**
+ * Count live (non-trashed) tasks in a column
+ */
+export async function countLiveTasksInColumn(db, columnId) {
+  const query = `
+    SELECT COUNT(*)::int AS count
+    FROM tasks
+    WHERE columnid = $1 AND deleted_at IS NULL
+  `;
+  const stmt = wrapQuery(db.prepare(query), 'SELECT');
+  const row = await stmt.get(columnId);
+  return Number(row?.count) || 0;
+}
+
+/**
+ * Count soft-deleted (trash) tasks still pointing at a column
+ */
+export async function countTrashTasksInColumn(db, columnId) {
+  const query = `
+    SELECT COUNT(*)::int AS count
+    FROM tasks
+    WHERE columnid = $1 AND deleted_at IS NOT NULL
+  `;
+  const stmt = wrapQuery(db.prepare(query), 'SELECT');
+  const row = await stmt.get(columnId);
+  return Number(row?.count) || 0;
+}
+
+/**
  * Soft-deleted task IDs past retention (for cron)
  */
 export async function getExpiredSoftDeletedTasks(db, retentionDays) {

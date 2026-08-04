@@ -165,7 +165,7 @@ export const permanentBatchBodySchema = z.object({
 });
 
 export const adminCreateUserBodySchema = z.object({
-  email: z.string().trim().email('Valid email is required').max(320),
+  email: z.string().trim().toLowerCase().email('Valid email is required').max(320),
   // Invite (inactive) may omit password; active local create still needs one (enforced in route).
   password: z.string().max(1024).optional().default(''),
   firstName: z.string().min(1, 'First name is required').max(100),
@@ -177,7 +177,7 @@ export const adminCreateUserBodySchema = z.object({
 }).passthrough();
 
 export const adminUpdateUserBodySchema = z.object({
-  email: z.string().trim().email().max(320),
+  email: z.string().trim().toLowerCase().email().max(320),
   firstName: z.string().min(1).max(100),
   lastName: z.string().min(1).max(100),
   isActive: booleanish
@@ -190,3 +190,112 @@ export const adminUpdateUserRoleBodySchema = z.union([
     role: action === 'promote' ? 'admin' : 'user'
   }))
 ]);
+
+// —— Boards / columns ——
+
+export const createBoardBodySchema = z.object({
+  id: idSchema,
+  title: z.string().min(1, 'Board title is required').max(200)
+}).passthrough();
+
+export const updateBoardBodySchema = z.object({
+  title: z.string().min(1, 'Board title is required').max(200)
+}).passthrough();
+
+export const reorderBoardBodySchema = z.object({
+  boardId: idSchema,
+  newPosition: z.union([z.number(), z.string().max(32)])
+}).passthrough();
+
+export const createColumnBodySchema = z.object({
+  id: idSchema,
+  title: z.string().min(1, 'Column title is required').max(200),
+  boardId: idSchema,
+  position: z.union([z.number(), z.string().max(32), z.null()]).optional()
+}).passthrough();
+
+export const updateColumnBodySchema = z.object({
+  title: z.string().min(1, 'Column title is required').max(200),
+  is_finished: booleanish,
+  is_archived: booleanish,
+  wip_limit: z.union([z.number(), z.string().max(32), z.null()]).optional(),
+  policy_text: z.union([z.string().max(2000), z.null()]).optional()
+}).passthrough();
+
+export const reorderColumnBodySchema = z.object({
+  columnId: idSchema,
+  newPosition: z.union([z.number(), z.string().max(32)]),
+  boardId: idSchema
+}).passthrough();
+
+export const renumberColumnsBodySchema = z.object({
+  boardId: idSchema
+}).passthrough();
+
+// —— Settings ——
+
+const settingValueSchema = z.union([
+  z.string().max(100_000),
+  z.number(),
+  z.boolean(),
+  z.null()
+]);
+
+export const updateSettingBodySchema = z.object({
+  key: z.string().min(1, 'Setting key is required').max(128),
+  value: settingValueSchema
+}).passthrough();
+
+export const bulkUpdateSettingsBodySchema = z.object({
+  settings: z.record(z.string().max(128), settingValueSchema)
+});
+
+export const updateAppUrlBodySchema = z.object({
+  appUrl: z.string().min(1).max(2048)
+}).passthrough();
+
+// —— Tags / priorities / sprints / members ——
+
+export const createTagBodySchema = z.object({
+  tag: z.string().min(1, 'Tag name is required').max(100),
+  description: z.string().max(2000).optional(),
+  color: z.string().max(32).optional()
+}).passthrough();
+
+export const updateTagBodySchema = createTagBodySchema;
+
+export const createPriorityBodySchema = z.object({
+  priority: z.string().min(1, 'Priority name is required').max(100),
+  color: z.string().min(1, 'Color is required').max(32)
+}).passthrough();
+
+export const updatePriorityBodySchema = createPriorityBodySchema;
+
+export const reorderPrioritiesBodySchema = z.object({
+  priorities: z
+    .array(
+      z
+        .object({
+          id: z.union([z.number(), z.string().min(1).max(128)])
+        })
+        .passthrough()
+    )
+    .min(1)
+    .max(100)
+});
+
+export const createSprintBodySchema = z.object({
+  name: z.string().min(1, 'Sprint name is required').max(200),
+  start_date: z.string().min(1, 'Start date is required').max(64),
+  end_date: z.string().min(1, 'End date is required').max(64),
+  is_active: booleanish,
+  description: z.union([z.string().max(5000), z.null()]).optional()
+}).passthrough();
+
+export const updateSprintBodySchema = createSprintBodySchema;
+
+export const createMemberBodySchema = z.object({
+  id: idSchema,
+  name: z.string().min(1, 'Member name is required').max(100),
+  color: z.string().min(1, 'Color is required').max(32)
+}).passthrough();

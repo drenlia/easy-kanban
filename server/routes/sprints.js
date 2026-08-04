@@ -6,6 +6,11 @@ import notificationService from '../services/notificationService.js';
 import { getRequestDatabase, getTenantId } from '../middleware/tenantRouting.js';
 import { dbTransaction } from '../utils/dbAsync.js';
 import { sprints as sprintQueries, tasks as taskQueries } from '../utils/sqlManager/index.js';
+import {
+  parseBody,
+  createSprintBodySchema,
+  updateSprintBodySchema
+} from '../utils/requestValidation.js';
 
 const router = express.Router();
 
@@ -70,18 +75,12 @@ router.get("/:id/usage", authenticateToken, async (req, res) => {
 router.post('/', authenticateToken, requireRole(['admin']), async (req, res) => {
   try {
     const db = getRequestDatabase(req);
-    const { name, start_date, end_date, is_active, description } = req.body;
-    
-    // Validation
-    if (!name || !name.trim()) {
-      return res.status(400).json({ error: 'Sprint name is required' });
+    const parsed = parseBody(createSprintBodySchema, req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error });
     }
-    if (!start_date) {
-      return res.status(400).json({ error: 'Start date is required' });
-    }
-    if (!end_date) {
-      return res.status(400).json({ error: 'End date is required' });
-    }
+    const { name, start_date, end_date, is_active, description } = parsed.data;
+
     if (new Date(end_date) < new Date(start_date)) {
       return res.status(400).json({ error: 'End date must be after start date' });
     }
@@ -124,25 +123,19 @@ router.put("/:id", authenticateToken, requireRole(['admin']), async (req, res) =
   try {
     const db = getRequestDatabase(req);
     const { id } = req.params;
-    const { name, start_date, end_date, is_active, description } = req.body;
-    
+    const parsed = parseBody(updateSprintBodySchema, req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error });
+    }
+    const { name, start_date, end_date, is_active, description } = parsed.data;
+
     // MIGRATED: Check if sprint exists using sqlManager
     const existing = await sprintQueries.getSprintById(db, id);
-    
+
     if (!existing) {
       return res.status(404).json({ error: 'Sprint not found' });
     }
-    
-    // Validation
-    if (!name || !name.trim()) {
-      return res.status(400).json({ error: 'Sprint name is required' });
-    }
-    if (!start_date) {
-      return res.status(400).json({ error: 'Start date is required' });
-    }
-    if (!end_date) {
-      return res.status(400).json({ error: 'End date is required' });
-    }
+
     if (new Date(end_date) < new Date(start_date)) {
       return res.status(400).json({ error: 'End date must be after start date' });
     }

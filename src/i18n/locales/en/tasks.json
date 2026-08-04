@@ -60,7 +60,9 @@
     "createColumnTitle": "Couldn't create column",
     "createColumnMessage": "The column could not be created. Please try again.",
     "deleteColumnTitle": "Couldn't delete column",
-    "deleteColumnMessage": "The column could not be deleted. Please try again."
+    "deleteColumnMessage": "The column could not be deleted. Please try again.",
+    "columnNotEmpty": "Move or delete all tasks in this column before deleting it.",
+    "columnTrashNeedsFallback": "Add another column first — Trash still references this column."
   },
   "watcher": {
     "singular": "watcher",
@@ -150,6 +152,7 @@
     "editColumn": "Edit",
     "addColumn": "Add Column",
     "deleteColumn": "Delete Column",
+    "deleteColumnMustBeEmpty": "Move or delete all tasks in this column before deleting it",
     "markAsFinishedColumn": "Mark as Finished Column",
     "markAsArchivedColumn": "Mark as Archived Column",
     "autoDetected": "Auto-detected",

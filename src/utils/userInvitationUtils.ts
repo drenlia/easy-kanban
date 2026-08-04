@@ -52,6 +52,7 @@ export const handleInviteUser = async (
   email: string,
   handleRefreshData: () => Promise<void>
 ): Promise<void> => {
+  const normalizedEmail = String(email || '').trim().toLowerCase();
   try {
     if (process.env.DEMO_ENABLED === 'true') {
       throw new Error(i18n.t('navigation.inviteDisabledDemo'));
@@ -84,13 +85,13 @@ export const handleInviteUser = async (
     }
 
     // Generate names from email
-    const { firstName, lastName } = generateNameFromEmail(email);
+    const { firstName, lastName } = generateNameFromEmail(normalizedEmail);
     
     // Generate a temporary password (user will change it during activation)
     const tempPassword = crypto.randomUUID().substring(0, 12);
     
     const result = await createUser({
-      email,
+      email: normalizedEmail,
       password: tempPassword,
       firstName,
       lastName,
@@ -116,8 +117,8 @@ export const handleInviteUser = async (
     
     if (error.response?.data?.error) {
       const backendError = error.response.data.error;
-      if (backendError.includes('already exists')) {
-        errorMessage = i18n.t('navigation.userAlreadyExists', { email });
+      if (/already exists/i.test(String(backendError))) {
+        errorMessage = i18n.t('navigation.userAlreadyExists', { email: normalizedEmail });
       } else if (backendError.includes('required')) {
         errorMessage = i18n.t('navigation.missingRequiredInfo');
       } else if (backendError.includes('email')) {
@@ -131,7 +132,11 @@ export const handleInviteUser = async (
         errorMessage = backendError;
       }
     } else if (error.message) {
-      errorMessage = error.message;
+      if (/already exists/i.test(String(error.message))) {
+        errorMessage = i18n.t('navigation.userAlreadyExists', { email: normalizedEmail });
+      } else {
+        errorMessage = error.message;
+      }
     }
     
     throw new Error(errorMessage);

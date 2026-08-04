@@ -496,7 +496,7 @@
       "createColumns": "Create Columns: Click the three-dot menu (⋮) in any column header and select \"Add Column\" to create a new column. The new column will be inserted after the current column.",
       "renameColumns": "Rename Columns: Double-click column headers to edit their names directly.",
       "reorderColumns": "Reorder Columns: Drag column headers to reorder them according to your workflow (admin only).",
-      "deleteColumns": "Delete Columns: Use the three-dot menu (⋮) in the column header and select \"Delete Column\" to remove columns (admin only).",
+      "deleteColumns": "Delete Columns: Use the three-dot menu (⋮) in the column header and select \"Delete Column\" to remove empty columns (admin only). Move or delete tasks first.",
       "finishedColumns": "Finished Columns: Columns with names like \"Done\", \"Completed\", or \"Finished\" are automatically marked as finished. Tasks in these columns won't be considered overdue.",
       "taskManagement": "Task Management",
       "createTasks": "Create Tasks: First select team members using the checkboxes, then click the \"+\" button in any column header to create a new task. The task will be automatically assigned to the currently logged-in user.",

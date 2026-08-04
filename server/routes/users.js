@@ -419,6 +419,14 @@ router.put('/settings', authenticateToken, async (req, res) => {
   const db = getRequestDatabase(req);
   
   try {
+    // Perf overlay preference is admin-only (UI also gates on role)
+    if (setting_key === 'FE_PERF_TESTS') {
+      const roles = Array.isArray(req.user?.roles) ? req.user.roles : [];
+      if (!roles.includes('admin')) {
+        return res.status(403).json({ error: 'Only admins can change performance test preferences' });
+      }
+    }
+
     // Handle undefined values (skip them)
     if (setting_value === undefined) {
       console.warn(`Skipping save for ${setting_key}: value is undefined`);

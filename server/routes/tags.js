@@ -8,6 +8,7 @@ import notificationService from '../services/notificationService.js';
 import { getRequestDatabase, getTenantId } from '../middleware/tenantRouting.js';
 // MIGRATED: Import sqlManager
 import { tags as tagQueries } from '../utils/sqlManager/index.js';
+import { parseBody, createTagBodySchema, updateTagBodySchema } from '../utils/requestValidation.js';
 
 const router = express.Router();
 
@@ -95,12 +96,12 @@ router.get('/', authenticateToken, requireRole(['admin']), async (req, res) => {
 });
 
 router.post('/', authenticateToken, requireRole(['admin']), async (req, res) => {
-  const { tag, description, color } = req.body;
-  const db = getRequestDatabase(req);
-  
-  if (!tag) {
-    return res.status(400).json({ error: 'Tag name is required' });
+  const parsed = parseBody(createTagBodySchema, req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error });
   }
+  const { tag, description, color } = parsed.data;
+  const db = getRequestDatabase(req);
 
   try {
     // MIGRATED: Create tag using sqlManager
@@ -140,12 +141,12 @@ router.post('/', authenticateToken, requireRole(['admin']), async (req, res) => 
 
 router.put('/:tagId', authenticateToken, requireRole(['admin']), async (req, res) => {
   const { tagId } = req.params;
-  const { tag, description, color } = req.body;
-  const db = getRequestDatabase(req);
-  
-  if (!tag) {
-    return res.status(400).json({ error: 'Tag name is required' });
+  const parsed = parseBody(updateTagBodySchema, req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error });
   }
+  const { tag, description, color } = parsed.data;
+  const db = getRequestDatabase(req);
 
   try {
     // MIGRATED: Update tag using sqlManager

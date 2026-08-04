@@ -7,12 +7,23 @@ import { getTenantId, getRequestDatabase } from '../middleware/tenantRouting.js'
 import { dbTransaction } from '../utils/dbAsync.js';
 // MIGRATED: Import sqlManager
 import { helpers, tasks as taskQueries } from '../utils/sqlManager/index.js';
+import {
+  parseBody,
+  createColumnBodySchema,
+  updateColumnBodySchema,
+  reorderColumnBodySchema,
+  renumberColumnsBodySchema
+} from '../utils/requestValidation.js';
 
 const router = express.Router();
 
 // Create column
 router.post('/', authenticateToken, async (req, res) => {
-  const { id, title, boardId, position } = req.body;
+  const parsed = parseBody(createColumnBodySchema, req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error });
+  }
+  const { id, title, boardId, position } = parsed.data;
   try {
     const db = getRequestDatabase(req);
     const t = await getTranslator(db);
@@ -112,7 +123,11 @@ router.post('/', authenticateToken, async (req, res) => {
 // Update column
 router.put("/:id", authenticateToken, async (req, res) => {
   const { id } = req.params;
-  const { title, is_finished, is_archived, wip_limit, policy_text } = req.body;
+  const parsed = parseBody(updateColumnBodySchema, req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error });
+  }
+  const { title, is_finished, is_archived, wip_limit, policy_text } = parsed.data;
   try {
     const db = getRequestDatabase(req);
     const t = await getTranslator(db);
@@ -234,7 +249,7 @@ router.put("/:id", authenticateToken, async (req, res) => {
   }
 });
 
-// Delete column
+// Delete column (only when empty of live tasks — prevents CASCADE permanent deletes)
 router.delete('/:id', authenticateToken, async (req, res) => {
   const { id } = req.params;
   try {
@@ -247,9 +262,26 @@ router.delete('/:id', authenticateToken, async (req, res) => {
       return res.status(404).json({ error: t('errors.columnNotFound') });
     }
 
+    const liveCount = await taskQueries.countLiveTasksInColumn(db, id);
+    if (liveCount > 0) {
+      return res.status(409).json({
+        error: t('errors.columnNotEmpty'),
+        code: 'column_not_empty',
+        taskCount: liveCount,
+      });
+    }
+
     // Reassign soft-deleted tasks off this column so CASCADE does not wipe Trash
     const boardColumnIds = await helpers.getColumnIdsForBoard(db, column.boardId);
     const fallbackId = (boardColumnIds || []).find((cid) => cid !== id);
+    const trashCount = await taskQueries.countTrashTasksInColumn(db, id);
+    if (trashCount > 0 && !fallbackId) {
+      return res.status(409).json({
+        error: t('errors.columnTrashNeedsFallback'),
+        code: 'column_trash_needs_fallback',
+        trashCount,
+      });
+    }
     if (fallbackId) {
       await taskQueries.reassignTrashTasksFromColumn(db, id, fallbackId);
     }
@@ -278,7 +310,11 @@ router.delete('/:id', authenticateToken, async (req, res) => {
 
 // Reorder columns
 router.post('/reorder', authenticateToken, async (req, res) => {
-  const { columnId, newPosition, boardId } = req.body;
+  const parsed = parseBody(reorderColumnBodySchema, req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error });
+  }
+  const { columnId, newPosition, boardId } = parsed.data;
   try {
     const db = getRequestDatabase(req);
     const t = await getTranslator(db);
@@ -359,7 +395,11 @@ router.post('/reorder', authenticateToken, async (req, res) => {
 
 // Renumber all columns in a board to ensure clean integer positions
 router.post('/renumber', authenticateToken, async (req, res) => {
-  const { boardId } = req.body;
+  const parsed = parseBody(renumberColumnsBodySchema, req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error });
+  }
+  const { boardId } = parsed.data;
   try {
     const db = getRequestDatabase(req);
 

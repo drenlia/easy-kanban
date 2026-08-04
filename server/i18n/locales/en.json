@@ -10,6 +10,8 @@
     "failedToFetchBoardRelationships": "Failed to fetch board relationships",
     "columnNameExists": "A column with this name already exists in this board",
     "columnNotFound": "Column not found",
+    "columnNotEmpty": "Move or delete all tasks in this column before deleting it",
+    "columnTrashNeedsFallback": "Cannot delete this column while Trash still references it and no other column exists on the board",
     "failedToCreateColumn": "Failed to create column",
     "failedToUpdateColumn": "Failed to update column",
     "failedToDeleteColumn": "Failed to delete column",

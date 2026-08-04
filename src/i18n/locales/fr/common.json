@@ -496,7 +496,7 @@
       "createColumns": "Créer des colonnes : Cliquez sur le menu à trois points (⋮) dans l'en-tête de n'importe quelle colonne et sélectionnez \"Ajouter une colonne\" pour créer une nouvelle colonne. La nouvelle colonne sera insérée après la colonne actuelle.",
       "renameColumns": "Renommer les colonnes : Double-cliquez sur les en-têtes de colonnes pour modifier leurs noms directement.",
       "reorderColumns": "Réorganiser les colonnes : Glissez les en-têtes de colonnes pour les réorganiser selon votre flux de travail (admin uniquement).",
-      "deleteColumns": "Supprimer les colonnes : Utilisez le menu à trois points (⋮) dans l'en-tête de colonne et sélectionnez \"Supprimer la colonne\" pour supprimer les colonnes (admin uniquement).",
+      "deleteColumns": "Supprimer les colonnes : Utilisez le menu à trois points (⋮) dans l'en-tête de colonne et sélectionnez \"Supprimer la colonne\" pour supprimer les colonnes vides (admin uniquement). Déplacez ou supprimez d'abord les tâches.",
       "finishedColumns": "Colonnes terminées : Les colonnes avec des noms comme \"Terminé\", \"Complété\" ou \"Fini\" sont automatiquement marquées comme terminées. Les tâches dans ces colonnes ne seront pas considérées comme en retard.",
       "taskManagement": "Gestion des tâches",
       "createTasks": "Créer des tâches : Sélectionnez d'abord les membres de l'équipe à l'aide des cases à cocher, puis cliquez sur le bouton \"+\" dans l'en-tête de n'importe quelle colonne pour créer une nouvelle tâche. La tâche sera automatiquement assignée à l'utilisateur actuellement connecté.",

@@ -8,6 +8,12 @@ import { getTenantId, getRequestDatabase } from '../middleware/tenantRouting.js'
 // MIGRATED: Import sqlManager
 import { boards as boardQueries, tasks as taskQueries, helpers } from '../utils/sqlManager/index.js';
 import { purgeBoardCompletely, purgeTaskCompletelyAndUpdateStorage } from '../services/taskPurgeService.js';
+import {
+  parseBody,
+  createBoardBodySchema,
+  updateBoardBodySchema,
+  reorderBoardBodySchema
+} from '../utils/requestValidation.js';
 
 const router = express.Router();
 
@@ -210,7 +216,11 @@ router.get('/default-columns', authenticateToken, async (req, res) => {
 
 // Create board
 router.post('/', authenticateToken, checkBoardLimit, async (req, res) => {
-  const { id, title } = req.body;
+  const parsed = parseBody(createBoardBodySchema, req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error });
+  }
+  const { id, title } = parsed.data;
   try {
     const db = getRequestDatabase(req);
     const t = await getTranslator(db);
@@ -300,7 +310,11 @@ router.post('/', authenticateToken, checkBoardLimit, async (req, res) => {
 // Update board
 router.put('/:id', authenticateToken, async (req, res) => {
   const { id } = req.params;
-  const { title } = req.body;
+  const parsed = parseBody(updateBoardBodySchema, req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error });
+  }
+  const { title } = parsed.data;
   try {
     const db = getRequestDatabase(req);
     const t = await getTranslator(db);
@@ -482,7 +496,11 @@ router.delete('/:id/permanent', authenticateToken, requireRole(['admin']), async
 
 // Reorder boards
 router.post('/reorder', authenticateToken, async (req, res) => {
-  const { boardId, newPosition } = req.body;
+  const parsed = parseBody(reorderBoardBodySchema, req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error });
+  }
+  const { boardId, newPosition } = parsed.data;
   try {
     const db = getRequestDatabase(req);
     const t = await getTranslator(db);

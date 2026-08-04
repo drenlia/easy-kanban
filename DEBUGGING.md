@@ -81,7 +81,7 @@ The server caches whether SQL debug is enabled for about **15 seconds** (`server
 
 | Key | Where it applies | What you get |
 |-----|------------------|--------------|
-| `FE_PERF_TESTS` | Public settings + Admin Site Settings toggle; overlay in `src/perfTests/` | When `"true"`, **admins** see a floating Perf Tests control center on the Kanban page (generate/move/cleanup scenarios + metrics modals). Default `"false"`. Not a console debug logger. |
+| `FE_PERF_TESTS` | **Per-admin** `user_settings` (not tenant `settings`). Toggle: Admin → App Settings → Troubleshooting. Overlay in `src/perfTests/` | When `"true"` for **that** admin, they see a floating Perf Tests control center on the Kanban page. Other admins are unaffected. Default off. Not a console debug logger. |
 
 ---
 
@@ -95,7 +95,7 @@ These are read with `await serverDebug(db, 'SERVER_DEBUG_…')` (`server/utils/s
 | `SERVER_DEBUG_HTTP` | `server/routes/settings.js` (`PUT /api/settings/app-url`); `server/routes/tasks.js` (all task `console.log` via `taskHttpLog`) | Step-by-step logs for the owner `APP_URL` update flow; task API timing / batch-update-positions / create publish chatter. Off by default — enable only when diagnosing HTTP/task paths. |
 | `SERVER_DEBUG_SQL` | `server/utils/queryLogger.js` | Per-query lines for every `wrapQuery` execution: truncated SQL, param summary, duration, errors. Prefix: `[SERVER_DEBUG_SQL]`. Setting is read via a **cached** path (≈15s TTL) that bypasses `wrapQuery` to avoid recursion (`server/utils/sqlDebugSettingsCache.js`). |
 
-**Admin UI:** App Settings → **Troubleshooting** (`AdminTroubleshootingTab`) — toggles for `FE_PERF_TESTS`, all `FE_DEBUG_*`, and `SERVER_DEBUG_*`. Writes go only through `PUT /api/admin/settings` (`authenticateToken` + `requireRole(['admin'])`). Public `GET /api/settings` can *read* `FE_*` flags (so the client can gate logs before login) but cannot change them; `SERVER_DEBUG_*` are not included in the public payload.
+**Admin UI:** App Settings → **Troubleshooting** (`AdminTroubleshootingTab`) — toggles for all `FE_DEBUG_*` and `SERVER_DEBUG_*` (tenant settings via `PUT /api/admin/settings`). **Performance Test Overlay** is separate: saved with `PUT /api/user/settings` (`FE_PERF_TESTS`) for the current admin only. Public `GET /api/settings` can *read* `FE_DEBUG_*` flags (so the client can gate logs before login) but cannot change them; `SERVER_DEBUG_*` are not included in the public payload.
 
 **Note:** Task route `console.log` lines are gated by `SERVER_DEBUG_HTTP` (`taskHttpLog` in `server/routes/tasks.js`). WebSocket per-event chatter (`task-updated` broadcasts, board-room joins, disconnects) is suppressed when `NODE_ENV=production` via `wsVerboseLog` in `server/utils/serverDebug.js`; successful auth/connect logs remain. Other routes may still use ungated `console.log`.
 

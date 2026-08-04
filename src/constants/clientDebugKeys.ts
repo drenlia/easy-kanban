@@ -1,6 +1,8 @@
 /**
  * Frontend debug flags (browser console). Values come from settings (string "true" / "false").
  * Sync with server/constants/debugSettings.js → FE_PUBLIC_DEBUG_FLAG_KEYS.
+ *
+ * Note: FE_PERF_TESTS is per-admin (`user_settings`), not a tenant debug flag — see src/perfTests/preference.ts.
  */
 export const FE_CLIENT_DEBUG_KEYS = [
   'FE_DEBUG_AUTH',
@@ -29,9 +31,8 @@ export const SERVER_DEBUG_KEYS = [
 
 export type ServerDebugKey = (typeof SERVER_DEBUG_KEYS)[number];
 
-/** Every setting controlled by Admin → App Settings → Troubleshooting. */
+/** Tenant settings controlled by Admin → App Settings → Troubleshooting (bulk disable on lock). */
 export const ALL_TROUBLESHOOTING_SETTING_KEYS = [
   ...FE_CLIENT_DEBUG_KEYS,
-  'FE_PERF_TESTS',
   ...SERVER_DEBUG_KEYS,
 ] as const;
