@@ -322,20 +322,7 @@ router.get('/check-default-admin', async (req, res) => {
   }
 });
 
-// Check if demo user exists
-router.get('/check-demo-user', async (req, res) => {
-  try {
-    const db = getRequestDatabase(req);
-    // MIGRATED: Check user exists using sqlManager
-    const demoUser = await authQueries.checkUserExistsByEmail(db, 'demo@kanban.local');
-    res.json({ exists: !!demoUser });
-  } catch (error) {
-    console.error('Error checking demo user:', error);
-    res.status(500).json({ error: 'Failed to check demo user' });
-  }
-});
-
-// Get demo credentials (demo deployments only)
+// Get demo admin credentials (demo deployments only)
 router.get('/demo-credentials', async (req, res) => {
   try {
     if (process.env.DEMO_ENABLED !== 'true') {
@@ -350,33 +337,23 @@ router.get('/demo-credentials', async (req, res) => {
     });
 
     const db = getRequestDatabase(req);
-    // MIGRATED: Get settings using sqlManager
     const adminPasswordSetting = await authQueries.getSetting(db, 'ADMIN_PASSWORD');
-    const demoPasswordSetting = await authQueries.getSetting(db, 'DEMO_PASSWORD');
     const adminPassword = adminPasswordSetting?.value;
-    const demoPassword = demoPasswordSetting?.value;
 
     // Do not invent a fake "admin" password — clients wait until seed finished.
     if (!adminPassword) {
       return res.status(503).json({
         ready: false,
-        admin: null,
-        demo: null
+        admin: null
       });
     }
-    
+
     res.json({
       ready: true,
       admin: {
         email: 'admin@kanban.local',
         password: adminPassword
-      },
-      demo: demoPassword
-        ? {
-            email: 'demo@kanban.local',
-            password: demoPassword
-          }
-        : null
+      }
     });
   } catch (error) {
     console.error('Error getting demo credentials:', error);

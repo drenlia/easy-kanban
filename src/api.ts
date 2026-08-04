@@ -132,8 +132,6 @@ api.interceptors.request.use((config) => {
       '/auth/reset-password',
       '/api/auth/check-default-admin',
       '/auth/check-default-admin',
-      '/api/auth/check-demo-user',
-      '/auth/check-demo-user',
       '/api/auth/instance-status',
       '/auth/instance-status',
       // Do NOT list /auth/is-owner here — it requires JWT. Listing it as "public"

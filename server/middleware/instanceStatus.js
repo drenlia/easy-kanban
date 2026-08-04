@@ -18,8 +18,8 @@ export const checkInstanceStatus = (db) => {
         '/api/user/status',           // Allow user status checking
         '/api/settings',              // Allow loading site settings
         '/api/auth/check-default-admin', // Allow admin check
-        '/api/auth/check-demo-user',     // Allow demo user check
         '/api/auth/login',               // Allow login attempts
+
         '/api/auth/google/url',          // Allow OAuth
         '/api/auth/google/callback',     // Allow OAuth callback
       ];

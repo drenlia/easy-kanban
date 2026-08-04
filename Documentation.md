@@ -57,23 +57,24 @@ Easy-Kanban is a comprehensive project management platform that combines Kanban 
 ### Authentication & Demo Mode
 
 #### Demo Mode (Recommended for Testing)
-When running in **demo mode**, the application provides pre-configured accounts with randomly generated passwords:
+When running in **demo mode** (`DEMO_ENABLED=true`), the application seeds an admin account and sample team members with randomly generated passwords:
 
 **Admin Account:**
 - **Email**: `admin@kanban.local`
-- **Password**: Randomly generated (displayed on login page)
+- **Password**: Randomly generated (shown on the login page; copy/fill from there)
 
-**Demo User Account:**
-- **Email**: `demo@kanban.local` 
-- **Password**: Randomly generated (displayed on login page)
+**Sample team accounts** (created with the demo board data):
+- `john.smith@demo.local`
+- `sarah.johnson@demo.local`
+- `mike.davis@demo.local`
 
-The demo credentials are automatically displayed on the login page when demo mode is enabled. You can copy the credentials using the copy buttons next to each field.
+Passwords for sample users are stored as `DEMO_PASSWORD_<email>` settings (not shown on the login page by default). The login page surfaces the admin credentials when demo mode is enabled.
 
 #### Production Mode
 In production mode, you'll need to create your own user accounts through the admin panel after initial setup.
 
 ### Initial Setup
-1. **Demo Mode**: Use the credentials displayed on the login page
+1. **Demo Mode**: Use the admin credentials displayed on the login page
 2. **Production Mode**: Create your first admin account through the setup process
 3. Create team members in the Admin panel
 4. Set up your boards and columns
