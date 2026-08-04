@@ -1917,6 +1917,33 @@ function AppContent() {
 
   // CENTRALIZED ROUTING HANDLER - Single source of truth
   useEffect(() => {
+    const fallbackBoardId = (): string | null => {
+      if (!boards.length) return null;
+      if (currentUser?.id) {
+        try {
+          const last = loadUserPreferences(currentUser.id).lastSelectedBoard;
+          if (last && boards.some((b) => b.id === last)) return last;
+        } catch {
+          /* ignore */
+        }
+      }
+      return boards[0]?.id ?? null;
+    };
+
+    // Invalid hash → select a real board. Bare #kanban clears selection and often stays blank
+    // because auto-select can miss the same-tick update after replaceState.
+    const recoverInvalidBoardHash = () => {
+      setCurrentPage('kanban');
+      const id = fallbackBoardId();
+      if (id) {
+        setSelectedBoard(id);
+        window.history.replaceState(null, '', `#kanban#${id}`);
+      } else {
+        setSelectedBoard(null);
+        window.history.replaceState(null, '', '#kanban');
+      }
+    };
+
     const handleRouting = () => {
       // Check for task route first (handles /task/#TASK-00001 and /project/#PROJ-00001/#TASK-00001)
       const taskRoute = parseTaskRoute();
@@ -1940,17 +1967,21 @@ function AppContent() {
             return; // Let the hash change trigger the next routing cycle
           }
         } else {
-          // Project ID not found - redirect to kanban with error or message
-          // console.warn(`Project ${projectRoute.projectId} not found`);
-          setCurrentPage('kanban');
-          setSelectedBoard(null);
-          window.history.replaceState(null, '', '#kanban');
+          recoverInvalidBoardHash();
           return;
         }
       }
       
       // Standard hash-based routing
       const route = parseUrlHash(window.location.hash);
+
+      // #login is for the signed-out Login screen only. If we're authenticated, open a real board.
+      if (route.mainRoute === 'login') {
+        if (isAuthenticated) {
+          recoverInvalidBoardHash();
+        }
+        return;
+      }
       
       // Debug to server console - DISABLED
       // fetch('/api/debug/log', {
@@ -2049,7 +2080,11 @@ function AppContent() {
         // Handle kanban board sub-routes
         if (route.mainRoute === 'kanban' && route.subRoute && boards.length > 0) {
           const board = boards.find(b => b.id === route.subRoute);
-          setSelectedBoard(board ? board.id : null);
+          if (board) {
+            setSelectedBoard(board.id);
+          } else {
+            recoverInvalidBoardHash();
+          }
         }
         
       } else if (route.isBoardId && boards.length > 0) {
@@ -2072,9 +2107,7 @@ function AppContent() {
           setCurrentPage('kanban');
           setSelectedBoard(board.id);
         } else {
-          // Invalid board ID - redirect to kanban
-          setCurrentPage('kanban');
-          setSelectedBoard(null);
+          recoverInvalidBoardHash();
         }
         
       } else if (route.mainRoute) {
@@ -2088,8 +2121,7 @@ function AppContent() {
           setAdminLeavePrompt({ page: 'kanban', options: { hash: 'kanban' } });
           return;
         }
-        setCurrentPage('kanban');
-        setSelectedBoard(null);
+        recoverInvalidBoardHash();
       }
     };
 
@@ -2097,7 +2129,7 @@ function AppContent() {
     handleRouting();
     window.addEventListener('hashchange', handleRouting);
     return () => window.removeEventListener('hashchange', handleRouting);
-  }, [currentPage, boards, isAuthenticated]);
+  }, [currentPage, boards, isAuthenticated, currentUser?.id]);
 
   // AUTO-BOARD-SELECTION LOGIC - Clean and predictable with user preference support
   useEffect(() => {
@@ -2138,8 +2170,9 @@ function AppContent() {
         setSelectedBoard(boardToSelect);
         // CRITICAL FIX: Save to preferences so it's remembered on next refresh
         updateCurrentUserPreference('lastSelectedBoard', boardToSelect);
-        // Update URL to reflect the selected board (only if no hash exists)
-        if (!window.location.hash || window.location.hash === '#') {
+        // Normalize empty / bare kanban hashes (incl. after invalid URL recovery)
+        const hash = window.location.hash || '';
+        if (!hash || hash === '#' || hash === '#kanban') {
           window.location.hash = `#kanban#${boardToSelect}`;
         }
       }

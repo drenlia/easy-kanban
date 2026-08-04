@@ -172,6 +172,14 @@ export const useAuth = (callbacks: UseAuthCallbacks): UseAuthReturn => {
           }, 100);
         }, 200);
       }
+    } else {
+      // Stay off #login after auth — otherwise routing treats it as a board id and
+      // clears/reselects the board in a loop (common after demo reset → login).
+      const rawHash = window.location.hash || '';
+      const main = rawHash.replace(/^#/, '').split(/[?#]/)[0].toLowerCase();
+      if (!main || main === 'login') {
+        window.location.hash = '#kanban';
+      }
     }
   };
 
