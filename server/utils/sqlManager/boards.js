@@ -324,6 +324,20 @@ export async function countLiveBoards(db) {
 }
 
 /**
+ * Count soft-deleted boards (Admin Lifecycle badge / summary)
+ */
+export async function countDeletedBoards(db) {
+  const query = `
+    SELECT COUNT(*)::int AS count
+    FROM boards
+    WHERE deleted_at IS NOT NULL
+  `;
+  const stmt = wrapQuery(db.prepare(query), 'SELECT');
+  const row = await stmt.get();
+  return row?.count || 0;
+}
+
+/**
  * Soft-deleted boards for Admin Lifecycle
  */
 export async function getDeletedBoards(db) {

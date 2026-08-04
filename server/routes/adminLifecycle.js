@@ -17,6 +17,24 @@ const router = express.Router();
 
 router.use(authenticateToken, requireRole(['admin']));
 
+/** Lightweight counts for Admin tab badges (not capped by list LIMIT) */
+router.get('/summary', async (req, res) => {
+  try {
+    const db = getRequestDatabase(req);
+    const [deletedTasks, deletedBoards] = await Promise.all([
+      taskQueries.countLifecycleDeletedTasks(db),
+      boardQueries.countDeletedBoards(db),
+    ]);
+    res.json({
+      deletedTasks: Number(deletedTasks) || 0,
+      deletedBoards: Number(deletedBoards) || 0,
+    });
+  } catch (error) {
+    console.error('Lifecycle summary error:', error);
+    res.status(500).json({ error: 'Failed to load lifecycle summary' });
+  }
+});
+
 /** Soft-deleted tasks across boards */
 router.get('/tasks', async (req, res) => {
   try {

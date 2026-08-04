@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import api, { createUser, updateUser, deleteUser, getUserTaskCount, resendUserInvitation, getTags, createTag, updateTag, deleteTag, getTagUsage, getBatchTagUsage, getPriorities, createPriority, updatePriority, deletePriority, reorderPriorities, setDefaultPriority, getPriorityUsage, getBatchPriorityUsage } from '../api';
+import api, { createUser, updateUser, deleteUser, getUserTaskCount, resendUserInvitation, getTags, createTag, updateTag, deleteTag, getTagUsage, getBatchTagUsage, getPriorities, createPriority, updatePriority, deletePriority, reorderPriorities, setDefaultPriority, getPriorityUsage, getBatchPriorityUsage, getLifecycleSummary } from '../api';
 import { ADMIN_TABS, ROUTES } from '../constants';
 import { toast } from '../utils/toast';
 import AdminSiteSettingsTab from './admin/AdminSiteSettingsTab';
@@ -14,6 +14,7 @@ import AdminLicensingTab from './admin/AdminLicensingTab';
 import AdminSettingsSearch from './admin/AdminSettingsSearch';
 import { AdminUnsavedChangesBanner } from './admin/AdminUnsavedChanges';
 import type { AdminDraftGate } from './admin/AdminLeaveUnsavedDialog';
+import { AdminAttentionDot } from './admin/AdminFieldDraftControls';
 import websocketClient from '../services/websocketClient';
 import { useSettings } from '../contexts/SettingsContext';
 import { isMaskedApiKeyDisplay } from '../utils/maskSecret';
@@ -132,6 +133,45 @@ const Admin: React.FC<AdminProps> = ({
   const [ownerEmail, setOwnerEmail] = useState<string | null>(null);
   /** Tabs mounted at least once — keep mounted to retain local drafts */
   const [visitedTabs, setVisitedTabs] = useState<Set<string>>(() => new Set([activeTab]));
+  const [lifecyclePendingCount, setLifecyclePendingCount] = useState(0);
+
+  const refreshLifecyclePending = useCallback(async () => {
+    if (!currentUser?.roles?.includes('admin')) {
+      setLifecyclePendingCount(0);
+      return;
+    }
+    try {
+      const summary = await getLifecycleSummary();
+      setLifecyclePendingCount(
+        (Number(summary.deletedTasks) || 0) + (Number(summary.deletedBoards) || 0)
+      );
+    } catch (err) {
+      console.error('Failed to load lifecycle summary:', err);
+    }
+  }, [currentUser]);
+
+  useEffect(() => {
+    void refreshLifecyclePending();
+  }, [refreshLifecyclePending]);
+
+  useEffect(() => {
+    if (!currentUser?.roles?.includes('admin')) return;
+    const refresh = () => {
+      void refreshLifecyclePending();
+    };
+    websocketClient.onTaskDeleted(refresh);
+    websocketClient.onTaskRestored(refresh);
+    websocketClient.onTaskPurged(refresh);
+    websocketClient.onBoardDeleted(refresh);
+    websocketClient.onBoardRestored(refresh);
+    return () => {
+      websocketClient.offTaskDeleted(refresh);
+      websocketClient.offTaskRestored(refresh);
+      websocketClient.offTaskPurged(refresh);
+      websocketClient.offBoardDeleted(refresh);
+      websocketClient.offBoardRestored(refresh);
+    };
+  }, [currentUser, refreshLifecyclePending]);
 
   useEffect(() => {
     setVisitedTabs((prev) => {
@@ -1350,6 +1390,12 @@ const Admin: React.FC<AdminProps> = ({
                   {tab === 'app-settings' && t('tabs.appSettings')}
                   {tab === 'project-settings' && t('tabs.projectSettings')}
                   {tab === 'licensing' && t('tabs.licensing')}
+                  {tab === 'project-settings' && (
+                    <AdminAttentionDot
+                      show={lifecyclePendingCount > 0}
+                      label={t('lifecycle.pendingAttention')}
+                    />
+                  )}
                   {isTabDirty(tab) && (
                     <span
                       className="inline-block w-1.5 h-1.5 rounded-full bg-amber-500 flex-shrink-0"
@@ -1493,6 +1539,9 @@ const Admin: React.FC<AdminProps> = ({
                   handleTabLocalDirty('project-settings', dirty)
                 }
                 discardNonce={settingsDiscardNonce}
+                lifecyclePendingCount={lifecyclePendingCount}
+                onLifecyclePendingRefresh={refreshLifecyclePending}
+                isActive={activeTab === 'project-settings'}
               />
             </AdminTabPanel>
           )}

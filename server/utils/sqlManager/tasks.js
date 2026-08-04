@@ -1473,6 +1473,20 @@ export async function getTrashTasksForBoard(db, boardId) {
 }
 
 /**
+ * Count soft-deleted tasks tenant-wide (Admin Lifecycle badge / summary)
+ */
+export async function countLifecycleDeletedTasks(db) {
+  const query = `
+    SELECT COUNT(*)::int AS count
+    FROM tasks
+    WHERE deleted_at IS NOT NULL
+  `;
+  const stmt = wrapQuery(db.prepare(query), 'SELECT');
+  const row = await stmt.get();
+  return row?.count || 0;
+}
+
+/**
  * Soft-deleted tasks across boards for Admin Lifecycle
  */
 export async function getLifecycleDeletedTasks(db, boardId = null, search = null) {

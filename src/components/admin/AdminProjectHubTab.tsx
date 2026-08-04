@@ -4,7 +4,7 @@ import AdminProjectSettingsTab from './AdminProjectSettingsTab';
 import AdminSprintSettingsTab from './AdminSprintSettingsTab';
 import AdminReportingTab from './AdminReportingTab';
 import AdminLifecycleTab from './AdminLifecycleTab';
-import { AdminDirtyDot } from './AdminFieldDraftControls';
+import { AdminDirtyDot, AdminPendingCountBadge } from './AdminFieldDraftControls';
 import {
   getDirtyProjectHubSubTabs,
   type ProjectHubSubTabId,
@@ -21,6 +21,10 @@ interface AdminProjectHubTabProps {
   onAutoSave?: (key: string, value: string) => Promise<void>;
   onLocalDirtyChange?: (dirty: boolean) => void;
   discardNonce?: number;
+  lifecyclePendingCount?: number;
+  onLifecyclePendingRefresh?: () => void | Promise<void>;
+  /** True when the Admin → Project Settings panel is visible. */
+  isActive?: boolean;
 }
 
 function subTabFromHash(hash: string): ProjectHubSubTab {
@@ -55,6 +59,9 @@ const AdminProjectHubTab: React.FC<AdminProjectHubTabProps> = ({
   onAutoSave,
   onLocalDirtyChange,
   discardNonce = 0,
+  lifecyclePendingCount = 0,
+  onLifecyclePendingRefresh,
+  isActive = true,
 }) => {
   const { t } = useTranslation('admin');
   const [activeSubTab, setActiveSubTab] = useState<ProjectHubSubTab>(() =>
@@ -120,6 +127,12 @@ const AdminProjectHubTab: React.FC<AdminProjectHubTabProps> = ({
       }`}
     >
       {label}
+      {tab === 'lifecycle' && (
+        <AdminPendingCountBadge
+          count={lifecyclePendingCount}
+          label={t('lifecycle.pendingBadge', { count: lifecyclePendingCount })}
+        />
+      )}
       <AdminDirtyDot show={dirtySubTabs.has(tab)} />
     </button>
   );
@@ -187,6 +200,8 @@ const AdminProjectHubTab: React.FC<AdminProjectHubTabProps> = ({
           <AdminLifecycleTab
             onLocalDirtyChange={setLifecycleLocalDirty}
             discardNonce={discardNonce}
+            onPendingChange={onLifecyclePendingRefresh}
+            isActive={isActive && activeSubTab === 'lifecycle'}
           />
         </div>
       )}

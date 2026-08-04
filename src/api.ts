@@ -490,6 +490,19 @@ export const purgeBoard = async (id: string) => {
   return data;
 };
 
+export type LifecycleSummary = {
+  deletedTasks: number;
+  deletedBoards: number;
+};
+
+export const getLifecycleSummary = async (): Promise<LifecycleSummary> => {
+  const { data } = await api.get<LifecycleSummary>('/admin/lifecycle/summary');
+  return {
+    deletedTasks: typeof data?.deletedTasks === 'number' ? data.deletedTasks : 0,
+    deletedBoards: typeof data?.deletedBoards === 'number' ? data.deletedBoards : 0,
+  };
+};
+
 export const getLifecycleDeletedTasks = async (params?: { boardId?: string; q?: string }) => {
   const { data } = await api.get<{ tasks: Task[] }>('/admin/lifecycle/tasks', { params });
   return Array.isArray(data?.tasks) ? data.tasks : [];
