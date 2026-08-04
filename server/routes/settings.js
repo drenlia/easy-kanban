@@ -671,6 +671,14 @@ router.put('/', authenticateToken, requireRole(['admin']), async (req, res, next
 
     // Agent assignee visibility follows AI_ENABLED; name follows AI_AGENT_NAME
     if (key === 'AI_ENABLED') {
+      if (String(safeValue) === 'true') {
+        try {
+          const { syncAgentUserAvatar } = await import('../utils/agentBotAvatar.js');
+          await syncAgentUserAvatar(db, tenantId, getRequestStoragePaths(req));
+        } catch (e) {
+          console.warn('Agent avatar sync on AI enable failed:', e?.message || e);
+        }
+      }
       await publishAgentMemberVisibility(db, tenantId, {
         enabled: String(safeValue) === 'true'
       });

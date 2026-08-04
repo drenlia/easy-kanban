@@ -427,6 +427,15 @@ const Admin: React.FC<AdminProps> = ({
             [data.key]: value,
             ...(setFlag !== undefined ? { [setFlagKey]: setFlag } : {}),
           }));
+          // Agent row appears/disappears in Users when AI is toggled
+          if (data.key === 'AI_ENABLED') {
+            try {
+              const usersResponse = await api.get('/admin/users');
+              setUsers(usersResponse.data || []);
+            } catch (usersErr) {
+              console.warn('Failed to refresh users after AI_ENABLED change:', usersErr);
+            }
+          }
         } else {
           // Fallback: Refresh from SettingsContext if WebSocket data is incomplete
           await refreshSettings();

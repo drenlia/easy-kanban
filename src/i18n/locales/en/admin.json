@@ -619,7 +619,7 @@
     "aiTestConnection": "Test connection",
     "aiTesting": "Testing…",
     "aiValidationOk": "AI provider is reachable",
-    "aiValidationOkWithModels": "AI provider is reachable ({{count}} model(s){{sample}})",
+    "aiValidationOkWithModels": "AI provider is reachable ({{count}} model(s) available)",
     "aiValidationFailed": "Could not reach the AI provider",
     "aiSaveBeforeEnable": "Save configuration first, then enable AI.",
     "aiEnabledSuccess": "AI enabled",

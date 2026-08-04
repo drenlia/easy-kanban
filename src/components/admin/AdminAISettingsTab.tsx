@@ -23,6 +23,8 @@ import { AdminUnsavedHint } from './AdminUnsavedChanges';
 interface AdminAISettingsTabProps {
   editingSettings: { [key: string]: string | undefined };
   onSettingsChange: (settings: { [key: string]: string | undefined }) => void;
+  /** Patch saved + draft together so the Admin unsaved banner clears after AI save. */
+  onApplySettingsPatch?: (patch: Record<string, string | undefined>) => void;
   onAutoSave: (key: string, value: string) => Promise<void>;
   onLocalDirtyChange?: (dirty: boolean) => void;
   discardNonce?: number;
@@ -48,6 +50,7 @@ function initialBaseUrl(settings: { [key: string]: string | undefined }): string
 const AdminAISettingsTab: React.FC<AdminAISettingsTabProps> = ({
   editingSettings,
   onSettingsChange,
+  onApplySettingsPatch,
   onLocalDirtyChange,
   discardNonce = 0,
 }) => {
@@ -180,6 +183,17 @@ const AdminAISettingsTab: React.FC<AdminAISettingsTabProps> = ({
     onLocalDirtyChange?.(configDirty || agentNameDirty);
   }, [configDirty, agentNameDirty, onLocalDirtyChange]);
 
+  const applyAiPatch = (patch: Record<string, string | undefined>) => {
+    if (onApplySettingsPatch) {
+      onApplySettingsPatch(patch);
+    } else {
+      onSettingsChange({ ...editingSettings, ...patch });
+      for (const [key, value] of Object.entries(patch)) {
+        if (value !== undefined) updateSiteSetting(key, value);
+      }
+    }
+  };
+
   const putSetting = async (key: string, value: string) => {
     const { data } = await api.put('/admin/settings', { key, value });
     const isSecret = ['AI_API_KEY', 'AI_RUNNER_TOKEN'].includes(key);
@@ -217,10 +231,7 @@ const AdminAISettingsTab: React.FC<AdminAISettingsTabProps> = ({
       const name = agentName.trim() || 'Agent';
       await putSetting('AI_AGENT_NAME', name);
       setAgentName(name);
-      onSettingsChange({
-        ...editingSettings,
-        AI_AGENT_NAME: name,
-      });
+      applyAiPatch({ AI_AGENT_NAME: name });
       toast.success(t('appSettings.aiAgentNameApplied'), '');
     } catch (error: any) {
       console.error('Failed to apply agent name:', error);
@@ -274,10 +285,9 @@ const AdminAISettingsTab: React.FC<AdminAISettingsTabProps> = ({
         editingSettings.AI_API_BASE_URL,
         provider
       );
-      const next: { [key: string]: string | undefined } = {
-        ...editingSettings,
+      // Only AI keys — never copy unrelated draft settings into the saved baseline
+      const patch: Record<string, string | undefined> = {
         AI_PROVIDER: provider,
-        // Keep empty saved + suggested display from becoming a fake persisted value
         AI_API_BASE_URL: baseUrlChanged
           ? url
           : editingSettings.AI_API_BASE_URL || '',
@@ -285,7 +295,7 @@ const AdminAISettingsTab: React.FC<AdminAISettingsTabProps> = ({
         AI_MAX_CONCURRENT: maxVal,
       };
       if (!platformRunnerManaged) {
-        next.AI_RUNNER_URL = runnerUrlVal;
+        patch.AI_RUNNER_URL = runnerUrlVal;
       }
 
       if (provider !== (editingSettings.AI_PROVIDER || 'openai')) {
@@ -311,17 +321,17 @@ const AdminAISettingsTab: React.FC<AdminAISettingsTabProps> = ({
         const saved = await putSetting('AI_API_KEY', trimmedKey);
         const hint = saved?.value || maskApiKey(trimmedKey);
         setApiKeyDraft(hint);
-        next.AI_API_KEY_SET = 'true';
-        next.AI_API_KEY = hint;
+        patch.AI_API_KEY_SET = 'true';
+        patch.AI_API_KEY = hint;
       }
       if (!platformRunnerManaged && runnerTokenReplaced) {
         const saved = await putSetting('AI_RUNNER_TOKEN', trimmedRunnerToken);
         const hint = saved?.value || maskApiKey(trimmedRunnerToken);
         setRunnerTokenDraft(hint);
-        next.AI_RUNNER_TOKEN_SET = 'true';
-        next.AI_RUNNER_TOKEN = hint;
+        patch.AI_RUNNER_TOKEN_SET = 'true';
+        patch.AI_RUNNER_TOKEN = hint;
       }
-      onSettingsChange(next);
+      applyAiPatch(patch);
       toast.success(t('appSettings.aiConfigSaved'), '');
     } catch (error: any) {
       console.error('Failed to save AI configuration:', error);
@@ -391,17 +401,9 @@ const AdminAISettingsTab: React.FC<AdminAISettingsTabProps> = ({
         return;
       }
       const modelList = Array.isArray(result.models) ? result.models : [];
-      const sample = modelList
-        .slice(0, 5)
-        .map((m) => m.id)
-        .filter(Boolean)
-        .join(', ');
       const detail =
         modelList.length > 0
-          ? t('appSettings.aiValidationOkWithModels', {
-              count: modelList.length,
-              sample: sample ? `: ${sample}${modelList.length > 5 ? '…' : ''}` : '',
-            })
+          ? t('appSettings.aiValidationOkWithModels', { count: modelList.length })
           : t('appSettings.aiValidationOk');
       setValidationOk(detail);
       toast.success(detail, '');
@@ -471,30 +473,15 @@ const AdminAISettingsTab: React.FC<AdminAISettingsTabProps> = ({
     setValidationOk(null);
 
     try {
-      if (turningOn) {
-        if (configDirty) {
-          setValidationError(t('appSettings.aiSaveBeforeEnable'));
-          toast.error(t('appSettings.aiSaveBeforeEnable'), '');
-          return;
-        }
-        try {
-          await runValidate();
-        } catch (error: any) {
-          const msg =
-            error?.response?.data?.error ||
-            error?.message ||
-            t('appSettings.aiValidationFailed');
-          setValidationError(String(msg));
-          toast.error(String(msg), '');
-          return;
-        }
+      if (turningOn && configDirty) {
+        setValidationError(t('appSettings.aiSaveBeforeEnable'));
+        toast.error(t('appSettings.aiSaveBeforeEnable'), '');
+        return;
       }
 
+      // Server validates provider + runner when enabling — avoid a duplicate FE probe (felt like lag).
       await putSetting('AI_ENABLED', turningOn ? 'true' : 'false');
-      onSettingsChange({
-        ...editingSettings,
-        AI_ENABLED: turningOn ? 'true' : 'false',
-      });
+      applyAiPatch({ AI_ENABLED: turningOn ? 'true' : 'false' });
       toast.success(
         turningOn ? t('appSettings.aiEnabledSuccess') : t('appSettings.aiDisabledSuccess'),
         ''
@@ -505,7 +492,7 @@ const AdminAISettingsTab: React.FC<AdminAISettingsTabProps> = ({
         error?.message ||
         t('failedToSaveSettings');
       setValidationError(String(msg));
-      onSettingsChange({ ...editingSettings, AI_ENABLED: previous });
+      applyAiPatch({ AI_ENABLED: previous });
       toast.error(String(msg), '');
     } finally {
       setSavingEnabled(false);
