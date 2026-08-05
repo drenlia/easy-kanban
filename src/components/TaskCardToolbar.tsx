@@ -576,7 +576,12 @@ export default function TaskCardToolbar({
             disabled={agentBlocking}
             onClick={(e) => {
               if (agentBlocking) return;
+              e.preventDefault();
+              e.stopPropagation();
               onRemove(task.id, e);
+            }}
+            onMouseDown={(e) => {
+              e.stopPropagation();
             }}
             className={`p-1 rounded-full ${toolbarReachClass} ${
               agentBlocking

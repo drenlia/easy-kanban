@@ -41,7 +41,7 @@ const TaskDeleteConfirmation: React.FC<TaskDeleteConfirmationProps> = ({
 
   return createPortal(
     <div 
-      className="delete-confirmation fixed bg-white border border-gray-200 rounded-lg shadow-lg p-3 z-[9999] min-w-[200px]"
+      className="delete-confirmation fixed bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg shadow-lg p-3 z-[9999] min-w-[200px]"
       role="dialog"
       aria-modal="true"
       style={{

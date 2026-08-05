@@ -31,11 +31,27 @@ export const useTaskDeleteConfirmation = ({
   const positionFromEvent = (clickEvent?: React.MouseEvent) => {
     let position = { top: 100, left: 100 };
     if (clickEvent) {
-      const rect = (clickEvent.target as HTMLElement).getBoundingClientRect();
-      position = {
-        top: rect.bottom + window.scrollY + 5,
-        left: rect.left + window.scrollX
-      };
+      const el = clickEvent.currentTarget as HTMLElement | null;
+      const target = (clickEvent.target as HTMLElement | null)?.closest?.(
+        'button, [data-tour-id="task-card-delete"]'
+      ) as HTMLElement | null;
+      const rect = (el?.getBoundingClientRect?.() ||
+        target?.getBoundingClientRect?.() ||
+        (clickEvent.target as HTMLElement).getBoundingClientRect()) as DOMRect;
+      // Dialog uses position:fixed — use viewport coords only (do NOT add scrollY/scrollX).
+      const popupWidth = 220;
+      const popupHeight = 96;
+      const pad = 8;
+      let top = rect.bottom + 5;
+      let left = rect.left;
+      if (top + popupHeight > window.innerHeight - pad) {
+        top = Math.max(pad, rect.top - popupHeight - 5);
+      }
+      if (left + popupWidth > window.innerWidth - pad) {
+        left = Math.max(pad, window.innerWidth - popupWidth - pad);
+      }
+      if (left < pad) left = pad;
+      position = { top, left };
     }
     return position;
   };
