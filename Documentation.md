@@ -39,7 +39,7 @@ Easy-Kanban is a comprehensive project management platform that combines Kanban 
 - **Team management** with color-coded member assignments
 - **Task management** with priorities, comments, attachments, and relationships
 - **Multi-select & bulk actions** - tag, copy, sprint, priority, archive, delete, move board; multi-drag between columns
-- **Soft delete & trash** - restore or permanently purge tasks and boards (board trash + Admin → Lifecycle)
+- **Soft delete & trash** - restore or permanently purge tasks and boards (board trash + Admin → Lifecycle); admins can Shift+click delete to purge without trash
 - **AI Agent** (optional) — assign tasks to an Agent that can comment (**Assist**), work a linked Git repo (**Code**), or (admins) run board **Automation** with dry-run Apply/Undo (see [AI Agent](#ai-agent))
 - **Admin panel** for users, branding, mail, SSO, sprints, reporting, licensing, and lifecycle
 - **File uploads** for task attachments and user avatars
@@ -181,7 +181,7 @@ The Kanban view displays tasks as cards in columns, representing different stage
 
 #### Multi-select & bulk actions
 - **Select all** (per column): Checkbox strip above columns
-- **Bulk action bar**: Tag, copy, sprint, priority, move to board (admin), archive, delete; unselect all
+- **Bulk action bar**: Tag, copy, sprint, priority, move to board (admin), archive, delete; unselect all. Admins: **Shift+click** delete to permanently purge selected tasks (skips trash; always confirms)
 - **Bulk move**: Drag one selected card to move all checked cards in that column together
 
 #### Drag & Drop Operations
@@ -202,7 +202,7 @@ The List view displays tasks in a table format for detailed data management.
 
 #### Table Columns
 - **Row Number**: Sequential numbering
-- **Actions**: View, Copy, Delete buttons (appear on hover)
+- **Actions**: View, Copy, Delete buttons (appear on hover). Admins: **Shift+click** Delete to permanently purge (skips trash; always confirms)
 - **Task Title**: Click to open task details
 - **Assignee**: User avatar and name
 - **Priority**: Color-coded priority level
@@ -240,6 +240,7 @@ The Gantt view displays tasks on a timeline showing project schedules and depend
 - **Edit Tasks**: Click on task bars to edit
 - **Move Tasks**: Drag task bars to change dates
 - **Resize Tasks**: Drag ends of task bars to change duration
+- **Delete Task**: Soft-delete from the task list trash control. Admins: **Shift+click** to permanently purge (skips trash; always confirms)
 
 #### View Modes (Tools → card density)
 - **Expand**: Full task details with titles
@@ -291,7 +292,7 @@ When you click on a task, the Task Details page opens with comprehensive task ma
 
 #### Task Actions
 - **Save Changes**: Save all modifications
-- **Delete Task**: Soft-delete to board trash (restore from trash or Admin → Lifecycle)
+- **Delete Task**: Soft-delete to board trash (restore from trash or Admin → Lifecycle). Admins: **Shift+click** delete on the card/toolbar to permanently purge (skips trash; always confirms)
 - **Copy Task**: Duplicate task
 - **Link Tasks**: Create relationships with other tasks
 - **Assign to Agent** (when AI is enabled): Open the assign modal from the card toolbar or assignee control — see [AI Agent](#ai-agent)
@@ -543,6 +544,10 @@ Developer details (APIs, `task_work`, runner): [`docs/AI_INTEGRATION.md`](docs/A
 ### Soft delete & trash
 
 Soft delete is separate from the Archive column: deleted items leave the active board and can be restored or purged.
+
+#### Soft-delete vs permanent purge
+- **Normal delete** (trash icon / bulk delete): Soft-deletes the task into board trash (recoverable)
+- **Admin Shift+click delete**: Permanently purges the task immediately (Kanban card, multi-select bulk bar, List view, and Gantt task list). Skips trash; always asks for confirmation. Non-admins: Shift is ignored
 
 #### Board trash
 - **Open trash**: Toggle from the board tabs area
