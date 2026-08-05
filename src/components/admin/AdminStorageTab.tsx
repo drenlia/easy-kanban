@@ -17,6 +17,7 @@ import {
   adminInputFullClass,
 } from './AdminSection';
 import { isMultiTenantDeploy } from '../../utils/ownerSetup';
+import { useEscapeDismiss } from '../../hooks/useEscapeDismiss';
 
 interface Settings {
   STORAGE_BACKEND?: string;
@@ -53,7 +54,35 @@ interface MigrationDetail {
   errors?: string[];
   startedAt?: string;
   finishedAt?: string;
+  cutoverApplied?: boolean;
+  cutoverBucket?: string;
+  cutoverPrefix?: string;
 }
+
+const MIGRATE_RESULT_STORAGE_KEY = 'easyKanban.storageMigrateResult';
+
+/** Default AWS endpoint suggested when switching to S3 with an empty endpoint. */
+const DEFAULT_S3_ENDPOINT = 'https://s3.amazonaws.com';
+
+interface DestDraft {
+  S3_ENDPOINT: string;
+  S3_REGION: string;
+  S3_BUCKET: string;
+  S3_ACCESS_KEY_ID: string;
+  S3_SECRET_ACCESS_KEY: string;
+  S3_FORCE_PATH_STYLE: string;
+  S3_KEY_PREFIX: string;
+}
+
+const emptyDestDraft = (): DestDraft => ({
+  S3_ENDPOINT: DEFAULT_S3_ENDPOINT,
+  S3_REGION: '',
+  S3_BUCKET: '',
+  S3_ACCESS_KEY_ID: '',
+  S3_SECRET_ACCESS_KEY: '',
+  S3_FORCE_PATH_STYLE: 'false',
+  S3_KEY_PREFIX: '',
+});
 
 interface MigrationProgress {
   status?: string;
@@ -69,6 +98,7 @@ interface CompareItem {
   path: string;
   filename: string;
   users?: { id: string; email: string; name: string }[];
+  tasks?: { id: string; ticket: string; title: string }[];
 }
 
 interface CompareBucket {
@@ -106,11 +136,6 @@ interface AdminStorageTabProps {
   onApplySettingsPatch?: (patch: Record<string, string | undefined>) => void;
 }
 
-const MIGRATE_RESULT_STORAGE_KEY = 'easyKanban.storageMigrateResult';
-
-/** Default AWS endpoint suggested when switching to S3 with an empty endpoint. */
-const DEFAULT_S3_ENDPOINT = 'https://s3.amazonaws.com';
-
 const AdminStorageTab: React.FC<AdminStorageTabProps> = ({
   settings,
   editingSettings,
@@ -140,6 +165,11 @@ const AdminStorageTab: React.FC<AdminStorageTabProps> = ({
   const [isComparing, setIsComparing] = useState(false);
   const [showCompareModal, setShowCompareModal] = useState(false);
   const [compareResult, setCompareResult] = useState<CompareResult | null>(null);
+  /** Configure destination for S3→S3 without clearing live/source credentials. */
+  const [configuringDest, setConfiguringDest] = useState(false);
+  const [destDraft, setDestDraft] = useState<DestDraft>(() => emptyDestDraft());
+  const [destTestOk, setDestTestOk] = useState(false);
+  const [isTestingDest, setIsTestingDest] = useState(false);
   const migratePollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const migrateStartedAtRef = useRef<string | null>(null);
   const migrateFinishedHandledRef = useRef(false);
@@ -207,8 +237,72 @@ const AdminStorageTab: React.FC<AdminStorageTabProps> = ({
         secretReady
     );
 
+  /** Switching disk → S3 requires credentials + a successful Test (managed S3 is already live). */
+  const s3ActivationBlocked =
+    backendPending && isS3 && !isManaged && !(canTestS3() && testOk);
+  const canSaveStorage =
+    hasChanges && !isManaged && !configuringDest && !s3ActivationBlocked;
+
+  /** Managed env, or complete credentials + a successful Test connection. */
+  const canMigrateS3 = isManaged || (canTestS3() && testOk);
+
+  const canTestDest = () =>
+    Boolean(
+      str(destDraft.S3_BUCKET) &&
+        (str(destDraft.S3_REGION) || str(destDraft.S3_ENDPOINT)) &&
+        str(destDraft.S3_ACCESS_KEY_ID) &&
+        str(destDraft.S3_SECRET_ACCESS_KEY) &&
+        !isMaskedApiKeyDisplay(str(destDraft.S3_SECRET_ACCESS_KEY))
+    );
+
+  const canMigrateS3ToS3 = isS3 && canTestDest() && destTestOk;
+
+  const beginDestConfig = () => {
+    setDestDraft(emptyDestDraft());
+    setDestTestOk(false);
+    setConfiguringDest(true);
+    setShowSecondConfirm(false);
+    setShowFirstConfirm(false);
+    toast.success(t('storage.destConfigStarted'));
+  };
+
+  const cancelDestConfig = () => {
+    setConfiguringDest(false);
+    setDestDraft(emptyDestDraft());
+    setDestTestOk(false);
+    setShowTestModal(false);
+    setTestResult(null);
+    setShowTestErrorModal(false);
+    setTestError('');
+    setTestErrorTechnical('');
+  };
+
+  /** Footer Cancel must also exit destination-config mode (local React state). */
+  const handleCancelAll = () => {
+    cancelDestConfig();
+    onCancel();
+  };
+
+  const handleDestChange = (key: keyof DestDraft, value: string) => {
+    setDestDraft((prev) => ({ ...prev, [key]: value }));
+    setDestTestOk(false);
+  };
+
   const handleInputChange = (key: string, value: string) => {
-    onSettingsChange({ ...editingSettings, [key]: value });
+    const next: Settings = { ...editingSettings, [key]: value };
+    // Credential/endpoint edits invalidate a prior successful S3 test
+    if (
+      key === 'S3_ACCESS_KEY_ID' ||
+      key === 'S3_SECRET_ACCESS_KEY' ||
+      key === 'S3_BUCKET' ||
+      key === 'S3_ENDPOINT' ||
+      key === 'S3_REGION' ||
+      key === 'S3_FORCE_PATH_STYLE' ||
+      key === 'S3_KEY_PREFIX'
+    ) {
+      next.STORAGE_TEST_OK = 'false';
+    }
+    onSettingsChange(next);
   };
 
   const handleBackendChange = (value: string) => {
@@ -281,8 +375,49 @@ const AdminStorageTab: React.FC<AdminStorageTabProps> = ({
       const { data } = await api.post('/admin/test-storage', payload);
       setTestResult(data);
       setShowTestModal(true);
-      onSettingsChange({ ...editingSettings, STORAGE_TEST_OK: 'true' });
-      toast.success(t('storage.testSuccess'));
+
+      // Persist the draft S3 fields that just worked — skip a separate Save click
+      try {
+        const patch: Record<string, string | undefined> = {
+          STORAGE_TEST_OK: 'true',
+        };
+        const persistKeys = [
+          'S3_ENDPOINT',
+          'S3_REGION',
+          'S3_BUCKET',
+          'S3_ACCESS_KEY_ID',
+          'S3_FORCE_PATH_STYLE',
+          'S3_KEY_PREFIX',
+        ] as const;
+        for (const key of persistKeys) {
+          let value = str(editingSettings[key]);
+          if (key === 'S3_FORCE_PATH_STYLE' && !value) value = 'false';
+          if (value !== str(settings[key])) {
+            await api.put('/admin/settings', { key, value });
+          }
+          patch[key] = value;
+        }
+        if (secretDraft && !isMaskedApiKeyDisplay(secretDraft)) {
+          await api.put('/admin/settings', {
+            key: 'S3_SECRET_ACCESS_KEY',
+            value: secretDraft,
+          });
+          patch.S3_SECRET_ACCESS_KEY = '';
+          patch.S3_SECRET_ACCESS_KEY_SET = 'true';
+        }
+
+        if (onApplySettingsPatch) {
+          onApplySettingsPatch(patch);
+        } else {
+          onSettingsChange({ ...editingSettings, ...patch });
+        }
+
+        toast.success(t('storage.testSuccessSaved'));
+      } catch (saveErr) {
+        console.error('S3 settings persist after successful test failed:', saveErr);
+        onSettingsChange({ ...editingSettings, STORAGE_TEST_OK: 'true' });
+        toast.error(t('storage.testSucceededButSaveFailed'));
+      }
     } catch (err: any) {
       const { message, technical } = explainTestFailure(err.response?.data || {});
       const fallback =
@@ -294,6 +429,49 @@ const AdminStorageTab: React.FC<AdminStorageTabProps> = ({
       toast.error(t('storage.testFailed'));
     } finally {
       setIsTesting(false);
+    }
+  };
+
+  const handleTestDest = async () => {
+    if (!canTestDest()) {
+      toast.error(t('storage.migrateNeedsCredentials'));
+      return;
+    }
+    setIsTestingDest(true);
+    setTestError('');
+    setTestErrorTechnical('');
+    setShowTestModal(false);
+    setShowTestErrorModal(false);
+    try {
+      // Destination-only probe: never merge/persist into live managed or custom source settings.
+      const payload = {
+        asDestination: true as const,
+        S3_ENDPOINT: str(destDraft.S3_ENDPOINT) || DEFAULT_S3_ENDPOINT,
+        S3_REGION: str(destDraft.S3_REGION),
+        S3_BUCKET: str(destDraft.S3_BUCKET),
+        S3_ACCESS_KEY_ID: str(destDraft.S3_ACCESS_KEY_ID),
+        S3_SECRET_ACCESS_KEY: str(destDraft.S3_SECRET_ACCESS_KEY),
+        S3_FORCE_PATH_STYLE: str(destDraft.S3_FORCE_PATH_STYLE) || 'false',
+        S3_KEY_PREFIX: str(destDraft.S3_KEY_PREFIX),
+      };
+      if (!payload.S3_BUCKET || !payload.S3_ACCESS_KEY_ID || !payload.S3_SECRET_ACCESS_KEY) {
+        toast.error(t('storage.migrateNeedsCredentials'));
+        return;
+      }
+      const { data } = await api.post('/admin/test-storage', payload);
+      setTestResult(data);
+      setShowTestModal(true);
+      setDestTestOk(true);
+      toast.success(t('storage.destTestSuccess'));
+    } catch (err: any) {
+      const { message, technical } = explainTestFailure(err.response?.data || {});
+      setTestError(message || err.message || t('storage.testFailed'));
+      setTestErrorTechnical(technical);
+      setShowTestErrorModal(true);
+      setDestTestOk(false);
+      toast.error(t('storage.testFailed'));
+    } finally {
+      setIsTestingDest(false);
     }
   };
 
@@ -333,11 +511,34 @@ const AdminStorageTab: React.FC<AdminStorageTabProps> = ({
       patch.STORAGE_BACKEND = 's3';
     } else if (data.ok && data.detail?.direction === 's3-to-disk') {
       patch.STORAGE_BACKEND = 'disk';
+    } else if (data.ok && data.detail?.direction === 's3-to-s3' && data.detail?.cutoverApplied) {
+      patch.STORAGE_BACKEND = 's3';
+      patch.STORAGE_MANAGED = 'false';
+      patch.STORAGE_TEST_OK = 'true';
+      patch.S3_ENDPOINT = destDraft.S3_ENDPOINT;
+      patch.S3_REGION = destDraft.S3_REGION;
+      patch.S3_BUCKET = destDraft.S3_BUCKET;
+      patch.S3_ACCESS_KEY_ID = destDraft.S3_ACCESS_KEY_ID;
+      patch.S3_FORCE_PATH_STYLE = destDraft.S3_FORCE_PATH_STYLE || 'false';
+      patch.S3_KEY_PREFIX = destDraft.S3_KEY_PREFIX;
+      patch.S3_SECRET_ACCESS_KEY = '';
+      patch.S3_SECRET_ACCESS_KEY_SET = 'true';
+      setConfiguringDest(false);
+      setDestTestOk(false);
+      setDestDraft(emptyDestDraft());
     }
     if (onApplySettingsPatch) {
       onApplySettingsPatch(patch);
     } else {
       onSettingsChange({ ...editingSettings, ...patch });
+    }
+
+    if (data.ok && data.detail?.direction === 's3-to-s3' && onSettingsReload) {
+      try {
+        await onSettingsReload({ quiet: true });
+      } catch {
+        /* local patch already applied */
+      }
     }
   };
 
@@ -363,9 +564,14 @@ const AdminStorageTab: React.FC<AdminStorageTabProps> = ({
     }
   };
 
-  const handleMigrate = async (direction: 'disk-to-s3' | 's3-to-disk') => {
-    if (direction === 'disk-to-s3' && !testOk && !isManaged) {
-      toast.error(t('storage.testRequiredBeforeMigrate'));
+  const handleMigrate = async (direction: 'disk-to-s3' | 's3-to-disk' | 's3-to-s3') => {
+    if (direction === 's3-to-s3') {
+      if (!canMigrateS3ToS3) {
+        toast.error(t('storage.migrateS3ToS3NeedsTest'));
+        return;
+      }
+    } else if (!canMigrateS3) {
+      toast.error(t('storage.migrateNeedsCredentials'));
       return;
     }
     if (direction === 's3-to-disk' && multiTenant) {
@@ -373,6 +579,7 @@ const AdminStorageTab: React.FC<AdminStorageTabProps> = ({
       return;
     }
 
+    closeCompareModal();
     stopMigratePolling();
     migrateFinishedHandledRef.current = false;
     migrateStartedAtRef.current = null;
@@ -393,11 +600,22 @@ const AdminStorageTab: React.FC<AdminStorageTabProps> = ({
     });
 
     try {
-      // Backend flips STORAGE_BACKEND only after a successful migrate — do not switch early.
-      const { data } = await api.post('/admin/migrate-storage', {
+      const body: Record<string, unknown> = {
         direction,
         deleteSource: false,
-      });
+      };
+      if (direction === 's3-to-s3') {
+        body.destination = {
+          S3_ENDPOINT: str(destDraft.S3_ENDPOINT),
+          S3_REGION: str(destDraft.S3_REGION),
+          S3_BUCKET: str(destDraft.S3_BUCKET),
+          S3_ACCESS_KEY_ID: str(destDraft.S3_ACCESS_KEY_ID),
+          S3_SECRET_ACCESS_KEY: str(destDraft.S3_SECRET_ACCESS_KEY),
+          S3_FORCE_PATH_STYLE: str(destDraft.S3_FORCE_PATH_STYLE) || 'false',
+          S3_KEY_PREFIX: str(destDraft.S3_KEY_PREFIX),
+        };
+      }
+      const { data } = await api.post('/admin/migrate-storage', body);
       migrateStartedAtRef.current = data?.detail?.startedAt || null;
       if (data?.detail) {
         setMigrateProgress((prev) => ({
@@ -448,6 +666,43 @@ const AdminStorageTab: React.FC<AdminStorageTabProps> = ({
     }
   };
 
+  useEscapeDismiss(
+    () => {
+      if (showSecondConfirm) {
+        setShowSecondConfirm(false);
+        return;
+      }
+      if (showFirstConfirm) {
+        setShowFirstConfirm(false);
+        return;
+      }
+      if (showTestModal) {
+        setShowTestModal(false);
+        return;
+      }
+      if (showTestErrorModal) {
+        setShowTestErrorModal(false);
+        return;
+      }
+      if (showCompareModal) {
+        closeCompareModal();
+        return;
+      }
+      if (showMigrateModal) {
+        closeMigrateModal();
+      }
+    },
+    {
+      enabled:
+        showFirstConfirm ||
+        showSecondConfirm ||
+        showTestModal ||
+        showTestErrorModal ||
+        showCompareModal ||
+        (showMigrateModal && !isMigrating),
+    }
+  );
+
   const migrateResultMessage =
     migrateProgress?.message ||
     (migrateProgress?.ok
@@ -469,16 +724,9 @@ const AdminStorageTab: React.FC<AdminStorageTabProps> = ({
       ? [t('storage.migrateModalMissingNoDetail', { count: missingCount })]
       : [];
 
-  const switchToCustom = async () => {
-    try {
-      await api.post('/admin/settings/clear-storage');
-      toast.success(t('storage.switchedToCustom'));
-      setShowSecondConfirm(false);
-      setShowFirstConfirm(false);
-      if (onSettingsReload) await onSettingsReload({ quiet: true });
-    } catch (err: any) {
-      toast.error(err.response?.data?.error || t('storage.failedToSwitch'));
-    }
+  const switchToCustom = () => {
+    // Keep platform/live S3 credentials until Migrate S3 → S3 cutover succeeds.
+    beginDestConfig();
   };
 
   return (
@@ -495,13 +743,35 @@ const AdminStorageTab: React.FC<AdminStorageTabProps> = ({
               <p className="text-sm text-blue-700 dark:text-blue-300 mt-1">
                 {t('storage.managedDescription')}
               </p>
+              {!configuringDest ? (
+                <button
+                  type="button"
+                  onClick={() => setShowFirstConfirm(true)}
+                  data-owner-setup="switch-custom-storage"
+                  className="mt-3 text-sm bg-blue-100 dark:bg-blue-800 text-blue-800 dark:text-blue-200 px-3 py-1 rounded-md hover:bg-blue-200 dark:hover:bg-blue-700"
+                >
+                  {t('storage.switchToCustom')}
+                </button>
+              ) : (
+                <p className="text-sm text-blue-700 dark:text-blue-300 mt-2">
+                  {t('storage.destConfigInProgress')}
+                </p>
+              )}
+            </div>
+          )}
+
+          {!isManaged && isS3 && !configuringDest && (
+            <div className="mt-4">
               <button
                 type="button"
-                onClick={() => setShowFirstConfirm(true)}
-                className="mt-3 text-sm bg-blue-100 dark:bg-blue-800 text-blue-800 dark:text-blue-200 px-3 py-1 rounded-md hover:bg-blue-200 dark:hover:bg-blue-700"
+                onClick={beginDestConfig}
+                className="text-sm border border-indigo-300 dark:border-indigo-600 text-indigo-800 dark:text-indigo-200 px-3 py-1.5 rounded-md hover:bg-indigo-50 dark:hover:bg-indigo-950/40"
               >
-                {t('storage.switchToCustom')}
+                {t('storage.migrateToAnotherBucket')}
               </button>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                {t('storage.migrateToAnotherBucketHint')}
+              </p>
             </div>
           )}
         </div>
@@ -513,9 +783,7 @@ const AdminStorageTab: React.FC<AdminStorageTabProps> = ({
             <div
               role="radiogroup"
               aria-label={t('storage.backend')}
-              className={`mt-1.5 grid grid-cols-1 sm:grid-cols-2 gap-2 ${
-                isManaged || multiTenant ? 'opacity-60' : ''
-              }`}
+              className="mt-1.5 grid grid-cols-1 sm:grid-cols-2 gap-2"
             >
               {(
                 [
@@ -541,7 +809,13 @@ const AdminStorageTab: React.FC<AdminStorageTabProps> = ({
               ).map(({ value, label, hint, Icon, selectedClass, iconWrap }) => {
                 const selected = backend === value;
                 const isSaved = savedBackend === value;
-                const disabled = isManaged || multiTenant;
+                // Multi-tenant: disk is never available across pods, but custom S3 must stay selectable
+                // (e.g. tenants that still have STORAGE_BACKEND=disk when platform S3 was not provisioned).
+                // Managed S3 locks both cards — use "Use your own S3 bucket" instead.
+                const disabled =
+                  configuringDest ||
+                  isManaged ||
+                  (value === 'disk' && multiTenant);
                 return (
                   <button
                     key={value}
@@ -552,7 +826,7 @@ const AdminStorageTab: React.FC<AdminStorageTabProps> = ({
                     onClick={() => {
                       if (!disabled && !selected) handleBackendChange(value);
                     }}
-                    className={`relative text-left rounded-lg border-2 p-3 transition-all disabled:cursor-not-allowed ${
+                    className={`relative text-left rounded-lg border-2 p-3 transition-all disabled:cursor-not-allowed disabled:opacity-60 ${
                       selected
                         ? selectedClass
                         : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800/40 hover:border-gray-300 dark:hover:border-gray-600'
@@ -600,13 +874,20 @@ const AdminStorageTab: React.FC<AdminStorageTabProps> = ({
             </div>
             {multiTenant && (
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
-                {t('storage.multiTenantHint')}
+                {!isManaged && backend === 'disk'
+                  ? t('storage.multiTenantDiskStuckHint')
+                  : t('storage.multiTenantHint')}
+              </p>
+            )}
+            {s3ActivationBlocked && (
+              <p className="text-xs text-amber-700 dark:text-amber-300 mt-2">
+                {t('storage.saveS3NeedsTest')}
               </p>
             )}
           </div>
 
           {/* Mode summary */}
-          {!isManaged && (
+          {!isManaged && !configuringDest && (
             <div
               className={`rounded-xl border px-4 py-3 ${
                 isS3
@@ -633,7 +914,7 @@ const AdminStorageTab: React.FC<AdminStorageTabProps> = ({
           )}
 
           {/* S3 configuration */}
-          {!isManaged && (
+          {!isManaged && !configuringDest && (
             <section
               className={`rounded-xl border ${
                 isS3
@@ -683,7 +964,7 @@ const AdminStorageTab: React.FC<AdminStorageTabProps> = ({
                         type="text"
                         value={editingSettings.S3_REGION || ''}
                         onChange={(e) => handleInputChange('S3_REGION', e.target.value)}
-                        placeholder="us-east-1"
+                        placeholder="ca-central-1"
                         className={inputClass}
                       />
                       <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
@@ -775,7 +1056,10 @@ const AdminStorageTab: React.FC<AdminStorageTabProps> = ({
                   </label>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-3 pt-1 border-t border-gray-100 dark:border-gray-800">
+                <div
+                  className="flex flex-wrap items-center gap-3 pt-1 border-t border-gray-100 dark:border-gray-800"
+                  data-owner-setup="storage-test-connection"
+                >
                   <button
                     type="button"
                     disabled={!canTestS3() || isTesting}
@@ -798,50 +1082,270 @@ const AdminStorageTab: React.FC<AdminStorageTabProps> = ({
             </section>
           )}
 
-          {/* Migrate + compare */}
+          {/* Destination S3 (managed → custom or custom old → new) */}
+          {configuringDest && (
+            <section className="rounded-xl border border-indigo-200 dark:border-indigo-800">
+              <div className="px-4 py-3 border-b border-indigo-100 dark:border-indigo-900 bg-indigo-50/40 dark:bg-indigo-950/20">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div>
+                    <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                      {t('storage.destConfigTitle')}
+                    </h3>
+                    <p className="text-xs text-gray-600 dark:text-gray-400 mt-0.5 leading-relaxed">
+                      {isManaged
+                        ? t('storage.destConfigManagedHint')
+                        : t('storage.destConfigCustomHint')}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={cancelDestConfig}
+                    className="text-xs text-gray-600 dark:text-gray-300 underline"
+                  >
+                    {t('storage.cancelDestConfig')}
+                  </button>
+                </div>
+              </div>
+              <div className="p-4 space-y-6">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-3">
+                    {t('storage.connectionSection')}
+                  </p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div data-setting-key="S3_ENDPOINT">
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                        {t('storage.endpoint')}
+                        <span className="ml-1.5 text-xs font-normal text-gray-500 dark:text-gray-400">
+                          ({t('storage.optional')})
+                        </span>
+                      </label>
+                      <input
+                        type="text"
+                        value={destDraft.S3_ENDPOINT}
+                        onChange={(e) => handleDestChange('S3_ENDPOINT', e.target.value)}
+                        placeholder={DEFAULT_S3_ENDPOINT}
+                        className={inputClass}
+                      />
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                        {t('storage.endpointHint')}
+                      </p>
+                    </div>
+                    <div data-setting-key="S3_REGION">
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                        {t('storage.region')}
+                      </label>
+                      <input
+                        type="text"
+                        value={destDraft.S3_REGION}
+                        onChange={(e) => handleDestChange('S3_REGION', e.target.value)}
+                        placeholder="ca-central-1"
+                        className={inputClass}
+                      />
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                        {t('storage.regionHint')}
+                      </p>
+                    </div>
+                    <div data-setting-key="S3_BUCKET">
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                        {t('storage.bucket')}
+                      </label>
+                      <input
+                        type="text"
+                        value={destDraft.S3_BUCKET}
+                        onChange={(e) => handleDestChange('S3_BUCKET', e.target.value)}
+                        className={inputClass}
+                      />
+                    </div>
+                    <div data-setting-key="S3_KEY_PREFIX">
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                        {t('storage.keyPrefix')}
+                        <span className="ml-1.5 text-xs font-normal text-gray-500 dark:text-gray-400">
+                          ({t('storage.optional')})
+                        </span>
+                      </label>
+                      <input
+                        type="text"
+                        value={destDraft.S3_KEY_PREFIX}
+                        onChange={(e) => handleDestChange('S3_KEY_PREFIX', e.target.value)}
+                        placeholder="tenants/my-company/"
+                        className={inputClass}
+                      />
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                        {t('storage.keyPrefixHint')}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-3">
+                    {t('storage.credentialsSection')}
+                  </p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div data-setting-key="S3_ACCESS_KEY_ID">
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                        {t('storage.accessKey')}
+                      </label>
+                      <input
+                        type="text"
+                        value={destDraft.S3_ACCESS_KEY_ID}
+                        onChange={(e) => handleDestChange('S3_ACCESS_KEY_ID', e.target.value)}
+                        className={inputClass}
+                        autoComplete="off"
+                      />
+                    </div>
+                    <div data-setting-key="S3_SECRET_ACCESS_KEY">
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                        {t('storage.secretKey')}
+                      </label>
+                      <input
+                        type="password"
+                        value={destDraft.S3_SECRET_ACCESS_KEY}
+                        onChange={(e) => handleDestChange('S3_SECRET_ACCESS_KEY', e.target.value)}
+                        className={inputClass}
+                        autoComplete="new-password"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-3">
+                    {t('storage.optionsSection')}
+                  </p>
+                  <label className="flex items-start gap-3 rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-2.5 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/60">
+                    <input
+                      type="checkbox"
+                      checked={destDraft.S3_FORCE_PATH_STYLE === 'true'}
+                      onChange={(e) =>
+                        handleDestChange('S3_FORCE_PATH_STYLE', e.target.checked ? 'true' : 'false')
+                      }
+                      className="h-4 w-4 mt-0.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                    />
+                    <span>
+                      <span className="text-sm text-gray-800 dark:text-gray-200">
+                        {t('storage.forcePathStyle')}
+                        <span className="ml-1.5 text-xs font-normal text-gray-500 dark:text-gray-400">
+                          ({t('storage.optional')})
+                        </span>
+                      </span>
+                      <span className="block text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                        {t('storage.forcePathStyleHint')}
+                      </span>
+                    </span>
+                  </label>
+                </div>
+
+                <div
+                  className="flex flex-wrap items-center gap-3 pt-1 border-t border-gray-100 dark:border-gray-800"
+                  data-owner-setup="storage-test-connection"
+                >
+                  <button
+                    type="button"
+                    disabled={!canTestDest() || isTestingDest}
+                    onClick={() => void handleTestDest()}
+                    className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 disabled:opacity-50"
+                  >
+                    {isTestingDest ? t('storage.testing') : t('storage.testDestination')}
+                  </button>
+                  {destTestOk && (
+                    <span className="inline-flex items-center gap-1.5 text-sm text-green-700 dark:text-green-400">
+                      <CheckCircle2 size={16} aria-hidden />
+                      {t('storage.destTestOk')}
+                    </span>
+                  )}
+                  <p className="w-full text-xs text-gray-500 dark:text-gray-400">
+                    {t('storage.destTestHint')}
+                  </p>
+                </div>
+              </div>
+            </section>
+          )}
+
+          {/* Migrate + compare (compare/disk↔s3 hidden while configuring another bucket) */}
           <AdminSection
             title={t('storage.migrateTitle')}
-            description={t('storage.migrateDescription')}
+            description={
+              configuringDest
+                ? t('storage.migrateS3ToS3Description')
+                : t('storage.migrateDescription')
+            }
             dense
           >
             <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                disabled={isMigrating || (!testOk && !isManaged)}
-                onClick={() => handleMigrate('disk-to-s3')}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white text-sm font-medium rounded-md hover:bg-indigo-700 disabled:opacity-50"
-              >
-                <HardDrive size={14} aria-hidden />
-                <ArrowRight size={12} aria-hidden />
-                <Cloud size={14} aria-hidden />
-                <span>{isMigrating ? t('storage.migrating') : t('storage.migrateToS3')}</span>
-              </button>
-              <button
-                type="button"
-                disabled={isMigrating || multiTenant}
-                onClick={() => handleMigrate('s3-to-disk')}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-600 text-white text-sm font-medium rounded-md hover:bg-slate-700 disabled:opacity-50"
-              >
-                <Cloud size={14} aria-hidden />
-                <ArrowRight size={12} aria-hidden />
-                <HardDrive size={14} aria-hidden />
-                <span>{t('storage.migrateToDisk')}</span>
-              </button>
+              {configuringDest ? (
+                <button
+                  type="button"
+                  disabled={isMigrating || !canMigrateS3ToS3}
+                  onClick={() => handleMigrate('s3-to-s3')}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white text-sm font-medium rounded-md hover:bg-indigo-700 disabled:opacity-50"
+                  title={!canMigrateS3ToS3 ? t('storage.migrateS3ToS3NeedsTest') : undefined}
+                >
+                  <Cloud size={14} aria-hidden />
+                  <ArrowRight size={12} aria-hidden />
+                  <Cloud size={14} aria-hidden />
+                  <span>{isMigrating ? t('storage.migrating') : t('storage.migrateS3ToS3')}</span>
+                </button>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    disabled={isMigrating || !canMigrateS3}
+                    onClick={() => handleMigrate('disk-to-s3')}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white text-sm font-medium rounded-md hover:bg-indigo-700 disabled:opacity-50"
+                    title={!canMigrateS3 ? t('storage.migrateNeedsCredentials') : undefined}
+                  >
+                    <HardDrive size={14} aria-hidden />
+                    <ArrowRight size={12} aria-hidden />
+                    <Cloud size={14} aria-hidden />
+                    <span>{isMigrating ? t('storage.migrating') : t('storage.migrateToS3')}</span>
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isMigrating || multiTenant || !canMigrateS3}
+                    onClick={() => handleMigrate('s3-to-disk')}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-600 text-white text-sm font-medium rounded-md hover:bg-slate-700 disabled:opacity-50"
+                    title={
+                      multiTenant
+                        ? t('storage.migrateToDiskBlockedMultiTenant')
+                        : !canMigrateS3
+                          ? t('storage.migrateNeedsCredentials')
+                          : undefined
+                    }
+                  >
+                    <Cloud size={14} aria-hidden />
+                    <ArrowRight size={12} aria-hidden />
+                    <HardDrive size={14} aria-hidden />
+                    <span>{t('storage.migrateToDisk')}</span>
+                  </button>
+                </>
+              )}
             </div>
-            <div className="pt-2 mt-1 border-t border-gray-100 dark:border-gray-800">
-              <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
-                {t('storage.compareDescription')}
+            {configuringDest && !canMigrateS3ToS3 ? (
+              <p className="text-xs text-amber-700 dark:text-amber-300 mt-2">
+                {t('storage.migrateS3ToS3NeedsTest')}
               </p>
-              <button
-                type="button"
-                disabled={isComparing || (!canTestS3() && !isManaged)}
-                onClick={() => void handleCompare()}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-gray-300 dark:border-gray-600 text-sm font-medium rounded-md text-gray-800 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50"
-              >
-                <GitCompareArrows size={14} aria-hidden />
-                {isComparing ? t('storage.comparing') : t('storage.compareRun')}
-              </button>
-            </div>
+            ) : !canMigrateS3 && !isManaged && !configuringDest ? (
+              <p className="text-xs text-amber-700 dark:text-amber-300 mt-2">
+                {t('storage.migrateNeedsCredentials')}
+              </p>
+            ) : null}
+            {!configuringDest && (
+              <div className="pt-2 mt-1 border-t border-gray-100 dark:border-gray-800">
+                <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
+                  {t('storage.compareDescription')}
+                </p>
+                <button
+                  type="button"
+                  disabled={isComparing || (!canTestS3() && !isManaged)}
+                  onClick={() => void handleCompare()}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-gray-300 dark:border-gray-600 text-sm font-medium rounded-md text-gray-800 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50"
+                >
+                  <GitCompareArrows size={14} aria-hidden />
+                  {isComparing ? t('storage.comparing') : t('storage.compareRun')}
+                </button>
+              </div>
+            )}
             {settings.STORAGE_MIGRATION_STATUS &&
               settings.STORAGE_MIGRATION_STATUS !== 'idle' &&
               !showMigrateModal && (
@@ -857,21 +1361,22 @@ const AdminStorageTab: React.FC<AdminStorageTabProps> = ({
           <AdminActionsBar>
             <button
               type="button"
-              onClick={onSave}
-              disabled={!hasChanges || isManaged}
+              onClick={() => void onSave()}
+              disabled={!canSaveStorage}
               className="px-3 py-1.5 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 disabled:opacity-50"
+              title={s3ActivationBlocked ? t('storage.saveS3NeedsTest') : undefined}
             >
               {t('storage.save')}
             </button>
             <button
               type="button"
-              onClick={onCancel}
-              disabled={!hasChanges}
+              onClick={() => handleCancelAll()}
+              disabled={!hasChanges && !configuringDest}
               className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md text-sm text-gray-700 dark:text-gray-300 disabled:opacity-50"
             >
               {t('storage.cancel')}
             </button>
-            <AdminUnsavedHint show={hasChanges} />
+            <AdminUnsavedHint show={hasChanges || configuringDest} />
           </AdminActionsBar>
         </div>
       </div>
@@ -1151,7 +1656,7 @@ const AdminStorageTab: React.FC<AdminStorageTabProps> = ({
               role="dialog"
               aria-modal
               aria-labelledby="storage-compare-title"
-              className="bg-white dark:bg-gray-800 rounded-lg p-5 max-w-lg w-full shadow-xl max-h-[85vh] overflow-y-auto"
+              className="bg-white dark:bg-gray-800 rounded-lg p-5 max-w-xl w-full shadow-xl max-h-[85vh] overflow-y-auto"
             >
               <h3
                 id="storage-compare-title"
@@ -1164,27 +1669,34 @@ const AdminStorageTab: React.FC<AdminStorageTabProps> = ({
                   count: compareResult.totals?.scanned ?? 0,
                 })}
                 {compareResult.bucket
-                  ? ` · ${compareResult.bucket}${compareResult.prefix || ''}`
+                  ? ` · ${compareResult.bucket}${
+                      compareResult.prefix ? ` / ${compareResult.prefix}` : ''
+                    }`
                   : ''}
               </p>
 
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center text-xs mb-3">
                 {(
                   [
-                    ['both', 'compareBoth', compareResult.totals?.both],
-                    ['diskOnly', 'compareDiskOnly', compareResult.totals?.diskOnly],
-                    ['s3Only', 'compareS3Only', compareResult.totals?.s3Only],
-                    ['missing', 'compareMissingBoth', compareResult.totals?.missing],
+                    ['both', 'compareBoth', 'compareBothHint', compareResult.totals?.both, 'border-green-200 dark:border-green-800 bg-green-50/60 dark:bg-green-900/20'],
+                    ['diskOnly', 'compareDiskOnly', 'compareDiskOnlyHint', compareResult.totals?.diskOnly, 'border-amber-200 dark:border-amber-800 bg-amber-50/60 dark:bg-amber-900/20'],
+                    ['s3Only', 'compareS3Only', 'compareS3OnlyHint', compareResult.totals?.s3Only, 'border-amber-200 dark:border-amber-800 bg-amber-50/60 dark:bg-amber-900/20'],
+                    ['missing', 'compareMissingBoth', 'compareMissingBothHint', compareResult.totals?.missing, 'border-red-200 dark:border-red-800 bg-red-50/60 dark:bg-red-900/20'],
                   ] as const
-                ).map(([key, labelKey, count]) => (
+                ).map(([key, labelKey, hintKey, count, toneClass]) => (
                   <div
                     key={key}
-                    className="rounded-md border border-gray-200 dark:border-gray-600 px-2 py-2"
+                    className={`rounded-md border px-2 py-2 ${toneClass}`}
                   >
                     <div className="text-lg font-semibold text-gray-900 dark:text-gray-100">
                       {count ?? 0}
                     </div>
-                    <div className="text-gray-500 dark:text-gray-400">{t(`storage.${labelKey}`)}</div>
+                    <div className="font-medium text-gray-800 dark:text-gray-200">
+                      {t(`storage.${labelKey}`)}
+                    </div>
+                    <div className="text-[10px] leading-tight text-gray-500 dark:text-gray-400 mt-0.5">
+                      {t(`storage.${hintKey}`)}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -1196,7 +1708,16 @@ const AdminStorageTab: React.FC<AdminStorageTabProps> = ({
                 <p className="text-sm text-green-700 dark:text-green-400 mb-3">
                   {t('storage.compareInSync')}
                 </p>
-              ) : null}
+              ) : (
+                <p className="text-sm text-amber-800 dark:text-amber-300 mb-3">
+                  {t('storage.compareAttention', {
+                    count:
+                      (compareResult.totals?.diskOnly || 0) +
+                      (compareResult.totals?.s3Only || 0) +
+                      (compareResult.totals?.missing || 0),
+                  })}
+                </p>
+              )}
 
               <div className="grid grid-cols-2 gap-2 text-xs mb-3">
                 {(
@@ -1269,10 +1790,39 @@ const AdminStorageTab: React.FC<AdminStorageTabProps> = ({
                               ))}
                               <div className="text-gray-500 dark:text-gray-400">{item.path}</div>
                             </div>
+                          ) : item.tasks?.length ? (
+                            <div className="space-y-0.5">
+                              {item.tasks.map((task) => (
+                                <div key={task.id}>
+                                  <a
+                                    href={`/task/#${encodeURIComponent(task.ticket || task.id)}`}
+                                    className="font-medium text-blue-700 dark:text-blue-300 hover:underline"
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                  >
+                                    {task.ticket || task.id}
+                                  </a>
+                                  {task.title ? (
+                                    <span className="text-gray-500 dark:text-gray-400">
+                                      {' '}
+                                      — {task.title}
+                                    </span>
+                                  ) : null}
+                                </div>
+                              ))}
+                              <div className="text-gray-500 dark:text-gray-400">{item.path}</div>
+                            </div>
                           ) : item.path.startsWith('avatars/') ? (
                             <div>
                               <div className="text-gray-500 dark:text-gray-400 italic">
                                 {t('storage.compareOrphanFile')}
+                              </div>
+                              <div>{item.path}</div>
+                            </div>
+                          ) : item.path.startsWith('attachments/') ? (
+                            <div>
+                              <div className="text-gray-500 dark:text-gray-400 italic">
+                                {t('storage.compareOrphanAttachment')}
                               </div>
                               <div>{item.path}</div>
                             </div>
@@ -1286,7 +1836,46 @@ const AdminStorageTab: React.FC<AdminStorageTabProps> = ({
                 );
               })}
 
-              <div className="flex justify-end mt-3">
+              <div className="flex flex-wrap items-center justify-between gap-2 mt-3">
+                <div className="flex flex-wrap gap-2">
+                  {(compareResult.totals?.diskOnly || 0) +
+                    (compareResult.totals?.s3Only || 0) +
+                    (compareResult.totals?.missing || 0) >
+                  0 ? (
+                    <>
+                      <button
+                        type="button"
+                        disabled={isMigrating || !canMigrateS3}
+                        onClick={() => void handleMigrate('disk-to-s3')}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white text-sm font-medium rounded-md hover:bg-indigo-700 disabled:opacity-50"
+                        title={!canMigrateS3 ? t('storage.migrateNeedsCredentials') : undefined}
+                      >
+                        <HardDrive size={14} aria-hidden />
+                        <ArrowRight size={12} aria-hidden />
+                        <Cloud size={14} aria-hidden />
+                        <span>{t('storage.migrateToS3')}</span>
+                      </button>
+                      <button
+                        type="button"
+                        disabled={isMigrating || multiTenant || !canMigrateS3}
+                        onClick={() => void handleMigrate('s3-to-disk')}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-600 text-white text-sm font-medium rounded-md hover:bg-slate-700 disabled:opacity-50"
+                        title={
+                          multiTenant
+                            ? t('storage.migrateToDiskBlockedMultiTenant')
+                            : !canMigrateS3
+                              ? t('storage.migrateNeedsCredentials')
+                              : undefined
+                        }
+                      >
+                        <Cloud size={14} aria-hidden />
+                        <ArrowRight size={12} aria-hidden />
+                        <HardDrive size={14} aria-hidden />
+                        <span>{t('storage.migrateToDisk')}</span>
+                      </button>
+                    </>
+                  ) : null}
+                </div>
                 <button
                   type="button"
                   className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded"

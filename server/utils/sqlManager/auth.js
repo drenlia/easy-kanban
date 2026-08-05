@@ -19,11 +19,11 @@ import { wrapQuery } from '../queryLogger.js';
 export async function getUserByEmailForLogin(db, email) {
   const query = `
     SELECT * FROM users 
-    WHERE email = $1 AND is_active = true
+    WHERE LOWER(email) = LOWER($1) AND is_active = true
   `;
   
   const stmt = wrapQuery(db.prepare(query), 'SELECT');
-  return await stmt.get(email);
+  return await stmt.get(String(email || '').trim());
 }
 
 /**
@@ -183,11 +183,11 @@ export async function getUserBasicInfoForActivation(db, userId) {
 export async function checkUserExists(db, email) {
   const query = `
     SELECT id FROM users 
-    WHERE email = $1
+    WHERE LOWER(email) = LOWER($1)
   `;
   
   const stmt = wrapQuery(db.prepare(query), 'SELECT');
-  return await stmt.get(email);
+  return await stmt.get(String(email || '').trim());
 }
 
 /**
@@ -278,11 +278,11 @@ export async function updateUserAvatarPath(db, userId, avatarPath) {
 export async function getUserByEmail(db, email) {
   const query = `
     SELECT * FROM users 
-    WHERE email = $1
+    WHERE LOWER(email) = LOWER($1)
   `;
   
   const stmt = wrapQuery(db.prepare(query), 'SELECT');
-  return await stmt.get(email);
+  return await stmt.get(String(email || '').trim());
 }
 
 /**
@@ -451,9 +451,9 @@ export async function getOAuthSettings(db) {
 export async function checkUserExistsByEmail(db, email) {
   const query = `
     SELECT id FROM users 
-    WHERE email = $1
+    WHERE LOWER(email) = LOWER($1)
   `;
   
   const stmt = wrapQuery(db.prepare(query), 'SELECT');
-  return await stmt.get(email);
+  return await stmt.get(String(email || '').trim());
 }

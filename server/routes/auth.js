@@ -5,23 +5,24 @@ import crypto from 'crypto';
 import { authenticateToken, requireRole, JWT_SECRET, JWT_EXPIRES_IN } from '../middleware/auth.js';
 import { getLicenseManager } from '../config/license.js';
 import notificationService from '../services/notificationService.js';
-import { loginLimiter, activationLimiter, registrationLimiter } from '../middleware/rateLimiters.js';
+import { loginLimiter, activationLimiter, registrationLimiter, oauthUrlLimiter, oauthCallbackLimiter } from '../middleware/rateLimiters.js';
 import { createDefaultAvatar, getRandomColor } from '../utils/avatarGenerator.js';
 import { getTranslator } from '../utils/i18n.js';
 import { getTenantId, getRequestDatabase } from '../middleware/tenantRouting.js';
 // MIGRATED: Import sqlManager
 import { auth as authQueries, users as userQueries, settings as settingsQueries } from '../utils/sqlManager/index.js';
+import { parseBody, loginBodySchema, activateAccountBodySchema, registerBodySchema } from '../utils/requestValidation.js';
 
 const router = express.Router();
 
 // Login endpoint
 router.post('/login', loginLimiter, async (req, res) => {
-  const { email, password } = req.body;
-  const db = getRequestDatabase(req);
-  
-  if (!email || !password) {
-    return res.status(400).json({ error: 'Email and password are required' });
+  const parsed = parseBody(loginBodySchema, req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error });
   }
+  const { email, password } = parsed.data;
+  const db = getRequestDatabase(req);
   
   try {
     // MIGRATED: Find user by email using sqlManager
@@ -94,12 +95,12 @@ router.post('/login', loginLimiter, async (req, res) => {
 
 // Account activation endpoint
 router.post('/activate-account', activationLimiter, async (req, res) => {
-  const { token, email, newPassword } = req.body;
-  const db = getRequestDatabase(req);
-  
-  if (!token || !email || !newPassword) {
-    return res.status(400).json({ error: 'Token, email, and new password are required' });
+  const parsed = parseBody(activateAccountBodySchema, req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error });
   }
+  const { token, email, newPassword } = parsed.data;
+  const db = getRequestDatabase(req);
   
   try {
     // MIGRATED: Find the invitation token using sqlManager
@@ -185,12 +186,12 @@ router.post('/activate-account', activationLimiter, async (req, res) => {
 
 // Register endpoint (admin only)
 router.post('/register', registrationLimiter, authenticateToken, requireRole(['admin']), async (req, res) => {
-  const { email, password, firstName, lastName, role } = req.body;
-  const db = getRequestDatabase(req);
-  
-  if (!email || !password || !firstName || !lastName || !role) {
-    return res.status(400).json({ error: 'All fields are required' });
+  const parsed = parseBody(registerBodySchema, req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error });
   }
+  const { email, password, firstName, lastName, role } = parsed.data;
+  const db = getRequestDatabase(req);
   
   try {
     // Check user limit before creating new user
@@ -321,22 +322,13 @@ router.get('/check-default-admin', async (req, res) => {
   }
 });
 
-// Check if demo user exists
-router.get('/check-demo-user', async (req, res) => {
-  try {
-    const db = getRequestDatabase(req);
-    // MIGRATED: Check user exists using sqlManager
-    const demoUser = await authQueries.checkUserExistsByEmail(db, 'demo@kanban.local');
-    res.json({ exists: !!demoUser });
-  } catch (error) {
-    console.error('Error checking demo user:', error);
-    res.status(500).json({ error: 'Failed to check demo user' });
-  }
-});
-
-// Get demo credentials
+// Get demo admin credentials (demo deployments only)
 router.get('/demo-credentials', async (req, res) => {
   try {
+    if (process.env.DEMO_ENABLED !== 'true') {
+      return res.status(404).json({ error: 'Not found' });
+    }
+
     // Prevent browsers/proxies from caching passwords across demo resets
     res.set({
       'Cache-Control': 'no-store, no-cache, must-revalidate, private',
@@ -345,33 +337,23 @@ router.get('/demo-credentials', async (req, res) => {
     });
 
     const db = getRequestDatabase(req);
-    // MIGRATED: Get settings using sqlManager
     const adminPasswordSetting = await authQueries.getSetting(db, 'ADMIN_PASSWORD');
-    const demoPasswordSetting = await authQueries.getSetting(db, 'DEMO_PASSWORD');
     const adminPassword = adminPasswordSetting?.value;
-    const demoPassword = demoPasswordSetting?.value;
 
     // Do not invent a fake "admin" password — clients wait until seed finished.
     if (!adminPassword) {
       return res.status(503).json({
         ready: false,
-        admin: null,
-        demo: null
+        admin: null
       });
     }
-    
+
     res.json({
       ready: true,
       admin: {
         email: 'admin@kanban.local',
         password: adminPassword
-      },
-      demo: demoPassword
-        ? {
-            email: 'demo@kanban.local',
-            password: demoPassword
-          }
-        : null
+      }
     });
   } catch (error) {
     console.error('Error getting demo credentials:', error);
@@ -426,7 +408,29 @@ async function getOAuthSettings(db) {
 }
 
 // Google OAuth endpoints
-router.get('/google/url', async (req, res) => {
+const OAUTH_STATE_TTL = '10m';
+
+function createOAuthState() {
+  return jwt.sign(
+    { purpose: 'google_oauth', nonce: crypto.randomBytes(16).toString('hex') },
+    JWT_SECRET,
+    { expiresIn: OAUTH_STATE_TTL }
+  );
+}
+
+function verifyOAuthState(state) {
+  if (!state || typeof state !== 'string') {
+    return false;
+  }
+  try {
+    const payload = jwt.verify(state, JWT_SECRET);
+    return payload?.purpose === 'google_oauth' && typeof payload?.nonce === 'string';
+  } catch {
+    return false;
+  }
+}
+
+router.get('/google/url', oauthUrlLimiter, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
     const settingsObj = await getOAuthSettings(db);
@@ -451,12 +455,15 @@ router.get('/google/url', async (req, res) => {
       console.error('🔐 [GOOGLE SSO] ❌ OAuth not fully configured');
       return res.status(400).json({ error: 'Google OAuth not fully configured. Please set Client ID, Client Secret, and Callback URL.' });
     }
+
+    const state = createOAuthState();
     
     const googleAuthUrl = `https://accounts.google.com/o/oauth2/v2/auth?` +
       `client_id=${encodeURIComponent(settingsObj.GOOGLE_CLIENT_ID)}` +
       `&redirect_uri=${encodeURIComponent(settingsObj.GOOGLE_CALLBACK_URL)}` +
       `&response_type=code` +
       `&scope=${encodeURIComponent('openid email profile')}` +
+      `&state=${encodeURIComponent(state)}` +
       `&access_type=offline`;
     
     debugLog(settingsObj, '🔐 [GOOGLE SSO] ✅ Generated OAuth URL successfully');
@@ -474,9 +481,9 @@ router.get('/google/url', async (req, res) => {
   }
 });
 
-router.get('/google/callback', async (req, res) => {
+router.get('/google/callback', oauthCallbackLimiter, async (req, res) => {
   try {
-    const { code, error, error_description } = req.query;
+    const { code, error, error_description, state } = req.query;
     const db = getRequestDatabase(req);
     
     // Get OAuth settings first to check debug mode
@@ -490,7 +497,8 @@ router.get('/google/callback', async (req, res) => {
       fullUrl: `${req.protocol}://${req.get('host')}${req.originalUrl}`,
       query: req.query,
       hasCode: !!code,
-      codeLength: code ? code.length : 0
+      codeLength: code ? code.length : 0,
+      hasState: !!state
     });
     
     // Check for OAuth errors from Google
@@ -506,6 +514,11 @@ router.get('/google/callback', async (req, res) => {
     if (!code) {
       console.error('🔐 [GOOGLE SSO] ❌ No authorization code received');
       return res.redirect('/?error=oauth_failed');
+    }
+
+    if (!verifyOAuthState(state)) {
+      console.error('🔐 [GOOGLE SSO] ❌ Invalid or missing OAuth state');
+      return res.redirect('/?error=oauth_invalid_state');
     }
     
     debugLog(settingsObj, '🔐 [GOOGLE SSO] ✅ Authorization code received successfully');
@@ -778,8 +791,15 @@ router.post('/reload-oauth', authenticateToken, requireRole(['admin']), (req, re
   }
 });
 
-// Test endpoint to verify callback routing (no auth required for testing)
+// Test endpoint to verify callback routing — disabled in production unless ALLOW_TEST_ENDPOINTS=true
 router.get('/test/callback', async (req, res) => {
+  const allowed =
+    process.env.NODE_ENV !== 'production' ||
+    process.env.ALLOW_TEST_ENDPOINTS === 'true';
+  if (!allowed) {
+    return res.status(404).json({ error: 'Not Found' });
+  }
+
   console.log('🧪 [TEST] Callback test endpoint hit!', {
     url: req.url,
     query: req.query,

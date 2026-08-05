@@ -119,8 +119,24 @@ const getTenantDatabase = async (tenantId) => {
       await wrapQuery(cached.db.prepare('SELECT 1'), 'SELECT').get();
       return cached;
     } catch (error) {
-      // Database closed, remove from cache
-      console.warn(`⚠️ Database cache verification failed for tenant ${tenantId}, reinitializing:`, error.message);
+      const msg = error?.message || String(error);
+      // Never discard a live pool because Postgres is saturated — that leaks more clients.
+      if (/too many clients already|remaining connection slots|Connection terminated/i.test(msg)) {
+        console.warn(
+          `⚠️ Database cache verification failed for tenant ${tenantId} (keeping cached pool):`,
+          msg
+        );
+        return cached;
+      }
+      // Database closed / broken, remove from cache (close old pool to avoid leaks)
+      console.warn(`⚠️ Database cache verification failed for tenant ${tenantId}, reinitializing:`, msg);
+      try {
+        if (cached.db && typeof cached.db.close === 'function') {
+          await cached.db.close();
+        }
+      } catch (_) {
+        /* ignore */
+      }
       dbCache.delete(cacheKey);
     }
   }
@@ -279,21 +295,63 @@ export const closeAllTenantDatabases = () => {
   dbCache.clear();
 };
 
-// Get all cached tenant databases (for scheduled jobs in multi-tenant mode)
+// Get all tenant databases for scheduled jobs (multi-tenant + single-tenant).
+// Multi-tenant: discover schemas from Postgres (tenant_*), then open/cache each —
+// does not rely only on this pod's request cache (new tenants are still processed).
 export const getAllTenantDatabases = async () => {
-  const databases = [];
   const { wrapQuery } = await import('../utils/queryLogger.js');
-  
-  for (const [tenantId, dbInfo] of dbCache.entries()) {
-    try {
-      // Verify database is still open (async for proxy support)
-      await wrapQuery(dbInfo.db.prepare('SELECT 1'), 'SELECT').get();
-      databases.push({ tenantId: tenantId === 'default' ? null : tenantId, db: dbInfo.db });
-    } catch (error) {
-      // Database closed, skip it
-      console.warn(`⚠️ Skipping closed database for tenant: ${tenantId}`);
+  const databases = [];
+
+  if (!isMultiTenant()) {
+    for (const [tenantId, dbInfo] of dbCache.entries()) {
+      try {
+        await wrapQuery(dbInfo.db.prepare('SELECT 1'), 'SELECT').get();
+        databases.push({ tenantId: tenantId === 'default' ? null : tenantId, db: dbInfo.db });
+      } catch (error) {
+        console.warn(`⚠️ Skipping closed database for tenant: ${tenantId}`);
+      }
+    }
+    return databases;
+  }
+
+  let tenantIds = [];
+  try {
+    // Bootstrap connection (public schema) to list tenant schemas
+    const bootstrap = await getTenantDatabase(null);
+    const rows = await wrapQuery(
+      bootstrap.db.prepare(`
+        SELECT schema_name AS "schemaName"
+        FROM information_schema.schemata
+        WHERE schema_name LIKE 'tenant\\_%' ESCAPE '\\'
+        ORDER BY schema_name
+      `),
+      'SELECT'
+    ).all();
+    tenantIds = rows
+      .map((r) => String(r.schemaName || r.schema_name || '').replace(/^tenant_/, ''))
+      .filter((id) => /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/.test(id));
+  } catch (error) {
+    console.warn('⚠️ Failed to list tenant schemas; falling back to dbCache:', error.message);
+    tenantIds = [...dbCache.keys()].filter((k) => k !== 'default');
+  }
+
+  // Ensure cached tenants are included even if schema listing missed one
+  for (const key of dbCache.keys()) {
+    if (key !== 'default' && !tenantIds.includes(key)) {
+      tenantIds.push(key);
     }
   }
+
+  for (const tenantId of tenantIds) {
+    try {
+      const dbInfo = await getTenantDatabase(tenantId);
+      await wrapQuery(dbInfo.db.prepare('SELECT 1'), 'SELECT').get();
+      databases.push({ tenantId, db: dbInfo.db });
+    } catch (error) {
+      console.warn(`⚠️ Skipping tenant database ${tenantId}:`, error.message);
+    }
+  }
+
   return databases;
 };
 

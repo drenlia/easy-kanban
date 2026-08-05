@@ -1,11 +1,14 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { createPortal } from 'react-dom';
 import { Edit, Trash2, Crown, User as UserIcon } from 'lucide-react';
 import { getAuthenticatedAvatarUrl } from '../../utils/authImageUrl';
+import { AGENT_BOT_AVATAR_SRC } from '../../utils/agentMemberUi';
 import { toast } from '../../utils/toast';
 import { CHROME_TOOLTIP_SURFACE_CLASS } from '../KanbanChromeTooltip';
 import { ModernCheckbox } from '../ModernCheckbox';
+import { useEscapeDismiss } from '../../hooks/useEscapeDismiss';
+import { useSettings } from '../../contexts/SettingsContext';
 
 interface User {
   id: string;
@@ -61,8 +64,14 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
   onResendInvitation,
 }) => {
   const { t } = useTranslation('admin');
+  const { systemSettings } = useSettings();
   // Email invites are disabled when DEMO_ENABLED=true (see emailService)
   const isDemoMode = process.env.DEMO_ENABLED === 'true';
+  const visibleUsers = useMemo(() => {
+    const aiEnabled = systemSettings?.AI_ENABLED === 'true';
+    if (!Array.isArray(users)) return [];
+    return aiEnabled ? users : users.filter((u) => u.email !== 'agent@local');
+  }, [users, systemSettings?.AI_ENABLED]);
   const [showAddUserForm, setShowAddUserForm] = useState(false);
   const [showEditUserForm, setShowEditUserForm] = useState(false);
   const [showColorPicker, setShowColorPicker] = useState<string | null>(null);
@@ -307,23 +316,36 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
   const handleAddUser = async () => {
     if (isAddingUser) return;
     const userPayload = isDemoMode ? { ...newUser, isActive: true } : newUser;
+    const emailNorm = String(userPayload.email || '').trim().toLowerCase();
+    if (!emailNorm) {
+      toast.error(t('users.email'), '');
+      return;
+    }
+    if (users.some((u) => String(u.email || '').trim().toLowerCase() === emailNorm)) {
+      toast.error(t('users.emailAlreadyExists', { email: emailNorm }), '');
+      return;
+    }
     const creatingLocally = Boolean(userPayload.isActive);
     setIsAddingUser(true);
     try {
-      await onAddUser(userPayload);
+      await onAddUser({ ...userPayload, email: emailNorm });
       setShowAddUserForm(false);
       setNewUser(getEmptyNewUser());
       if (creatingLocally) {
         toast.success(t('users.userCreatedSuccessfully'), '');
       } else {
         toast.success(
-          t('users.userInvitedSuccessfully', { email: userPayload.email }),
+          t('users.userInvitedSuccessfully', { email: emailNorm }),
           ''
         );
       }
     } catch (err: any) {
       console.error('Failed to add user:', err);
-      const errorMessage = err.response?.data?.error || t('failedToCreateUser');
+      const backendError = err.response?.data?.error || err.message || '';
+      const errorMessage =
+        /already exists/i.test(String(backendError))
+          ? t('users.emailAlreadyExists', { email: emailNorm })
+          : backendError || t('failedToCreateUser');
       toast.error(errorMessage, '');
     } finally {
       setIsAddingUser(false);
@@ -357,7 +379,18 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
   const handleSaveUser = async () => {
     try {
       setIsSubmitting(true);
-      await onSaveUser(editingUserData);
+      const emailNorm = String(editingUserData.email || '').trim().toLowerCase();
+      if (
+        users.some(
+          (u) =>
+            u.id !== editingUserData.id &&
+            String(u.email || '').trim().toLowerCase() === emailNorm
+        )
+      ) {
+        toast.error(t('users.emailAlreadyExists', { email: emailNorm }), '');
+        return;
+      }
+      await onSaveUser({ ...editingUserData, email: emailNorm });
       
       // Clean up preview URL after successful save
       if (avatarPreviewUrl) {
@@ -368,7 +401,12 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
       setShowEditUserForm(false);
     } catch (err: any) {
       console.error('Failed to save user:', err);
-      const errorMessage = err.response?.data?.error || t('failedToUpdateUser');
+      const backendError = err.response?.data?.error || err.message || '';
+      const errorMessage = /already exists/i.test(String(backendError))
+        ? t('users.emailAlreadyExists', {
+            email: String(editingUserData.email || '').trim().toLowerCase(),
+          })
+        : backendError || t('failedToUpdateUser');
       toast.error(errorMessage, '');
     } finally {
       setIsSubmitting(false);
@@ -416,6 +454,18 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
     setShowAddUserForm(false);
     setNewUser(getEmptyNewUser());
   };
+
+  useEscapeDismiss(
+    () => {
+      if (isAddingUser || isSubmitting) return;
+      if (showAddUserForm) {
+        handleCancelAddUser();
+      } else if (showEditUserForm) {
+        handleCancelEditUser();
+      }
+    },
+    { enabled: (showAddUserForm || showEditUserForm) && !showDeleteConfirm }
+  );
 
   const handleNewUserChange = (field: string, value: string) => {
     setNewUser(prev => ({ ...prev, [field]: value }));
@@ -489,8 +539,8 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
               </tr>
             </thead>
             <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-              {Array.isArray(users) && users.length > 0 ? (
-                users.map((user) => (
+              {visibleUsers.length > 0 ? (
+                visibleUsers.map((user) => (
                 <tr key={user.id}>
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium w-48">
                     <div className="flex items-center space-x-2">
@@ -609,7 +659,13 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap w-16">
                     <div className="flex-shrink-0 h-10 w-10">
-                      {(user.googleAvatarUrl || user.avatarUrl) ? (
+                      {user.email === 'agent@local' ? (
+                        <img
+                          src={AGENT_BOT_AVATAR_SRC}
+                          alt={`${user.firstName} ${user.lastName}`}
+                          className="h-10 w-10 rounded-full object-cover"
+                        />
+                      ) : (user.googleAvatarUrl || user.avatarUrl) ? (
                         <img
                           src={getAuthenticatedAvatarUrl(user.googleAvatarUrl || user.avatarUrl)}
                           alt={`${user.firstName} ${user.lastName}`}

@@ -217,12 +217,18 @@ gunzip -c ./backups/kanban-latest.sql.gz \
 
 ## Security
 
-The application includes JWT-based authentication and role-based access control. However, for production deployments:
+The application includes JWT-based authentication and role-based access control. For production deployments:
 
 - Change the default admin password immediately
-- Set a strong JWT secret in production
-- Configure HTTPS/SSL
+- Set a strong `JWT_SECRET` in production
+- Keep `DEMO_ENABLED=false` (demo compose is the exception)
+- Do not set `ALLOW_TEST_ENDPOINTS` on real production hosts
+- Configure HTTPS/TLS at the reverse proxy
+- Attachments/avatars use an HttpOnly media cookie (not the session JWT in `?token=`)
+- Review **Admin → Troubleshooting → CSP reports** before enforcing Content-Security-Policy
 - Consider additional network security measures
+
+See also `AGENTS.md` (security checklist) and `audit/security-assessment-current-2026-08.md`.
 
 ## Authors and acknowledgment
 Developed with AI assistance

@@ -88,14 +88,7 @@ const AdminSSOTab: React.FC<AdminSSOTabProps> = ({
 
           <div data-setting-key="GOOGLE_CLIENT_SECRET">
             <label className="flex flex-wrap items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              <span>
-                {t('sso.googleClientSecret')}
-                {clientSecretSet && (
-                  <span className="ml-2 text-xs font-normal text-green-600 dark:text-green-400">
-                    {t('sso.googleClientSecretSet')}
-                  </span>
-                )}
-              </span>
+              <span>{t('sso.googleClientSecret')}</span>
               <AdminFieldDraftControls
                 settingKey="GOOGLE_CLIENT_SECRET"
                 saved={settings}

@@ -4,10 +4,14 @@ import { createClient } from 'redis';
 import jwt from 'jsonwebtoken';
 import redisService from './redisService.js';
 import postgresNotificationService from './postgresNotificationService.js';
-import { JWT_SECRET } from '../middleware/auth.js';
+import { JWT_SECRET, isUserActive, userMayUseSession } from '../middleware/auth.js';
 import { extractTenantId, getTenantDatabase } from '../middleware/tenantRouting.js';
 import { wrapQuery } from '../utils/queryLogger.js';
 import { wsVerboseLog } from '../utils/serverDebug.js';
+
+function userSocketRoom(tenantId, userId) {
+  return tenantId ? `user-${tenantId}-${userId}` : `user-${userId}`;
+}
 
 class WebSocketService {
   constructor() {
@@ -19,12 +23,35 @@ class WebSocketService {
 
   async initialize(server) {
     // CORS configuration for WebSocket
-    // In multi-tenant mode, nginx handles CORS validation for HTTP requests
-    // For WebSocket, we allow all origins in multi-tenant mode (nginx will validate)
-    // In single-tenant mode, use ALLOWED_ORIGINS from environment
-    const allowedOrigins = process.env.MULTI_TENANT === 'true' 
-      ? true  // Allow all origins in multi-tenant (nginx validates)
-      : (process.env.ALLOWED_ORIGINS?.split(',') || true);
+    // Multi-tenant: allow tenant subdomains of TENANT_DOMAIN (+ optional ALLOWED_ORIGINS).
+    // Single-tenant: ALLOWED_ORIGINS if set, otherwise reflect request origin (dev-friendly).
+    const allowedOriginsEnv = (process.env.ALLOWED_ORIGINS || '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const tenantDomain = process.env.TENANT_DOMAIN || 'ezkan.cloud';
+
+    const allowedOrigins =
+      process.env.MULTI_TENANT === 'true'
+        ? (origin, callback) => {
+            if (!origin) {
+              return callback(null, true);
+            }
+            if (allowedOriginsEnv.includes(origin)) {
+              return callback(null, true);
+            }
+            try {
+              const host = new URL(origin).hostname;
+              if (host === tenantDomain || host.endsWith(`.${tenantDomain}`)) {
+                return callback(null, true);
+              }
+            } catch {
+              /* invalid origin */
+            }
+            console.warn(`⚠️ Socket.IO CORS rejected origin: ${origin}`);
+            return callback(new Error('Not allowed by CORS'));
+          }
+        : (allowedOriginsEnv.length > 0 ? allowedOriginsEnv : true);
     
     this.io = new SocketIOServer(server, {
       cors: {
@@ -131,9 +158,17 @@ class WebSocketService {
             return next(new Error('Authentication failed'));
           }
 
-          const userInDb = await wrapQuery(db.prepare('SELECT id FROM users WHERE id = ?'), 'SELECT').get(decoded.id);
+          const userInDb = await wrapQuery(
+            db.prepare('SELECT id, email, is_active, force_logout FROM users WHERE id = ?'),
+            'SELECT'
+          ).get(decoded.id);
           if (!userInDb) {
             console.log(`❌ WebSocket auth failed: User ${decoded.email} (${decoded.id}) does not exist in database`);
+            return next(new Error('Invalid token'));
+          }
+          if (!userMayUseSession(userInDb)) {
+            const reason = !isUserActive(userInDb.is_active) ? 'inactive' : 'force_logout';
+            console.log(`❌ WebSocket auth failed: User ${userInDb.email} (${userInDb.id}) is ${reason}`);
             return next(new Error('Invalid token'));
           }
         } catch (dbError) {
@@ -147,6 +182,8 @@ class WebSocketService {
         socket.userRole = decoded.role;
         socket.userRoles = decoded.roles;
         socket.tenantId = tenantId; // Store tenantId for room isolation
+        // Per-user room so we can disconnect on deactivate/delete (works across pods with Redis adapter)
+        socket.join(userSocketRoom(tenantId, decoded.id));
         
         console.log('✅ WebSocket authenticated:', decoded.email, tenantId ? `(tenant: ${tenantId})` : '');
         next();
@@ -501,6 +538,11 @@ class WebSocketService {
       } else {
         this.io?.emit('user-updated', data);
       }
+      // S6: drop live sockets immediately when an admin deactivates the user
+      const user = data?.user;
+      if (user?.id && user.isActive === false) {
+        this.disconnectUserSockets(user.id, tenantId);
+      }
     });
 
     postgresNotificationService.subscribeToAllTenants('user-role-updated', (data, tenantId) => {
@@ -516,6 +558,10 @@ class WebSocketService {
         this.io?.to(`tenant-${tenantId}`).emit('user-deleted', data);
       } else {
         this.io?.emit('user-deleted', data);
+      }
+      const userId = data?.user?.id || data?.userId;
+      if (userId) {
+        this.disconnectUserSockets(userId, tenantId);
       }
     });
 
@@ -777,6 +823,17 @@ class WebSocketService {
         this.io?.emit('version-updated', data);
       }
     });
+  }
+
+  /**
+   * Force-disconnect all sockets for a user (S6 — deactivate / delete).
+   * Relies on per-user rooms joined at handshake; Redis adapter fans out across pods.
+   */
+  disconnectUserSockets(userId, tenantId = null) {
+    if (!this.io || !userId) return;
+    const room = userSocketRoom(tenantId, userId);
+    console.log(`🔌 Disconnecting sockets for user ${userId}${tenantId ? ` (tenant: ${tenantId})` : ''}`);
+    this.io.in(room).disconnectSockets(true);
   }
 
   getConnectedClients() {

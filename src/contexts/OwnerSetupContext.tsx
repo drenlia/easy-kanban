@@ -123,15 +123,20 @@ export const OwnerSetupProvider: React.FC<OwnerSetupProviderProps> = ({
   const coreComplete = useMemo(() => coreStepsComplete(progress), [progress]);
 
   const guideFieldContext = useMemo(() => {
-    const raw = mergedSettings.MAIL_MANAGED;
+    const rawMail = mergedSettings.MAIL_MANAGED;
+    const rawStorage = mergedSettings.STORAGE_MANAGED;
     return {
       multiTenant: isMultiTenantDeploy(),
       mailManaged:
-        raw === undefined || raw === ''
+        rawMail === undefined || rawMail === ''
           ? undefined
-          : String(raw).toLowerCase() === 'true',
+          : String(rawMail).toLowerCase() === 'true',
+      storageManaged:
+        rawStorage === undefined || rawStorage === ''
+          ? undefined
+          : String(rawStorage).toLowerCase() === 'true',
     };
-  }, [mergedSettings.MAIL_MANAGED]);
+  }, [mergedSettings.MAIL_MANAGED, mergedSettings.STORAGE_MANAGED]);
 
   // Detect owner + load progress
   useEffect(() => {
@@ -245,6 +250,11 @@ export const OwnerSetupProvider: React.FC<OwnerSetupProviderProps> = ({
       const def = getStepDef(stepId);
       if (def.goKanban && onPageChange) {
         onPageChange('kanban');
+        if (def.scrollToTop) {
+          window.setTimeout(() => {
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+          }, 50);
+        }
         return;
       }
       if (!def.adminTab || !onPageChange) return;

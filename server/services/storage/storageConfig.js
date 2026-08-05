@@ -79,12 +79,12 @@ export async function loadStorageConfig(db) {
 
 /**
  * Build config from a plain object (e.g. admin test with draft values).
- * @param {Record<string, string | undefined>} overrides
+ * @param {Record<string, string | boolean | undefined>} overrides
  * @param {StorageConfig} [base]
  * @returns {StorageConfig}
  */
 export function storageConfigFromOverrides(overrides, base = null) {
-  const b = base || {
+  const b = {
     backend: 's3',
     managed: false,
     endpoint: '',
@@ -94,32 +94,35 @@ export function storageConfigFromOverrides(overrides, base = null) {
     secretAccessKey: '',
     forcePathStyle: false,
     keyPrefix: '',
-    testOk: false
+    testOk: false,
+    ...(base && typeof base === 'object' ? base : {})
   };
 
   const pick = (key, fallback) => {
-    const v = overrides[key];
-    if (v === undefined || v === null) return fallback;
+    const v = overrides?.[key];
+    if (v === undefined || v === null) return fallback ?? '';
     return String(v);
   };
 
-  const secret = pick('S3_SECRET_ACCESS_KEY', b.secretAccessKey);
-  // Ignore masked placeholder from admin UI
+  const secretRaw = pick('S3_SECRET_ACCESS_KEY', b.secretAccessKey ?? '');
+  // Ignore masked placeholder from admin UI — keep base secret
   const secretFinal =
-    secret && !/^•+$/.test(secret) && secret !== '••••••••' ? secret : b.secretAccessKey;
+    secretRaw && !/^•+$/.test(secretRaw) && secretRaw !== '••••••••'
+      ? secretRaw
+      : String(b.secretAccessKey ?? '');
 
   return {
     backend: 's3',
-    managed: b.managed,
-    endpoint: pick('S3_ENDPOINT', b.endpoint),
-    region: pick('S3_REGION', b.region),
-    bucket: pick('S3_BUCKET', b.bucket),
-    accessKeyId: pick('S3_ACCESS_KEY_ID', b.accessKeyId),
+    managed: Boolean(b.managed),
+    endpoint: pick('S3_ENDPOINT', b.endpoint ?? ''),
+    region: pick('S3_REGION', b.region ?? ''),
+    bucket: pick('S3_BUCKET', b.bucket ?? ''),
+    accessKeyId: pick('S3_ACCESS_KEY_ID', b.accessKeyId ?? ''),
     secretAccessKey: secretFinal,
     forcePathStyle:
       pick('S3_FORCE_PATH_STYLE', b.forcePathStyle ? 'true' : 'false') === 'true',
-    keyPrefix: normalizeKeyPrefix(pick('S3_KEY_PREFIX', b.keyPrefix)),
-    testOk: b.testOk
+    keyPrefix: normalizeKeyPrefix(pick('S3_KEY_PREFIX', b.keyPrefix ?? '')),
+    testOk: Boolean(b.testOk)
   };
 }
 
@@ -128,16 +131,22 @@ export function storageConfigFromOverrides(overrides, base = null) {
  * @returns {{ ok: boolean, error?: string }}
  */
 export function validateS3Config(config) {
-  if (!config.bucket?.trim()) {
+  const bucket = String(config?.bucket ?? '').trim();
+  const region = String(config?.region ?? '').trim();
+  const endpoint = String(config?.endpoint ?? '').trim();
+  const accessKeyId = String(config?.accessKeyId ?? '').trim();
+  const secretAccessKey = String(config?.secretAccessKey ?? '').trim();
+
+  if (!bucket) {
     return { ok: false, error: 'S3_BUCKET is required' };
   }
-  if (!config.region?.trim() && !config.endpoint?.trim()) {
+  if (!region && !endpoint) {
     return { ok: false, error: 'S3_REGION or S3_ENDPOINT is required' };
   }
-  if (!config.accessKeyId?.trim()) {
+  if (!accessKeyId) {
     return { ok: false, error: 'S3_ACCESS_KEY_ID is required' };
   }
-  if (!config.secretAccessKey?.trim()) {
+  if (!secretAccessKey) {
     return { ok: false, error: 'S3_SECRET_ACCESS_KEY is required' };
   }
   return { ok: true };

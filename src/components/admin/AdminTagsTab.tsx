@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { createPortal } from 'react-dom';
 import { Edit, Trash2 } from 'lucide-react';
+import { useEscapeDismiss } from '../../hooks/useEscapeDismiss';
 
 interface Tag {
   id: number;
@@ -93,6 +94,29 @@ const AdminTagsTab: React.FC<AdminTagsTabProps> = ({
       document.removeEventListener('mousedown', handleClickOutside);
     };
   }, [showDeleteTagConfirm, deleteButtonPosition, onCancelDeleteTag]);
+
+  useEscapeDismiss(
+    () => {
+      if (isSubmitting) return;
+      if (showAddTagForm) {
+        setShowAddTagForm(false);
+        setNewTag({ tag: '', description: '', color: '#4ECDC4' });
+        return;
+      }
+      if (showEditTagForm) {
+        setShowEditTagForm(false);
+        setEditingTag(null);
+        return;
+      }
+      if (showDeleteTagConfirm) {
+        onCancelDeleteTag();
+      }
+    },
+    {
+      enabled:
+        showAddTagForm || showEditTagForm || showDeleteTagConfirm != null,
+    }
+  );
 
   const handleDeleteClick = (tagId: number, event: React.MouseEvent) => {
     event.stopPropagation();

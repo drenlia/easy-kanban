@@ -39,7 +39,7 @@ Easy-Kanban is a comprehensive project management platform that combines Kanban 
 - **Team management** with color-coded member assignments
 - **Task management** with priorities, comments, attachments, and relationships
 - **Multi-select & bulk actions** - tag, copy, sprint, priority, archive, delete, move board; multi-drag between columns
-- **Soft delete & trash** - restore or permanently purge tasks and boards (board trash + Admin → Lifecycle)
+- **Soft delete & trash** - restore or permanently purge tasks and boards (board trash + Admin → Lifecycle); admins can Shift+click delete to purge without trash
 - **AI Agent** (optional) — assign tasks to an Agent that can comment (**Assist**), work a linked Git repo (**Code**), or (admins) run board **Automation** with dry-run Apply/Undo (see [AI Agent](#ai-agent))
 - **Admin panel** for users, branding, mail, SSO, sprints, reporting, licensing, and lifecycle
 - **File uploads** for task attachments and user avatars
@@ -57,23 +57,24 @@ Easy-Kanban is a comprehensive project management platform that combines Kanban 
 ### Authentication & Demo Mode
 
 #### Demo Mode (Recommended for Testing)
-When running in **demo mode**, the application provides pre-configured accounts with randomly generated passwords:
+When running in **demo mode** (`DEMO_ENABLED=true`), the application seeds an admin account and sample team members with randomly generated passwords:
 
 **Admin Account:**
 - **Email**: `admin@kanban.local`
-- **Password**: Randomly generated (displayed on login page)
+- **Password**: Randomly generated (shown on the login page; copy/fill from there)
 
-**Demo User Account:**
-- **Email**: `demo@kanban.local` 
-- **Password**: Randomly generated (displayed on login page)
+**Sample team accounts** (created with the demo board data):
+- `john.smith@demo.local`
+- `sarah.johnson@demo.local`
+- `mike.davis@demo.local`
 
-The demo credentials are automatically displayed on the login page when demo mode is enabled. You can copy the credentials using the copy buttons next to each field.
+Passwords for sample users are stored as `DEMO_PASSWORD_<email>` settings (not shown on the login page by default). The login page surfaces the admin credentials when demo mode is enabled.
 
 #### Production Mode
 In production mode, you'll need to create your own user accounts through the admin panel after initial setup.
 
 ### Initial Setup
-1. **Demo Mode**: Use the credentials displayed on the login page
+1. **Demo Mode**: Use the admin credentials displayed on the login page
 2. **Production Mode**: Create your first admin account through the setup process
 3. Create team members in the Admin panel
 4. Set up your boards and columns
@@ -103,7 +104,7 @@ The sticky header contains branding, sprint context, app navigation, and utiliti
 1. **App navigation**: Kanban · Reports (if enabled) · Admin (admins)
 2. **Invite** (admins): Invite a user by email
 3. **Preferences**: Theme (light/dark) · Language (EN/FR)
-4. **Utilities**: Refresh · System panel toggle (admins) · Help (also F1)
+4. **Utilities**: Refresh · System panel toggle (admins) · Help (F1 or ?)
 5. **GitHub** link (opens in a new tab; can be hidden in Site Settings)
 6. **User avatar** (always last): Profile · Logout
 
@@ -180,7 +181,7 @@ The Kanban view displays tasks as cards in columns, representing different stage
 
 #### Multi-select & bulk actions
 - **Select all** (per column): Checkbox strip above columns
-- **Bulk action bar**: Tag, copy, sprint, priority, move to board (admin), archive, delete; unselect all
+- **Bulk action bar**: Tag, copy, sprint, priority, move to board (admin), archive, delete; unselect all. Admins: **Shift+click** delete to permanently purge selected tasks (skips trash; always confirms)
 - **Bulk move**: Drag one selected card to move all checked cards in that column together
 
 #### Drag & Drop Operations
@@ -201,7 +202,7 @@ The List view displays tasks in a table format for detailed data management.
 
 #### Table Columns
 - **Row Number**: Sequential numbering
-- **Actions**: View, Copy, Delete buttons (appear on hover)
+- **Actions**: View, Copy, Delete buttons (appear on hover). Admins: **Shift+click** Delete to permanently purge (skips trash; always confirms)
 - **Task Title**: Click to open task details
 - **Assignee**: User avatar and name
 - **Priority**: Color-coded priority level
@@ -239,6 +240,7 @@ The Gantt view displays tasks on a timeline showing project schedules and depend
 - **Edit Tasks**: Click on task bars to edit
 - **Move Tasks**: Drag task bars to change dates
 - **Resize Tasks**: Drag ends of task bars to change duration
+- **Delete Task**: Soft-delete from the task list trash control. Admins: **Shift+click** to permanently purge (skips trash; always confirms)
 
 #### View Modes (Tools → card density)
 - **Expand**: Full task details with titles
@@ -290,7 +292,7 @@ When you click on a task, the Task Details page opens with comprehensive task ma
 
 #### Task Actions
 - **Save Changes**: Save all modifications
-- **Delete Task**: Soft-delete to board trash (restore from trash or Admin → Lifecycle)
+- **Delete Task**: Soft-delete to board trash (restore from trash or Admin → Lifecycle). Admins: **Shift+click** delete on the card/toolbar to permanently purge (skips trash; always confirms)
 - **Copy Task**: Duplicate task
 - **Link Tasks**: Create relationships with other tasks
 - **Assign to Agent** (when AI is enabled): Open the assign modal from the card toolbar or assignee control — see [AI Agent](#ai-agent)
@@ -543,6 +545,10 @@ Developer details (APIs, `task_work`, runner): [`docs/AI_INTEGRATION.md`](docs/A
 
 Soft delete is separate from the Archive column: deleted items leave the active board and can be restored or purged.
 
+#### Soft-delete vs permanent purge
+- **Normal delete** (trash icon / bulk delete): Soft-deletes the task into board trash (recoverable)
+- **Admin Shift+click delete**: Permanently purges the task immediately (Kanban card, multi-select bulk bar, List view, and Gantt task list). Skips trash; always asks for confirmation. Non-admins: Shift is ignored
+
 #### Board trash
 - **Open trash**: Toggle from the board tabs area
 - **Restore / purge**: Per task or in bulk for the current board
@@ -618,10 +624,21 @@ Optional feature. Requires an administrator to enable AI and configure an LLM (a
 
 ## Keyboard Shortcuts
 
+In the app, open **Help → Shortcuts** (F1 or **?**) for the same reference.
+
 ### Global Shortcuts
-- **F1**: Open help modal
-- **Escape**: Close modals, exit edit modes
+- **F1** or **?**: Open help modal (`?` ignored while typing in a field)
+- **Escape**: Close modals, confirmation dialogs, and exit edit modes (layered: overlays first, then task details, then multi-select)
 - **Enter**: Confirm actions, save changes
+
+### Board (Kanban page, when not typing / no dialog open)
+- **/** or **Ctrl/Cmd+K**: Focus header task search
+- **N**: Create a new task in the first column
+- **1 / 2 / 3**: Switch Kanban / List / Gantt view
+- **Escape** (in search/filter panel): Clear the focused field, then clear all filters (same as the X controls)
+
+### Admin
+- **/** or **Ctrl/Cmd+K**: Focus settings search
 
 ### Gantt View
 - **Escape**: Exit relationship mode, exit multi-select mode
@@ -629,7 +646,7 @@ Optional feature. Requires an administrator to enable AI and configure an LLM (a
 - **Arrow Keys**: Move task selection (in multi-select mode)
 
 ### Text Editor
-- **Escape**: Cancel editing
+- **Escape**: Cancel editing / close link dialog
 - **Enter**: Save changes
 - **Ctrl/Cmd + Arrow Keys**: Normal text navigation
 - **Backspace/Delete**: Delete text (respects image deletion settings)
@@ -637,6 +654,8 @@ Optional feature. Requires an administrator to enable AI and configure an LLM (a
 ### Task Management
 - **Click**: Select task
 - **Drag**: Move tasks between columns using the handle
+- **S** (Kanban view only, while hovering a card): Toggle multi-select checkbox
+- **Ctrl/Cmd + click** on a card: Toggle multi-select
 
 ---
 
@@ -660,10 +679,18 @@ Optional feature. Requires an administrator to enable AI and configure an LLM (a
 - **Prevention**: Ensure proper user role assignment
 
 #### Performance Test Overlay (admin troubleshooting)
-- **Enable**: Admin → Site Settings → **Performance Test Overlay** (`FE_PERF_TESTS`), or `PUT /api/admin/settings` with `{ "key": "FE_PERF_TESTS", "value": "true" }`
-- **Use**: On the Kanban board as an admin, open the floating **PERF TESTS** panel — Generate tasks, Move tasks (0.5–2s random moves), Cleanup, and report modals (last run / session history)
-- **Disable**: Turn the same setting off when finished so the overlay does not mount
-- **Multi-user load**: Open multiple browsers/accounts with the flag enabled; each tab runs its own client-driven scenarios
+- **Enable**: Admin → App Settings → Troubleshooting → **Performance Test Overlay** (type `TROUBLE` first on multi-tenant/demo). Saves to **your** `user_settings.FE_PERF_TESTS` via `PUT /api/user/settings`
+- **Use**:
+  - **Kanban**: floating **PERF TESTS** — Burst create, Move storm, Cleanup, reports
+  - **Admin**: floating **PERF TESTS · ADMIN** — seed users (`perf.user…@local`, active, no invite), tags (`perf-tag-…`), sprints (`Perf Sprint …`), Seed all, Cleanup seed
+- **Disable**: Turn the same toggle off when finished; other admins never see the overlay from your preference
+- **Multi-user load**: Each participating admin enables the overlay on their own account; each tab runs its own client-driven scenarios
+
+#### CSP reports (security hardening)
+- **Where**: Admin → App Settings → Troubleshooting → **CSP reports**
+- **What**: Browser Content-Security-Policy (Report-Only) violations collected at `POST /api/csp-report` and stored per tenant
+- **Use**: Review the list after normal usage; Clear when done. Keep CSP Report-Only until the list stays quiet, then enforce
+- **Details**: See `DEBUGGING.md` (CSP reports section) and `audit/security-assessment-current-2026-08.md` (S4)
 
 #### Performance Issues
 - **Symptoms**: Slow loading, laggy interface
@@ -680,7 +707,7 @@ Optional feature. Requires an administrator to enable AI and configure an LLM (a
 - **Developer reference**: [`docs/AI_INTEGRATION.md`](docs/AI_INTEGRATION.md)
 
 ### Getting Help
-- **Help Modal**: Press F1 or click help button
+- **Help Modal**: Press F1 or ? (or click help button)
 - **Documentation**: This comprehensive guide
 - **Support**: Contact system administrator
 - **GitHub**: Project repository link in the header (unless hidden by admin)

@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { createPortal } from 'react-dom';
 import { X, Send } from 'lucide-react';
+import { useEscapeDismiss } from '../hooks/useEscapeDismiss';
 
 interface AddCommentModalProps {
   isOpen: boolean;
@@ -40,6 +41,12 @@ export default function AddCommentModal({
       setIsSubmitting(false);
     }
   }, [isOpen, editingComment]);
+
+  const handleClose = useCallback(() => {
+    if (!isSubmitting) onClose();
+  }, [isSubmitting, onClose]);
+
+  useEscapeDismiss(handleClose, { enabled: isOpen });
 
   const handleSubmit = async () => {
     if (commentText.trim() && !isSubmitting) {
@@ -121,14 +128,18 @@ export default function AddCommentModal({
             onChange={(e) => setCommentText(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder={t('addCommentModal.typeYourCommentHere')}
-            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500"
             rows={4}
             disabled={isSubmitting}
           />
-          <div className="mt-2 text-xs text-gray-500">
-            {t('addCommentModal.pressEnterToSubmit')} <kbd className="px-1 py-0.5 bg-gray-100 rounded text-xs">Enter</kbd> {t('addCommentModal.toSubmit')}, 
-            <kbd className="px-1 py-0.5 bg-gray-100 rounded text-xs ml-1">Shift+Enter</kbd> {t('addCommentModal.forNewLine')}, 
-            <kbd className="px-1 py-0.5 bg-gray-100 rounded text-xs ml-1">Esc</kbd> {t('addCommentModal.toCancel')}
+          <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+            {t('addCommentModal.pressEnterToSubmit')}{' '}
+            <kbd className="px-1 py-0.5 bg-gray-100 dark:bg-gray-600 text-gray-700 dark:text-gray-200 rounded text-xs">Enter</kbd>{' '}
+            {t('addCommentModal.toSubmit')},{' '}
+            <kbd className="px-1 py-0.5 bg-gray-100 dark:bg-gray-600 text-gray-700 dark:text-gray-200 rounded text-xs ml-1">Shift+Enter</kbd>{' '}
+            {t('addCommentModal.forNewLine')},{' '}
+            <kbd className="px-1 py-0.5 bg-gray-100 dark:bg-gray-600 text-gray-700 dark:text-gray-200 rounded text-xs ml-1">Esc</kbd>{' '}
+            {t('addCommentModal.toCancel')}
           </div>
         </div>
 
@@ -136,7 +147,7 @@ export default function AddCommentModal({
         <div className="flex items-center justify-end gap-3">
           <button
             onClick={onClose}
-            className="px-4 py-2 text-sm font-medium text-gray-700 hover:text-gray-900 transition-colors"
+            className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 transition-colors"
             disabled={isSubmitting}
           >
             {t('buttons.cancel', { ns: 'common' })}
@@ -144,7 +155,7 @@ export default function AddCommentModal({
           <button
             onClick={handleSubmit}
             disabled={!commentText.trim() || isSubmitting}
-            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed rounded-md transition-colors"
+            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 dark:disabled:bg-gray-600 disabled:cursor-not-allowed rounded-md transition-colors"
           >
             {isSubmitting ? (
               <>

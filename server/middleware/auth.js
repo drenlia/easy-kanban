@@ -12,8 +12,30 @@ if (!JWT_SECRET) {
 }
 const JWT_EXPIRES_IN = '24h';
 
-// Debug: Log the JWT secret being used
-console.log('🔑 Auth middleware initialized with JWT_SECRET:', JWT_SECRET ? `${JWT_SECRET.substring(0, 8)}...` : 'undefined');
+console.log('🔑 Auth middleware initialized (JWT_SECRET configured)');
+
+function isUserActive(isActive) {
+  if (isActive === false || isActive === 0 || isActive === '0' || isActive === 'false') {
+    return false;
+  }
+  return true;
+}
+
+function isForceLogout(flag) {
+  return flag === true || flag === 1 || flag === '1' || flag === 'true';
+}
+
+/** Session may proceed only when the DB user is active and not flagged for forced logout. */
+function userMayUseSession(userRow) {
+  if (!userRow) return false;
+  if (!isUserActive(userRow.is_active)) return false;
+  if (isForceLogout(userRow.force_logout)) return false;
+  return true;
+}
+
+function primaryRole(roleNames) {
+  return roleNames.includes('admin') ? 'admin' : (roleNames[0] || 'user');
+}
 
 /**
  * Authenticate personal access tokens (ek_…). Used when JWT verification fails
@@ -41,11 +63,11 @@ async function authenticatePersonalAccessToken(req, rawToken) {
     if (!ok) continue;
 
     const userRow = await wrapQuery(
-      db.prepare('SELECT id, email, is_active FROM users WHERE id = $1'),
+      db.prepare('SELECT id, email, is_active, force_logout FROM users WHERE id = $1'),
       'SELECT'
     ).get(row.user_id);
 
-    if (!userRow || userRow.is_active === false) {
+    if (!userMayUseSession(userRow)) {
       return null;
     }
 
@@ -65,7 +87,7 @@ async function authenticatePersonalAccessToken(req, rawToken) {
     return {
       id: userRow.id,
       email: userRow.email,
-      role: roleNames[0] || 'user',
+      role: primaryRole(roleNames),
       roles: roleNames,
       authType: 'pat',
       tokenId: row.id
@@ -107,6 +129,12 @@ export const authenticateToken = async (req, res, next) => {
         }
       });
     });
+
+    // Media-only tokens (HttpOnly cookie / file URLs) must not authorize API routes
+    if (user?.purpose === 'media') {
+      console.log(`❌ [AUTH] Media token rejected for API ${req.method} ${req.path}`);
+      return res.status(401).json({ error: 'Invalid or expired token' });
+    }
     
     // Verify user still exists in the tenant DB (demo resets, deleted accounts, tenant switches).
     // Previously this ran only when MULTI_TENANT=true; single-tenant demo wipe left valid JWTs
@@ -114,18 +142,50 @@ export const authenticateToken = async (req, res, next) => {
     const db = getRequestDatabase(req);
     if (db) {
       try {
-        const userInDb = await wrapQuery(db.prepare('SELECT id FROM users WHERE id = ?'), 'SELECT').get(user.id);
+        const userInDb = await wrapQuery(
+          db.prepare('SELECT id, email, is_active, force_logout FROM users WHERE id = ?'),
+          'SELECT'
+        ).get(user.id);
         
         if (!userInDb) {
           console.log(`❌ [AUTH] Token validation failed: User ${user.email} (${user.id}) does not exist in database`);
           return res.status(401).json({ error: 'Invalid or expired token' });
         }
+
+        if (!userMayUseSession(userInDb)) {
+          const reason = !isUserActive(userInDb.is_active) ? 'inactive' : 'force_logout';
+          console.log(`❌ [AUTH] Token validation failed: User ${userInDb.email} (${userInDb.id}) is ${reason}`);
+          return res.status(401).json({ error: 'Invalid or expired token' });
+        }
+
+        const roles = await wrapQuery(
+          db.prepare(`
+            SELECT r.name FROM roles r
+            JOIN user_roles ur ON r.id = ur.role_id
+            WHERE ur.user_id = $1
+          `),
+          'SELECT'
+        ).all(userInDb.id);
+        const roleNames = roles.map((r) => r.name);
+
+        req.user = {
+          id: userInDb.id,
+          email: userInDb.email,
+          role: primaryRole(roleNames),
+          roles: roleNames,
+          authType: 'jwt'
+        };
+        return next();
       } catch (dbError) {
+        // Transient DB errors (pool exhaustion, lock timeouts during bulk admin
+        // deletes, etc.) must not look like an invalid session — the axios
+        // interceptor clears authToken on 401 and logs the user out.
         console.error('❌ [AUTH] Error checking user in database:', dbError);
-        return res.status(401).json({ error: 'Authentication failed' });
+        return res.status(503).json({ error: 'Authentication temporarily unavailable' });
       }
     }
     
+    // No DB available (should be rare) — fall back to JWT claims only
     req.user = { ...user, authType: 'jwt' };
     next();
   } catch (err) {
@@ -142,8 +202,13 @@ export const requireRole = (roles) => {
     if (!req.user) {
       return res.status(401).json({ error: 'Authentication required' });
     }
-    
-    if (!roles.includes(req.user.role)) {
+
+    const userRoles = Array.isArray(req.user.roles) ? req.user.roles : [];
+    const allowed =
+      roles.includes(req.user.role) ||
+      userRoles.some((r) => roles.includes(r));
+
+    if (!allowed) {
       return res.status(403).json({ error: 'Insufficient permissions' });
     }
     
@@ -160,4 +225,4 @@ export const verifyToken = (token) => {
   return jwt.verify(token, JWT_SECRET);
 };
 
-export { JWT_SECRET, JWT_EXPIRES_IN };
+export { JWT_SECRET, JWT_EXPIRES_IN, isUserActive, isForceLogout, userMayUseSession };

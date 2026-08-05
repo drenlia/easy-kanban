@@ -1,109 +1,91 @@
 /**
- * Utility function to convert image URLs to token-based authenticated URLs
- * This ensures that avatar and attachment images are loaded with proper authentication
+ * Convert avatar / attachment paths to authenticated /api/files/… URLs.
+ *
+ * Auth is via HttpOnly media cookie (see POST /api/files/media-session).
+ * Session JWTs must not be embedded in ?token= (I3).
  */
 
+function stripQuery(url: string): string {
+  return url.split('?')[0];
+}
+
+function hasSessionToken(): boolean {
+  return !!localStorage.getItem('authToken');
+}
+
 /**
- * Converts an avatar URL to use the token-based authenticated endpoint
- * @param avatarUrl - The original avatar URL (e.g., "/avatars/filename.png")
- * @returns The authenticated URL with token (e.g., "/api/files/avatars/filename.png?token=...")
+ * Converts an avatar URL to the authenticated files endpoint (cookie auth).
  */
 export function getAuthenticatedAvatarUrl(avatarUrl: string | undefined | null): string | undefined {
   if (!avatarUrl) return undefined;
-  
-  // If it's a Google avatar URL (external), return as-is
+
   if (avatarUrl.startsWith('http://') || avatarUrl.startsWith('https://')) {
     return avatarUrl;
   }
-  
-  // Get the authentication token
-  const token = localStorage.getItem('authToken');
-  if (!token) {
-    // Return undefined to let the component handle the fallback (initials)
+
+  if (!hasSessionToken()) {
     return undefined;
   }
-  
-  // If it's already a token-based URL, strip the old token and add a fresh one
+
   if (avatarUrl.startsWith('/api/files/avatars/')) {
-    // Remove any existing token parameter
-    const baseUrl = avatarUrl.split('?')[0];
-    return `${baseUrl}?token=${encodeURIComponent(token)}`;
+    return stripQuery(avatarUrl);
   }
-  
-  // Convert local avatar URL to token-based URL
+
   if (avatarUrl.startsWith('/avatars/')) {
     const filename = avatarUrl.replace('/avatars/', '');
-    return `/api/files/avatars/${filename}?token=${encodeURIComponent(token)}`;
+    return `/api/files/avatars/${filename}`;
   }
-  
-  // If it doesn't start with /avatars/, assume it's a filename and add the path
-  return `/api/files/avatars/${avatarUrl}?token=${encodeURIComponent(token)}`;
+
+  return `/api/files/avatars/${stripQuery(avatarUrl)}`;
 }
 
 /**
- * Converts an attachment URL to use the token-based authenticated endpoint
- * @param attachmentUrl - The original attachment URL (e.g., "/attachments/filename.png")
- * @returns The authenticated URL with token (e.g., "/api/files/attachments/filename.png?token=...")
+ * Converts an attachment URL to the authenticated files endpoint (cookie auth).
  */
 export function getAuthenticatedAttachmentUrl(attachmentUrl: string | undefined | null): string | undefined {
   if (!attachmentUrl) return undefined;
-  
-  // If it's an external URL, return as-is
+
   if (attachmentUrl.startsWith('http://') || attachmentUrl.startsWith('https://')) {
     return attachmentUrl;
   }
-  
-  // Get the authentication token
-  const token = localStorage.getItem('authToken');
-  if (!token) {
-    // Return undefined to let the component handle the fallback
+
+  if (!hasSessionToken()) {
     return undefined;
   }
-  
-  // If it's already a token-based URL, strip the old token and add a fresh one
+
   if (attachmentUrl.startsWith('/api/files/attachments/')) {
-    // Remove any existing token parameter
-    const baseUrl = attachmentUrl.split('?')[0];
-    return `${baseUrl}?token=${encodeURIComponent(token)}`;
+    return stripQuery(attachmentUrl);
   }
-  
-  // Convert local attachment URL to token-based URL
+
   if (attachmentUrl.startsWith('/attachments/')) {
     const filename = attachmentUrl.replace('/attachments/', '');
-    return `/api/files/attachments/${filename}?token=${encodeURIComponent(token)}`;
+    return `/api/files/attachments/${filename}`;
   }
-  
-  // If it doesn't start with /attachments/, assume it's a filename and add the path
-  return `/api/files/attachments/${attachmentUrl}?token=${encodeURIComponent(token)}`;
+
+  return `/api/files/attachments/${stripQuery(attachmentUrl)}`;
 }
 
 /**
- * Converts any image URL to use the appropriate token-based authenticated endpoint
- * @param imageUrl - The original image URL
- * @returns The authenticated URL with token
+ * Converts any image URL to the appropriate authenticated files endpoint.
  */
 export function getAuthenticatedImageUrl(imageUrl: string | undefined | null): string | undefined {
   if (!imageUrl) return undefined;
-  
-  // If it's already a token-based URL, return as-is
+
   if (imageUrl.startsWith('/api/files/')) {
-    return imageUrl;
+    return stripQuery(imageUrl);
   }
-  
-  // If it's an external URL, return as-is
+
   if (imageUrl.startsWith('http://') || imageUrl.startsWith('https://')) {
     return imageUrl;
   }
-  
-  // Determine the type and convert accordingly
+
   if (imageUrl.startsWith('/avatars/')) {
     return getAuthenticatedAvatarUrl(imageUrl);
   }
-  
+
   if (imageUrl.startsWith('/attachments/')) {
     return getAuthenticatedAttachmentUrl(imageUrl);
   }
-  
-  // Default to attachment endpoint if we can't determine the type
+
   return getAuthenticatedAttachmentUrl(imageUrl);
 }

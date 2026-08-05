@@ -37,6 +37,7 @@ import { getLinkTarget, shouldOpenLinkInNewTab } from '../utils/linkUtils';
 import { feDebug } from '../utils/clientDebug';
 import { commentTextToHtml } from '../utils/commentContent';
 import { isEditableEscapeTarget } from '../utils/escapeKeyUtils';
+import { useEscapeDismiss } from '../hooks/useEscapeDismiss';
 import {
   AGENT_MEMBER_ID,
   SYSTEM_MEMBER_ID,
@@ -1444,6 +1445,14 @@ const TaskCard = React.memo(function TaskCard({
     }
   }, [showTagRemovalMenu]);
 
+  useEscapeDismiss(
+    () => {
+      setShowTagRemovalMenu(false);
+      setSelectedTagForRemoval(null);
+    },
+    { enabled: showTagRemovalMenu }
+  );
+
   // Handle click outside for title and description editing
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -1990,6 +1999,7 @@ const TaskCard = React.memo(function TaskCard({
           isEditingTitle={isEditingTitle}
           isEditingDescription={isEditingDescription}
           isSelected={isSelected}
+          isAdmin={Boolean(currentUser?.roles?.includes('admin'))}
         />
 
         {/* Relationship Type Indicator - Only show when hovering over link tool */}
@@ -2013,20 +2023,23 @@ const TaskCard = React.memo(function TaskCard({
           return null;
         })()}
 
-        {/* Title Row - Full Width */}
+        {/* Title row: float spacer matches assignee avatar (w-8) so line boxes wrap
+            beside it, then reclaim full card width once past the avatar height. */}
         <div className="mb-2 mt-1">
           {isEditingTitle ? (
-            <input
-              type="text"
-              value={editedTitle}
-              onChange={(e) => setEditedTitle(e.target.value)}
-              onBlur={handleTitleBlur}
-              onKeyDown={handleTitleKeyDown}
-              onFocus={handleInputFocus}
-              className="font-medium text-gray-800 dark:text-gray-100 bg-white dark:bg-gray-700 border border-blue-400 rounded px-1 py-0.5 outline-none focus:border-blue-500 w-full text-sm"
-              onClick={(e) => e.stopPropagation()}
-              autoFocus
-            />
+            <div className="pr-10">
+              <input
+                type="text"
+                value={editedTitle}
+                onChange={(e) => setEditedTitle(e.target.value)}
+                onBlur={handleTitleBlur}
+                onKeyDown={handleTitleKeyDown}
+                onFocus={handleInputFocus}
+                className="font-medium text-gray-800 dark:text-gray-100 bg-white dark:bg-gray-700 border border-blue-400 rounded px-1 py-0.5 outline-none focus:border-blue-500 w-full text-sm"
+                onClick={(e) => e.stopPropagation()}
+                autoFocus
+              />
+            </div>
           ) : (
             <div
               className={`relative ${
@@ -2055,7 +2068,7 @@ const TaskCard = React.memo(function TaskCard({
                 </label>
               )}
               <FirstLineEndAnchor
-                contentClassName="min-w-0"
+                contentClassName="min-w-0 flow-root"
                 anchor={
                   isHoveringTitle ? (
                     <KanbanChromeTooltip label={t('taskCard.editTitle')} wrapperClassName="inline-flex">
@@ -2076,6 +2089,10 @@ const TaskCard = React.memo(function TaskCard({
                   ) : null
                 }
               >
+                <div
+                  className="float-right h-8 w-8 ml-1 mb-0.5 pointer-events-none"
+                  aria-hidden
+                />
                 <h3
                   className="font-medium text-gray-800 dark:text-gray-100 px-1 py-0.5 rounded text-sm"
                   onDoubleClick={(e) => {
@@ -2932,6 +2949,8 @@ const TaskCard = React.memo(function TaskCard({
                             // Also replace any blob URLs in other contexts
                             fixedContent = fixedContent.replace(/blob:[^\s"')]+/gi, '');
                           }
+
+                          fixedContent = DOMPurify.sanitize(fixedContent);
                           
                           // Create a temporary div to parse the HTML
                           const tempDiv = document.createElement('div');

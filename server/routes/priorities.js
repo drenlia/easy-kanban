@@ -6,6 +6,12 @@ import { getRequestDatabase } from '../middleware/tenantRouting.js';
 import { dbTransaction } from '../utils/dbAsync.js';
 import { priorities as priorityQueries } from '../utils/sqlManager/index.js';
 import { tasks as taskQueries } from '../utils/sqlManager/index.js';
+import {
+  parseBody,
+  createPriorityBodySchema,
+  updatePriorityBodySchema,
+  reorderPrioritiesBodySchema
+} from '../utils/requestValidation.js';
 
 const router = express.Router();
 
@@ -100,12 +106,12 @@ router.get('/', authenticateToken, requireRole(['admin']), async (req, res) => {
 });
 
 router.post('/', authenticateToken, requireRole(['admin']), async (req, res) => {
-  const { priority, color } = req.body;
-  const db = getRequestDatabase(req);
-  
-  if (!priority || !color) {
-    return res.status(400).json({ error: 'Priority name and color are required' });
+  const parsed = parseBody(createPriorityBodySchema, req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error });
   }
+  const { priority, color } = parsed.data;
+  const db = getRequestDatabase(req);
 
   try {
     // MIGRATED: Get the next position using sqlManager
@@ -135,14 +141,14 @@ router.post('/', authenticateToken, requireRole(['admin']), async (req, res) => 
 
 // Reorder priorities (must come before :priorityId route)
 router.put('/reorder', authenticateToken, requireRole(['admin']), async (req, res) => {
-  const { priorities } = req.body;
+  const parsed = parseBody(reorderPrioritiesBodySchema, req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error });
+  }
+  const { priorities } = parsed.data;
   const db = getRequestDatabase(req);
   
   try {
-    if (!Array.isArray(priorities)) {
-      return res.status(400).json({ error: 'Priorities array is required' });
-    }
-    
     // MIGRATED: Update positions using sqlManager
     const priorityUpdates = priorities.map((priority, index) => ({
       id: priority.id,
@@ -174,12 +180,12 @@ router.put('/reorder', authenticateToken, requireRole(['admin']), async (req, re
 
 router.put('/:priorityId', authenticateToken, requireRole(['admin']), async (req, res) => {
   const { priorityId } = req.params;
-  const { priority, color } = req.body;
-  const db = getRequestDatabase(req);
-  
-  if (!priority || !color) {
-    return res.status(400).json({ error: 'Priority name and color are required' });
+  const parsed = parseBody(updatePriorityBodySchema, req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error });
   }
+  const { priority, color } = parsed.data;
+  const db = getRequestDatabase(req);
 
   try {
     // MIGRATED: Update priority using sqlManager

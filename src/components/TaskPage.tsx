@@ -985,7 +985,19 @@ export default function TaskPage({
               </button>
               <div className="h-6 border-l border-gray-300 shrink-0"></div>
               <div className="min-w-0">
-                <h1 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-gray-100 truncate">{editedTask.title}</h1>
+                <div className="flex items-center gap-2 min-w-0">
+                  <h1 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-gray-100 truncate">
+                    {editedTask.title}
+                  </h1>
+                  {(editedTask.status || '').trim() && (
+                    <span
+                      className="inline-flex shrink-0 items-center rounded-full bg-gray-100 dark:bg-gray-700 px-2 py-0.5 text-[11px] font-medium text-gray-700 dark:text-gray-200 max-w-[10rem] sm:max-w-[14rem] truncate"
+                      title={editedTask.status}
+                    >
+                      {editedTask.status}
+                    </span>
+                  )}
+                </div>
                 <p className="text-xs sm:text-sm text-gray-500 flex flex-wrap items-center gap-x-2 gap-y-0.5 min-w-0">
                   <span className="truncate">
                     {getProjectIdentifier() && `${getProjectIdentifier()} / `}

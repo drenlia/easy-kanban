@@ -40,6 +40,8 @@ data:
   POSTGRES_PORT: "5432"
   POSTGRES_DB: "easykanban"
   POSTGRES_USER: "kanban"
+  # Each tenant gets its own pool; size so surge_pods × (tenants × max + ~10) < max_connections
+  POSTGRES_POOL_MAX: "8"
   # POSTGRES_PASSWORD is set via Secret (not in ConfigMap for security)
   
   # Real-time updates via PostgreSQL pub/sub

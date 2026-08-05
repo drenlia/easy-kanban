@@ -37,18 +37,24 @@ function isAwsDefaultEndpoint(endpoint) {
 
 export async function createS3Client(config) {
   const { S3Client } = await loadAwsS3();
+  const accessKeyId = String(config?.accessKeyId ?? '').trim();
+  const secretAccessKey = String(config?.secretAccessKey ?? '').trim();
+  if (!accessKeyId || !secretAccessKey) {
+    throw new Error('S3 credentials are incomplete (access key or secret missing)');
+  }
+
   const clientConfig = {
-    region: config.region || 'us-east-1',
+    region: String(config?.region || 'us-east-1').trim() || 'us-east-1',
     credentials: {
-      accessKeyId: config.accessKeyId,
-      secretAccessKey: config.secretAccessKey
+      accessKeyId,
+      secretAccessKey
     }
   };
 
   // For real AWS, omit Endpoint so the SDK talks to the regional endpoint
   // (https://s3.<region>.amazonaws.com). Forcing https://s3.amazonaws.com causes
   // "Please re-send this request to the specified temporary endpoint" for non-us-east-1 buckets.
-  const customEndpoint = String(config.endpoint || '').trim();
+  const customEndpoint = String(config?.endpoint || '').trim();
   if (customEndpoint && !isAwsDefaultEndpoint(customEndpoint)) {
     clientConfig.endpoint = customEndpoint;
     // Path-style is usually required for MinIO / custom endpoints; optional override via setting.

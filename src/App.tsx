@@ -49,7 +49,10 @@ const ModalManager = lazyWithRetry(() => import('./components/layout/ModalManage
 const PerfTestOverlay = lazyWithRetry(() =>
   import('./perfTests/PerfTestOverlay').then((m) => ({ default: m.default }))
 );
-import { shouldShowPerfTests } from './perfTests';
+const AdminSeedOverlay = lazyWithRetry(() =>
+  import('./perfTests/AdminSeedOverlay').then((m) => ({ default: m.default }))
+);
+import { shouldShowPerfTests, subscribePerfTestsPreference, PERF_TESTS_USER_SETTING_KEY, isPerfTestsUserSettingEnabled } from './perfTests';
 import TaskDeleteConfirmation from './components/TaskDeleteConfirmation';
 import CrossBoardMoveConfirmation from './components/CrossBoardMoveConfirmation';
 import ActivityFeed from './components/ActivityFeed';
@@ -121,6 +124,7 @@ import { handleSameColumnReorder, handleCrossColumnMove, handleBulkMoveTasks, mo
 import { getTaskColumnId, orderedCheckedTasksInColumn } from './utils/kanbanMultiSelect';
 import { useKanbanMultiSelect } from './hooks/useKanbanMultiSelect';
 import { hasEscapeConsumingOverlay, isEditableEscapeTarget } from './utils/escapeKeyUtils';
+import { focusHeaderTaskSearch } from './utils/keyboardShortcutUtils';
 import { handleInviteUser as handleInviteUserUtil } from './utils/userInvitationUtils';
 import BoardLimitReachedDialog, { BoardLimitInfo } from './components/BoardLimitReachedDialog';
 import { KeyboardSensor, PointerSensor, useSensor, useSensors, DragEndEvent, DragStartEvent, DndContext, DragOverlay } from '@dnd-kit/core';
@@ -272,90 +276,84 @@ function AppContent() {
   }, [selectedTask, handleSelectTask]);
 
   // Task deletion handler with confirmation
-  const handleTaskDelete = async (taskId: string) => {
-    try {
-      // Track this task as recently deleted to prevent it from reappearing
-      recentlyDeletedTasksRef.current.add(taskId);
-      
-      // Clear the deleted task after 10 seconds (enough time for any delayed updates)
-      setTimeout(() => {
-        recentlyDeletedTasksRef.current.delete(taskId);
-      }, 10000);
-      
-      await deleteTask(taskId);
-      
-      // Remove task from local state and renumber remaining tasks
-      const updatedColumns = { ...columns };
-      const tasksToUpdate: Array<{ taskId: string; position: number; columnId: string }> = [];
-      
+  const removeTaskFromLocalColumns = (taskId: string) => {
+    setColumns(prev => {
+      const updatedColumns = { ...prev };
       Object.keys(updatedColumns).forEach(columnId => {
         const column = updatedColumns[columnId];
         if (column) {
-          // Remove the deleted task
           const remainingTasks = column.tasks.filter(task => task.id !== taskId);
-          
-          // Renumber remaining tasks sequentially from 0
           const renumberedTasks = remainingTasks
             .sort((a, b) => (a.position || 0) - (b.position || 0))
-            .map((task, index) => {
-              // Track tasks that need position updates
-              if (task.position !== index) {
-                tasksToUpdate.push({
-                  taskId: task.id,
-                  position: index,
-                  columnId: columnId
-                });
-              }
-              return {
-                ...task,
-                position: index
-              };
-            });
-          
+            .map((task, index) => ({
+              ...task,
+              position: index
+            }));
           updatedColumns[columnId] = {
             ...column,
             tasks: renumberedTasks
           };
         }
       });
-      setColumns(updatedColumns);
-      
-      // Also update filteredColumns to maintain consistency
-      taskFilters.setFilteredColumns(prevFilteredColumns => {
-        const updatedFilteredColumns = { ...prevFilteredColumns };
-        Object.keys(updatedFilteredColumns).forEach(columnId => {
-          const column = updatedFilteredColumns[columnId];
-          if (column) {
-            // Remove the deleted task
-            const remainingTasks = column.tasks.filter(task => task.id !== taskId);
-            
-            // Renumber remaining tasks sequentially from 0
-            const renumberedTasks = remainingTasks
-              .sort((a, b) => (a.position || 0) - (b.position || 0))
-              .map((task, index) => ({
-                ...task,
-                position: index
-              }));
-            
-            updatedFilteredColumns[columnId] = {
-              ...column,
-              tasks: renumberedTasks
-            };
-          }
-        });
-        return updatedFilteredColumns;
+      return updatedColumns;
+    });
+
+    taskFilters.setFilteredColumns(prevFilteredColumns => {
+      const updatedFilteredColumns = { ...prevFilteredColumns };
+      Object.keys(updatedFilteredColumns).forEach(columnId => {
+        const column = updatedFilteredColumns[columnId];
+        if (column) {
+          const remainingTasks = column.tasks.filter(task => task.id !== taskId);
+          const renumberedTasks = remainingTasks
+            .sort((a, b) => (a.position || 0) - (b.position || 0))
+            .map((task, index) => ({
+              ...task,
+              position: index
+            }));
+          updatedFilteredColumns[columnId] = {
+            ...column,
+            tasks: renumberedTasks
+          };
+        }
       });
-      
+      return updatedFilteredColumns;
+    });
+  };
+
+  const handleTaskDelete = async (taskId: string) => {
+    try {
+      recentlyDeletedTasksRef.current.add(taskId);
+      setTimeout(() => {
+        recentlyDeletedTasksRef.current.delete(taskId);
+      }, 10000);
+
+      await deleteTask(taskId);
+      removeTaskFromLocalColumns(taskId);
+
       // NOTE: Backend already renumbers tasks after deletion and sends a WebSocket event
-      // We don't need to send batch position updates - the backend handles it
-      // The local state update above is sufficient for immediate UI feedback
-      
-      // Refresh board data to ensure consistent state
       await refreshBoardData();
       await fetchQueryLogs();
     } catch (error) {
-      // console.error('Failed to delete task:', error);
-      throw error; // Re-throw so the hook can handle the error state
+      throw error;
+    }
+  };
+
+  /** Admin hard-delete (Shift+click) — bypasses trash. */
+  const handleTaskPermanentDelete = async (taskId: string) => {
+    try {
+      recentlyDeletedTasksRef.current.add(taskId);
+      setTimeout(() => {
+        recentlyDeletedTasksRef.current.delete(taskId);
+      }, 10000);
+
+      await purgeTask(taskId);
+      removeTaskFromLocalColumns(taskId);
+
+      await refreshBoardData();
+      await fetchQueryLogs();
+    } catch (error: any) {
+      toast.error(error?.response?.data?.error || t('trash.purgeFailed'));
+      throw error;
     }
   };
 
@@ -564,6 +562,33 @@ function AppContent() {
     },
   });
   const { loading, withLoading } = useLoadingState();
+
+  // Per-admin Performance Test Overlay preference (user_settings.FE_PERF_TESTS)
+  const isAdminUser = Boolean(currentUser?.roles?.includes('admin'));
+  const [userPerfTestsEnabled, setUserPerfTestsEnabled] = useState(false);
+  useEffect(() => {
+    if (!currentUser?.id || !isAdminUser) {
+      setUserPerfTestsEnabled(false);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const settings = await getUserSettings();
+        if (cancelled) return;
+        setUserPerfTestsEnabled(
+          isPerfTestsUserSettingEnabled(settings?.[PERF_TESTS_USER_SETTING_KEY])
+        );
+      } catch {
+        if (!cancelled) setUserPerfTestsEnabled(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [currentUser?.id, isAdminUser]);
+
+  useEffect(() => subscribePerfTestsPreference(setUserPerfTestsEnabled), []);
   
   // Initialize Task Filters hook (requires columns, members, boards, and updateCurrentUserPreference)
   const taskFilters = useTaskFilters({
@@ -744,13 +769,46 @@ function AppContent() {
   
   // Custom hooks
   const showDebug = useDebug();
-  useKeyboardShortcuts(() => modalState.setShowHelpModal(true));
+
+  const keyboardShortcutApiRef = useRef<{
+    openHelp: () => void;
+    focusSearch: () => void;
+    newTask: () => void;
+    setViewMode: (mode: ViewMode) => void;
+  }>({
+    openHelp: () => {},
+    focusSearch: () => {},
+    newTask: () => {},
+    setViewMode: () => {},
+  });
+
+  const openHelpShortcut = useCallback(() => {
+    keyboardShortcutApiRef.current.openHelp();
+  }, []);
+  const focusSearchShortcut = useCallback(() => {
+    keyboardShortcutApiRef.current.focusSearch();
+  }, []);
+  const newTaskShortcut = useCallback(() => {
+    keyboardShortcutApiRef.current.newTask();
+  }, []);
+  const viewModeShortcut = useCallback((mode: ViewMode) => {
+    keyboardShortcutApiRef.current.setViewMode(mode);
+  }, []);
+
+  useKeyboardShortcuts({
+    onHelp: openHelpShortcut,
+    onFocusSearch: focusSearchShortcut,
+    onNewTask: newTaskShortcut,
+    onViewMode: viewModeShortcut,
+    boardShortcutsEnabled: isAuthenticated && currentPage === 'kanban',
+  });
   
   // Initialize task deletion confirmation hook
   const taskDeleteConfirmation = useTaskDeleteConfirmation({
     currentUser,
     systemSettings,
-    onDelete: handleTaskDelete
+    onDelete: handleTaskDelete,
+    onPurge: currentUser?.roles?.includes('admin') ? handleTaskPermanentDelete : undefined
   });
 
   // Now define the handleRemoveTask function
@@ -1254,6 +1312,7 @@ function AppContent() {
     websocketClient.onTagCreated(settingsWebSocket.handleTagCreated);
     websocketClient.onTagUpdated(settingsWebSocket.handleTagUpdated);
     websocketClient.onTagDeleted(settingsWebSocket.handleTagDeleted);
+    websocketClient.onTagDeleted(taskWebSocket.handleTagDeleted);
     websocketClient.onPriorityCreated(settingsWebSocket.handlePriorityCreated);
     websocketClient.onPriorityUpdated(settingsWebSocket.handlePriorityUpdated);
     websocketClient.onPriorityDeleted(settingsWebSocket.handlePriorityDeleted);
@@ -1304,6 +1363,7 @@ function AppContent() {
       websocketClient.offTagCreated(settingsWebSocket.handleTagCreated);
       websocketClient.offTagUpdated(settingsWebSocket.handleTagUpdated);
       websocketClient.offTagDeleted(settingsWebSocket.handleTagDeleted);
+      websocketClient.offTagDeleted(taskWebSocket.handleTagDeleted);
       websocketClient.offPriorityCreated(settingsWebSocket.handlePriorityCreated);
       websocketClient.offPriorityUpdated(settingsWebSocket.handlePriorityUpdated);
       websocketClient.offPriorityDeleted(settingsWebSocket.handlePriorityDeleted);
@@ -1852,6 +1912,33 @@ function AppContent() {
 
   // CENTRALIZED ROUTING HANDLER - Single source of truth
   useEffect(() => {
+    const fallbackBoardId = (): string | null => {
+      if (!boards.length) return null;
+      if (currentUser?.id) {
+        try {
+          const last = loadUserPreferences(currentUser.id).lastSelectedBoard;
+          if (last && boards.some((b) => b.id === last)) return last;
+        } catch {
+          /* ignore */
+        }
+      }
+      return boards[0]?.id ?? null;
+    };
+
+    // Invalid hash → select a real board. Bare #kanban clears selection and often stays blank
+    // because auto-select can miss the same-tick update after replaceState.
+    const recoverInvalidBoardHash = () => {
+      setCurrentPage('kanban');
+      const id = fallbackBoardId();
+      if (id) {
+        setSelectedBoard(id);
+        window.history.replaceState(null, '', `#kanban#${id}`);
+      } else {
+        setSelectedBoard(null);
+        window.history.replaceState(null, '', '#kanban');
+      }
+    };
+
     const handleRouting = () => {
       // Check for task route first (handles /task/#TASK-00001 and /project/#PROJ-00001/#TASK-00001)
       const taskRoute = parseTaskRoute();
@@ -1875,17 +1962,21 @@ function AppContent() {
             return; // Let the hash change trigger the next routing cycle
           }
         } else {
-          // Project ID not found - redirect to kanban with error or message
-          // console.warn(`Project ${projectRoute.projectId} not found`);
-          setCurrentPage('kanban');
-          setSelectedBoard(null);
-          window.history.replaceState(null, '', '#kanban');
+          recoverInvalidBoardHash();
           return;
         }
       }
       
       // Standard hash-based routing
       const route = parseUrlHash(window.location.hash);
+
+      // #login is for the signed-out Login screen only. If we're authenticated, open a real board.
+      if (route.mainRoute === 'login') {
+        if (isAuthenticated) {
+          recoverInvalidBoardHash();
+        }
+        return;
+      }
       
       // Debug to server console - DISABLED
       // fetch('/api/debug/log', {
@@ -1984,7 +2075,11 @@ function AppContent() {
         // Handle kanban board sub-routes
         if (route.mainRoute === 'kanban' && route.subRoute && boards.length > 0) {
           const board = boards.find(b => b.id === route.subRoute);
-          setSelectedBoard(board ? board.id : null);
+          if (board) {
+            setSelectedBoard(board.id);
+          } else {
+            recoverInvalidBoardHash();
+          }
         }
         
       } else if (route.isBoardId && boards.length > 0) {
@@ -2007,9 +2102,7 @@ function AppContent() {
           setCurrentPage('kanban');
           setSelectedBoard(board.id);
         } else {
-          // Invalid board ID - redirect to kanban
-          setCurrentPage('kanban');
-          setSelectedBoard(null);
+          recoverInvalidBoardHash();
         }
         
       } else if (route.mainRoute) {
@@ -2023,8 +2116,7 @@ function AppContent() {
           setAdminLeavePrompt({ page: 'kanban', options: { hash: 'kanban' } });
           return;
         }
-        setCurrentPage('kanban');
-        setSelectedBoard(null);
+        recoverInvalidBoardHash();
       }
     };
 
@@ -2032,7 +2124,7 @@ function AppContent() {
     handleRouting();
     window.addEventListener('hashchange', handleRouting);
     return () => window.removeEventListener('hashchange', handleRouting);
-  }, [currentPage, boards, isAuthenticated]);
+  }, [currentPage, boards, isAuthenticated, currentUser?.id]);
 
   // AUTO-BOARD-SELECTION LOGIC - Clean and predictable with user preference support
   useEffect(() => {
@@ -2073,8 +2165,9 @@ function AppContent() {
         setSelectedBoard(boardToSelect);
         // CRITICAL FIX: Save to preferences so it's remembered on next refresh
         updateCurrentUserPreference('lastSelectedBoard', boardToSelect);
-        // Update URL to reflect the selected board (only if no hash exists)
-        if (!window.location.hash || window.location.hash === '#') {
+        // Normalize empty / bare kanban hashes (incl. after invalid URL recovery)
+        const hash = window.location.hash || '';
+        if (!hash || hash === '#' || hash === '#kanban') {
           window.location.hash = `#kanban#${boardToSelect}`;
         }
       }
@@ -2284,11 +2377,12 @@ function AppContent() {
     if (selectedBoard) {
       // Set switching state to prevent task count updates during board switch
       setIsSwitchingBoard(true);
+      const boardIdBeingOpened = selectedBoard;
       
       // CRITICAL FIX: Check if board data is already loaded in boards array
       const boardInState = boards.find(b => b.id === selectedBoard);
       if (boardInState && boardInState.columns && Object.keys(boardInState.columns).length > 0) {
-        // Board data already loaded — always copy columns for the newly selected board.
+        // Board data already loaded — show cached columns immediately for snappy UX.
         // Do NOT gate this on justUpdatedFromWebSocket: after a cross-board drop (or any
         // WS batch), that flag can still be true while the user switches boards. Skipping
         // setColumns leaves the *previous* board's column IDs in `columns`, while
@@ -2307,13 +2401,24 @@ function AppContent() {
         });
         setColumns(newColumns);
         setIsSwitchingBoard(false);
+
+        // Revalidate from API in the background. Cached boards[] can miss comment/task
+        // updates that arrived while this client was not in that board's WS room.
+        // Race-guard: only apply if still on the same board when the fetch completes.
+        refreshBoardData({ force: true, forBoardId: boardIdBeingOpened }).then(() => {
+          if (selectedBoardRef.current !== boardIdBeingOpened) return;
+        }).catch(() => {
+          /* refreshBoardData already logs */
+        });
       } else {
         // Board data not in state yet — clear columns immediately so the previous board's tasks
         // are not shown while refresh runs (e.g. new board or slow network).
         setColumns({});
         // Force refresh: otherwise justUpdatedFromWebSocket can skip and leave stale columns visible.
-        refreshBoardData({ force: true }).finally(() => {
-          setIsSwitchingBoard(false);
+        refreshBoardData({ force: true, forBoardId: boardIdBeingOpened }).finally(() => {
+          if (selectedBoardRef.current === boardIdBeingOpened) {
+            setIsSwitchingBoard(false);
+          }
         });
       }
       
@@ -2321,11 +2426,14 @@ function AppContent() {
       if (currentPage === 'kanban') {
         getBoardTaskRelationships(selectedBoard)
           .then(relationships => {
+            if (selectedBoardRef.current !== boardIdBeingOpened) return;
             taskLinking.setBoardRelationships(relationships);
           })
           .catch(error => {
             console.error('⚠️ [App] Failed to load relationships:', error);
-            taskLinking.setBoardRelationships([]);
+            if (selectedBoardRef.current === boardIdBeingOpened) {
+              taskLinking.setBoardRelationships([]);
+            }
           });
       }
     } else {
@@ -2375,6 +2483,16 @@ function AppContent() {
       // Hydrate columns for a specific board (e.g. newly created) before selectedBoard state updates,
       // or for the current selectedBoard when forBoardId is omitted.
       const boardIdToHydrate = options?.forBoardId !== undefined ? options.forBoardId : selectedBoard;
+
+      // If this refresh was for a specific board and the user has already switched away, still
+      // update boards[] (above) but do not clobber the currently visible columns.
+      if (
+        options?.forBoardId !== undefined &&
+        selectedBoardRef.current &&
+        selectedBoardRef.current !== options.forBoardId
+      ) {
+        return;
+      }
       
       if (loadedBoards.length > 0) {
         if (boardIdToHydrate) {
@@ -2593,26 +2711,43 @@ function AppContent() {
     }
   };
 
-  const handleAddTask = async (columnId: string, startDate?: string, dueDate?: string) => {
-    if (!selectedBoard || !currentUser) return;
+  const handleAddTask = async (columnId: string, startDate?: string, dueDate?: string): Promise<boolean> => {
+    if (!selectedBoard || !currentUser) return false;
     
     // Prevent task creation when network is offline
     if (!isOnline) {
       console.warn('⚠️ Task creation blocked - network is offline');
-      return;
+      return false;
     }
     
     // Always assign new tasks to the logged-in user, not the filtered selection
     const currentUserMember = members.find(m => m.user_id === currentUser.id);
     if (!currentUserMember) {
       // console.error('Current user not found in members list');
-      return;
+      return false;
     }
-    
-    // Use provided dates or default to today
-    const taskStartDate = startDate || new Date().toISOString().split('T')[0];
-    const taskDueDate = dueDate || taskStartDate;
-    
+
+    // Auto-assign the header sprint filter when a concrete sprint is selected
+    // (not "All" / null, and not Backlog).
+    const filterSprintId = taskFilters.selectedSprintId;
+    const autoSprintId =
+      filterSprintId && filterSprintId !== 'backlog' ? filterSprintId : null;
+    const autoSprint = autoSprintId
+      ? availableSprints.find((s: any) => s.id === autoSprintId)
+      : null;
+
+    // Prefer caller dates (e.g. Gantt drag); otherwise sprint window, else today.
+    const taskStartDate =
+      startDate ||
+      (autoSprint?.start_date
+        ? formatToYYYYMMDD(autoSprint.start_date)
+        : new Date().toISOString().split('T')[0]);
+    const taskDueDate =
+      dueDate ||
+      (autoSprint?.end_date
+        ? formatToYYYYMMDD(autoSprint.end_date)
+        : taskStartDate);
+
     const newTask: Task = {
       id: generateUUID(),
       title: 'New Task',
@@ -2626,7 +2761,8 @@ function AppContent() {
       priority: getDefaultPriority(), // Use frontend default priority
       requesterId: currentUserMember.id,
       boardId: selectedBoard,
-      comments: []
+      comments: [],
+      sprintId: autoSprintId,
     };
 
     // OPTIMISTIC UPDATE: Add task to UI immediately for instant feedback
@@ -2730,6 +2866,8 @@ function AppContent() {
       setTimeout(() => {
         setTaskCreationPause(false);
       }, TASK_CREATION_PAUSE_DURATION);
+
+      return true;
       
     } catch (error: any) {
       console.error('Failed to create task at top:', error);
@@ -2771,6 +2909,7 @@ function AppContent() {
         toast.error(t('errors.createTaskTitle'), t('errors.createTaskMessage'));
         await refreshBoardData();
       }
+      return false;
     }
   };
 
@@ -3370,10 +3509,11 @@ function AppContent() {
         }
       }));
       
-      // If column becomes archived, remove it from visible columns
-      if (is_archived && selectedBoard) {
-        const currentVisibleColumns = boardColumnVisibility[selectedBoard] || Object.keys(columns);
-        const updatedVisibleColumns = currentVisibleColumns.filter(id => id !== columnId);
+      // If column becomes archived, remove it from an explicit visibility list (default already hides archives)
+      if (is_archived && selectedBoard && boardColumnVisibility[selectedBoard]) {
+        const updatedVisibleColumns = boardColumnVisibility[selectedBoard].filter(
+          (id) => id !== columnId
+        );
         handleBoardColumnVisibilityChange(selectedBoard, updatedVisibleColumns);
       }
       
@@ -3383,39 +3523,51 @@ function AppContent() {
     }
   };
 
-  // Helper function to count tasks in a column
+  // Helper function to count live tasks in a column
   const getColumnTaskCount = (columnId: string): number => {
     return columns[columnId]?.tasks?.length || 0;
   };
 
-  // Show column delete confirmation (or delete immediately if no tasks)
+  // Delete column only when empty of live tasks (server also enforces this)
   const handleRemoveColumn = async (columnId: string) => {
     const taskCount = getColumnTaskCount(columnId);
-    // console.log(`🗑️ Delete column ${columnId}, task count: ${taskCount}`);
-    
-    if (taskCount === 0) {
-      // No tasks - delete immediately without confirmation
-      // console.log(`🗑️ Deleting empty column immediately`);
-      await handleConfirmColumnDelete(columnId);
-    } else {
-      // Has tasks - show confirmation dialog
-      // console.log(`🗑️ Showing confirmation dialog for column with ${taskCount} tasks`);
-      // console.log(`🗑️ Setting showColumnDeleteConfirm to: ${columnId}`);
-      setShowColumnDeleteConfirm(columnId);
+    if (taskCount > 0) {
+      toast.error(
+        t('errors.deleteColumnTitle'),
+        t('errors.columnNotEmpty', { count: taskCount })
+      );
+      return;
     }
+    await handleConfirmColumnDelete(columnId);
   };
 
   // Confirm column deletion
   const handleConfirmColumnDelete = async (columnId: string) => {
-    // console.log(`✅ Confirming deletion of column ${columnId}`);
     try {
       await deleteColumn(columnId);
       const { [columnId]: removed, ...remainingColumns } = columns;
       setColumns(remainingColumns);
       setShowColumnDeleteConfirm(null);
       await fetchQueryLogs();
-    } catch (error) {
-      toast.error(t('errors.deleteColumnTitle'), t('errors.deleteColumnMessage'));
+    } catch (error: any) {
+      const code = error?.response?.data?.code;
+      const apiMessage = error?.response?.data?.error;
+      if (code === 'column_not_empty') {
+        toast.error(
+          t('errors.deleteColumnTitle'),
+          apiMessage || t('errors.columnNotEmpty', { count: error?.response?.data?.taskCount || 0 })
+        );
+      } else if (code === 'column_trash_needs_fallback') {
+        toast.error(
+          t('errors.deleteColumnTitle'),
+          apiMessage || t('errors.columnTrashNeedsFallback')
+        );
+      } else {
+        toast.error(
+          t('errors.deleteColumnTitle'),
+          apiMessage || t('errors.deleteColumnMessage')
+        );
+      }
     }
   };
 
@@ -3496,6 +3648,9 @@ function AppContent() {
     onCopyTask: handleCopyTask,
     onTagAdd: handleTagAdd,
     onSoftDelete: handleTaskDelete,
+    onPermanentDelete: currentUser?.roles?.includes('admin')
+      ? handleTaskPermanentDelete
+      : undefined,
     onMoveToBoard: performCrossBoardMove,
     getArchiveColumnId: () => {
       const archive = Object.values(columns).find(
@@ -3519,6 +3674,7 @@ function AppContent() {
     onBulkCopy,
     onBulkArchive,
     onBulkDelete,
+    onBulkPermanentDelete,
     onBulkSprint,
     onBulkPriority,
     onBulkMoveToBoard,
@@ -3768,16 +3924,21 @@ function AppContent() {
           window.justUpdatedFromWebSocket = false;
         }, 1000);
 
-        const currentVisibleColumns =
-          boardColumnVisibility[selectedBoard] || Object.keys(columns);
-        const visibleSet = new Set([...currentVisibleColumns, columnId]);
-        const newVisible = sorted.map(c => c.id).filter(id => visibleSet.has(id));
-        handleBoardColumnVisibilityChange(selectedBoard, newVisible);
+        // Only touch saved visibility when the user already customized it.
+        // Otherwise default visibility hides Archive and includes the new column automatically.
+        if (boardColumnVisibility[selectedBoard]) {
+          const currentVisibleColumns = boardColumnVisibility[selectedBoard];
+          const visibleSet = new Set([...currentVisibleColumns, columnId]);
+          const newVisible = sorted.map((c) => c.id).filter((id) => visibleSet.has(id));
+          handleBoardColumnVisibilityChange(selectedBoard, newVisible);
+        }
       } else {
-        const currentVisibleColumns =
-          boardColumnVisibility[selectedBoard] || Object.keys(columns);
-        const updatedVisibleColumns = [...currentVisibleColumns, columnId];
-        handleBoardColumnVisibilityChange(selectedBoard, updatedVisibleColumns);
+        if (boardColumnVisibility[selectedBoard]) {
+          handleBoardColumnVisibilityChange(selectedBoard, [
+            ...boardColumnVisibility[selectedBoard],
+            columnId,
+          ]);
+        }
         await refreshBoardData();
         if (selectedBoard) await renumberColumns(selectedBoard);
       }
@@ -4129,6 +4290,32 @@ function AppContent() {
   };
 
 
+  // Keep shortcut handlers current without reordering hooks past early returns below.
+  keyboardShortcutApiRef.current = {
+    openHelp: () => modalState.setShowHelpModal(true),
+    focusSearch: () => {
+      focusHeaderTaskSearch();
+    },
+    newTask: () => {
+      if (taskLinking.isLinkingMode) return;
+      if (!selectedBoard || !currentUser || !isOnline) return;
+      const sorted = Object.values(columns).sort(
+        (a, b) => (a.position ?? 0) - (b.position ?? 0)
+      );
+      const firstColumn = sorted[0];
+      if (!firstColumn) return;
+      void (async () => {
+        const created = await handleAddTask(firstColumn.id);
+        if (!created) return;
+        toast.info(
+          t('errors.createTaskShortcutTitle'),
+          t('errors.createTaskShortcutMessage', { column: firstColumn.title })
+        );
+      })();
+    },
+    setViewMode: handleViewModeChange,
+  };
+
   // Handle password reset pages (accessible without authentication)
   if (currentPage === 'forgot-password') {
     return <ForgotPassword onBackToLogin={() => window.location.hash = '#kanban'} />;
@@ -4460,6 +4647,7 @@ function AppContent() {
                                     onBulkCopy={onBulkCopy}
                                     onBulkArchive={onBulkArchive}
                                     onBulkDelete={onBulkDelete}
+                                    onBulkPermanentDelete={onBulkPermanentDelete}
                                     onBulkSprint={onBulkSprint}
                                     onBulkPriority={onBulkPriority}
                                     onBulkMoveToBoard={onBulkMoveToBoard}
@@ -4526,6 +4714,7 @@ function AppContent() {
         onConfirm={taskDeleteConfirmation.confirmDelete}
         onCancel={taskDeleteConfirmation.cancelDelete}
         isDeleting={taskDeleteConfirmation.isDeleting}
+        permanent={taskDeleteConfirmation.isPermanent}
         position={taskDeleteConfirmation.confirmationPosition}
       />
 
@@ -4589,7 +4778,7 @@ function AppContent() {
         userId={currentUser?.id || null}
       />
 
-      {shouldShowPerfTests(siteSettings, currentUser) &&
+      {shouldShowPerfTests(userPerfTestsEnabled, currentUser) &&
         currentPage === 'kanban' &&
         selectedBoard && (
           <Suspense fallback={null}>
@@ -4604,6 +4793,16 @@ function AppContent() {
               }
               onMoveTask={handleMoveTaskToColumn}
               onRefreshBoard={() => refreshBoardData({ force: true })}
+            />
+          </Suspense>
+        )}
+
+      {shouldShowPerfTests(userPerfTestsEnabled, currentUser) &&
+        currentPage === 'admin' && (
+          <Suspense fallback={null}>
+            <AdminSeedOverlay
+              currentUserId={currentUser?.id}
+              currentUserEmail={currentUser?.email}
             />
           </Suspense>
         )}

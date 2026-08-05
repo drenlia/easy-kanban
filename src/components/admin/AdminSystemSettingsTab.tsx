@@ -271,6 +271,7 @@ const AdminSystemSettingsTab: React.FC<AdminSystemSettingsTabProps> = ({
           <AdminAISettingsTab
             editingSettings={editingSettings}
             onSettingsChange={onSettingsChange}
+            onApplySettingsPatch={onApplySettingsPatch}
             onAutoSave={onAutoSave}
             onLocalDirtyChange={setAiLocalDirty}
             discardNonce={discardNonce}

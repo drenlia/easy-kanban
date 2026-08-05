@@ -14,6 +14,17 @@ import { getTenantId, getRequestDatabase } from '../middleware/tenantRouting.js'
 // MIGRATED: Import sqlManager modules
 import { users as userQueries, tasks as taskQueries, adminUsers as adminUserQueries, auth as authQueries, helpers } from '../utils/sqlManager/index.js';
 import { commitUploadedFile, getRequestStoragePaths } from '../services/storage/index.js';
+import { validateUploadedFileMagic } from '../utils/fileMagicBytes.js';
+import { deleteAvatarFileIfUnused } from '../utils/avatarCleanup.js';
+import {
+  parseBody,
+  adminCreateUserBodySchema,
+  adminUpdateUserBodySchema,
+  adminUpdateUserRoleBodySchema,
+  updateMemberNameBodySchema,
+  updateMemberColorBodySchema,
+  resendInvitationBodySchema
+} from '../utils/requestValidation.js';
 
 const router = express.Router();
 
@@ -35,8 +46,12 @@ router.get('/', authenticateToken, requireRole(['admin']), async (req, res) => {
     
     // MIGRATED: Get all users with roles and member info using sqlManager
     const users = await userQueries.getAllUsersWithRolesAndMembers(db);
+    const aiEnabled = (await helpers.getSetting(db, 'AI_ENABLED')) === 'true';
 
-    const transformedUsers = users.map(user => ({
+    const transformedUsers = users
+      // Agent pseudo-user is only meaningful while AI is enabled
+      .filter((user) => aiEnabled || user.email !== 'agent@local')
+      .map((user) => ({
       id: user.id,
       email: user.email,
       firstName: user.first_name,
@@ -66,17 +81,11 @@ router.put('/:userId/member-name', authenticateToken, requireRole(['admin']), as
     const db = getRequestDatabase(req);
     const t = await getTranslator(db);
     const { userId } = req.params;
-    const { displayName } = req.body;
-    
-    if (!displayName || displayName.trim().length === 0) {
+    const parsed = parseBody(updateMemberNameBodySchema, req.body);
+    if (!parsed.success) {
       return res.status(400).json({ error: t('errors.displayNameRequired') });
     }
-    
-    // Validate display name length (max 30 characters)
-    const trimmedDisplayName = displayName.trim();
-    if (trimmedDisplayName.length > 30) {
-      return res.status(400).json({ error: t('errors.displayNameTooLong') });
-    }
+    const trimmedDisplayName = parsed.data.displayName;
     
     // MIGRATED: Check for duplicate display name using sqlManager
     const existingMember = await userQueries.checkMemberNameExists(db, trimmedDisplayName, userId);
@@ -135,15 +144,15 @@ router.put('/:userId/member-name', authenticateToken, requireRole(['admin']), as
 // Update user details (MUST come after more specific routes)
 router.put('/:userId', authenticateToken, requireRole(['admin']), async (req, res) => {
   const { userId } = req.params;
-  const { email, firstName, lastName, isActive } = req.body;
+  const parsed = parseBody(adminUpdateUserBodySchema, req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error });
+  }
+  const { email, firstName, lastName, isActive } = parsed.data;
   const db = getRequestDatabase(req);
   const { getTranslator } = await import('../utils/i18n.js');
   const t = getTranslator(db);
   
-  if (!email || !firstName || !lastName) {
-    return res.status(400).json({ error: t('errors.emailFirstNameLastNameRequired') });
-  }
-
   try {
     // MIGRATED: Get current user status using sqlManager
     const currentUser = await userQueries.getUserByIdForAdmin(db, userId);
@@ -172,10 +181,10 @@ router.put('/:userId', authenticateToken, requireRole(['admin']), async (req, re
       }
     }
 
-    // MIGRATED: Check if email already exists using sqlManager
+    // MIGRATED: Check if email already exists using sqlManager (case-insensitive)
     const existingUser = await userQueries.checkEmailExists(db, email, userId);
     if (existingUser) {
-      return res.status(400).json({ error: 'Email already exists' });
+      return res.status(400).json({ error: `User with email ${email} already exists` });
     }
 
     // MIGRATED: Update user using sqlManager
@@ -208,12 +217,12 @@ router.put('/:userId', authenticateToken, requireRole(['admin']), async (req, re
 // Update user role
 router.put('/:userId/role', authenticateToken, requireRole(['admin']), async (req, res) => {
   const { userId } = req.params;
-  const { role } = req.body;
-  const db = getRequestDatabase(req);
-  
-  if (!role) {
-    return res.status(400).json({ error: 'Role is required' });
+  const parsed = parseBody(adminUpdateUserRoleBodySchema, req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error });
   }
+  const { role } = parsed.data;
+  const db = getRequestDatabase(req);
 
   try {
     // Prevent users from demoting themselves
@@ -317,11 +326,19 @@ router.get('/can-create', authenticateToken, requireRole(['admin']), async (req,
 
 // Create new user
 router.post('/', authenticateToken, requireRole(['admin']), async (req, res) => {
-  const { email, password, firstName, lastName, role, displayName, baseUrl: baseUrlFromBody } = req.body;
+  const parsed = parseBody(adminCreateUserBodySchema, req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error });
+  }
+  const { email, password, firstName, lastName, role, displayName, baseUrl: baseUrlFromBody } = parsed.data;
   // Demo mode cannot send invite emails — always create users as active locally
-  const isActive = process.env.DEMO_ENABLED === 'true' ? true : req.body.isActive;
+  const isActive = process.env.DEMO_ENABLED === 'true' ? true : !!parsed.data.isActive;
   const db = getRequestDatabase(req);
   const t = getTranslator(db);
+
+  if (isActive && !password) {
+    return res.status(400).json({ error: 'Password is required' });
+  }
   
   // Get baseUrl for invitation emails - use APP_URL from database (tenant-specific)
   // Priority: 1) APP_URL from database, 2) baseUrl from request body, 3) Construct from tenantId, 4) Fallback
@@ -343,29 +360,6 @@ router.post('/', authenticateToken, requireRole(['admin']), async (req, res) => 
         baseUrl = req.get('origin') || 'http://localhost:3000';
       }
     }
-  }
-  
-  // Validate required fields with specific error messages
-  if (!email) {
-    return res.status(400).json({ error: 'Email address is required' });
-  }
-  if (!password) {
-    return res.status(400).json({ error: 'Password is required' });
-  }
-  if (!firstName) {
-    return res.status(400).json({ error: 'First name is required' });
-  }
-  if (!lastName) {
-    return res.status(400).json({ error: 'Last name is required' });
-  }
-  if (!role) {
-    return res.status(400).json({ error: 'User role is required' });
-  }
-  
-  // Validate email format
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  if (!emailRegex.test(email)) {
-    return res.status(400).json({ error: 'Invalid email address format' });
   }
   
   try {
@@ -394,8 +388,11 @@ router.post('/', authenticateToken, requireRole(['admin']), async (req, res) => 
     // Generate user ID
     const userId = crypto.randomUUID();
     
-    // Hash password
-    const passwordHash = await bcrypt.hash(password, 10);
+    // Hash password (invite/inactive may omit — use unguessable placeholder until activation)
+    const passwordHash = await bcrypt.hash(
+      password || crypto.randomBytes(32).toString('hex'),
+      10
+    );
     
     // MIGRATED: Create user using sqlManager
     await userQueries.createUser(db, userId, email, passwordHash, firstName, lastName, isActive, 'local');
@@ -550,6 +547,9 @@ router.post('/', authenticateToken, requireRole(['admin']), async (req, res) => 
     
   } catch (error) {
     console.error('Registration error:', error);
+    if (error.code === '23505' || String(error.message || '').toLowerCase().includes('unique')) {
+      return res.status(400).json({ error: `User with email ${email} already exists` });
+    }
     res.status(500).json({ error: 'Registration failed' });
   }
 });
@@ -557,7 +557,11 @@ router.post('/', authenticateToken, requireRole(['admin']), async (req, res) => 
 // Resend user invitation
 router.post('/:userId/resend-invitation', authenticateToken, requireRole(['admin']), async (req, res) => {
   const { userId } = req.params;
-  const { baseUrl: baseUrlFromBody } = req.body;
+  const parsed = parseBody(resendInvitationBodySchema, req.body || {});
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error });
+  }
+  const { baseUrl: baseUrlFromBody } = parsed.data;
   const db = getRequestDatabase(req);
   
   // Get baseUrl for invitation emails - use APP_URL from database (tenant-specific)
@@ -830,6 +834,13 @@ router.delete("/:userId", authenticateToken, requireRole(["admin"]), async (req,
         
         console.log(`🗑️ User deleted successfully: ${user.email}`);
     });
+
+    // Remove avatar object after the user row is gone (so ref-check sees no owner)
+    await deleteAvatarFileIfUnused(
+      db,
+      getRequestStoragePaths(req),
+      user.avatar_path || user.avatarPath
+    );
     
     // Publish task-updated events for all reassigned tasks (for real-time updates)
     if (tasksToReassign.length > 0) {
@@ -891,17 +902,12 @@ router.delete("/:userId", authenticateToken, requireRole(["admin"]), async (req,
 // Update member color
 router.put('/:userId/color', authenticateToken, requireRole(['admin']), async (req, res) => {
   const { userId } = req.params;
-  const { color } = req.body;
+  const parsed = parseBody(updateMemberColorBodySchema, req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error });
+  }
+  const { color } = parsed.data;
   const db = getRequestDatabase(req);
-  
-  if (!color) {
-    return res.status(400).json({ error: 'Color is required' });
-  }
-
-  // Validate color format (hex color)
-  if (!/^#[0-9A-F]{6}$/i.test(color)) {
-    return res.status(400).json({ error: 'Invalid color format. Use hex format like #FF5733' });
-  }
 
   try {
     // MIGRATED: Get member info before update using sqlManager
@@ -944,10 +950,20 @@ router.post('/:userId/avatar', authenticateToken, requireRole(['admin']), avatar
   }
 
   try {
+    const magic = await validateUploadedFileMagic(req.file, { mode: 'avatar' });
+    if (!magic.valid) {
+      return res.status(400).json({ error: magic.error });
+    }
+
+    const previous = await userQueries.getUserByIdForAdmin(db, userId);
+    const previousPath = previous?.avatar_path || previous?.avatarPath || null;
+
     await commitUploadedFile(db, getRequestStoragePaths(req), 'avatars', req.file);
     const avatarPath = `/avatars/${req.file.filename}`;
     // MIGRATED: Update user's avatar_path using sqlManager
     await userQueries.updateUserAvatar(db, userId, avatarPath);
+
+    await deleteAvatarFileIfUnused(db, getRequestStoragePaths(req), previousPath);
     
     // MIGRATED: Get the member ID using sqlManager
     const member = await userQueries.getMemberByUserId(db, userId);
@@ -980,8 +996,13 @@ router.delete("/:userId/avatar", authenticateToken, requireRole(["admin"]), asyn
   const db = getRequestDatabase(req);
   
   try {
+    const previous = await userQueries.getUserByIdForAdmin(db, userId);
+    const previousPath = previous?.avatar_path || previous?.avatarPath || null;
+
     // MIGRATED: Clear avatar_path using sqlManager
     await userQueries.updateUserAvatar(db, userId, null);
+
+    await deleteAvatarFileIfUnused(db, getRequestStoragePaths(req), previousPath);
     
     // MIGRATED: Get the member ID using sqlManager
     const member = await userQueries.getMemberByUserId(db, userId);

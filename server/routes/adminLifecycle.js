@@ -7,10 +7,33 @@ import {
   purgeBoardCompletely,
 } from '../services/taskPurgeService.js';
 import notificationService from '../services/notificationService.js';
+import {
+  parseBody,
+  taskIdsBatchBodySchema,
+  boardIdsBatchBodySchema
+} from '../utils/requestValidation.js';
 
 const router = express.Router();
 
 router.use(authenticateToken, requireRole(['admin']));
+
+/** Lightweight counts for Admin tab badges (not capped by list LIMIT) */
+router.get('/summary', async (req, res) => {
+  try {
+    const db = getRequestDatabase(req);
+    const [deletedTasks, deletedBoards] = await Promise.all([
+      taskQueries.countLifecycleDeletedTasks(db),
+      boardQueries.countDeletedBoards(db),
+    ]);
+    res.json({
+      deletedTasks: Number(deletedTasks) || 0,
+      deletedBoards: Number(deletedBoards) || 0,
+    });
+  } catch (error) {
+    console.error('Lifecycle summary error:', error);
+    res.status(500).json({ error: 'Failed to load lifecycle summary' });
+  }
+});
 
 /** Soft-deleted tasks across boards */
 router.get('/tasks', async (req, res) => {
@@ -41,10 +64,11 @@ router.get('/boards', async (req, res) => {
 router.post('/tasks/restore-batch', async (req, res) => {
   try {
     const db = getRequestDatabase(req);
-    const { taskIds } = req.body || {};
-    if (!Array.isArray(taskIds) || taskIds.length === 0) {
-      return res.status(400).json({ error: 'taskIds required' });
+    const parsed = parseBody(taskIdsBatchBodySchema, req.body || {});
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error });
     }
+    const { taskIds } = parsed.data;
     // Delegate to same restore logic by calling sql directly for each (client can also call /tasks/:id/restore)
     const restored = [];
     const errors = [];
@@ -147,10 +171,11 @@ router.post('/tasks/restore-batch', async (req, res) => {
 router.post('/tasks/purge-batch', async (req, res) => {
   try {
     const db = getRequestDatabase(req);
-    const { taskIds } = req.body || {};
-    if (!Array.isArray(taskIds) || taskIds.length === 0) {
-      return res.status(400).json({ error: 'taskIds required' });
+    const parsed = parseBody(taskIdsBatchBodySchema, req.body || {});
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error });
     }
+    const { taskIds } = parsed.data;
     const storagePaths =
       req.locals?.tenantStoragePaths || req.app.locals?.tenantStoragePaths || null;
     const purged = [];
@@ -177,10 +202,11 @@ router.post('/tasks/purge-batch', async (req, res) => {
 router.post('/boards/purge-batch', async (req, res) => {
   try {
     const db = getRequestDatabase(req);
-    const { boardIds } = req.body || {};
-    if (!Array.isArray(boardIds) || boardIds.length === 0) {
-      return res.status(400).json({ error: 'boardIds required' });
+    const parsed = parseBody(boardIdsBatchBodySchema, req.body || {});
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error });
     }
+    const { boardIds } = parsed.data;
     const storagePaths =
       req.locals?.tenantStoragePaths || req.app.locals?.tenantStoragePaths || null;
     const purged = [];

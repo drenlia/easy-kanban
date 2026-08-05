@@ -1,9 +1,18 @@
-/** True when the Performance Test Overlay should mount (setting on + admin). */
+import { isPerfTestsUserSettingEnabled } from './preference';
+
+export {
+  PERF_TESTS_USER_SETTING_KEY,
+  isPerfTestsUserSettingEnabled,
+  notifyPerfTestsPreference,
+  subscribePerfTestsPreference,
+} from './preference';
+
+/** True when the Performance Test Overlay should mount (this admin’s preference + admin role). */
 export function shouldShowPerfTests(
-  settings: Record<string, string | undefined> | null | undefined,
+  userPerfTestsEnabled: boolean | string | null | undefined,
   user: { roles?: string[] } | null | undefined
 ): boolean {
-  if (!settings || settings.FE_PERF_TESTS !== 'true') return false;
+  if (!isPerfTestsUserSettingEnabled(userPerfTestsEnabled)) return false;
   if (!user?.roles?.includes('admin')) return false;
   return true;
 }

@@ -59,6 +59,8 @@ interface TaskCardToolbarProps {
   isEditingTitle?: boolean;
   isEditingDescription?: boolean;
   isSelected?: boolean;
+  /** Show Shift+click permanent-delete hint on trash tooltip. */
+  isAdmin?: boolean;
 }
 
 export default function TaskCardToolbar({
@@ -97,7 +99,8 @@ export default function TaskCardToolbar({
   
   isEditingTitle = false,
   isEditingDescription = false,
-  isSelected = false
+  isSelected = false,
+  isAdmin = false
 }: TaskCardToolbarProps) {
   const { t } = useTranslation('tasks');
   const _priorityButtonRef = useRef<HTMLButtonElement>(null);
@@ -560,12 +563,25 @@ export default function TaskCardToolbar({
         className={`absolute top-0 ${trashRightClass} z-[5] py-1 transition-opacity duration-200 ${toolbarHoverVisibility}`}
         data-tour-id="task-card-delete"
       >
-        <KanbanChromeTooltip label={agentBlocking ? agentLockedLabel : t('toolbar.deleteTask')}>
+        <KanbanChromeTooltip
+          label={
+            agentBlocking
+              ? agentLockedLabel
+              : isAdmin
+                ? t('toolbar.deleteTaskAdminHint')
+                : t('toolbar.deleteTask')
+          }
+        >
           <button
             disabled={agentBlocking}
             onClick={(e) => {
               if (agentBlocking) return;
+              e.preventDefault();
+              e.stopPropagation();
               onRemove(task.id, e);
+            }}
+            onMouseDown={(e) => {
+              e.stopPropagation();
             }}
             className={`p-1 rounded-full ${toolbarReachClass} ${
               agentBlocking

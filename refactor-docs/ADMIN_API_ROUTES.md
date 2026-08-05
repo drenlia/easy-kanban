@@ -2,16 +2,24 @@
 
 ## Route Mount Points
 
-Based on `server/index.js`, the following routes are mounted under `/api/admin`:
+Based on `server/index.js`, the following routes are mounted under `/api/admin` (and related):
 
 1. `/api/admin/sprints` - sprintsRouter (lazy loaded)
 2. `/api/admin/users` - adminUsersRouter (lazy loaded)
-3. `/api/admin/tags` - tagsRouter (eager loaded)
-4. `/api/admin/priorities` - prioritiesRouter (eager loaded)
+3. `/api/admin/tags` - tagsRouter
+4. `/api/admin/priorities` - prioritiesRouter
 5. `/api/admin/settings` - settingsRouter (eager loaded)
 6. `/api/admin` - adminSystemRouter (lazy loaded)
 7. `/api/admin/notification-queue` - adminNotificationQueueRouter (lazy loaded)
-8. `/api/admin-portal` - adminPortalRouter (lazy loaded, external access)
+8. `/api/admin/lifecycle` - adminLifecycleRouter (lazy loaded)
+9. `/api/admin/csp-reports` - cspAdminRouter (eager; list/clear CSP Report-Only violations)
+10. `/api/admin-portal` - adminPortalRouter (lazy loaded, `INSTANCE_TOKEN`)
+
+Related (not under `/api/admin` but often confused with admin tooling):
+
+- `POST /api/csp-report` — public CSP beacon ingest (rate-limited; always 204)
+- `POST /api/files/media-session` — sets HttpOnly `ek_media` cookie after login
+- `/api/agent`, `/api/agent/runner`, `/api/agent/automation` — AI agent surface (see `docs/AI_INTEGRATION.md`)
 
 ---
 
@@ -137,7 +145,36 @@ Based on `server/index.js`, the following routes are mounted under `/api/admin`:
 
 ---
 
-## 8. `/api/admin-portal` (External Admin Portal)
+## 8. `/api/admin/lifecycle` (Trash / soft-delete)
+
+**File**: `server/routes/adminLifecycle.js`  
+**Status**: Lazy loaded
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| GET | `/api/admin/lifecycle/tasks` | ✅ Admin | List soft-deleted tasks |
+| GET | `/api/admin/lifecycle/boards` | ✅ Admin | List soft-deleted boards |
+| POST | `/api/admin/lifecycle/tasks/restore-batch` | ✅ Admin | Restore selected tasks |
+| POST | `/api/admin/lifecycle/tasks/purge-batch` | ✅ Admin | Permanently delete selected tasks |
+| POST | `/api/admin/lifecycle/boards/purge-batch` | ✅ Admin | Permanently delete selected boards |
+
+---
+
+## 9. `/api/admin/csp-reports` (CSP Report-Only)
+
+**File**: `server/routes/cspReport.js` (`cspAdminRouter`)  
+**Status**: Eager loaded
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| GET | `/api/admin/csp-reports` | ✅ Admin | List recent CSP violations (tenant DB) |
+| DELETE | `/api/admin/csp-reports` | ✅ Admin | Clear stored CSP reports |
+
+Public ingest (not admin-auth): `POST /api/csp-report` — rate-limited, always 204.
+
+---
+
+## 10. `/api/admin-portal` (External Admin Portal)
 
 **File**: `server/routes/adminPortal.js`  
 **Status**: Lazy loaded  
@@ -169,21 +206,12 @@ Based on `server/index.js`, the following routes are mounted under `/api/admin`:
 
 ### Total Routes by Status
 
-- **Lazy Loaded**: 7 route files
-  - `/api/admin/sprints`
-  - `/api/admin/users`
-  - `/api/admin/tags`
-  - `/api/admin/priorities`
-  - `/api/admin` (adminSystem)
-  - `/api/admin/notification-queue`
-  - `/api/admin-portal`
-
-- **Eager Loaded**: 1 route file
-  - `/api/admin/settings` (required immediately for frontend)
+- **Lazy Loaded**: admin routes for sprints, users, system, notification-queue, lifecycle, admin-portal
+- **Eager Loaded**: `/api/admin/settings`, `/api/admin/csp-reports` (plus tags/priorities as mounted today)
 
 ### Total Endpoints
 
-- **Admin Routes**: ~60+ endpoints
+- **Admin Routes**: ~70+ endpoints (includes lifecycle + CSP)
 - **Admin Portal Routes**: ~15 endpoints (external access)
 
 ### Breakdown by Category
@@ -195,6 +223,8 @@ Based on `server/index.js`, the following routes are mounted under `/api/admin`:
 - **Priorities Management**: 8 endpoints
 - **Settings**: 5 endpoints
 - **Notification Queue**: 3 endpoints
+- **Lifecycle (trash)**: 5 endpoints
+- **CSP reports**: 2 admin + 1 public ingest
 - **Admin Portal (External)**: 15 endpoints
 
 ---

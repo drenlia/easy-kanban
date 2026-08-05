@@ -37,6 +37,8 @@ type UseKanbanMultiSelectArgs = {
   onCopyTask: (task: Task) => Promise<void>;
   onTagAdd: (taskId: string) => (tagId: string) => Promise<void>;
   onSoftDelete: (taskId: string) => Promise<void>;
+  /** Admin hard-delete (Shift+click on bulk delete). */
+  onPermanentDelete?: (taskId: string) => Promise<void>;
   onMoveToBoard: (taskId: string, boardId: string) => Promise<void>;
   getArchiveColumnId: () => string | null;
   availablePriorities: Array<{ id: number; priority: string; color: string }>;
@@ -55,6 +57,7 @@ export function useKanbanMultiSelect({
   onCopyTask,
   onTagAdd,
   onSoftDelete,
+  onPermanentDelete,
   onMoveToBoard,
   getArchiveColumnId,
   availablePriorities,
@@ -258,6 +261,14 @@ export function useKanbanMultiSelect({
       await runBulk(taskIds, onSoftDelete, 'kanbanSelect.deletedCount');
     },
     [onSoftDelete, runBulk]
+  );
+
+  const onBulkPermanentDelete = useCallback(
+    async (taskIds: string[]) => {
+      if (!onPermanentDelete) return;
+      await runBulk(taskIds, onPermanentDelete, 'kanbanSelect.purgedCount');
+    },
+    [onPermanentDelete, runBulk]
   );
 
   const onBulkSprint = useCallback(
@@ -578,6 +589,7 @@ export function useKanbanMultiSelect({
     onBulkCopy,
     onBulkArchive,
     onBulkDelete,
+    onBulkPermanentDelete,
     onBulkSprint,
     onBulkPriority,
     onBulkMoveToBoard,

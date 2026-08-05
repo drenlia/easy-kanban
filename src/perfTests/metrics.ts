@@ -1,4 +1,13 @@
-export type PerfScenarioId = 'generate' | 'move' | 'cleanup';
+export type PerfScenarioId =
+  | 'generate'
+  | 'move'
+  | 'cleanup'
+  | 'seed-users'
+  | 'seed-tags'
+  | 'seed-sprints'
+  | 'seed-all'
+  | 'seed-cleanup';
+
 
 export interface PerfOpSample {
   ms: number;

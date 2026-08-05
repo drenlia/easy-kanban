@@ -10,6 +10,8 @@
     "failedToFetchBoardRelationships": "Échec de la récupération des relations du tableau",
     "columnNameExists": "Une colonne avec ce nom existe déjà dans ce tableau",
     "columnNotFound": "Colonne introuvable",
+    "columnNotEmpty": "Déplacez ou supprimez toutes les tâches de cette colonne avant de la supprimer",
+    "columnTrashNeedsFallback": "Impossible de supprimer cette colonne tant que la Corbeille y fait encore référence et qu'aucune autre colonne n'existe sur le tableau",
     "failedToCreateColumn": "Échec de la création de la colonne",
     "failedToUpdateColumn": "Échec de la mise à jour de la colonne",
     "failedToDeleteColumn": "Échec de la suppression de la colonne",

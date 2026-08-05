@@ -53,7 +53,7 @@ export const getAdminFileSettings = async (db) => {
         'image/png': true,
         'image/gif': true,
         'image/webp': true,
-        'image/svg+xml': true,
+        'image/svg+xml': false, // scriptable — blocked by default
         'image/bmp': true,
         'image/tiff': true,
         'image/ico': true,
@@ -86,28 +86,32 @@ export const getAdminFileSettings = async (db) => {
         'application/zip': true,
         'application/x-rar-compressed': true,
         'application/x-7z-compressed': true,
-        // Code Files
-        'text/javascript': true,
+        // Code / markup — not allowed by default (XSS / scriptable content)
+        'text/javascript': false,
+        'application/javascript': false,
         'text/css': true,
-        'text/html': true,
+        'text/html': false,
         'application/json': true
       };
     }
     
-    // Security: Always block dangerous file types
+    // Always block native executables (even when UPLOAD_LIMITS_ENFORCED=false).
+    // HTML / SVG / JS follow the admin allowlist (or "all types" when limits are off).
     const blockedTypes = [
       'application/x-executable',
-      'application/x-msdownload', 
+      'application/x-msdownload',
       'application/x-msdos-program',
       'application/x-winexe',
       'application/x-msi',
       'application/x-sh',
-      'application/x-bat'
+      'application/x-bat',
+      'application/x-elf',
+      'application/vnd.microsoft.portable-executable'
     ];
     
     const blockedExtensions = [
-      '.exe', '.bat', '.cmd', '.com', '.pif', '.scr', '.vbs', '.js', '.jar', '.msi',
-      '.sh', '.ps1', '.app', '.dmg', '.deb', '.rpm'
+      '.exe', '.bat', '.cmd', '.com', '.pif', '.scr', '.vbs', '.jar', '.msi',
+      '.sh', '.ps1', '.app', '.dmg', '.deb', '.rpm', '.elf', '.bin'
     ];
     
     return {
@@ -125,16 +129,18 @@ export const getAdminFileSettings = async (db) => {
       allowedTypes: {},
       blockedTypes: [
         'application/x-executable',
-        'application/x-msdownload', 
+        'application/x-msdownload',
         'application/x-msdos-program',
         'application/x-winexe',
         'application/x-msi',
         'application/x-sh',
-        'application/x-bat'
+        'application/x-bat',
+        'application/x-elf',
+        'application/vnd.microsoft.portable-executable'
       ],
       blockedExtensions: [
-        '.exe', '.bat', '.cmd', '.com', '.pif', '.scr', '.vbs', '.js', '.jar', '.msi',
-        '.sh', '.ps1', '.app', '.dmg', '.deb', '.rpm'
+        '.exe', '.bat', '.cmd', '.com', '.pif', '.scr', '.vbs', '.jar', '.msi',
+        '.sh', '.ps1', '.app', '.dmg', '.deb', '.rpm', '.elf', '.bin'
       ],
       limitsEnforced: true // Default to enforced for safety
     };
@@ -149,9 +155,10 @@ export const getAdminFileSettings = async (db) => {
  */
 export const validateFile = (file, settings) => {
   const { maxSize, allowedTypes, blockedTypes, blockedExtensions, limitsEnforced } = settings;
+  const normalizedMimeType = String(file.mimetype || '').split(';')[0].trim().toLowerCase();
   
   // Always check blocked MIME types (security - always enforced)
-  if (blockedTypes.includes(file.mimetype)) {
+  if (blockedTypes.includes(file.mimetype) || blockedTypes.includes(normalizedMimeType)) {
     return { valid: false, error: `File type "${file.mimetype}" is not allowed for security reasons` };
   }
   
@@ -176,9 +183,6 @@ export const validateFile = (file, settings) => {
   // If allowedTypes is empty {}, allow all types (backward compatibility)
   // If allowedTypes has keys, only allow types explicitly set to true
   if (Object.keys(allowedTypes).length > 0) {
-    // Normalize MIME type (remove charset, parameters, etc.)
-    // Example: "image/gif; charset=binary" -> "image/gif"
-    const normalizedMimeType = file.mimetype.split(';')[0].trim().toLowerCase();
     const isAllowed = allowedTypes[normalizedMimeType] === true || allowedTypes[file.mimetype] === true;
     if (!isAllowed) {
       // Log the rejection for debugging

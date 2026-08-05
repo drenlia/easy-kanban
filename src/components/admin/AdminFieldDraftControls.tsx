@@ -94,3 +94,37 @@ export const AdminDirtyDot: React.FC<{ show: boolean; className?: string }> = ({
     />
   );
 };
+
+/** Compact red count pill for pending admin attention (e.g. Lifecycle trash). */
+export const AdminPendingCountBadge: React.FC<{
+  count: number;
+  label: string;
+  className?: string;
+}> = ({ count, label, className = '' }) => {
+  if (count <= 0) return null;
+  return (
+    <span
+      className={`inline-flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-semibold leading-none text-white ${className}`}
+      title={label}
+      aria-label={label}
+    >
+      {count > 99 ? '99+' : count}
+    </span>
+  );
+};
+
+/** Quiet attention dot (not amber — amber is reserved for unsaved drafts). */
+export const AdminAttentionDot: React.FC<{
+  show: boolean;
+  label: string;
+  className?: string;
+}> = ({ show, label, className = '' }) => {
+  if (!show) return null;
+  return (
+    <span
+      className={`inline-block w-1.5 h-1.5 rounded-full bg-red-500 flex-shrink-0 ${className}`}
+      title={label}
+      aria-label={label}
+    />
+  );
+};

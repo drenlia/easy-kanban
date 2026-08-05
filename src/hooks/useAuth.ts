@@ -4,6 +4,8 @@ import { DEFAULT_SITE_SETTINGS } from '../constants';
 import * as api from '../api';
 import { clearAllUserPreferenceCookies, clearOtherUserPreferenceCookies } from '../utils/userPreferences';
 import { registerLogoutCallback, unregisterLogoutCallback, markAsAuthenticated } from '../utils/authErrorHandler';
+import { feDebug } from '../utils/clientDebug';
+import { clearMediaSession, establishMediaSession, startMediaSessionRefresh } from '../utils/mediaSession';
 
 // Get intended destination from HTML capture
 const getInitialIntendedDestination = (): string | null => {
@@ -80,7 +82,14 @@ export const useAuth = (callbacks: UseAuthCallbacks): UseAuthReturn => {
 
   // Authentication handlers
   const handleLogin = async (userData: any, token: string, skipEventDispatch = false) => {
-    localStorage.setItem('authToken', token);
+    const normalized = api.normalizeAuthToken(token) || token;
+    api.clearAuthInterceptorBlock();
+    localStorage.setItem('authToken', normalized);
+
+    // HttpOnly media cookie before UI renders images (I3)
+    await establishMediaSession();
+    startMediaSessionRefresh();
+
     setCurrentUser(userData);
     setIsAuthenticated(true);
     
@@ -163,10 +172,19 @@ export const useAuth = (callbacks: UseAuthCallbacks): UseAuthReturn => {
           }, 100);
         }, 200);
       }
+    } else {
+      // Stay off #login after auth — otherwise routing treats it as a board id and
+      // clears/reselects the board in a loop (common after demo reset → login).
+      const rawHash = window.location.hash || '';
+      const main = rawHash.replace(/^#/, '').split(/[?#]/)[0].toLowerCase();
+      if (!main || main === 'login') {
+        window.location.hash = '#kanban';
+      }
     }
   };
 
   const handleLogout = useCallback(() => {
+    void clearMediaSession();
     localStorage.removeItem('authToken');
     setCurrentUser(null);
     setIsAuthenticated(false);
@@ -197,6 +215,24 @@ export const useAuth = (callbacks: UseAuthCallbacks): UseAuthReturn => {
     };
   }, [handleLogout]);
 
+  // Cross-tab logout: when another tab clears authToken, mirror logout here.
+  // `storage` only fires in *other* documents, so this does not loop with same-tab logout.
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key !== 'authToken') return;
+      // Token removed or emptied in another tab while this tab still thinks it is logged in
+      if ((e.newValue === null || e.newValue === '') && e.oldValue) {
+        if (feDebug('FE_DEBUG_AUTH')) {
+          console.log('🔑 authToken cleared in another tab — logging out this session');
+        }
+        sessionStorage.setItem('tokenExpiredRedirect', 'true');
+        handleLogout();
+      }
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, [handleLogout]);
+
   // Escape hatch for ghost sessions (authenticated without user → App shows "Restoring session…").
   // Skip while OAuth is mid-flight: isAuthenticated is set before /me returns.
   useEffect(() => {
@@ -223,6 +259,7 @@ export const useAuth = (callbacks: UseAuthCallbacks): UseAuthReturn => {
       if (response.token) {
         localStorage.setItem('authToken', response.token);
         console.log('🔑 Updated JWT token with fresh roles');
+        void establishMediaSession();
       }
       
       // Also refresh members to get updated display names
@@ -251,22 +288,37 @@ export const useAuth = (callbacks: UseAuthCallbacks): UseAuthReturn => {
       console.log('🔑 Skipping mount auth check - already completed');
       return;
     }
+
+    // OAuth callback owns auth — don't race with a stale localStorage token
+    const hash = window.location.hash || '';
+    if (
+      hash.includes('token=') &&
+      !hash.includes('reset-password') &&
+      !hash.includes('activate-account')
+    ) {
+      console.log('🔑 Skipping mount auth check — OAuth token in URL hash');
+      setAuthChecked(true);
+      return;
+    }
     
     // Skip if already authenticated (e.g., just logged in)
     if (isAuthenticated && currentUser) {
       console.log('🔑 Skipping mount auth check - user already authenticated');
+      void establishMediaSession();
+      startMediaSessionRefresh();
       setAuthChecked(true);
       mountCheckCompletedRef.current = true;
       return;
     }
     
-    const token = localStorage.getItem('authToken');
+    const token = api.normalizeAuthToken(localStorage.getItem('authToken'));
     console.log('🔑 Mount auth check starting:', { hasToken: !!token, isAuthenticated, hasCurrentUser: !!currentUser });
     
     if (token) {
+      localStorage.setItem('authToken', token);
       // Verify token and get current user
       api.getCurrentUser()
-        .then(response => {
+        .then(async (response) => {
           if (!response?.user?.id) {
             console.log('🔑 Mount auth check got token but no user payload — clearing session');
             localStorage.removeItem('authToken');
@@ -278,6 +330,8 @@ export const useAuth = (callbacks: UseAuthCallbacks): UseAuthReturn => {
             return;
           }
           console.log('🔑 Mount auth check succeeded');
+          await establishMediaSession();
+          startMediaSessionRefresh();
           setCurrentUser(response.user);
           setIsAuthenticated(true);
           setAuthChecked(true);
@@ -364,7 +418,7 @@ export const useAuth = (callbacks: UseAuthCallbacks): UseAuthReturn => {
       
       
       if (tokenMatch) {
-        const token = tokenMatch[1];
+        const token = api.normalizeAuthToken(decodeURIComponent(tokenMatch[1])) || decodeURIComponent(tokenMatch[1]);
         
         // Check for stored intended destination from before OAuth redirect
         const storedIntendedDestination = localStorage.getItem('oauthIntendedDestination');
@@ -372,23 +426,27 @@ export const useAuth = (callbacks: UseAuthCallbacks): UseAuthReturn => {
         
         // Clear any activation context (no longer needed with simplified flow)
         localStorage.removeItem('activationContext');
+
+        api.clearAuthInterceptorBlock();
         
         // Store the OAuth token
         localStorage.setItem('authToken', token);
-        
-        // Dispatch custom event IMMEDIATELY after storing token (before async operations)
-        // This ensures SettingsContext can check admin role and fetch correct endpoint
-        window.dispatchEvent(new CustomEvent('auth-token-changed', { detail: { hasToken: true } }));
-        
-        // Set OAuth processing flag to prevent interference BEFORE hash changes
-        isProcessingOAuthRef.current = true;
-        
-        // Set authenticated immediately after storing token
-        setIsAuthenticated(true);
-        
-        // Fetch current user data and call handleLogin BEFORE redirecting
-        // This ensures APP_URL update happens before navigation
-        api.getCurrentUser()
+
+        // Media cookie before UI paints avatars (I3)
+        void establishMediaSession().then(() => {
+          // Dispatch custom event IMMEDIATELY after storing token (before async operations)
+          // This ensures SettingsContext can check admin role and fetch correct endpoint
+          window.dispatchEvent(new CustomEvent('auth-token-changed', { detail: { hasToken: true } }));
+          
+          // Set OAuth processing flag to prevent interference BEFORE hash changes
+          isProcessingOAuthRef.current = true;
+          
+          // Set authenticated immediately after media session is ready
+          setIsAuthenticated(true);
+          
+          // Fetch current user data and call handleLogin BEFORE redirecting
+          // This ensures APP_URL update happens before navigation
+          api.getCurrentUser()
           .then(async response => {
             setCurrentUser(response.user);
             // Call handleLogin to trigger APP_URL update and other login logic
@@ -449,6 +507,7 @@ export const useAuth = (callbacks: UseAuthCallbacks): UseAuthReturn => {
               window.location.hash = '#login';
             }
           });
+        });
         
         return; // Exit early to prevent routing conflicts
       } else if (errorMatch) {

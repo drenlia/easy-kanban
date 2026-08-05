@@ -47,6 +47,8 @@
     "updateTaskMessage": "Vos modifications n'ont pas été enregistrées. Veuillez réessayer.",
     "createTaskTitle": "Impossible de créer la tâche",
     "createTaskMessage": "La tâche n'a pas pu être créée. Veuillez réessayer.",
+    "createTaskShortcutTitle": "Tâche créée",
+    "createTaskShortcutMessage": "Ajoutée dans « {{column}} » via le raccourci N. Renommez-la, ou supprimez-la si c'était involontaire.",
     "copyTaskTitle": "Impossible de copier la tâche",
     "copyTaskMessage": "La tâche n'a pas pu être copiée. Veuillez réessayer.",
     "copyTaskSuccessTitle": "Tâche copiée",
@@ -60,7 +62,9 @@
     "createColumnTitle": "Impossible de créer la colonne",
     "createColumnMessage": "La colonne n'a pas pu être créée. Veuillez réessayer.",
     "deleteColumnTitle": "Impossible de supprimer la colonne",
-    "deleteColumnMessage": "La colonne n'a pas pu être supprimée. Veuillez réessayer."
+    "deleteColumnMessage": "La colonne n'a pas pu être supprimée. Veuillez réessayer.",
+    "columnNotEmpty": "Déplacez ou supprimez toutes les tâches de cette colonne avant de la supprimer.",
+    "columnTrashNeedsFallback": "Ajoutez d'abord une autre colonne — la Corbeille référence encore celle-ci."
   },
   "watcher": {
     "singular": "observateur",
@@ -112,6 +116,7 @@
     "copyTask": "Copier la tâche",
     "archiveTask": "Archiver la tâche",
     "deleteTask": "Supprimer la tâche",
+    "deleteTaskAdminHint": "Supprimer la tâche (Maj+clic pour supprimer définitivement)",
     "changeAssignee": "Changer l'assigné",
     "assignTo": "Assigner à :",
     "assignToAgentSection": "Agent IA",
@@ -150,6 +155,7 @@
     "editColumn": "Modifier",
     "addColumn": "Ajouter une colonne",
     "deleteColumn": "Supprimer la colonne",
+    "deleteColumnMustBeEmpty": "Déplacez ou supprimez toutes les tâches de cette colonne avant de la supprimer",
     "markAsFinishedColumn": "Marquer comme terminée",
     "markAsArchivedColumn": "Marquer comme archivée",
     "autoDetected": "Détect. auto",
@@ -190,7 +196,9 @@
   },
   "deleteConfirmation": {
     "areYouSure": "Déplacer cette tâche vers la corbeille ?",
-    "deleting": "Déplacement vers la corbeille..."
+    "areYouSurePermanent": "Supprimer définitivement cette tâche ? Cette action est irréversible.",
+    "deleting": "Déplacement vers la corbeille...",
+    "deletingPermanent": "Suppression définitive..."
   },
   "trash": {
     "title": "Corbeille",
@@ -248,6 +256,8 @@
     "copy": "Dupliquer",
     "archive": "Archiver",
     "delete": "Supprimer",
+    "deleteForever": "Supprimer définitivement",
+    "deleteAdminHint": "Supprimer (Maj+clic pour supprimer définitivement)",
     "sprint": "Sprint",
     "priority": "Priorité",
     "assignee": "Assigné",
@@ -259,10 +269,12 @@
     "moveToBoard": "Déplacer vers un tableau",
     "noSprint": "Aucun (Backlog)",
     "deleteConfirm": "Déplacer {{count}} tâche(s) sélectionnée(s) vers la corbeille ?",
+    "deleteConfirmPermanent": "Supprimer définitivement {{count}} tâche(s) sélectionnée(s) ? Cette action est irréversible.",
     "moveToBoardConfirm": "Déplacer {{count}} tâche(s) vers « {{board}} » ? Les relations peuvent être supprimées.",
     "copiedCount": "{{count}} tâche(s) dupliquée(s)",
     "archivedCount": "{{count}} tâche(s) archivée(s)",
     "deletedCount": "{{count}} tâche(s) déplacée(s) vers la corbeille",
+    "purgedCount": "{{count}} tâche(s) définitivement supprimée(s)",
     "taggedCount": "Étiquette ajoutée à {{count}} tâche(s)",
     "sprintUpdatedCount": "Sprint mis à jour sur {{count}} tâche(s)",
     "priorityUpdatedCount": "Priorité mise à jour sur {{count}} tâche(s)",
@@ -306,6 +318,7 @@
     "showHideColumns": "Afficher/Masquer les colonnes",
     "copyTask": "Copier la tâche",
     "deleteTask": "Supprimer la tâche",
+    "deleteTaskAdminHint": "Supprimer la tâche (Maj+clic pour supprimer définitivement)",
     "enterTaskDescription": "Entrer la description de la tâche...",
     "clickToSelectSprint": "Cliquer pour sélectionner le sprint",
     "clickToSetDates": "Cliquer pour définir les dates",

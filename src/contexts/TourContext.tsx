@@ -242,6 +242,8 @@ export const TourProvider: React.FC<TourProviderProps> = ({ children, currentUse
     setStepIndex(0);
     previousStepIndexRef.current = -1;
     advancingRef.current = false;
+    // Restore system metrics panel to whatever visibility it had before the tour opened it
+    window.dispatchEvent(new Event('tour:restore-system-panel'));
   }, []);
 
   const setHelpModalOpen = useCallback((open: boolean) => {

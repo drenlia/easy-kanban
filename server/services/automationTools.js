@@ -1279,11 +1279,15 @@ async function toolExportTasks(ctx, args, { dryRun }, allowedBoardIds, format) {
   let buffer;
   let mimeType;
   if (format === 'xlsx') {
-    const XLSX = await import('xlsx');
-    const wb = XLSX.utils.book_new();
-    const ws = XLSX.utils.json_to_sheet(rows);
-    XLSX.utils.book_append_sheet(wb, ws, 'Tasks');
-    buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+    const ExcelJS = (await import('exceljs')).default;
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('Tasks');
+    const keys = Object.keys(rows[0] || { ticket: '' });
+    ws.columns = keys.map((key) => ({ header: key, key, width: 18 }));
+    for (const row of rows) {
+      ws.addRow(row);
+    }
+    buffer = Buffer.from(await wb.xlsx.writeBuffer());
     mimeType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
   } else {
     const header = Object.keys(rows[0] || { ticket: '' }).join(',');

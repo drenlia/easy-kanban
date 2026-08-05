@@ -18,6 +18,9 @@ spec:
       containers:
       - name: postgres
         image: postgres:16-alpine
+        args:
+          - "-c"
+          - "max_connections=250"
         env:
         - name: POSTGRES_DB
           valueFrom:
@@ -44,10 +47,10 @@ spec:
           mountPath: /var/lib/postgresql/data
         resources:
           requests:
-            memory: "256Mi"
+            memory: "1Gi"
             cpu: "250m"
           limits:
-            memory: "2Gi"
+            memory: "4Gi"
             cpu: "2000m"
         livenessProbe:
           exec:

@@ -143,6 +143,25 @@ export async function deleteTagAssociations(db, tagId) {
 }
 
 /**
+ * Get tasks that use a tag (for real-time updates after admin tag delete)
+ *
+ * @param {Database} db - Database connection
+ * @param {number|string} tagId - Tag ID
+ * @returns {Promise<Array>} Array of { id, boardId }
+ */
+export async function getTasksUsingTag(db, tagId) {
+  const query = `
+    SELECT t.id, t.boardid AS "boardId"
+    FROM tasks t
+    INNER JOIN task_tags tt ON tt.taskid = t.id
+    WHERE tt.tagid = $1
+  `;
+
+  const stmt = wrapQuery(db.prepare(query), 'SELECT');
+  return await stmt.all(tagId);
+}
+
+/**
  * Delete a tag
  * 
  * @param {Database} db - Database connection

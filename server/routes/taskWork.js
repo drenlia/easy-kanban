@@ -15,6 +15,12 @@ import { AGENT_MEMBER_ID } from '../constants/agentIdentity.js';
 import notificationService from '../services/notificationService.js';
 import { tryLaunchQueuedTasks } from '../services/agentJobDispatcher.js';
 import { cancelJob } from '../services/agentRunnerClient.js';
+import {
+  parseBody,
+  updateTaskWorkBodySchema,
+  taskWorkControlBodySchema,
+  workMapsBodySchema
+} from '../utils/requestValidation.js';
 
 const router = express.Router();
 
@@ -71,31 +77,37 @@ router.put('/:taskId/work', authenticateToken, async (req, res) => {
       req.user?.role === 'admin' ||
       (Array.isArray(req.user?.roles) && req.user.roles.includes('admin'));
 
+    const parsed = parseBody(updateTaskWorkBodySchema, req.body || {});
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error });
+    }
+    const body = parsed.data;
+
     const entries = {};
-    if (req.body?.repoUrl !== undefined) {
+    if (body.repoUrl !== undefined) {
       // Empty string = assist-only (no code repo)
-      entries.repo_url = String(req.body.repoUrl).trim();
+      entries.repo_url = String(body.repoUrl).trim();
     }
-    if (req.body?.repoBranch !== undefined) {
-      entries.repo_branch = String(req.body.repoBranch || '').trim();
+    if (body.repoBranch !== undefined) {
+      entries.repo_branch = String(body.repoBranch || '').trim();
     }
-    if (req.body?.status !== undefined) {
-      entries.status = String(req.body.status);
+    if (body.status !== undefined) {
+      entries.status = String(body.status);
     }
-    if (req.body?.agentMode !== undefined) {
-      entries.agent_mode = String(req.body.agentMode || '').trim();
+    if (body.agentMode !== undefined) {
+      entries.agent_mode = String(body.agentMode || '').trim();
     }
-    if (req.body?.automationScope !== undefined) {
-      entries.automation_scope = String(req.body.automationScope || '').trim();
+    if (body.automationScope !== undefined) {
+      entries.automation_scope = String(body.automationScope || '').trim();
     }
-    if (req.body?.automationBoardIds !== undefined) {
-      const ids = Array.isArray(req.body.automationBoardIds)
-        ? req.body.automationBoardIds
+    if (body.automationBoardIds !== undefined) {
+      const ids = Array.isArray(body.automationBoardIds)
+        ? body.automationBoardIds
         : [];
       entries.automation_board_ids = JSON.stringify(ids.filter(Boolean));
     }
-    if (req.body?.entries && typeof req.body.entries === 'object') {
-      Object.assign(entries, req.body.entries);
+    if (body.entries && typeof body.entries === 'object') {
+      Object.assign(entries, body.entries);
     }
 
     // Per-task LLM model override — admins only (strip if sneaked via entries)
@@ -105,8 +117,8 @@ router.put('/:taskId/work', authenticateToken, async (req, res) => {
       if (entries.agent_mode === 'automation') {
         return res.status(403).json({ error: 'Only admins can run Automation jobs' });
       }
-    } else if (req.body?.llmModel !== undefined) {
-      entries.llm_model = String(req.body.llmModel || '').trim();
+    } else if (body.llmModel !== undefined) {
+      entries.llm_model = String(body.llmModel || '').trim();
     }
 
     if (entries.agent_mode === 'automation' && entries.status === 'queued') {
@@ -145,8 +157,8 @@ router.put('/:taskId/work', authenticateToken, async (req, res) => {
     // Bind coding/automation credentials to the assigning user (not admin/global PAT)
     if (entries.status === 'queued' && req.user?.id) {
       if (
-        req.body?.repoUrl !== undefined ||
-        req.body?.agentMode !== undefined ||
+        body.repoUrl !== undefined ||
+        body.agentMode !== undefined ||
         !existing.agent_owner_user_id
       ) {
         entries.agent_owner_user_id = req.user.id;
@@ -234,12 +246,13 @@ router.put('/:taskId/work/control', authenticateToken, async (req, res) => {
       return res.status(400).json({ error: 'Task is not assigned to the Agent' });
     }
 
-    const control = String(req.body?.control || '').toLowerCase();
-    if (!['pause', 'stop', 'resume', 'none', 'apply'].includes(control)) {
+    const controlParsed = parseBody(taskWorkControlBodySchema, req.body || {});
+    if (!controlParsed.success) {
       return res.status(400).json({
         error: 'control must be pause, stop, resume, apply, or none'
       });
     }
+    const control = controlParsed.data.control;
 
     const workBefore = await taskWorkQueries.getWorkMapByTaskId(db, req.params.taskId);
     const updates = { control };
@@ -348,7 +361,11 @@ router.put('/:taskId/work/control', authenticateToken, async (req, res) => {
 router.post('/work-maps', authenticateToken, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
-    const taskIds = Array.isArray(req.body?.taskIds) ? req.body.taskIds.slice(0, 500) : [];
+    const parsed = parseBody(workMapsBodySchema, req.body || {});
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error });
+    }
+    const taskIds = parsed.data.taskIds.slice(0, 500);
     const result = {};
     for (const taskId of taskIds) {
       result[taskId] = await taskWorkQueries.getWorkMapByTaskId(db, taskId);

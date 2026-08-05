@@ -1,15 +1,15 @@
 # WebSocket Publish Endpoints - Complete List
 
-> **Transport note:** Endpoints call `notificationService.publish()`, which uses **PostgreSQL `LISTEN`/`NOTIFY`**. Redis is **not** the app event bus (it is only the Socket.IO adapter). See [`REALTIME_UPDATE_FLOW-MULTI-TENANCY.md`](./REALTIME_UPDATE_FLOW-MULTI-TENANCY.md).
+> **Transport note:** Endpoints call `notificationService.publish()`, which uses **PostgreSQL `LISTEN`/`NOTIFY`**. Redis is **not** the app event bus (it is only the Socket.IO adapter across pods). See [`REALTIME_UPDATE_FLOW-MULTI-TENANCY.md`](./REALTIME_UPDATE_FLOW-MULTI-TENANCY.md).
 
 This document lists endpoints that publish for real-time WebSocket updates, organized by file and endpoint. Line numbers may drift; treat channel names and payload shapes as the source of truth.
 
-## 📋 Summary
+## Summary
 
 **Total Endpoints**: ~91 publish calls across 15 files
 
 **Categories**:
-- **Tasks**: 17 publish calls (highest priority for optimization)
+- **Tasks**: 17 publish calls
 - **Comments**: 3 publish calls
 - **Task Relations**: 4 publish calls (tags, attachments, relationships)
 - **Users/Members**: 15 publish calls
@@ -22,7 +22,7 @@ This document lists endpoints that publish for real-time WebSocket updates, orga
 
 ---
 
-## 🎯 TASKS (server/routes/tasks.js) - **POC TARGET**
+## TASKS (server/routes/tasks.js)
 
 ### Task CRUD Operations
 
@@ -674,16 +674,16 @@ This document lists endpoints that publish for real-time WebSocket updates, orga
 
 ---
 
-## 📊 Optimization Priority Summary
+## Optimization Priority Summary
 
-### 🔴 HIGH PRIORITY (Large payloads, frequent operations)
-1. **PUT `/tasks/:id`** - Task update (5-30KB) - **POC TARGET**
+### HIGH PRIORITY (Large payloads, frequent operations)
+1. **PUT `/tasks/:id`** - Task update (5-30KB)
 2. **POST `/tasks/batch-update-positions`** - Batch position updates (5-30KB × N)
 3. **POST `/tasks/move-to-board`** - Board moves (5-30KB × 2)
 4. **POST `/tasks/reorder`** - Task reorder (5-30KB)
 5. **POST `/tasks/batch-update`** - Batch updates (5-30KB × N)
 
-### 🟡 MEDIUM PRIORITY (Moderate payloads, less frequent)
+### MEDIUM PRIORITY (Moderate payloads, less frequent)
 6. **POST `/tasks/:taskId/attachments`** - Add attachments (5-30KB)
 7. **DELETE `/files/attachments/:id`** - Delete attachment (5-30KB)
 8. **POST `/comments`** - Create comment (500 bytes - 2KB)
@@ -693,13 +693,13 @@ This document lists endpoints that publish for real-time WebSocket updates, orga
 12. **DELETE `/users/account`** - Delete user (triggers task updates, 5-30KB × N)
 13. **DELETE `/admin/users/:userId`** - Delete user (triggers task updates, 5-30KB × N)
 
-### 🟢 LOW PRIORITY (Already optimized or minimal)
+### LOW PRIORITY (Already optimized or minimal)
 - All other endpoints are already sending minimal payloads (< 1KB)
 - These can be optimized later if needed
 
 ---
 
-## 🎯 POC Implementation Plan
+## Optional payload-reduction ideas
 
 **Starting Point**: Task CRUD operations (highest impact)
 
@@ -724,12 +724,13 @@ This document lists endpoints that publish for real-time WebSocket updates, orga
 
 ---
 
-## 📝 Notes
+## Notes
 
 - **Total publish calls**: ~91
 - **High priority for optimization**: ~8 endpoints (task-related)
 - **Already optimized**: ~83 endpoints
 - **Estimated payload reduction**: 80-95% for task updates (from 5-30KB to 200-500 bytes)
-- **Frontend compatibility**: ✅ Frontend already supports partial updates via merge logic
+- **Frontend compatibility**: Frontend already supports partial updates via merge logic
+- **Transport**: App events use PostgreSQL LISTEN/NOTIFY via `notificationService.publish()`; Redis is Socket.IO adapter only
 
 

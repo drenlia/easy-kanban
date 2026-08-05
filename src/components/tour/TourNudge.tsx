@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { X } from 'lucide-react';
 import { useTour } from '../../contexts/TourContext';
 import { useOwnerSetupOptional } from '../../contexts/OwnerSetupContext';
+import { useEscapeDismiss } from '../../hooks/useEscapeDismiss';
 
 const TOUR_NUDGE_DISMISSED_KEY = 'tourNudgeDismissed';
 
@@ -50,6 +51,8 @@ const TourNudge: React.FC = () => {
     setVisible(false);
   };
 
+  useEscapeDismiss(dismiss, { enabled: visible && !isRunning && !ownerGuideBlocking });
+
   const handleTakeTour = () => {
     dismiss();
     startTour();
@@ -63,6 +66,7 @@ const TourNudge: React.FC = () => {
     <div
       className="fixed bottom-4 right-4 z-[9000] max-w-sm w-[calc(100%-2rem)] rounded-lg border border-blue-200 dark:border-blue-800 bg-white dark:bg-gray-800 shadow-lg p-4"
       role="dialog"
+      aria-modal="true"
       aria-labelledby="tour-nudge-title"
       aria-describedby="tour-nudge-desc"
     >

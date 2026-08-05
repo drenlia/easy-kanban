@@ -1,6 +1,6 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Trans, useTranslation } from 'react-i18next';
+import { useTranslation } from 'react-i18next';
 import { AlertTriangle, RotateCcw, Trash2, RefreshCw } from 'lucide-react';
 import { useSettings } from '../../contexts/SettingsContext';
 import { toast } from '../../utils/toast';
@@ -26,6 +26,7 @@ import {
 } from '../../utils/adminFieldLimits';
 import { AdminUnsavedHint } from './AdminUnsavedChanges';
 import { AdminSection, adminInputClass } from './AdminSection';
+import websocketClient from '../../services/websocketClient';
 
 type LifecycleConfirmDialog = {
   title: string;
@@ -38,11 +39,16 @@ type LifecycleConfirmDialog = {
 interface AdminLifecycleTabProps {
   onLocalDirtyChange?: (dirty: boolean) => void;
   discardNonce?: number;
+  onPendingChange?: () => void | Promise<void>;
+  /** True when Lifecycle is the visible Admin sub-tab (refresh on re-entry). */
+  isActive?: boolean;
 }
 
 const AdminLifecycleTab: React.FC<AdminLifecycleTabProps> = ({
   onLocalDirtyChange,
   discardNonce = 0,
+  onPendingChange,
+  isActive = true,
 }) => {
   const { t } = useTranslation('admin', { keyPrefix: 'lifecycle' });
   const { t: tAdmin } = useTranslation('admin');
@@ -63,6 +69,7 @@ const AdminLifecycleTab: React.FC<AdminLifecycleTabProps> = ({
   const [busy, setBusy] = useState(false);
   const [confirmDialog, setConfirmDialog] = useState<LifecycleConfirmDialog | null>(null);
   const [confirmBusy, setConfirmBusy] = useState(false);
+  const wasActiveRef = useRef(isActive);
 
   useEffect(() => {
     if (!systemSettings) return;
@@ -70,8 +77,9 @@ const AdminLifecycleTab: React.FC<AdminLifecycleTabProps> = ({
     setArchivedDays(systemSettings.LIFECYCLE_ARCHIVED_RETENTION_DAYS || '0');
   }, [systemSettings, discardNonce]);
 
-  const loadData = useCallback(async () => {
-    setLoading(true);
+  const loadData = useCallback(async (options?: { silent?: boolean }) => {
+    const silent = options?.silent === true;
+    if (!silent) setLoading(true);
     try {
       const [taskList, boardList] = await Promise.all([
         getLifecycleDeletedTasks(search.trim() ? { q: search.trim() } : undefined),
@@ -87,27 +95,86 @@ const AdminLifecycleTab: React.FC<AdminLifecycleTabProps> = ({
         });
         return next;
       });
+      setSelectedTaskIds((prev) => {
+        const next = new Set<string>();
+        const ids = new Set(taskList.map((task) => task.id));
+        prev.forEach((id) => {
+          if (ids.has(id)) next.add(id);
+        });
+        return next;
+      });
+      void onPendingChange?.();
     } catch (error) {
       console.error(error);
-      toast.error(t('loadFailed'));
+      if (!silent) toast.error(t('loadFailed'));
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
-  }, [search, t]);
+  }, [search, t, onPendingChange]);
 
+  // Initial load + when search changes
   useEffect(() => {
     void loadData();
   }, [loadData]);
 
+  // Re-fetch when returning to this tab (Admin stays mounted while visiting Kanban)
+  useEffect(() => {
+    if (isActive && !wasActiveRef.current) {
+      void loadData({ silent: true });
+    }
+    wasActiveRef.current = isActive;
+  }, [isActive, loadData]);
+
+  // Keep list in sync with soft-delete / restore / purge elsewhere in the app
+  useEffect(() => {
+    const refresh = () => {
+      void loadData({ silent: true });
+    };
+    websocketClient.onTaskDeleted(refresh);
+    websocketClient.onTaskRestored(refresh);
+    websocketClient.onTaskPurged(refresh);
+    websocketClient.onBoardDeleted(refresh);
+    websocketClient.onBoardRestored(refresh);
+    return () => {
+      websocketClient.offTaskDeleted(refresh);
+      websocketClient.offTaskRestored(refresh);
+      websocketClient.offTaskPurged(refresh);
+      websocketClient.offBoardDeleted(refresh);
+      websocketClient.offBoardRestored(refresh);
+    };
+  }, [loadData]);
+
   const boardChips = useMemo(() => {
-    const map = new Map<string, string>();
+    const map = new Map<string, { title: string; count: number }>();
     tasks.forEach((task) => {
-      if (task.boardId) {
-        map.set(task.boardId, (task as any).boardTitle || task.boardId);
+      if (!task.boardId) return;
+      const existing = map.get(task.boardId);
+      if (existing) {
+        existing.count += 1;
+      } else {
+        map.set(task.boardId, {
+          title: (task as { boardTitle?: string }).boardTitle || task.boardId,
+          count: 1,
+        });
       }
     });
-    return Array.from(map.entries()).map(([id, title]) => ({ id, title }));
+    return Array.from(map.entries())
+      .map(([id, { title, count }]) => ({ id, title, count }))
+      .sort((a, b) => b.count - a.count || a.title.localeCompare(b.title));
   }, [tasks]);
+
+  // Drop board filters that no longer have deleted tasks (chips hide; selection would empty the table)
+  useEffect(() => {
+    setSelectedBoardIds((prev) => {
+      if (prev.length === 0) return prev;
+      const valid = new Set(boardChips.map((chip) => chip.id));
+      const next = prev.filter((id) => valid.has(id));
+      return next.length === prev.length ? prev : next;
+    });
+  }, [boardChips]);
+
+  const discreetCountClass =
+    'inline-flex h-4 min-w-[1rem] items-center justify-center rounded-full px-1 text-[10px] font-semibold tabular-nums leading-none';
 
   const filteredTasks = useMemo(() => {
     if (selectedBoardIds.length === 0) return tasks;
@@ -224,6 +291,8 @@ const AdminLifecycleTab: React.FC<AdminLifecycleTabProps> = ({
   const finishRestoreBatch = async (restoredCount: number, hadOtherErrors: boolean) => {
     if (restoredCount > 0) {
       toast.success(t('restoredCount', { count: restoredCount }));
+      // Avoid a stale board chip filter hiding newly deleted tasks after restore
+      setSelectedBoardIds([]);
     } else if (hadOtherErrors) {
       toast.error(t('restoreFailed'));
     }
@@ -312,6 +381,7 @@ const AdminLifecycleTab: React.FC<AdminLifecycleTabProps> = ({
         const result = await purgeLifecycleTasksBatch(ids);
         toast.success(t('purgedCount', { count: result?.purged?.length || 0 }));
         setSelectedTaskIds(new Set());
+        setSelectedBoardIds([]);
         await loadData();
       },
     });
@@ -327,6 +397,7 @@ const AdminLifecycleTab: React.FC<AdminLifecycleTabProps> = ({
         next.delete(taskId);
         return next;
       });
+      setSelectedBoardIds([]);
       await loadData();
     } catch (error: any) {
       const code = error?.response?.data?.code;
@@ -357,6 +428,7 @@ const AdminLifecycleTab: React.FC<AdminLifecycleTabProps> = ({
             next.delete(taskId);
             return next;
           });
+          setSelectedBoardIds([]);
           await loadData();
         },
       });
@@ -395,7 +467,7 @@ const AdminLifecycleTab: React.FC<AdminLifecycleTabProps> = ({
         await restoreBoard(boardId);
         restored += 1;
       }
-      toast.success(t('boardsRestoredCount', { count: restored }));
+      toast.success(t('boardsRestoredCount', { count: restored }), '');
       setSelectedDeletedBoardIds(new Set());
       await loadData();
     } catch (error: any) {
@@ -426,7 +498,7 @@ const AdminLifecycleTab: React.FC<AdminLifecycleTabProps> = ({
     setBusy(true);
     try {
       await restoreBoard(boardId);
-      toast.success(t('boardRestored'));
+      toast.success(t('boardRestored'), '');
       setSelectedDeletedBoardIds((prev) => {
         const next = new Set(prev);
         next.delete(boardId);
@@ -585,14 +657,22 @@ const AdminLifecycleTab: React.FC<AdminLifecycleTabProps> = ({
 
       <AdminSection
         title={
-          <>
+          <span className="inline-flex items-center gap-2">
             {t('deletedTasksTitle')}
+            {tasks.length > 0 && (
+              <span
+                className={`${discreetCountClass} bg-gray-200 text-gray-700 dark:bg-gray-600 dark:text-gray-100`}
+                aria-label={t('deletedTasksCount', { count: tasks.length })}
+              >
+                {tasks.length > 99 ? '99+' : tasks.length}
+              </span>
+            )}
             {!autoDeleteEnabled && (
-              <span className="ml-2 text-xs font-normal text-gray-500 dark:text-gray-400">
+              <span className="text-xs font-normal text-gray-500 dark:text-gray-400">
                 {t('noAutoDeleteSet')}
               </span>
             )}
-          </>
+          </span>
         }
         description={t('deletedTasksDescription')}
         dense
@@ -642,13 +722,23 @@ const AdminLifecycleTab: React.FC<AdminLifecycleTabProps> = ({
                   key={chip.id}
                   type="button"
                   onClick={() => toggleBoardChip(chip.id)}
-                  className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+                  className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-colors ${
                     active
                       ? 'bg-blue-600 text-white'
                       : 'bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-200'
                   }`}
                 >
-                  {chip.title}
+                  <span>{chip.title}</span>
+                  <span
+                    className={`${discreetCountClass} ${
+                      active
+                        ? 'bg-white/25 text-white'
+                        : 'bg-gray-200 text-gray-700 dark:bg-gray-600 dark:text-gray-100'
+                    }`}
+                    aria-hidden="true"
+                  >
+                    {chip.count > 99 ? '99+' : chip.count}
+                  </span>
                 </button>
               );
             })}
@@ -683,6 +773,7 @@ const AdminLifecycleTab: React.FC<AdminLifecycleTabProps> = ({
                     size="sm"
                   />
                 </th>
+                <th className="px-3 py-2 text-left font-medium text-gray-600 dark:text-gray-300">{t('colActions')}</th>
                 <th className="px-3 py-2 text-left font-medium text-gray-600 dark:text-gray-300">{t('colTicket')}</th>
                 <th className="px-3 py-2 text-left font-medium text-gray-600 dark:text-gray-300">{t('colTitle')}</th>
                 <th className="px-3 py-2 text-left font-medium text-gray-600 dark:text-gray-300">{t('colBoard')}</th>
@@ -692,7 +783,6 @@ const AdminLifecycleTab: React.FC<AdminLifecycleTabProps> = ({
                     {t('colDaysUntilPurge')}
                   </th>
                 )}
-                <th className="px-3 py-2 text-right font-medium text-gray-600 dark:text-gray-300">{t('colActions')}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
@@ -715,6 +805,17 @@ const AdminLifecycleTab: React.FC<AdminLifecycleTabProps> = ({
                         size="sm"
                       />
                     </td>
+                    <td className="px-3 py-2 text-left">
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => void handleRestoreOne(task.id)}
+                        className="inline-flex items-center gap-1 text-blue-600 hover:underline disabled:opacity-50 dark:text-blue-400"
+                      >
+                        <RotateCcw size={14} />
+                        {t('restore')}
+                      </button>
+                    </td>
                     <td className="px-3 py-2 font-mono text-xs text-gray-600 dark:text-gray-300">
                       {task.ticket || '—'}
                     </td>
@@ -730,17 +831,6 @@ const AdminLifecycleTab: React.FC<AdminLifecycleTabProps> = ({
                         {formatDaysUntilPurge(task.deletedAt)}
                       </td>
                     )}
-                    <td className="px-3 py-2 text-right">
-                      <button
-                        type="button"
-                        disabled={busy}
-                        onClick={() => void handleRestoreOne(task.id)}
-                        className="mr-2 inline-flex items-center gap-1 text-blue-600 hover:underline disabled:opacity-50 dark:text-blue-400"
-                      >
-                        <RotateCcw size={14} />
-                        {t('restore')}
-                      </button>
-                    </td>
                   </tr>
                 ))
               )}
@@ -751,24 +841,24 @@ const AdminLifecycleTab: React.FC<AdminLifecycleTabProps> = ({
 
       <AdminSection
         title={
-          <>
+          <span className="inline-flex items-center gap-2">
             {t('deletedBoardsTitle')}
+            {boards.length > 0 && (
+              <span
+                className={`${discreetCountClass} bg-gray-200 text-gray-700 dark:bg-gray-600 dark:text-gray-100`}
+                aria-label={t('deletedBoardsCount', { count: boards.length })}
+              >
+                {boards.length > 99 ? '99+' : boards.length}
+              </span>
+            )}
             {!autoDeleteEnabled && (
-              <span className="ml-2 text-xs font-normal text-gray-500 dark:text-gray-400">
+              <span className="text-xs font-normal text-gray-500 dark:text-gray-400">
                 {t('noAutoDeleteSet')}
               </span>
             )}
-          </>
+          </span>
         }
-        description={
-          <Trans
-            t={t}
-            i18nKey="deletedBoardsDescription"
-            components={{
-              boldItalic: <strong className="italic font-semibold" />,
-            }}
-          />
-        }
+        description={t('deletedBoardsDescription')}
         headerRight={
           <div className="flex flex-wrap gap-2">
             <button
@@ -795,6 +885,19 @@ const AdminLifecycleTab: React.FC<AdminLifecycleTabProps> = ({
         }
         dense
       >
+        {boards.length > 0 && (
+          <div
+            role="note"
+            className="flex gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-950 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-100"
+          >
+            <AlertTriangle
+              size={16}
+              className="mt-0.5 shrink-0 text-amber-600 dark:text-amber-400"
+              aria-hidden="true"
+            />
+            <p className="leading-snug font-medium">{t('boardRestoreTasksWarning')}</p>
+          </div>
+        )}
         {boards.length === 0 ? (
           <p className="text-sm text-gray-500 dark:text-gray-400">{t('noDeletedBoards')}</p>
         ) : (
@@ -818,6 +921,9 @@ const AdminLifecycleTab: React.FC<AdminLifecycleTabProps> = ({
                     />
                   </th>
                   <th className="px-3 py-2 text-left font-medium text-gray-600 dark:text-gray-300">
+                    {t('colActions')}
+                  </th>
+                  <th className="px-3 py-2 text-left font-medium text-gray-600 dark:text-gray-300">
                     {t('colTitle')}
                   </th>
                   <th className="px-3 py-2 text-left font-medium text-gray-600 dark:text-gray-300">
@@ -831,14 +937,11 @@ const AdminLifecycleTab: React.FC<AdminLifecycleTabProps> = ({
                       {t('colDaysUntilPurge')}
                     </th>
                   )}
-                  <th className="px-3 py-2 text-right font-medium text-gray-600 dark:text-gray-300">
-                    {t('colActions')}
-                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
                 {boards.map((board) => {
-                  const taskCount = board.taskCount ?? board.trashTaskCount ?? 0;
+                  const taskCount = board.trashTaskCount ?? board.taskCount ?? 0;
                   return (
                     <tr key={board.id} className="hover:bg-gray-50 dark:hover:bg-gray-900/40">
                       <td className="px-3 py-2">
@@ -848,21 +951,7 @@ const AdminLifecycleTab: React.FC<AdminLifecycleTabProps> = ({
                           size="sm"
                         />
                       </td>
-                      <td className="px-3 py-2 font-medium text-gray-900 dark:text-gray-100">
-                        {board.title}
-                      </td>
-                      <td className="px-3 py-2 tabular-nums text-gray-600 dark:text-gray-300">
-                        {taskCount}
-                      </td>
-                      <td className="px-3 py-2 text-gray-600 dark:text-gray-300">
-                        {board.deletedAt ? formatToYYYYMMDDHHmm(board.deletedAt) : '—'}
-                      </td>
-                      {autoDeleteEnabled && (
-                        <td className="px-3 py-2 tabular-nums text-gray-600 dark:text-gray-300">
-                          {formatDaysUntilPurge(board.deletedAt)}
-                        </td>
-                      )}
-                      <td className="px-3 py-2 text-right">
+                      <td className="px-3 py-2 text-left">
                         <button
                           type="button"
                           disabled={busy}
@@ -882,6 +971,25 @@ const AdminLifecycleTab: React.FC<AdminLifecycleTabProps> = ({
                           {t('purge')}
                         </button>
                       </td>
+                      <td className="px-3 py-2 font-medium text-gray-900 dark:text-gray-100">
+                        {board.title}
+                      </td>
+                      <td className="px-3 py-2 text-gray-600 dark:text-gray-300">
+                        <span
+                          className={`${discreetCountClass} bg-gray-200 text-gray-700 dark:bg-gray-600 dark:text-gray-100`}
+                          title={t('boardDeletedTasksCount', { count: taskCount })}
+                        >
+                          {taskCount > 99 ? '99+' : taskCount}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2 text-gray-600 dark:text-gray-300">
+                        {board.deletedAt ? formatToYYYYMMDDHHmm(board.deletedAt) : '—'}
+                      </td>
+                      {autoDeleteEnabled && (
+                        <td className="px-3 py-2 tabular-nums text-gray-600 dark:text-gray-300">
+                          {formatDaysUntilPurge(board.deletedAt)}
+                        </td>
+                      )}
                     </tr>
                   );
                 })}

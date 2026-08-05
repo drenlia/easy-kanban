@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import api, { createUser, updateUser, deleteUser, getUserTaskCount, resendUserInvitation, getTags, createTag, updateTag, deleteTag, getTagUsage, getBatchTagUsage, getPriorities, createPriority, updatePriority, deletePriority, reorderPriorities, setDefaultPriority, getPriorityUsage, getBatchPriorityUsage } from '../api';
+import api, { createUser, updateUser, deleteUser, getUserTaskCount, resendUserInvitation, getTags, createTag, updateTag, deleteTag, getTagUsage, getBatchTagUsage, getPriorities, createPriority, updatePriority, deletePriority, reorderPriorities, setDefaultPriority, getPriorityUsage, getBatchPriorityUsage, getLifecycleSummary } from '../api';
 import { ADMIN_TABS, ROUTES } from '../constants';
 import { toast } from '../utils/toast';
 import AdminSiteSettingsTab from './admin/AdminSiteSettingsTab';
@@ -14,12 +14,15 @@ import AdminLicensingTab from './admin/AdminLicensingTab';
 import AdminSettingsSearch from './admin/AdminSettingsSearch';
 import { AdminUnsavedChangesBanner } from './admin/AdminUnsavedChanges';
 import type { AdminDraftGate } from './admin/AdminLeaveUnsavedDialog';
+import { AdminAttentionDot } from './admin/AdminFieldDraftControls';
 import websocketClient from '../services/websocketClient';
 import { useSettings } from '../contexts/SettingsContext';
 import { isMaskedApiKeyDisplay } from '../utils/maskSecret';
 import {
   adminSettingsHaveChanges,
   getDirtyAdminSettingsTabs,
+  isLikelyDomEvent,
+  isValidAdminSettingKey,
   settingValueAsString,
 } from '../utils/adminSettingsDirty';
 import { clampActivityFeedInSettings } from '../utils/adminFieldLimits';
@@ -132,6 +135,45 @@ const Admin: React.FC<AdminProps> = ({
   const [ownerEmail, setOwnerEmail] = useState<string | null>(null);
   /** Tabs mounted at least once — keep mounted to retain local drafts */
   const [visitedTabs, setVisitedTabs] = useState<Set<string>>(() => new Set([activeTab]));
+  const [lifecyclePendingCount, setLifecyclePendingCount] = useState(0);
+
+  const refreshLifecyclePending = useCallback(async () => {
+    if (!currentUser?.roles?.includes('admin')) {
+      setLifecyclePendingCount(0);
+      return;
+    }
+    try {
+      const summary = await getLifecycleSummary();
+      setLifecyclePendingCount(
+        (Number(summary.deletedTasks) || 0) + (Number(summary.deletedBoards) || 0)
+      );
+    } catch (err) {
+      console.error('Failed to load lifecycle summary:', err);
+    }
+  }, [currentUser]);
+
+  useEffect(() => {
+    void refreshLifecyclePending();
+  }, [refreshLifecyclePending]);
+
+  useEffect(() => {
+    if (!currentUser?.roles?.includes('admin')) return;
+    const refresh = () => {
+      void refreshLifecyclePending();
+    };
+    websocketClient.onTaskDeleted(refresh);
+    websocketClient.onTaskRestored(refresh);
+    websocketClient.onTaskPurged(refresh);
+    websocketClient.onBoardDeleted(refresh);
+    websocketClient.onBoardRestored(refresh);
+    return () => {
+      websocketClient.offTaskDeleted(refresh);
+      websocketClient.offTaskRestored(refresh);
+      websocketClient.offTaskPurged(refresh);
+      websocketClient.offBoardDeleted(refresh);
+      websocketClient.offBoardRestored(refresh);
+    };
+  }, [currentUser, refreshLifecyclePending]);
 
   useEffect(() => {
     setVisitedTabs((prev) => {
@@ -385,6 +427,15 @@ const Admin: React.FC<AdminProps> = ({
             [data.key]: value,
             ...(setFlag !== undefined ? { [setFlagKey]: setFlag } : {}),
           }));
+          // Agent row appears/disappears in Users when AI is toggled
+          if (data.key === 'AI_ENABLED') {
+            try {
+              const usersResponse = await api.get('/admin/users');
+              setUsers(usersResponse.data || []);
+            } catch (usersErr) {
+              console.warn('Failed to refresh users after AI_ENABLED change:', usersErr);
+            }
+          }
         } else {
           // Fallback: Refresh from SettingsContext if WebSocket data is incomplete
           await refreshSettings();
@@ -742,9 +793,11 @@ const Admin: React.FC<AdminProps> = ({
       
       let hasChanges = false;
       const changedKeys: string[] = [];
-      // Use passed settings if available, otherwise use editingSettings
-      const settingsToSave = clampActivityFeedInSettings(newSettings || editingSettings);
-      if (settingsToSave !== (newSettings || editingSettings)) {
+      // Prefer explicit draft; ignore click events mistakenly passed via onClick={onSave}
+      const draftSource =
+        newSettings && !isLikelyDomEvent(newSettings) ? newSettings : editingSettings;
+      const settingsToSave = clampActivityFeedInSettings(draftSource);
+      if (settingsToSave !== draftSource) {
         setEditingSettings(settingsToSave);
       }
       
@@ -762,8 +815,65 @@ const Admin: React.FC<AdminProps> = ({
         }
       }
       
+      // Do not activate S3 without a successful connection test (managed platform S3 is exempt)
+      const nextBackend =
+        settingValueAsString(settingsToSave.STORAGE_BACKEND || settings.STORAGE_BACKEND)
+          .trim()
+          .toLowerCase() || 'disk';
+      const currBackend =
+        settingValueAsString(settings.STORAGE_BACKEND).trim().toLowerCase() || 'disk';
+      if (nextBackend === 's3' && currBackend !== 's3') {
+        const managed =
+          settingValueAsString(
+            settingsToSave.STORAGE_MANAGED || settings.STORAGE_MANAGED
+          ).trim() === 'true';
+        const testOk =
+          settingValueAsString(
+            settingsToSave.STORAGE_TEST_OK || settings.STORAGE_TEST_OK
+          ).trim() === 'true';
+        const hasBucket = Boolean(
+          settingValueAsString(
+            settingsToSave.S3_BUCKET || settings.S3_BUCKET
+          ).trim()
+        );
+        const hasRegionOrEndpoint = Boolean(
+          settingValueAsString(
+            settingsToSave.S3_REGION || settings.S3_REGION
+          ).trim() ||
+            settingValueAsString(
+              settingsToSave.S3_ENDPOINT || settings.S3_ENDPOINT
+            ).trim()
+        );
+        const hasAccessKey = Boolean(
+          settingValueAsString(
+            settingsToSave.S3_ACCESS_KEY_ID || settings.S3_ACCESS_KEY_ID
+          ).trim()
+        );
+        const secretSet =
+          settingValueAsString(
+            settingsToSave.S3_SECRET_ACCESS_KEY_SET || settings.S3_SECRET_ACCESS_KEY_SET
+          ).trim() === 'true' ||
+          Boolean(
+            settingValueAsString(
+              settingsToSave.S3_SECRET_ACCESS_KEY || settings.S3_SECRET_ACCESS_KEY
+            ).trim()
+          );
+        if (
+          !managed &&
+          !(testOk && hasBucket && hasRegionOrEndpoint && hasAccessKey && secretSet)
+        ) {
+          toast.error(t('storage.saveS3NeedsTest'), '');
+          return false;
+        }
+      }
+
       // Save each setting individually
       for (const [key, value] of Object.entries(settingsToSave)) {
+        // Skip accidental DOM/React event props (from a prior buggy Save) and invalid keys
+        if (!isValidAdminSettingKey(key)) {
+          continue;
+        }
+
         // Skip WEBSITE_URL - it's read-only and set during instance purchase
         if (key === 'WEBSITE_URL') {
           continue;
@@ -928,8 +1038,14 @@ const Admin: React.FC<AdminProps> = ({
       }
     } catch (error: any) {
       console.error('Failed to create user:', error);
-      toast.error(error.message || t('failedToCreateUser'), '');
-      throw error; // Re-throw so the UI can handle it
+      const message =
+        error.response?.data?.error ||
+        error.message ||
+        t('failedToCreateUser');
+      // Re-throw so AdminUsersTab can show a single toast (avoid double toast)
+      const wrapped = new Error(message);
+      (wrapped as any).response = error.response;
+      throw wrapped;
     }
   };
 
@@ -1014,8 +1130,10 @@ const Admin: React.FC<AdminProps> = ({
         errorMessage = err.response?.data?.message || err.response?.data?.error || t('users.userLimitReached');
       }
       
-      toast.error(errorMessage, '');
-      throw err; // Re-throw so the calling component can handle it
+      // Let AdminUsersTab show the toast once
+      const wrapped = new Error(errorMessage);
+      (wrapped as any).response = err.response;
+      throw wrapped;
     }
   };
 
@@ -1342,6 +1460,12 @@ const Admin: React.FC<AdminProps> = ({
                   {tab === 'app-settings' && t('tabs.appSettings')}
                   {tab === 'project-settings' && t('tabs.projectSettings')}
                   {tab === 'licensing' && t('tabs.licensing')}
+                  {tab === 'project-settings' && (
+                    <AdminAttentionDot
+                      show={lifecyclePendingCount > 0}
+                      label={t('lifecycle.pendingAttention')}
+                    />
+                  )}
                   {isTabDirty(tab) && (
                     <span
                       className="inline-block w-1.5 h-1.5 rounded-full bg-amber-500 flex-shrink-0"
@@ -1485,6 +1609,9 @@ const Admin: React.FC<AdminProps> = ({
                   handleTabLocalDirty('project-settings', dirty)
                 }
                 discardNonce={settingsDiscardNonce}
+                lifecyclePendingCount={lifecyclePendingCount}
+                onLifecyclePendingRefresh={refreshLifecyclePending}
+                isActive={activeTab === 'project-settings'}
               />
             </AdminTabPanel>
           )}

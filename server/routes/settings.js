@@ -28,6 +28,15 @@ import {
   getRequestStoragePaths,
   filenameFromPublicUrl
 } from '../services/storage/index.js';
+import {
+  parseBody,
+  updateSettingBodySchema,
+  bulkUpdateSettingsBodySchema,
+  updateAppUrlBodySchema,
+  aiCredentialsDraftBodySchema,
+  aiRunnerProbeBodySchema
+} from '../utils/requestValidation.js';
+import { validateUploadedFileMagic } from '../utils/fileMagicBytes.js';
 
 const router = express.Router();
 
@@ -211,6 +220,9 @@ router.get('/', authenticateToken, requireRole(['admin']), async (req, res, next
     const storageManaged = settings.find(s => s.key === 'STORAGE_MANAGED')?.value === 'true';
     
     settings.forEach(setting => {
+      if (!/^[A-Z][A-Z0-9_]*$/.test(setting.key)) {
+        return; // ignore corrupt keys (e.g. leftover React event props)
+      }
       // Hide sensitive SMTP fields when email is managed (credentials and server details)
       // But allow SMTP_FROM_EMAIL and SMTP_FROM_NAME to be visible/editable
       if (mailManaged && ['SMTP_HOST', 'SMTP_PORT', 'SMTP_USERNAME', 'SMTP_PASSWORD', 'SMTP_SECURE'].includes(setting.key)) {
@@ -266,11 +278,15 @@ router.post('/ai/validate', authenticateToken, requireRole(['admin']), async (re
   }
   try {
     const db = getRequestDatabase(req);
+    const parsed = parseBody(aiCredentialsDraftBodySchema, req.body || {});
+    if (!parsed.success) {
+      return res.status(400).json({ ok: false, error: parsed.error });
+    }
     const creds = await resolveAiCredentials(db, {
-      provider: req.body?.provider,
-      baseUrl: req.body?.baseUrl,
-      apiKey: req.body?.apiKey,
-      model: req.body?.model
+      provider: parsed.data.provider,
+      baseUrl: parsed.data.baseUrl,
+      apiKey: parsed.data.apiKey,
+      model: parsed.data.model
     });
     const result = await validateAiConnectivity(creds);
     if (!result.ok) {
@@ -311,11 +327,15 @@ router.post('/ai/models', authenticateToken, requireRole(['admin']), async (req,
   }
   try {
     const db = getRequestDatabase(req);
+    const parsed = parseBody(aiCredentialsDraftBodySchema, req.body || {});
+    if (!parsed.success) {
+      return res.status(400).json({ ok: false, error: parsed.error });
+    }
     const creds = await resolveAiCredentials(db, {
-      provider: req.body?.provider,
-      baseUrl: req.body?.baseUrl,
-      apiKey: req.body?.apiKey,
-      model: req.body?.model
+      provider: parsed.data.provider,
+      baseUrl: parsed.data.baseUrl,
+      apiKey: parsed.data.apiKey,
+      model: parsed.data.model
     });
     const result = await listAiModels(creds);
     if (!result.ok) {
@@ -336,13 +356,17 @@ router.post('/ai/runner/probe', authenticateToken, requireRole(['admin']), async
   try {
     const db = getRequestDatabase(req);
     const { probeRunner } = await import('../services/agentRunnerClient.js');
+    const parsed = parseBody(aiRunnerProbeBodySchema, req.body || {});
+    if (!parsed.success) {
+      return res.status(400).json({ ok: false, error: parsed.error });
+    }
     // Multi-tenant: always probe the platform env runner (ignore draft body overrides)
     const overrides =
       process.env.MULTI_TENANT === 'true'
         ? {}
         : {
-            runnerUrl: req.body?.runnerUrl,
-            runnerToken: req.body?.runnerToken
+            runnerUrl: parsed.data.runnerUrl,
+            runnerToken: parsed.data.runnerToken
           };
     const result = await probeRunner(db, overrides);
     if (!result.ok) {
@@ -362,10 +386,11 @@ router.put('/bulk', authenticateToken, requireRole(['admin']), async (req, res, 
   }
   try {
     const db = getRequestDatabase(req);
-    const incoming = req.body?.settings;
-    if (!incoming || typeof incoming !== 'object' || Array.isArray(incoming)) {
-      return res.status(400).json({ error: 'settings object is required' });
+    const parsed = parseBody(bulkUpdateSettingsBodySchema, req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error || 'settings object is required' });
     }
+    const incoming = parsed.data.settings;
 
     const allowed = new Set(BULK_DEBUG_SETTING_KEYS);
     const entries = [];
@@ -426,11 +451,11 @@ router.put('/', authenticateToken, requireRole(['admin']), async (req, res, next
   }
   try {
     const db = getRequestDatabase(req);
-    const { key, value } = req.body;
-    
-    if (!key) {
-      return res.status(400).json({ error: 'Setting key is required' });
+    const parsed = parseBody(updateSettingBodySchema, req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error });
     }
+    const { key, value } = parsed.data;
     
     // Prevent updates to WEBSITE_URL - it's read-only and set during instance purchase
     if (key === 'WEBSITE_URL') {
@@ -495,6 +520,39 @@ router.put('/', authenticateToken, requireRole(['admin']), async (req, res, next
       return res.status(400).json({
         error: 'Local disk storage is not available in multi-tenant mode. Use S3 (platform or custom).'
       });
+    }
+
+    // Do not activate S3 without a successful connection test (platform-managed is exempt)
+    if (key === 'STORAGE_BACKEND' && String(safeValue).toLowerCase() === 's3') {
+      const currentBackend = String(
+        (await getSettingValue(db, 'STORAGE_BACKEND')) || 'disk'
+      ).toLowerCase();
+      if (currentBackend !== 's3') {
+        const storageManaged = (await getSettingValue(db, 'STORAGE_MANAGED')) === 'true';
+        const testOk = (await getSettingValue(db, 'STORAGE_TEST_OK')) === 'true';
+        if (!storageManaged) {
+          if (!testOk) {
+            return res.status(400).json({
+              error:
+                'S3 storage cannot be activated until Test S3 connection succeeds. Configure credentials and run the test first.',
+              code: 'STORAGE_TEST_REQUIRED'
+            });
+          }
+          const { loadStorageConfig, validateS3Config } = await import(
+            '../services/storage/storageConfig.js'
+          );
+          const config = await loadStorageConfig(db);
+          const validation = validateS3Config(config);
+          if (!validation.ok) {
+            return res.status(400).json({
+              error:
+                validation.error ||
+                'S3 storage cannot be activated until credentials are configured and Test S3 connection succeeds.',
+              code: 'STORAGE_CONFIG_INCOMPLETE'
+            });
+          }
+        }
+      }
     }
     
     // Do not clear / overwrite masked secrets when admin leaves the display value
@@ -613,6 +671,14 @@ router.put('/', authenticateToken, requireRole(['admin']), async (req, res, next
 
     // Agent assignee visibility follows AI_ENABLED; name follows AI_AGENT_NAME
     if (key === 'AI_ENABLED') {
+      if (String(safeValue) === 'true') {
+        try {
+          const { syncAgentUserAvatar } = await import('../utils/agentBotAvatar.js');
+          await syncAgentUserAvatar(db, tenantId, getRequestStoragePaths(req));
+        } catch (e) {
+          console.warn('Agent avatar sync on AI enable failed:', e?.message || e);
+        }
+      }
       await publishAgentMemberVisibility(db, tenantId, {
         enabled: String(safeValue) === 'true'
       });
@@ -652,6 +718,11 @@ router.post('/logo', authenticateToken, requireRole(['admin']), (req, res, next)
       const db = getRequestDatabase(req);
       if (!req.file) {
         return res.status(400).json({ error: 'No logo file uploaded' });
+      }
+
+      const magic = await validateUploadedFileMagic(req.file, { mode: 'avatar' });
+      if (!magic.valid) {
+        return res.status(400).json({ error: magic.error });
       }
 
       const variant = (req.query.variant === 'dark' || req.body?.variant === 'dark') ? 'dark' : 'light';
@@ -701,7 +772,11 @@ router.put('/app-url', authenticateToken, async (req, res) => {
     const db = getRequestDatabase(req);
     const dbgHttp = await serverDebug(db, 'SERVER_DEBUG_HTTP');
     if (dbgHttp) console.log('📞 APP_URL update endpoint called');
-    const { appUrl } = req.body;
+    const parsed = parseBody(updateAppUrlBodySchema, req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error });
+    }
+    const { appUrl } = parsed.data;
     const userId = req.user.id;
 
     if (dbgHttp) console.log('📞 Request data:', { userId, appUrl });
@@ -733,13 +808,7 @@ router.put('/app-url', authenticateToken, async (req, res) => {
       return res.status(403).json({ error: 'Only the owner or default admin can update APP_URL' });
     }
     
-    // Validate appUrl
-    if (!appUrl || typeof appUrl !== 'string') {
-      if (dbgHttp) console.log('❌ Invalid appUrl:', appUrl);
-      return res.status(400).json({ error: 'appUrl is required and must be a string' });
-    }
-    
-    // Validate URL format
+    // Validate URL scheme (shape already checked by Zod)
     const trimmedUrl = appUrl.trim();
     if (!trimmedUrl.startsWith('http://') && !trimmedUrl.startsWith('https://')) {
       if (dbgHttp) console.log('❌ Invalid URL format:', trimmedUrl);

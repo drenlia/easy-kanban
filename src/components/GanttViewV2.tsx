@@ -1942,6 +1942,7 @@ const GanttViewV2 = ({
           onRemoveTask={onRemoveTask}
           highlightedTaskId={highlightedTaskId}
           siteSettings={siteSettings}
+          isAdmin={Boolean(currentUser?.roles?.includes('admin'))}
         />
 
         {/* Timeline (horizontal date move / resize only) */}

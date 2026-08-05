@@ -39,7 +39,7 @@ interface KanbanColumnProps {
   onDismissColumnWarning?: (columnId: string) => void;
   onClearFiltersForHiddenTask?: () => void;
   onAssignCreatedTaskToSprint?: (columnId: string, taskId: string, sprintId: string) => Promise<void>;
-  onRemoveTask: (taskId: string) => void;
+  onRemoveTask: (taskId: string, event?: React.MouseEvent) => void;
   onEditTask: (task: Task) => void;
   onCopyTask: (task: Task) => void;
   onEditColumn: (
@@ -106,6 +106,8 @@ interface KanbanColumnProps {
   onBulkCopy?: (taskIds: string[]) => void;
   onBulkArchive?: (taskIds: string[]) => void;
   onBulkDelete?: (taskIds: string[]) => void;
+  /** Admin Shift+click permanent delete for multi-select. */
+  onBulkPermanentDelete?: (taskIds: string[]) => void;
   onBulkSprint?: (taskIds: string[], sprintId: string | null) => void;
   onBulkPriority?: (taskIds: string[], priorityId: string) => void;
   onBulkMoveToBoard?: (taskIds: string[], boardId: string) => void;
@@ -194,6 +196,7 @@ export default function KanbanColumn({
   onBulkCopy,
   onBulkArchive,
   onBulkDelete,
+  onBulkPermanentDelete,
   onBulkSprint,
   onBulkPriority,
   onBulkMoveToBoard,
@@ -327,7 +330,6 @@ export default function KanbanColumn({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [dropIndex, setDropIndex] = useState<number | null>(null);
   const [deleteButtonRef, setDeleteButtonRef] = useState<HTMLButtonElement | null>(null);
-  const [deleteButtonPosition, setDeleteButtonPosition] = useState<{top: number, left: number} | null>(null);
   const [shouldSelectAll, setShouldSelectAll] = useState(false);
   const columnHeaderRef = useRef<HTMLDivElement>(null);
   const editInputRef = useRef<HTMLInputElement>(null);
@@ -1371,23 +1373,34 @@ export default function KanbanColumn({
                       role="menuitem"
                       ref={setDeleteButtonRef}
                       onClick={() => {
-                        if (columnHeaderRef.current) {
-                          requestAnimationFrame(() => {
-                            if (columnHeaderRef.current) {
-                              const headerRect = columnHeaderRef.current.getBoundingClientRect();
-                              setDeleteButtonPosition({
-                                top: headerRect.bottom + 8,
-                                left: headerRect.left,
-                              });
-                            }
-                          });
-                        }
+                        const liveCount = getColumnTaskCount
+                          ? getColumnTaskCount(column.id)
+                          : column.tasks?.length || 0;
+                        if (liveCount > 0) return;
                         onRemoveColumn(column.id);
                         setShowMenu(false);
                         setColumnMenuPosition(null);
                       }}
-                      className="w-full text-left px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-gray-100 dark:hover:bg-gray-700"
-                      disabled={isSubmitting}
+                      className={`w-full text-left px-4 py-2 text-sm ${
+                        (getColumnTaskCount
+                          ? getColumnTaskCount(column.id)
+                          : column.tasks?.length || 0) > 0
+                          ? 'text-gray-400 dark:text-gray-500 cursor-not-allowed'
+                          : 'text-red-600 dark:text-red-400 hover:bg-gray-100 dark:hover:bg-gray-700'
+                      }`}
+                      disabled={
+                        isSubmitting ||
+                        (getColumnTaskCount
+                          ? getColumnTaskCount(column.id)
+                          : column.tasks?.length || 0) > 0
+                      }
+                      title={
+                        (getColumnTaskCount
+                          ? getColumnTaskCount(column.id)
+                          : column.tasks?.length || 0) > 0
+                          ? t('column.deleteColumnMustBeEmpty')
+                          : undefined
+                      }
                     >
                       {t('column.deleteColumn')}
                     </button>
@@ -1540,6 +1553,11 @@ export default function KanbanColumn({
             onCopy={() => onBulkCopy(Array.from(checkedTaskIds))}
             onArchive={() => onBulkArchive?.(Array.from(checkedTaskIds))}
             onDelete={() => onBulkDelete(Array.from(checkedTaskIds))}
+            onPermanentDelete={
+              onBulkPermanentDelete
+                ? () => onBulkPermanentDelete(Array.from(checkedTaskIds))
+                : undefined
+            }
             onSprint={(sprintId) =>
               onBulkSprint?.(Array.from(checkedTaskIds), sprintId)
             }
@@ -1597,45 +1615,6 @@ export default function KanbanColumn({
           />
         )}
 
-      {/* Column Delete Confirmation Dialog - Small popup like BoardTabs */}
-      {showColumnDeleteConfirm === column.id && deleteButtonPosition && onConfirmColumnDelete && onCancelColumnDelete && getColumnTaskCount && createPortal(
-        <div
-          className="delete-confirmation fixed bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg p-3 z-[9999] min-w-[220px]"
-          style={{
-            top: `${deleteButtonPosition.top}px`,
-            left: `${deleteButtonPosition.left}px`,
-          }}
-        >
-            <div className="text-sm text-gray-700 dark:text-gray-200 mb-3">
-              {(() => {
-                const taskCount = getColumnTaskCount(column.id);
-                const taskWord = taskCount !== 1 ? t('column.tasks') : t('column.task');
-                return `${t('column.deleteColumnAndTasks')} ${taskCount} ${taskWord}?`;
-              })()}
-            </div>
-            <div className="flex space-x-2 justify-end">
-              <button
-                onClick={() => {
-                  onCancelColumnDelete();
-                  setDeleteButtonPosition(null);
-                }}
-                className="px-3 py-1 text-sm bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
-              >
-                {t('buttons.no', { ns: 'common' })}
-              </button>
-              <button
-                onClick={() => {
-                  onConfirmColumnDelete(column.id);
-                  setDeleteButtonPosition(null);
-                }}
-                className="px-3 py-1 text-sm bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
-              >
-                {t('buttons.yes', { ns: 'common' })}
-              </button>
-          </div>
-        </div>,
-        document.body
-      )}
     </div>
   );
 }

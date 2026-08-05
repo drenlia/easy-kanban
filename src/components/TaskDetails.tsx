@@ -33,7 +33,8 @@ import {
   undoAutomationJob,
   type TaskWorkMap,
 } from '../api';
-import { useFileUpload } from '../hooks/useFileUpload';
+import { useFileUpload, getUploadErrorMessage } from '../hooks/useFileUpload';
+import { toast } from '../utils/toast';
 import { getLocalISOString, formatToYYYYMMDDHHmmss } from '../utils/dateUtils';
 import { generateUUID } from '../utils/uuid';
 import { loadUserPreferences, updateUserPreference } from '../utils/userPreferences';
@@ -1431,32 +1432,23 @@ export default function TaskDetails({
           clearFiles();
         },
         onError: (error) => {
+          // uploadError is set by useFileUpload; UI rollback + toast happen in catch
           console.error('❌ Failed to upload task attachments:', error);
-          // Clear pending attachments on error to prevent retry loop
-          // Show user-friendly error message
-          const errorMessage = error.response?.status === 413 
-            ? 'File(s) too large. Please reduce file size or upload fewer files at once.'
-            : error.message || 'Failed to upload files. Please try again.';
-          console.error('Upload error details:', errorMessage);
-          clearFiles(); // Clear to prevent infinite retry loop
         }
       });
       
       detailsLog('📎 Task attachment upload completed, got:', uploadedAttachments.length, 'attachments');
     } catch (error: any) {
       console.error('❌ Failed to save task attachments:', error);
-      // Clear pending attachments on error to prevent retry loop
-      clearFiles();
-      
-      // Show user-friendly error message
-      const errorMessage = error.response?.status === 413 
-        ? 'File(s) too large. Please reduce file size or upload fewer files at once.'
-        : error.message || 'Failed to upload files. Please try again.';
-      console.error('Upload error details:', errorMessage);
+      const failedNames = pendingAttachments.map((f) => f.name);
+      const errorMessage = getUploadErrorMessage(error);
+      clearFiles({ keepError: true });
+      (window as any).textEditorDiscardPendingAttachments?.(failedNames);
+      toast.error(errorMessage, '');
     } finally {
       isUploadingRef.current = false;
     }
-  }, [pendingAttachments.length, task.id, uploadTaskFiles, onUpdate, saveImmediately, clearFiles]);
+  }, [pendingAttachments, task.id, uploadTaskFiles, onUpdate, saveImmediately, clearFiles]);
 
   // Save attachments immediately to prevent blob URL issues
   React.useEffect(() => {

@@ -9,6 +9,8 @@ export const DEFAULT_COLUMNS = [
 
 // Page and navigation constants
 export const PAGE_IDENTIFIERS = ['kanban', 'admin', 'reports', 'task', 'forgot-password', 'reset-password', 'reset-success', 'activate-account'];
+/** Hash routes used only while signed out — never treat as board IDs. */
+export const AUTH_HASH_ROUTES = ['login'];
 export const ADMIN_TABS = [
   'users',
   'site-settings',

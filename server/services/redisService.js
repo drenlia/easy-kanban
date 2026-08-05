@@ -39,6 +39,11 @@ class RedisService {
     }
   }
 
+  /** Connected publisher client for rate-limit / command use (or null). */
+  getPublisherClient() {
+    return this.isConnected ? this.publisher : null;
+  }
+
   // Get tenant-prefixed channel name (for multi-tenant isolation)
   getTenantChannel(channel, tenantId = null) {
     // In multi-tenant mode, prefix channels with tenant ID

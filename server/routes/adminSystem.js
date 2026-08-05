@@ -12,6 +12,12 @@ import { getRequestDatabase, getTenantId } from '../middleware/tenantRouting.js'
 import notificationService from '../services/notificationService.js';
 // MIGRATED: Import sqlManager
 import { helpers } from '../utils/sqlManager/index.js';
+import {
+  parseBody,
+  jobsCleanupBodySchema,
+  s3TestOverridesBodySchema,
+  migrateStorageBodySchema
+} from '../utils/requestValidation.js';
 
 const router = express.Router();
 
@@ -82,7 +88,11 @@ router.post('/jobs/cleanup', authenticateToken, requireRole(['admin']), async (r
   try {
     const db = getRequestDatabase(req);
     const t = getTranslator(db);
-    const { retentionDays } = req.body;
+    const parsed = parseBody(jobsCleanupBodySchema, req.body || {});
+    if (!parsed.success) {
+      return res.status(400).json({ success: false, error: parsed.error });
+    }
+    const { retentionDays } = parsed.data;
     console.log(`🔧 Admin triggered: Snapshot cleanup (${retentionDays || 730} days)`);
     const result = await manualTriggers.triggerCleanup(db, retentionDays);
     res.json({
@@ -402,22 +412,28 @@ router.get('/email-status', authenticateToken, requireRole(['admin']), async (re
 router.post('/test-storage', authenticateToken, requireRole(['admin']), async (req, res) => {
   try {
     const db = getRequestDatabase(req);
+    const parsed = parseBody(s3TestOverridesBodySchema, req.body || {});
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error });
+    }
     const { testS3Connection } = await import('../services/storage/index.js');
-    const result = await testS3Connection(db, req.body || {});
+    const result = await testS3Connection(db, parsed.data);
 
-    // Sync STORAGE_TEST_OK to clients (test probes draft values; does not require Save)
-    try {
-      await notificationService.publish(
-        'settings-updated',
-        {
-          key: 'STORAGE_TEST_OK',
-          value: result.ok ? 'true' : 'false',
-          timestamp: new Date().toISOString()
-        },
-        getTenantId(req)
-      );
-    } catch (publishErr) {
-      console.warn('Failed to publish STORAGE_TEST_OK after storage test:', publishErr?.message);
+    // Sync STORAGE_TEST_OK to clients (live probes only — not destination drafts)
+    if (!result.asDestination) {
+      try {
+        await notificationService.publish(
+          'settings-updated',
+          {
+            key: 'STORAGE_TEST_OK',
+            value: result.ok ? 'true' : 'false',
+            timestamp: new Date().toISOString()
+          },
+          getTenantId(req)
+        );
+      } catch (publishErr) {
+        console.warn('Failed to publish STORAGE_TEST_OK after storage test:', publishErr?.message);
+      }
     }
 
     if (!result.ok) {
@@ -442,12 +458,15 @@ router.post('/test-storage', authenticateToken, requireRole(['admin']), async (r
 router.post('/migrate-storage', authenticateToken, requireRole(['admin']), async (req, res) => {
   try {
     const db = getRequestDatabase(req);
-    const direction = String(req.body?.direction || '');
-    if (direction !== 'disk-to-s3' && direction !== 's3-to-disk') {
+    const parsed = parseBody(migrateStorageBodySchema, req.body || {});
+    if (!parsed.success) {
       return res.status(400).json({
-        error: 'direction must be disk-to-s3 or s3-to-disk'
+        error: parsed.error.includes('direction')
+          ? 'direction must be disk-to-s3, s3-to-disk, or s3-to-s3'
+          : parsed.error
       });
     }
+    const direction = parsed.data.direction;
 
     if (direction === 's3-to-disk' && process.env.MULTI_TENANT === 'true') {
       return res.status(400).json({
@@ -456,12 +475,15 @@ router.post('/migrate-storage', authenticateToken, requireRole(['admin']), async
     }
 
     const { startStorageMigration, getRequestStoragePaths } = await import('../services/storage/index.js');
-    const deleteSource = req.body?.deleteSource === true;
+    const deleteSource = parsed.data.deleteSource === true;
     const result = await startStorageMigration(
       db,
       getRequestStoragePaths(req),
       direction,
-      { deleteSource }
+      {
+        deleteSource,
+        destination: parsed.data.destination || undefined
+      }
     );
 
     res.status(202).json({

@@ -19,6 +19,7 @@ import {
   X
 } from 'lucide-react';
 import { useFileUpload, createFileInput } from '../hooks/useFileUpload';
+import { useEscapeDismiss } from '../hooks/useEscapeDismiss';
 
 interface CommentEditorProps {
   onSubmit: (content: string, attachments: File[]) => Promise<void>;
@@ -31,6 +32,15 @@ export default function CommentEditor({ onSubmit, onCancel, initialContent = '',
   const [showLinkDialog, setShowLinkDialog] = useState(false);
   const [linkUrl, setLinkUrl] = useState('');
   const [linkText, setLinkText] = useState('');
+
+  useEscapeDismiss(
+    () => {
+      setShowLinkDialog(false);
+      setLinkUrl('');
+      setLinkText('');
+    },
+    { enabled: showLinkDialog }
+  );
   
   // Use the new file upload hook
   const {

@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, type KeyboardEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { X, ChevronDown, Check, ChevronUp, Save, Settings, RefreshCw } from 'lucide-react';
 import { Priority, PriorityOption, Tag, Columns } from '../types';
@@ -7,6 +7,7 @@ import { loadUserPreferences, updateUserPreference } from '../utils/userPreferen
 import ManageFiltersModal from './ManageFiltersModal';
 import ColumnFilterDropdown from './ColumnFilterDropdown';
 import { getAgentAvatarSrc } from '../utils/agentMemberUi';
+import { useEscapeDismiss } from '../hooks/useEscapeDismiss';
 
 interface SearchFilters {
   text: string;
@@ -72,6 +73,15 @@ export default function SearchInterface({
   const priorityDropdownRef = useRef<HTMLDivElement>(null);
   const tagsDropdownRef = useRef<HTMLDivElement>(null);
   const filterDropdownRef = useRef<HTMLDivElement>(null);
+
+  useEscapeDismiss(
+    () => {
+      if (isSavingFilter) return;
+      setShowSaveDialog(false);
+      setNewFilterName('');
+    },
+    { enabled: showSaveDialog }
+  );
 
   // Helper function to determine text color based on background color
   const getTextColor = (backgroundColor: string): string => {
@@ -330,8 +340,82 @@ export default function SearchInterface({
     );
   };
 
+  /** Same visibility rules as the Clear All (X) button. */
+  const canClearAllFilters = () => {
+    if (hasActiveFilters()) return true;
+    const hasColumnFilters = columns && visibleColumns && (() => {
+      const allColumns = Object.values(columns);
+      const nonArchivedColumns = allColumns.filter(col => !col.is_archived);
+      const visibleNonArchivedColumns = visibleColumns.filter(colId => {
+        const col = columns[colId];
+        return col && !col.is_archived;
+      });
+      return visibleNonArchivedColumns.length < nonArchivedColumns.length;
+    })();
+    const hasAgentHidden =
+      siteSettings?.AI_ENABLED === 'true' &&
+      !!onToggleShowAgentTasks &&
+      !showAgentTasks;
+    return !!(hasColumnFilters || hasAgentHidden);
+  };
+
+  /**
+   * Escape in search/filter: close dropdowns → clear focused field (field X) →
+   * clear all filters (Clear All X) → blur.
+   */
+  const handleFilterEscape = (
+    e: KeyboardEvent,
+    fieldKey?: keyof SearchFilters
+  ) => {
+    if (e.key !== 'Escape') return;
+    if (showSaveDialog || showManageModal) return;
+
+    if (showPriorityDropdown || showTagsDropdown || showFilterDropdown) {
+      e.preventDefault();
+      e.stopPropagation();
+      setShowPriorityDropdown(false);
+      setShowTagsDropdown(false);
+      setShowFilterDropdown(false);
+      return;
+    }
+
+    if (fieldKey) {
+      const val = filters[fieldKey];
+      const hasFieldValue = Array.isArray(val) ? val.length > 0 : Boolean(val);
+      if (hasFieldValue) {
+        e.preventDefault();
+        e.stopPropagation();
+        updateFilter(fieldKey, Array.isArray(val) ? [] : '');
+        return;
+      }
+    }
+
+    if (canClearAllFilters()) {
+      e.preventDefault();
+      e.stopPropagation();
+      handleClearAllFilters();
+      return;
+    }
+
+    if (e.currentTarget instanceof HTMLElement) {
+      e.preventDefault();
+      e.stopPropagation();
+      e.currentTarget.blur();
+    }
+  };
+
   return (
-    <div className="bg-white dark:bg-gray-800 shadow-sm border border-gray-100 dark:border-gray-700 rounded-lg p-3 mb-4">
+    <div
+      className="bg-white dark:bg-gray-800 shadow-sm border border-gray-100 dark:border-gray-700 rounded-lg p-3 mb-4"
+      onKeyDown={(e) => {
+        // Panel-level Escape when focus is on buttons/chips (inputs handle their own).
+        if (e.key !== 'Escape') return;
+        if (e.target !== e.currentTarget && (e.target as HTMLElement).tagName === 'INPUT') {
+          return;
+        }
+        handleFilterEscape(e);
+      }}
+    >
       {/* Header with Collapse Toggle */}
       {/* Header */}
       <div className="flex items-center justify-between mb-2">
@@ -347,6 +431,7 @@ export default function SearchInterface({
               placeholder={t('searchInterface.searchPlaceholder')}
               value={filters.text}
               onChange={(e) => updateFilter('text', e.target.value)}
+              onKeyDown={(e) => handleFilterEscape(e, 'text')}
               className={`w-[280px] pr-6 ${getInputClassName(!!filters.text)}`}
             />
             {filters.text && (
@@ -379,6 +464,7 @@ export default function SearchInterface({
                 placeholder={t('searchInterface.projectIdPlaceholder')}
                 value={filters.projectId}
                 onChange={(e) => updateFilter('projectId', e.target.value)}
+                onKeyDown={(e) => handleFilterEscape(e, 'projectId')}
                 className={`w-[85px] pr-6 ${getInputClassName(!!filters.projectId)}`}
               />
               {filters.projectId && (
@@ -401,6 +487,7 @@ export default function SearchInterface({
                 placeholder={t('searchInterface.taskIdPlaceholder')}
                 value={filters.taskId}
                 onChange={(e) => updateFilter('taskId', e.target.value)}
+                onKeyDown={(e) => handleFilterEscape(e, 'taskId')}
                 className={`w-[85px] pr-6 ${getInputClassName(!!filters.taskId)}`}
               />
               {filters.taskId && (
@@ -623,6 +710,7 @@ export default function SearchInterface({
                 type="date"
                 value={filters.dateFrom}
                 onChange={(e) => updateFilter('dateFrom', e.target.value)}
+                onKeyDown={(e) => handleFilterEscape(e, 'dateFrom')}
                 className={`w-[140px] ml-[128px] ${getInputClassName(!!filters.dateFrom)}`}
               />
               {filters.dateFrom && (
@@ -642,6 +730,7 @@ export default function SearchInterface({
                 type="date"
                 value={filters.dateTo}
                 onChange={(e) => updateFilter('dateTo', e.target.value)}
+                onKeyDown={(e) => handleFilterEscape(e, 'dateTo')}
                 className={`w-[140px] ml-[60px] ${getInputClassName(!!filters.dateTo)}`}
               />
               {filters.dateTo && (
@@ -735,6 +824,7 @@ export default function SearchInterface({
                 type="date"
                 value={filters.dueDateFrom}
                 onChange={(e) => updateFilter('dueDateFrom', e.target.value)}
+                onKeyDown={(e) => handleFilterEscape(e, 'dueDateFrom')}
                 className={`w-[140px] ml-[128px] ${getInputClassName(!!filters.dueDateFrom)}`}
               />
               {filters.dueDateFrom && (
@@ -754,6 +844,7 @@ export default function SearchInterface({
                 type="date"
                 value={filters.dueDateTo}
                 onChange={(e) => updateFilter('dueDateTo', e.target.value)}
+                onKeyDown={(e) => handleFilterEscape(e, 'dueDateTo')}
                 className={`w-[140px] ml-[60px] ${getInputClassName(!!filters.dueDateTo)}`}
               />
               {filters.dueDateTo && (

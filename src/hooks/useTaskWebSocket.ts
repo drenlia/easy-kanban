@@ -946,7 +946,25 @@ export const useTaskWebSocket = ({
     if (selectedTaskRef.current?.id === data.taskId) {
       setSelectedTask(null);
     }
-  }, [recentlyDeletedTasksRef, selectedTaskRef, setSelectedTask]);
+    // Also remove from board state if still present (live permanent delete / race)
+    setColumns((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      Object.keys(next).forEach((columnId) => {
+        const column = next[columnId];
+        if (!column?.tasks?.some((t) => t.id === data.taskId)) return;
+        changed = true;
+        const remaining = column.tasks.filter((t) => t.id !== data.taskId);
+        next[columnId] = {
+          ...column,
+          tasks: remaining
+            .sort((a, b) => (a.position || 0) - (b.position || 0))
+            .map((task, index) => ({ ...task, position: index })),
+        };
+      });
+      return changed ? next : prev;
+    });
+  }, [recentlyDeletedTasksRef, selectedTaskRef, setSelectedTask, setColumns]);
   
   const handleTaskRelationshipCreated = useCallback((data: any) => {
     wsHookLog('🔗 [WebSocket] task-relationship-created received:', data);
@@ -1353,6 +1371,60 @@ export const useTaskWebSocket = ({
   }, [setColumns, setSelectedTask, selectedBoardRef, selectedTask, taskFilters, pendingTaskRefreshesRef, recentlyDeletedTasksRef]);
 
   /**
+   * Admin deleted a tag globally — strip it from every cached task (current board + boards[]).
+   * Complements task-tag-removed events so other boards' caches stay clean on switch.
+   */
+  const handleTagDeleted = useCallback((data: any) => {
+    const rawTagId = data?.tagId ?? data?.tag?.id;
+    if (rawTagId == null) return;
+    const tagIdNum = typeof rawTagId === 'number' ? rawTagId : parseInt(String(rawTagId), 10);
+    if (Number.isNaN(tagIdNum)) return;
+
+    const stripTags = (tags: Task['tags']) => {
+      if (!Array.isArray(tags) || tags.length === 0) return tags;
+      const filtered = tags.filter((t) => t.id !== tagIdNum && String(t.id) !== String(rawTagId));
+      return filtered.length === tags.length ? tags : filtered;
+    };
+
+    const stripColumns = (cols: Columns): Columns => {
+      let changed = false;
+      const next: Columns = { ...cols };
+      for (const columnId of Object.keys(cols)) {
+        const column = cols[columnId];
+        if (!column?.tasks) continue;
+        let columnChanged = false;
+        const tasks = column.tasks.map((task) => {
+          const newTags = stripTags(task.tags);
+          if (newTags === task.tags) return task;
+          columnChanged = true;
+          return { ...task, tags: newTags || [] };
+        });
+        if (columnChanged) {
+          changed = true;
+          next[columnId] = { ...column, tasks };
+        }
+      }
+      return changed ? next : cols;
+    };
+
+    setColumns((prev) => stripColumns(prev));
+    taskFilters.setFilteredColumns((prev) => stripColumns(prev));
+    setBoards((prevBoards) =>
+      prevBoards.map((board) => {
+        if (!board.columns) return board;
+        const updatedColumns = stripColumns(board.columns);
+        return updatedColumns === board.columns ? board : { ...board, columns: updatedColumns };
+      })
+    );
+    setSelectedTask((prev) => {
+      if (!prev?.tags?.length) return prev;
+      const newTags = stripTags(prev.tags);
+      if (newTags === prev.tags) return prev;
+      return { ...prev, tags: newTags || [] };
+    });
+  }, [setColumns, setBoards, setSelectedTask, taskFilters]);
+
+  /**
    * Apply authoritative column positions from server (add-at-top, delete renumber).
    * Payload: { boardId, updates: [{ taskId, position, columnId }] }
    */
@@ -1433,7 +1505,8 @@ export const useTaskWebSocket = ({
     handleTaskCollaboratorAdded,
     handleTaskCollaboratorRemoved,
     handleTaskTagAdded,
-    handleTaskTagRemoved
+    handleTaskTagRemoved,
+    handleTagDeleted
   };
 };
 

@@ -60,13 +60,31 @@ export function ensureAgentBotAvatarFile(tenantId = null) {
 
 /**
  * Point agent@local at the shipped bot avatar (idempotent).
+ * When storagePaths is provided, also ensure the file exists on the active backend (S3/disk).
+ * @param {*} db
+ * @param {string|null} [tenantId]
+ * @param {{ attachments?: string, avatars?: string }|null} [storagePaths]
  */
-export async function syncAgentUserAvatar(db, tenantId = null) {
+export async function syncAgentUserAvatar(db, tenantId = null, storagePaths = null) {
   const path = ensureAgentBotAvatarFile(tenantId);
   if (!path) return null;
   await wrapQuery(
     db.prepare('UPDATE users SET avatar_path = $1 WHERE id = $2'),
     'UPDATE'
   ).run(path, AGENT_USER_ID);
+
+  if (storagePaths) {
+    try {
+      const src =
+        getBundledBotSource() || join(getAvatarsDir(tenantId), AGENT_BOT_FILENAME);
+      if (src && fs.existsSync(src)) {
+        const { putObject } = await import('../services/storage/index.js');
+        const buf = fs.readFileSync(src);
+        await putObject(db, storagePaths, 'avatars', AGENT_BOT_FILENAME, buf, 'image/jpeg');
+      }
+    } catch (e) {
+      console.warn('⚠️ Failed to sync agent bot avatar to object storage:', e?.message || e);
+    }
+  }
   return path;
 }

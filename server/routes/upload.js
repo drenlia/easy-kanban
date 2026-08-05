@@ -4,6 +4,8 @@ import { authenticateToken } from '../middleware/auth.js';
 import { createAttachmentUploadMiddleware } from '../config/multer.js';
 import { getRequestDatabase } from '../middleware/tenantRouting.js';
 import { commitUploadedFile, getRequestStoragePaths } from '../services/storage/index.js';
+import { validateUploadedFileMagic } from '../utils/fileMagicBytes.js';
+import { getAdminFileSettings } from '../utils/fileValidation.js';
 
 const router = express.Router();
 
@@ -48,19 +50,28 @@ router.post('/', authenticateToken, createUploadMiddleware, async (req, res) => 
     }
 
     const db = getRequestDatabase(req);
+    const settings = await getAdminFileSettings(db);
+    const magic = await validateUploadedFileMagic(req.file, {
+      mode: 'attachment',
+      limitsEnforced: settings.limitsEnforced,
+      allowedTypes: settings.allowedTypes
+    });
+    if (!magic.valid) {
+      return res.status(400).json({ error: magic.error });
+    }
+
     await commitUploadedFile(db, getRequestStoragePaths(req), 'attachments', req.file);
 
-    // Generate authenticated URL with token
-    const token = req.headers.authorization?.replace('Bearer ', '');
-    const authenticatedUrl = token ? `/api/files/attachments/${req.file.filename}?token=${encodeURIComponent(token)}` : `/attachments/${req.file.filename}`;
-    
-    res.json({
-      id: crypto.randomUUID(),
-      name: req.file.originalname,
-      url: authenticatedUrl,
-      type: req.file.mimetype,
-      size: req.file.size
-    });
+  // Generate authenticated URL via media cookie (no session JWT in query string)
+  const authenticatedUrl = `/api/files/attachments/${req.file.filename}`;
+  
+  res.json({
+    id: crypto.randomUUID(),
+    name: req.file.originalname,
+    url: authenticatedUrl,
+    type: req.file.mimetype,
+    size: req.file.size
+  });
   } catch (error) {
     console.error('File upload error:', error);
     res.status(500).json({ error: 'File upload failed' });

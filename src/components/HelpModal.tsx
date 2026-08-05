@@ -1,12 +1,13 @@
 import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { X, Users, Columns, ClipboardList, MessageSquare, ArrowRight, LayoutGrid, List, Calendar, Search, Eye, Settings, Play, BarChart3, Shield, Download, Bot, KeyRound, CheckSquare, AlertTriangle, Trash2, ListChecks } from 'lucide-react';
+import { X, Users, Columns, ClipboardList, MessageSquare, ArrowRight, LayoutGrid, List, Calendar, Search, Eye, Settings, Play, BarChart3, Shield, Download, Bot, KeyRound, CheckSquare, AlertTriangle, Trash2, ListChecks, Keyboard } from 'lucide-react';
 import { useTour } from '../contexts/TourContext';
 import { useOwnerSetupOptional } from '../contexts/OwnerSetupContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { versionDetection } from '../utils/versionDetection';
 import { updateUserPreference } from '../utils/userPreferences';
 import { CurrentUser } from '../types';
+import { useEscapeDismiss } from '../hooks/useEscapeDismiss';
 
 interface HelpModalProps {
   isOpen: boolean;
@@ -14,7 +15,59 @@ interface HelpModalProps {
   currentUser?: CurrentUser | null;
 }
 
-type TabType = 'overview' | 'kanban' | 'list' | 'gantt' | 'reports' | 'ai' | 'admin';
+type TabType = 'overview' | 'shortcuts' | 'kanban' | 'list' | 'gantt' | 'reports' | 'ai' | 'admin';
+
+const HELP_TAB_IDS = new Set<TabType>([
+  'overview', 'shortcuts', 'kanban', 'list', 'gantt', 'reports', 'ai', 'admin',
+]);
+
+/** [[tab:shortcuts]]Shortcuts tab[[/tab]] → in-modal link that switches Help tabs */
+const HELP_TAB_LINK_RE = /\[\[tab:([a-z]+)\]\]([\s\S]*?)\[\[\/tab\]\]/g;
+
+type ShortcutRow = { keys: string; actionKey: string };
+
+const HELP_SHORTCUT_SECTIONS: { titleKey: string; rows: ShortcutRow[] }[] = [
+  {
+    titleKey: 'help.shortcuts.global',
+    rows: [
+      { keys: 'F1 / ?', actionKey: 'help.shortcuts.globalHelp' },
+      { keys: 'Escape', actionKey: 'help.shortcuts.globalEscape' },
+      { keys: 'Enter', actionKey: 'help.shortcuts.globalEnter' },
+    ],
+  },
+  {
+    titleKey: 'help.shortcuts.board',
+    rows: [
+      { keys: '/ or Ctrl/Cmd+K', actionKey: 'help.shortcuts.boardSearch' },
+      { keys: 'N', actionKey: 'help.shortcuts.boardNewTask' },
+      { keys: '1 / 2 / 3', actionKey: 'help.shortcuts.boardViews' },
+      { keys: 'Escape', actionKey: 'help.shortcuts.boardFilterEscape' },
+      { keys: 'S', actionKey: 'help.shortcuts.boardMultiSelectS' },
+      { keys: 'Ctrl/Cmd+click', actionKey: 'help.shortcuts.boardMultiSelectClick' },
+    ],
+  },
+  {
+    titleKey: 'help.shortcuts.admin',
+    rows: [
+      { keys: '/ or Ctrl/Cmd+K', actionKey: 'help.shortcuts.adminSearch' },
+    ],
+  },
+  {
+    titleKey: 'help.shortcuts.gantt',
+    rows: [
+      { keys: 'Escape / Enter', actionKey: 'help.shortcuts.ganttExitModes' },
+      { keys: '← / →', actionKey: 'help.shortcuts.ganttNudge' },
+    ],
+  },
+  {
+    titleKey: 'help.shortcuts.editor',
+    rows: [
+      { keys: 'Escape', actionKey: 'help.shortcuts.editorEscape' },
+      { keys: 'Enter', actionKey: 'help.shortcuts.editorEnter' },
+      { keys: 'Ctrl/Cmd+←/→', actionKey: 'help.shortcuts.editorNav' },
+    ],
+  },
+];
 
 export default function HelpModal({ isOpen, onClose, currentUser }: HelpModalProps) {
   const { t, i18n } = useTranslation('common');
@@ -77,6 +130,10 @@ export default function HelpModal({ isOpen, onClose, currentUser }: HelpModalPro
     firstMatchRef.current = null;
   }, [debouncedSearchTerm, activeTab]);
 
+  const stripHelpTabMarkers = useCallback((text: string): string => {
+    return text.replace(/\[\[tab:([a-z]+)\]\]([\s\S]*?)\[\[\/tab\]\]/g, '$2');
+  }, []);
+
   // Highlight search terms in text - returns React components
   const highlightText = useCallback((text: string, searchTerm: string): React.ReactNode => {
     if (!searchTerm.trim() || !text) {
@@ -110,11 +167,82 @@ export default function HelpModal({ isOpen, onClose, currentUser }: HelpModalPro
       });
   }, []);
 
+  const goToHelpTab = useCallback((tabId: TabType) => {
+    if (tabId === 'ai' && !aiEnabled) return;
+    if (tabId === 'admin' && !isAdmin) return;
+    setActiveTab(tabId);
+    if (contentRef.current) {
+      contentRef.current.scrollTop = 0;
+    }
+  }, [aiEnabled, isAdmin]);
+
+  const renderHelpContent = useCallback((text: string, searchTerm: string): React.ReactNode => {
+    if (!text) return text;
+    if (!text.includes('[[tab:')) {
+      return highlightText(text, searchTerm);
+    }
+
+    const nodes: React.ReactNode[] = [];
+    let lastIndex = 0;
+    const re = new RegExp(HELP_TAB_LINK_RE.source, 'g');
+    let match: RegExpExecArray | null;
+    let key = 0;
+
+    while ((match = re.exec(text)) !== null) {
+      if (match.index > lastIndex) {
+        nodes.push(
+          <React.Fragment key={key++}>
+            {highlightText(text.slice(lastIndex, match.index), searchTerm)}
+          </React.Fragment>
+        );
+      }
+
+      const tabId = match[1] as TabType;
+      const label = match[2];
+      const isValidTab = HELP_TAB_IDS.has(tabId);
+      const isAvailable =
+        isValidTab &&
+        !(tabId === 'ai' && !aiEnabled) &&
+        !(tabId === 'admin' && !isAdmin);
+
+      if (isAvailable) {
+        nodes.push(
+          <button
+            key={key++}
+            type="button"
+            onClick={() => goToHelpTab(tabId)}
+            className="text-blue-600 dark:text-blue-400 underline hover:text-blue-800 dark:hover:text-blue-300 font-medium"
+          >
+            {highlightText(label, searchTerm)}
+          </button>
+        );
+      } else {
+        nodes.push(
+          <React.Fragment key={key++}>
+            {highlightText(label, searchTerm)}
+          </React.Fragment>
+        );
+      }
+
+      lastIndex = match.index + match[0].length;
+    }
+
+    if (lastIndex < text.length) {
+      nodes.push(
+        <React.Fragment key={key++}>
+          {highlightText(text.slice(lastIndex), searchTerm)}
+        </React.Fragment>
+      );
+    }
+
+    return nodes.length === 1 ? nodes[0] : nodes;
+  }, [highlightText, goToHelpTab, aiEnabled, isAdmin]);
+
   // Check if text contains search term (case-insensitive)
   const textMatches = useCallback((text: string, searchTerm: string): boolean => {
     if (!searchTerm.trim() || !text) return false;
-    return text.toLowerCase().includes(searchTerm.toLowerCase());
-  }, []);
+    return stripHelpTabMarkers(text).toLowerCase().includes(searchTerm.toLowerCase());
+  }, [stripHelpTabMarkers]);
 
   // Check if any text in an array of strings matches
   const anyTextMatches = useCallback((texts: string[], searchTerm: string): boolean => {
@@ -154,10 +282,13 @@ export default function HelpModal({ isOpen, onClose, currentUser }: HelpModalPro
     };
   }, [isOpen, onClose]);
 
+  useEscapeDismiss(onClose, { enabled: isOpen });
+
   if (!isOpen) return null;
 
   const tabs = [
     { id: 'overview' as TabType, label: t('help.tabs.overview'), icon: LayoutGrid },
+    { id: 'shortcuts' as TabType, label: t('help.tabs.shortcuts'), icon: Keyboard },
     { id: 'kanban' as TabType, label: t('help.tabs.kanbanView'), icon: Columns },
     { id: 'list' as TabType, label: t('help.tabs.listView'), icon: List },
     { id: 'gantt' as TabType, label: t('help.tabs.ganttView'), icon: Calendar },
@@ -195,12 +326,12 @@ export default function HelpModal({ isOpen, onClose, currentUser }: HelpModalPro
         </h3>
         <div className="space-y-3 text-gray-600 dark:text-gray-300">
           {contents.map((content, index) => (
-            <p key={index}>{highlightText(content, debouncedSearchTerm)}</p>
+            <p key={index}>{renderHelpContent(content, debouncedSearchTerm)}</p>
           ))}
         </div>
       </section>
     );
-  }, [t, debouncedSearchTerm, highlightText, anyTextMatches]);
+  }, [t, debouncedSearchTerm, highlightText, renderHelpContent, anyTextMatches]);
 
   // Helper to render a section with list items
   const renderSectionWithList = useCallback((
@@ -233,19 +364,19 @@ export default function HelpModal({ isOpen, onClose, currentUser }: HelpModalPro
         </h3>
         <div className="space-y-3 text-gray-600 dark:text-gray-300">
           {contents.map((content, index) => (
-            <p key={index}>{highlightText(content, debouncedSearchTerm)}</p>
+            <p key={index}>{renderHelpContent(content, debouncedSearchTerm)}</p>
           ))}
           {listKeys.length > 0 && (
             <ul className="ml-4 space-y-1 text-gray-600 dark:text-gray-300">
               {listItems.map((item, index) => (
-                <li key={index}>{highlightText(item, debouncedSearchTerm)}</li>
+                <li key={index}>{renderHelpContent(item, debouncedSearchTerm)}</li>
               ))}
             </ul>
           )}
         </div>
       </section>
     );
-  }, [t, debouncedSearchTerm, highlightText, anyTextMatches]);
+  }, [t, debouncedSearchTerm, highlightText, renderHelpContent, anyTextMatches]);
 
   const renderOverviewTab = () => {
     const navigationKeys = isAdmin
@@ -294,6 +425,86 @@ export default function HelpModal({ isOpen, onClose, currentUser }: HelpModalPro
     ].filter(Boolean);
 
     return <div className="space-y-8">{sections}</div>;
+  };
+
+  const renderShortcutsTab = () => {
+    const note = t('help.shortcuts.note');
+    const noteMatch =
+      debouncedSearchTerm.trim() && anyTextMatches([note, t('help.shortcuts.title')], debouncedSearchTerm);
+
+    return (
+      <div className="space-y-8">
+        <section
+          className={
+            noteMatch
+              ? 'bg-yellow-50 dark:bg-yellow-900/30 rounded-lg p-4 border-2 border-yellow-400 dark:border-yellow-600 shadow-md'
+              : ''
+          }
+        >
+          <h3 className="text-xl font-semibold text-gray-800 dark:text-gray-100 mb-2 flex items-center gap-2">
+            <Keyboard className="text-indigo-500" size={20} />
+            {highlightText(t('help.shortcuts.title'), debouncedSearchTerm)}
+          </h3>
+          <p className="text-gray-600 dark:text-gray-300 text-sm">
+            {highlightText(note, debouncedSearchTerm)}
+          </p>
+        </section>
+
+        {HELP_SHORTCUT_SECTIONS.map((section) => {
+          const title = t(section.titleKey);
+          const actions = section.rows.map((row) => t(row.actionKey));
+          const hasMatch =
+            !!debouncedSearchTerm.trim() &&
+            anyTextMatches(
+              [title, ...section.rows.map((r) => r.keys), ...actions],
+              debouncedSearchTerm
+            );
+
+          return (
+            <section
+              key={section.titleKey}
+              className={
+                hasMatch
+                  ? 'bg-yellow-50 dark:bg-yellow-900/30 rounded-lg p-4 border-2 border-yellow-400 dark:border-yellow-600 shadow-md'
+                  : ''
+              }
+            >
+              <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-100 mb-3">
+                {highlightText(title, debouncedSearchTerm)}
+              </h3>
+              <div className="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-600">
+                <table className="min-w-full text-sm">
+                  <thead className="bg-gray-50 dark:bg-gray-700/80">
+                    <tr>
+                      <th className="px-3 py-2 text-left font-medium text-gray-600 dark:text-gray-300 w-48">
+                        {t('help.shortcuts.colKeys')}
+                      </th>
+                      <th className="px-3 py-2 text-left font-medium text-gray-600 dark:text-gray-300">
+                        {t('help.shortcuts.colAction')}
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200 dark:divide-gray-600 bg-white dark:bg-gray-800">
+                    {section.rows.map((row) => (
+                      <tr key={`${section.titleKey}-${row.keys}-${row.actionKey}`}>
+                        <td className="px-3 py-2 align-top whitespace-nowrap">
+                          <kbd className="inline-block px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-100 font-mono text-xs border border-gray-200 dark:border-gray-600">
+                            {highlightText(row.keys, debouncedSearchTerm)}
+                          </kbd>
+                        </td>
+                        <td className="px-3 py-2 text-gray-700 dark:text-gray-300">
+                          {highlightText(t(row.actionKey), debouncedSearchTerm)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          );
+        })}
+      </div>
+    );
   };
 
   const renderKanbanTab = () => {
@@ -616,6 +827,8 @@ export default function HelpModal({ isOpen, onClose, currentUser }: HelpModalPro
     switch (activeTab) {
       case 'overview':
         return renderOverviewTab();
+      case 'shortcuts':
+        return renderShortcutsTab();
       case 'kanban':
         return renderKanbanTab();
       case 'list':
@@ -655,6 +868,18 @@ export default function HelpModal({ isOpen, onClose, currentUser }: HelpModalPro
         } else {
           tabKeys.push('help.overview.boardSelector', 'help.overview.taskTrash');
         }
+        break;
+      case 'shortcuts':
+        tabKeys.push(
+          'help.shortcuts.title',
+          'help.shortcuts.note',
+          'help.shortcuts.colKeys',
+          'help.shortcuts.colAction',
+          ...HELP_SHORTCUT_SECTIONS.flatMap((section) => [
+            section.titleKey,
+            ...section.rows.map((row) => row.actionKey),
+          ])
+        );
         break;
       case 'kanban':
         tabKeys.push('help.kanban.overview', 'help.kanban.overviewDesc1', 'help.kanban.overviewDesc2', 'help.kanban.overviewDesc3',
@@ -742,16 +967,29 @@ export default function HelpModal({ isOpen, onClose, currentUser }: HelpModalPro
     }
     
     const tabTexts = tabKeys.map(key => t(key));
+    if (tabId === 'shortcuts') {
+      for (const section of HELP_SHORTCUT_SECTIONS) {
+        for (const row of section.rows) {
+          tabTexts.push(row.keys);
+        }
+      }
+    }
     return anyTextMatches(tabTexts, debouncedSearchTerm);
   }, [t, debouncedSearchTerm, anyTextMatches, isAdmin, aiEnabled]);
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60]">
-      <div ref={modalRef} className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-4/5 max-w-6xl h-[90vh] flex flex-col">
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[10030]">
+      <div
+        ref={modalRef}
+        className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-4/5 max-w-6xl h-[90vh] flex flex-col"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="help-modal-title"
+      >
         {/* Sticky Header */}
         <div className="flex items-center justify-between p-6 border-b bg-white dark:bg-gray-800 sticky top-0 z-10">
           <div>
-            <h2 className="text-2xl font-bold text-gray-800 dark:text-gray-100">{t('help.title')}</h2>
+            <h2 id="help-modal-title" className="text-2xl font-bold text-gray-800 dark:text-gray-100">{t('help.title')}</h2>
             <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{t('help.pressF1')}</p>
           </div>
           <div className="flex items-center gap-3 flex-wrap justify-end">
@@ -810,8 +1048,8 @@ export default function HelpModal({ isOpen, onClose, currentUser }: HelpModalPro
         </div>
 
         {/* Tab Navigation */}
-        <div className="border-b bg-gray-50 dark:bg-gray-700 px-6">
-          <nav className="flex space-x-8">
+        <div className="border-b bg-gray-50 dark:bg-gray-700 px-6 overflow-x-auto">
+          <nav className="flex space-x-6 min-w-max">
             {tabs.map((tab) => {
               const Icon = tab.icon;
               const hasMatch = getTabMatches(tab.id);

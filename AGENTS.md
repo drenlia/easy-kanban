@@ -41,8 +41,8 @@ When designing or changing any screen, treat **density, alignment, and input aff
 ## Package Management (npm)
 - Always choose secure, actively maintained packages.
 - Packages currently used in this project:
-  - **Backend**: `express`, `pg`, `redis`, `socket.io`, `bcrypt`, `jsonwebtoken`, `multer`, `nodemailer`, `node-cron`, `express-rate-limit`, `cors`, `axios`, `zod`
-  - **Frontend**: `react`, `react-dom`, `react-i18next`, `i18next`, `i18next-browser-languagedetector`, `@tiptap/*` (rich text editor), `@dnd-kit/*` (drag-and-drop), `lucide-react`, `react-joyride`, `react-window`, `recharts`, `xlsx`, `dompurify`, `socket.io-client`
+ - **Backend**: `express`, `pg`, `redis`, `socket.io`, `bcrypt`, `jsonwebtoken`, `multer`, `nodemailer`, `node-cron`, `express-rate-limit`, `cors`, `axios`, `zod`, `exceljs`
+ - **Frontend**: `react`, `react-dom`, `react-i18next`, `i18next`, `i18next-browser-languagedetector`, `@tiptap/*` (rich text editor), `@dnd-kit/*` (drag-and-drop), `lucide-react`, `react-joyride`, `react-window`, `recharts`, `exceljs`, `dompurify`, `socket.io-client`
   - **Real-time**: `socket.io`, `socket.io-client`, `@socket.io/redis-adapter`, `redis`
   - **Build/Dev**: `vite`, `typescript`, `tailwindcss`, `eslint`, `concurrently`
 - Avoid packages with known vulnerabilities, >1 year without updates, or <1k weekly downloads unless there is a very specific reason.
@@ -55,14 +55,18 @@ When designing or changing any screen, treat **density, alignment, and input aff
   - **Password Reset**: `/api/password-reset/request`, `/api/password-reset/reset`, `/api/password-reset/verify/:token`
   - **Health Checks**: `/health`, `/ready`, `/api/ready`, `/api/version`
   - **Public Settings**: `/api/settings` (GET only, for site name, mail status, OAuth config)
+  - **CSP reports**: `/api/csp-report` (POST only — browser Content-Security-Policy violation beacons; rate-limited)
   - **Admin Portal**: `/api/admin-portal/*` (uses `INSTANCE_TOKEN` auth, not user JWT)
 - Use existing auth middleware from `server/middleware/auth.js`:
   - `authenticateToken` - JWT token validation (required for all protected routes)
   - `requireRole(['admin'])` - Role-based access control for admin-only endpoints
 - Apply rate limiting for sensitive public endpoints (see `server/middleware/rateLimiters.js`):
-  - `loginLimiter` for login attempts
-  - `passwordResetRequestLimiter` (3/hour) and `passwordResetCompletionLimiter` (6/hour)
-  - `registrationLimiter` and `activationLimiter` for account creation
+ - `loginLimiter` for login attempts
+ - `passwordResetRequestLimiter` (3/hour) and `passwordResetCompletionLimiter` (6/hour)
+ - `registrationLimiter` and `activationLimiter` for account creation
+- **File media auth (I3):** same-origin `<img>` / attachment loads use HttpOnly cookie `ek_media` (`purpose: media` JWT) set by `POST /api/files/media-session` after login. Default lifetime `MEDIA_TOKEN_EXPIRES_IN` = **8h** (override via env); client refreshes hourly / on tab focus. Do **not** embed the session JWT in `?token=`. File GETs prefer cookie, then Bearer; query `?token=` is accepted only for `purpose: media` tokens (session JWTs in query are rejected). Media tokens must not authorize API routes (`authenticateToken` rejects `purpose: media`). Inactive / `force_logout` users are rejected on media and WebSocket paths (`userMayUseSession`); deactivate/delete kicks live sockets.
+- **CSP:** `Content-Security-Policy-Report-Only` with `report-uri` / `Report-To` → public `POST /api/csp-report` (rate-limited). Admins review/clear via `GET`/`DELETE /api/admin/csp-reports` and **Admin → Troubleshooting → CSP reports**. Stay Report-Only until that list is quiet, then enforce.
+- **Request validation:** Zod `parseBody` from `server/utils/requestValidation.js` on tenant + agent JSON write routes. Multipart uploads use multer + magic-byte checks instead.
 - Use sqlManager queries from `server/utils/sqlManager/index.js` (never write raw SQL in routes)
 - Handle multi-tenant database access via `getRequestDatabase(req)` from `server/middleware/tenantRouting.js`
 - Never expose error stack traces to clients (log errors server-side only)
@@ -119,18 +123,18 @@ When restoring **task/comment email** notifications (throttled queue in `notific
 - **Enqueue** using the **request-scoped tenant DB** (`getRequestDatabase(req)` / `additionalData.db` from activity logging), same as today’s activity logger pattern.
 - **Process** by iterating **each tenant database** that the instance knows about (same idea as `getAllTenantDatabases()` in `tenantRouting.js` for cron), not only `defaultDb`.
 
-### New tenants must be visible on every pod (onboarding caveat)
+### New tenants must be visible on every pod (onboarding)
 
-- Tenant DB handles are typically held in a **per-process cache** (`dbCache` in `tenantRouting.js`). **`getAllTenantDatabases()` only returns tenants already cached on that pod** (usually after at least one HTTP request opened that tenant).
-- **Implication:** background jobs (queue processor, cleanup, etc.) on a given pod may **not** see **newly onboarded** tenants until that pod has loaded their DB (first request to that host, explicit warm-up, or a future **tenant registry** that opens connections per known tenant ID).
-- When implementing or changing onboarding, **always consider**: ensuring **every pod** eventually has the new tenant in cache, or providing a **registry-driven** iteration path so scheduled work is not skipped for new tenants.
+- Multi-tenant `getAllTenantDatabases()` lists `tenant_*` schemas from PostgreSQL `information_schema`, then opens each DB (cache used as a fast path). Prefer that registry path for cron/queue so new tenants are not skipped just because a pod never served their Host yet.
+- When changing onboarding, keep the schema-registry iteration working so scheduled jobs cover every tenant.
 
 ## Security Checklist (agent must verify)
 - No hardcoded secrets (use environment variables: `JWT_SECRET`, `INSTANCE_TOKEN`, `SMTP_*`)
 - All database queries go through sqlManager (PostgreSQL parameterized queries)
 - JWT tokens validated via `authenticateToken` middleware before accessing protected routes
 - Multi-tenant isolation: users can only access data from their tenant's database
-- Security headers set globally in `server/index.js` (X-Content-Type-Options, X-Frame-Options, HSTS, etc.)
+- Security headers set globally in `server/index.js` (X-Content-Type-Options, X-Frame-Options, HSTS, CSP Report-Only, etc.)
 - CORS handled by nginx (Express CORS middleware disabled to avoid duplicate headers)
-- File uploads validated via `server/utils/fileValidation.js` (size limits, mime types, extensions)
+- File uploads validated via `server/utils/fileValidation.js` (size / MIME / extensions) and `server/utils/fileMagicBytes.js` (content signatures for avatars, logos, attachments)
+- Test/debug endpoints (`/api/test/*`, `/api/auth/test/callback`) return 404 in production unless `ALLOW_TEST_ENDPOINTS=true`; `demo-credentials` requires `DEMO_ENABLED=true`
 - Instance status checks prevent actions on suspended/terminated instances (`server/middleware/instanceStatus.js`)

@@ -2,6 +2,8 @@
 
 This guide shows you how to test the PostgreSQL notification service.
 
+> **Access gate:** `/api/test/notifications` and `/api/test/notifications/status` require an **admin JWT**. In production (`NODE_ENV=production`) these routes return **404** unless `ALLOW_TEST_ENDPOINTS=true`. Prefer Method 5 (real task update) on production-like hosts. Do not confuse this with `POST /api/admin/test-email` (SMTP) or `/api/auth/test/callback` (routing probe only).
+
 ## Method 1: Check Service Status
 
 Check if the notification service is connected:

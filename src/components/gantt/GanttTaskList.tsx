@@ -22,6 +22,7 @@ interface GanttTaskListProps {
   onRemoveTask?: (taskId: string, event?: React.MouseEvent) => Promise<void>;
   highlightedTaskId?: string | null;
   siteSettings?: any;
+  isAdmin?: boolean;
 }
 
 // Individual task row component
@@ -39,6 +40,7 @@ const TaskRow = memo(({
   onCopyTask,
   onRemoveTask,
   highlightedTaskId,
+  isAdmin = false,
 }: any) => {
   const { t } = useTranslation('common');
   const isTaskDetailsOpen = selectedTask?.id === task.id;
@@ -151,7 +153,7 @@ const TaskRow = memo(({
                 onRemoveTask(task.id, e);
               }}
               className="p-1 hover:bg-red-100 dark:hover:bg-red-900 rounded transition-colors"
-              title={t('gantt.deleteTask')}
+              title={isAdmin ? t('gantt.deleteTaskAdminHint') : t('gantt.deleteTask')}
             >
               <Trash2 size={14} className="text-gray-500 hover:text-red-600" />
             </button>
@@ -178,6 +180,7 @@ const GanttTaskList = memo(({
   onCopyTask,
   onRemoveTask,
   highlightedTaskId,
+  isAdmin = false,
 }: GanttTaskListProps) => {
   const { t } = useTranslation('common');
   return (
@@ -227,6 +230,7 @@ const GanttTaskList = memo(({
                 onCopyTask={onCopyTask}
                 onRemoveTask={onRemoveTask}
                 highlightedTaskId={highlightedTaskId}
+                isAdmin={isAdmin}
               />
             ))}
           </div>

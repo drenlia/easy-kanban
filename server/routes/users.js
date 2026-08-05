@@ -10,6 +10,14 @@ import { getTranslator } from '../utils/i18n.js';
 import { getTenantId, getRequestDatabase } from '../middleware/tenantRouting.js';
 import { users as userQueries, tasks as taskQueries, adminUsers as adminUserQueries, settings as settingsQueries } from '../utils/sqlManager/index.js';
 import { commitUploadedFile, getRequestStoragePaths } from '../services/storage/index.js';
+import { deleteAvatarFileIfUnused } from '../utils/avatarCleanup.js';
+import { validateUploadedFileMagic } from '../utils/fileMagicBytes.js';
+import { getAdminFileSettings } from '../utils/fileValidation.js';
+import {
+  parseBody,
+  updateProfileBodySchema,
+  updateUserSettingBodySchema
+} from '../utils/requestValidation.js';
 
 const SYSTEM_USER_ID = '00000000-0000-0000-0000-000000000000';
 const SYSTEM_MEMBER_ID = '00000000-0000-0000-0000-000000000001';
@@ -52,11 +60,20 @@ router.post('/upload', authenticateToken, createUploadMiddleware, async (req, re
     }
 
     const db = getRequestDatabase(req);
+    const settings = await getAdminFileSettings(db);
+    const magic = await validateUploadedFileMagic(req.file, {
+      mode: 'attachment',
+      limitsEnforced: settings.limitsEnforced,
+      allowedTypes: settings.allowedTypes
+    });
+    if (!magic.valid) {
+      return res.status(400).json({ error: magic.error });
+    }
+
     await commitUploadedFile(db, getRequestStoragePaths(req), 'attachments', req.file);
 
-    // Generate authenticated URL with token
-    const token = req.headers.authorization?.replace('Bearer ', '');
-    const authenticatedUrl = token ? `/api/files/attachments/${req.file.filename}?token=${encodeURIComponent(token)}` : `/attachments/${req.file.filename}`;
+    // Cookie-authenticated files URL (no session JWT in query string)
+    const authenticatedUrl = `/api/files/attachments/${req.file.filename}`;
     
     res.json({
       id: crypto.randomUUID(),
@@ -78,11 +95,21 @@ router.post('/avatar', authenticateToken, avatarUpload.single('avatar'), async (
   }
 
   try {
+    const magic = await validateUploadedFileMagic(req.file, { mode: 'avatar' });
+    if (!magic.valid) {
+      return res.status(400).json({ error: magic.error });
+    }
+
     const db = getRequestDatabase(req);
+    const previous = await userQueries.getUserByIdForAdmin(db, req.user.id);
+    const previousPath = previous?.avatar_path || previous?.avatarPath || null;
+
     await commitUploadedFile(db, getRequestStoragePaths(req), 'avatars', req.file);
     const avatarPath = `/avatars/${req.file.filename}`;
     // MIGRATED: Update user avatar using sqlManager
     await userQueries.updateUserAvatar(db, req.user.id, avatarPath);
+
+    await deleteAvatarFileIfUnused(db, getRequestStoragePaths(req), previousPath);
     
     // MIGRATED: Get the member ID using sqlManager
     const member = await userQueries.getMemberByUserId(db, req.user.id);
@@ -100,9 +127,8 @@ router.post('/avatar', authenticateToken, avatarUpload.single('avatar'), async (
       console.log('✅ User-profile-updated published to Redis');
     }
     
-    // Generate authenticated URL with token
-    const token = req.headers.authorization?.replace('Bearer ', '');
-    const authenticatedUrl = token ? `/api/files/avatars/${req.file.filename}?token=${encodeURIComponent(token)}` : avatarPath;
+    // Cookie-authenticated files URL (no session JWT in query string)
+    const authenticatedUrl = `/api/files/avatars/${req.file.filename}`;
     
     res.json({
       message: 'Avatar uploaded successfully',
@@ -118,8 +144,13 @@ router.post('/avatar', authenticateToken, avatarUpload.single('avatar'), async (
 router.delete('/avatar', authenticateToken, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
+    const previous = await userQueries.getUserByIdForAdmin(db, req.user.id);
+    const previousPath = previous?.avatar_path || previous?.avatarPath || null;
+
     // MIGRATED: Update user avatar using sqlManager
     await userQueries.updateUserAvatar(db, req.user.id, null);
+
+    await deleteAvatarFileIfUnused(db, getRequestStoragePaths(req), previousPath);
     
     // MIGRATED: Get the member ID using sqlManager
     const member = await userQueries.getMemberByUserId(db, req.user.id);
@@ -149,18 +180,12 @@ router.put('/profile', authenticateToken, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
     const t = await getTranslator(db);
-    const { displayName } = req.body;
-    const userId = req.user.id;
-    
-    if (!displayName || displayName.trim().length === 0) {
+    const parsed = parseBody(updateProfileBodySchema, req.body);
+    if (!parsed.success) {
       return res.status(400).json({ error: t('errors.displayNameRequired') });
     }
-    
-    // Validate display name length (max 30 characters)
-    const trimmedDisplayName = displayName.trim();
-    if (trimmedDisplayName.length > 30) {
-      return res.status(400).json({ error: t('errors.displayNameTooLong') });
-    }
+    const trimmedDisplayName = parsed.data.displayName;
+    const userId = req.user.id;
     
     // MIGRATED: Check for duplicate display name using sqlManager
     const existingMember = await userQueries.checkMemberNameExists(db, trimmedDisplayName, userId);
@@ -292,6 +317,12 @@ router.delete("/account", authenticateToken, async (req, res) => {
       console.log(`🗑️ Account deleted successfully for user: ${user.email}`);
     });
 
+    await deleteAvatarFileIfUnused(
+      db,
+      getRequestStoragePaths(req),
+      user.avatar_path || user.avatarPath
+    );
+
     if (tasksToReassign.length > 0) {
       const systemMember = await userQueries.getMemberById(db, SYSTEM_MEMBER_ID);
       if (systemMember) {
@@ -400,10 +431,22 @@ router.get('/settings', authenticateToken, async (req, res) => {
 
 router.put('/settings', authenticateToken, async (req, res) => {
   const userId = req.user.id;
-  const { setting_key, setting_value } = req.body;
+  const parsed = parseBody(updateUserSettingBodySchema, req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error });
+  }
+  const { setting_key, setting_value } = parsed.data;
   const db = getRequestDatabase(req);
   
   try {
+    // Perf overlay preference is admin-only (UI also gates on role)
+    if (setting_key === 'FE_PERF_TESTS') {
+      const roles = Array.isArray(req.user?.roles) ? req.user.roles : [];
+      if (!roles.includes('admin')) {
+        return res.status(403).json({ error: 'Only admins can change performance test preferences' });
+      }
+    }
+
     // Handle undefined values (skip them)
     if (setting_value === undefined) {
       console.warn(`Skipping save for ${setting_key}: value is undefined`);

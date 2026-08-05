@@ -50,7 +50,7 @@ For a given tenant database, update or insert the row in `settings`:
 UPDATE settings SET value = 'true' WHERE key = 'FE_DEBUG_WEBSOCKET';
 ```
 
-Use the same pattern for SQLite (`settings` table). Prefer the admin API when possible so Redis/WebSocket broadcasts stay consistent.
+Use the same pattern for PostgreSQL (`settings` table). Prefer the admin API when possible so Redis/WebSocket broadcasts stay consistent.
 
 ### 4. After changing `SERVER_DEBUG_SQL`
 
@@ -81,7 +81,7 @@ The server caches whether SQL debug is enabled for about **15 seconds** (`server
 
 | Key | Where it applies | What you get |
 |-----|------------------|--------------|
-| `FE_PERF_TESTS` | Public settings + Admin Site Settings toggle; overlay in `src/perfTests/` | When `"true"`, **admins** see a floating Perf Tests control center on the Kanban page (generate/move/cleanup scenarios + metrics modals). Default `"false"`. Not a console debug logger. |
+| `FE_PERF_TESTS` | **Per-admin** `user_settings` (not tenant `settings`). Toggle: Admin → App Settings → Troubleshooting. Overlay in `src/perfTests/` | When `"true"` for **that** admin: Kanban board stress panel + Admin sample-data seed panel. Other admins unaffected. Default off. |
 
 ---
 
@@ -95,7 +95,11 @@ These are read with `await serverDebug(db, 'SERVER_DEBUG_…')` (`server/utils/s
 | `SERVER_DEBUG_HTTP` | `server/routes/settings.js` (`PUT /api/settings/app-url`); `server/routes/tasks.js` (all task `console.log` via `taskHttpLog`) | Step-by-step logs for the owner `APP_URL` update flow; task API timing / batch-update-positions / create publish chatter. Off by default — enable only when diagnosing HTTP/task paths. |
 | `SERVER_DEBUG_SQL` | `server/utils/queryLogger.js` | Per-query lines for every `wrapQuery` execution: truncated SQL, param summary, duration, errors. Prefix: `[SERVER_DEBUG_SQL]`. Setting is read via a **cached** path (≈15s TTL) that bypasses `wrapQuery` to avoid recursion (`server/utils/sqlDebugSettingsCache.js`). |
 
-**Admin UI:** App Settings → **Troubleshooting** (`AdminTroubleshootingTab`) — toggles for `FE_PERF_TESTS`, all `FE_DEBUG_*`, and `SERVER_DEBUG_*`. Writes go only through `PUT /api/admin/settings` (`authenticateToken` + `requireRole(['admin'])`). Public `GET /api/settings` can *read* `FE_*` flags (so the client can gate logs before login) but cannot change them; `SERVER_DEBUG_*` are not included in the public payload.
+**Admin UI:** App Settings → **Troubleshooting** (`AdminTroubleshootingTab`) — toggles for all `FE_DEBUG_*` and `SERVER_DEBUG_*` (tenant settings via `PUT /api/admin/settings`). **Performance Test Overlay** is separate: saved with `PUT /api/user/settings` (`FE_PERF_TESTS`) for the current admin only. Public `GET /api/settings` can *read* `FE_DEBUG_*` flags (so the client can gate logs before login) but cannot change them; `SERVER_DEBUG_*` are not included in the public payload.
+
+### CSP reports (Report-Only)
+
+Browsers POST violations to public `POST /api/csp-report` (rate-limited). Rows land in the tenant `csp_reports` table (capped). Review and clear them under **Admin → App Settings → Troubleshooting → CSP reports** (`GET` / `DELETE /api/admin/csp-reports`). Use this list before flipping CSP from Report-Only to enforcing.
 
 **Note:** Task route `console.log` lines are gated by `SERVER_DEBUG_HTTP` (`taskHttpLog` in `server/routes/tasks.js`). WebSocket per-event chatter (`task-updated` broadcasts, board-room joins, disconnects) is suppressed when `NODE_ENV=production` via `wsVerboseLog` in `server/utils/serverDebug.js`; successful auth/connect logs remain. Other routes may still use ungated `console.log`.
 
@@ -117,7 +121,7 @@ Express sets `Cache-Control: no-store` on the SPA shell and `immutable` long cac
 
 **Kubernetes rolling restart with `image: …:latest` and `imagePullPolicy: Always`:** While old pods are still running, new pods may pull a **new** digest for `:latest`. The Service load-balances across both — the browser can get `index-*.js` from one build and a lazy chunk from another pod where that filename does not exist → same `Failed to fetch dynamically imported module` loop until the rollout finishes (or forever if something keeps skewing pulls). Prefer an **immutable tag per release** (e.g. git SHA) in the Deployment, or scale to one replica during cutover, or use a `Recreate` deploy strategy if brief downtime is acceptable.
 
-**“New version” refresh during rollout:** A full reload can land on a pod that is **terminating** or still serve a **stale document** from cache. Mitigations used in this repo: (1) **client** — `useVersionStatus` retries `GET /api/version` a few times then navigates with a `_v=` cache-bust query param; (2) **cluster** — `app-deployment-pg.yaml` uses `rollingUpdate.maxUnavailable: 0`, `preStop: sleep 15`, and `terminationGracePeriodSeconds: 45` so endpoints drain before SIGTERM. The old SQLite **proxy** model avoided per-pod DB files but did not remove load-balancing across app pods; the same rollout rules still apply to **static assets** and HTTP.
+**“New version” refresh during rollout:** A full reload can land on a pod that is **terminating** or still serve a **stale document** from cache. Mitigations used in this repo: (1) **client** — `useVersionStatus` retries `GET /api/version` a few times then navigates with a `_v=` cache-bust query param; (2) **cluster** — `app-deployment-pg.yaml` uses `rollingUpdate.maxUnavailable: 0`, `preStop: sleep 15`, and `terminationGracePeriodSeconds: 45` so endpoints drain before SIGTERM. The same rollout rules apply to **static assets** and HTTP across app pods.
 
 ---
 

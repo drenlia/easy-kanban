@@ -51,7 +51,7 @@ export const AdminUnsavedChangesBanner: React.FC<AdminUnsavedChangesBannerProps>
       </p>
       <button
         type="button"
-        onClick={onDiscard}
+        onClick={() => onDiscard()}
         disabled={isSaving}
         className="px-2 py-1 text-xs font-medium rounded border border-amber-300 dark:border-amber-700 text-amber-900 dark:text-amber-100 bg-white/80 dark:bg-gray-800/80 hover:bg-white dark:hover:bg-gray-800 disabled:opacity-50"
       >
@@ -59,7 +59,7 @@ export const AdminUnsavedChangesBanner: React.FC<AdminUnsavedChangesBannerProps>
       </button>
       <button
         type="button"
-        onClick={onSave}
+        onClick={() => onSave()}
         disabled={isSaving || saveDisabled}
         className="px-2 py-1 text-xs font-medium rounded text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 disabled:opacity-50 whitespace-nowrap"
       >

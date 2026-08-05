@@ -1,4 +1,4 @@
-import { PAGE_IDENTIFIERS, ADMIN_TABS, ROUTES } from '../constants';
+import { PAGE_IDENTIFIERS, ADMIN_TABS, AUTH_HASH_ROUTES, ROUTES } from '../constants';
 
 export interface ParsedRoute {
   mainRoute: string;
@@ -115,7 +115,15 @@ export const parseUrlHash = (hash: string): ParsedRoute => {
   // Determine route type
   const isPage = PAGE_IDENTIFIERS.includes(mainRoute);
   const isAdminTab = ADMIN_TABS.includes(mainRoute);
-  const isBoardId = !isPage && !isAdminTab && mainRoute.length > 0 && !projectRoute.isProjectRoute && !taskRoute.isTaskRoute;
+  const isAuthHash = AUTH_HASH_ROUTES.includes(mainRoute);
+  // #login etc. must never be treated as a board UUID (causes select/clear flash loops)
+  const isBoardId =
+    !isPage &&
+    !isAdminTab &&
+    !isAuthHash &&
+    mainRoute.length > 0 &&
+    !projectRoute.isProjectRoute &&
+    !taskRoute.isTaskRoute;
   
   return {
     mainRoute,

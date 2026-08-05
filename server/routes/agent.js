@@ -20,6 +20,15 @@ import notificationService from '../services/notificationService.js';
 import { agentClaimLimiter } from '../middleware/rateLimiters.js';
 import { updateStorageUsage } from '../utils/storageUtils.js';
 import { wrapQuery } from '../utils/queryLogger.js';
+import {
+  parseBody,
+  agentClaimBodySchema,
+  agentMoveTaskBodySchema,
+  agentCommentBodySchema,
+  agentAttachmentsBodySchema,
+  agentPatchTaskBodySchema,
+  agentUpdateWorkBodySchema
+} from '../utils/requestValidation.js';
 
 const router = express.Router();
 const requireAi = requireAiEnabledMiddleware(getRequestDatabase);
@@ -86,8 +95,12 @@ router.post('/tasks/:id/claim', agentClaimLimiter, async (req, res) => {
     const check = await ensureAgentTask(db, req.params.id);
     if (check.error) return res.status(check.status).json({ error: check.error });
 
+    const claimParsed = parseBody(agentClaimBodySchema, req.body || {});
+    if (!claimParsed.success) {
+      return res.status(400).json({ error: claimParsed.error });
+    }
     const claimedBy =
-      req.body?.runnerId ||
+      claimParsed.data.runnerId ||
       req.user.tokenId ||
       req.user.id;
 
@@ -136,12 +149,13 @@ router.post('/tasks/:id/move', async (req, res) => {
     const check = await ensureAgentTask(db, req.params.id);
     if (check.error) return res.status(check.status).json({ error: check.error });
 
-    const { columnId, position } = req.body || {};
-    if (!columnId) {
-      return res.status(400).json({ error: 'columnId is required' });
+    const moveParsed = parseBody(agentMoveTaskBodySchema, req.body || {});
+    if (!moveParsed.success) {
+      return res.status(400).json({ error: moveParsed.error });
     }
+    const { columnId, position } = moveParsed.data;
 
-    const targetPosition = typeof position === 'number' ? position : 0;
+    const targetPosition = typeof position === 'number' ? position : Number(position) || 0;
     await taskQueries.updateTaskPositionAndColumn(
       db,
       req.params.id,
@@ -181,12 +195,16 @@ router.post('/tasks/:id/comments', async (req, res) => {
     const check = await ensureAgentTask(db, req.params.id);
     if (check.error) return res.status(check.status).json({ error: check.error });
 
-    const text = (req.body?.text || '').toString().trim();
+    const commentParsed = parseBody(agentCommentBodySchema, req.body || {});
+    if (!commentParsed.success) {
+      return res.status(400).json({ error: commentParsed.error });
+    }
+    const text = commentParsed.data.text.trim();
     if (!text) {
       return res.status(400).json({ error: 'text is required' });
     }
 
-    const commentId = req.body?.id || crypto.randomUUID();
+    const commentId = commentParsed.data.id || crypto.randomUUID();
     const createdAt = new Date().toISOString();
 
     await db.executeBatchTransaction([
@@ -222,7 +240,7 @@ router.post('/tasks/:id/comments', async (req, res) => {
     ).catch((err) => console.error('Agent comment activity log failed:', err));
 
     // Optional: mark waiting when agent asks a question
-    if (req.body?.markWaiting === true) {
+    if (commentParsed.data.markWaiting === true) {
       await taskWorkQueries.upsertWorkEntries(db, req.params.id, {
         status: 'waiting',
         control: 'none'
@@ -249,10 +267,11 @@ router.post('/tasks/:id/attachments', async (req, res) => {
     const check = await ensureAgentTask(db, req.params.id);
     if (check.error) return res.status(check.status).json({ error: check.error });
 
-    const attachments = req.body?.attachments;
-    if (!Array.isArray(attachments) || attachments.length === 0) {
-      return res.status(400).json({ error: 'attachments array is required' });
+    const attParsed = parseBody(agentAttachmentsBodySchema, req.body || {});
+    if (!attParsed.success) {
+      return res.status(400).json({ error: attParsed.error });
     }
+    const attachments = attParsed.data.attachments;
 
     const batchQueries = [];
     const insertQuery = `
@@ -288,7 +307,13 @@ router.patch('/tasks/:id', async (req, res) => {
     const check = await ensureAgentTask(db, req.params.id);
     if (check.error) return res.status(check.status).json({ error: check.error });
 
-    if (req.body?.title !== undefined || req.body?.description !== undefined) {
+    const patchParsed = parseBody(agentPatchTaskBodySchema, req.body || {});
+    if (!patchParsed.success) {
+      return res.status(400).json({ error: patchParsed.error });
+    }
+    const body = patchParsed.data;
+
+    if (body.title !== undefined || body.description !== undefined) {
       return res.status(403).json({
         error: 'Agents must not change title or description; use comments instead'
       });
@@ -309,8 +334,8 @@ router.patch('/tasks/:id', async (req, res) => {
       'sprintId',
       'sprint_id'
     ]) {
-      if (req.body?.[key] !== undefined) {
-        allowed[key] = req.body[key];
+      if (body[key] !== undefined) {
+        allowed[key] = body[key];
       }
     }
 
@@ -356,7 +381,12 @@ router.put('/tasks/:id/work', async (req, res) => {
     const check = await ensureAgentTask(db, req.params.id);
     if (check.error) return res.status(check.status).json({ error: check.error });
 
-    const entries = req.body?.entries || req.body || {};
+    const workParsed = parseBody(agentUpdateWorkBodySchema, req.body || {});
+    if (!workParsed.success) {
+      return res.status(400).json({ error: workParsed.error });
+    }
+    const body = workParsed.data;
+    const entries = body.entries || body;
     if (typeof entries !== 'object' || Array.isArray(entries)) {
       return res.status(400).json({ error: 'entries object required' });
     }
@@ -365,6 +395,7 @@ router.put('/tasks/:id/work', async (req, res) => {
     const toUpsert = { ...rest };
     // Never allow arbitrary overwrite of reserved structure via empty body
     delete toUpsert.appendLog;
+    delete toUpsert.entries;
 
     if (Object.keys(toUpsert).length) {
       await taskWorkQueries.upsertWorkEntries(db, req.params.id, toUpsert);

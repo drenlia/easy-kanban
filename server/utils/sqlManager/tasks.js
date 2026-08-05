@@ -1473,6 +1473,20 @@ export async function getTrashTasksForBoard(db, boardId) {
 }
 
 /**
+ * Count soft-deleted tasks tenant-wide (Admin Lifecycle badge / summary)
+ */
+export async function countLifecycleDeletedTasks(db) {
+  const query = `
+    SELECT COUNT(*)::int AS count
+    FROM tasks
+    WHERE deleted_at IS NOT NULL
+  `;
+  const stmt = wrapQuery(db.prepare(query), 'SELECT');
+  const row = await stmt.get();
+  return row?.count || 0;
+}
+
+/**
  * Soft-deleted tasks across boards for Admin Lifecycle
  */
 export async function getLifecycleDeletedTasks(db, boardId = null, search = null) {
@@ -1518,6 +1532,34 @@ export async function reassignTrashTasksFromColumn(db, columnId, fallbackColumnI
   `;
   const stmt = wrapQuery(db.prepare(query), 'UPDATE');
   return await stmt.all(columnId, fallbackColumnId);
+}
+
+/**
+ * Count live (non-trashed) tasks in a column
+ */
+export async function countLiveTasksInColumn(db, columnId) {
+  const query = `
+    SELECT COUNT(*)::int AS count
+    FROM tasks
+    WHERE columnid = $1 AND deleted_at IS NULL
+  `;
+  const stmt = wrapQuery(db.prepare(query), 'SELECT');
+  const row = await stmt.get(columnId);
+  return Number(row?.count) || 0;
+}
+
+/**
+ * Count soft-deleted (trash) tasks still pointing at a column
+ */
+export async function countTrashTasksInColumn(db, columnId) {
+  const query = `
+    SELECT COUNT(*)::int AS count
+    FROM tasks
+    WHERE columnid = $1 AND deleted_at IS NOT NULL
+  `;
+  const stmt = wrapQuery(db.prepare(query), 'SELECT');
+  const row = await stmt.get(columnId);
+  return Number(row?.count) || 0;
 }
 
 /**

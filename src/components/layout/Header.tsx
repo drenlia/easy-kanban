@@ -12,6 +12,7 @@ import { feDebug } from '../../utils/clientDebug';
 import ResetCountdown from '../ResetCountdown';
 import { KanbanChromeTooltip } from '../KanbanChromeTooltip';
 import { toast } from '../../utils/toast';
+import { getAuthenticatedAvatarUrl } from '../../utils/authImageUrl';
 
 interface SystemInfo {
   memory: {
@@ -157,7 +158,6 @@ const Header: React.FC<HeaderProps> = ({
   };
 
   const [systemInfo, setSystemInfo] = useState<SystemInfo | null>(null);
-  const [authToken, setAuthToken] = useState<string | null>(null);
   const [reportsEnabled, setReportsEnabled] = useState(true); // Default to enabled
   const [reportsVisibleTo, setReportsVisibleTo] = useState('all'); // Default to all users
   
@@ -287,35 +287,6 @@ const Header: React.FC<HeaderProps> = ({
     }
   };
 
-  // Helper function to get authenticated avatar URL using state
-  const getAuthenticatedAvatarUrl = (avatarUrl: string | undefined | null): string | undefined => {
-    if (!avatarUrl) return undefined;
-    
-    // If it's already a token-based URL, return as-is
-    if (avatarUrl.startsWith('/api/files/avatars/')) {
-      return avatarUrl;
-    }
-    
-    // If it's a Google avatar URL (external), return as-is
-    if (avatarUrl.startsWith('http://') || avatarUrl.startsWith('https://')) {
-      return avatarUrl;
-    }
-    
-    // Use the state token instead of localStorage
-    if (!authToken) {
-      return undefined;
-    }
-    
-    // Convert local avatar URL to token-based URL
-    if (avatarUrl.startsWith('/avatars/')) {
-      const filename = avatarUrl.replace('/avatars/', '');
-      return `/api/files/avatars/${filename}?token=${encodeURIComponent(authToken)}`;
-    }
-    
-    // If it doesn't start with /avatars/, assume it's a filename and add the path
-    return `/api/files/avatars/${avatarUrl}?token=${encodeURIComponent(authToken)}`;
-  };
-
   // Close invite / more / profile menus when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -341,22 +312,6 @@ const Header: React.FC<HeaderProps> = ({
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [isInviting]);
-
-  // Track auth token changes
-  useEffect(() => {
-    const token = localStorage.getItem('authToken');
-    setAuthToken(token);
-    
-    // Listen for storage changes (when token is updated in another tab)
-    const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === 'authToken') {
-        setAuthToken(e.newValue);
-      }
-    };
-    
-    window.addEventListener('storage', handleStorageChange);
-    return () => window.removeEventListener('storage', handleStorageChange);
-  }, []);
 
   // Fetch system info with polling when system panel is visible
   // Header is always loaded, so it handles all system info polling (Admin.tsx no longer polls)
@@ -396,14 +351,32 @@ const Header: React.FC<HeaderProps> = ({
     return () => clearInterval(interval);
   }, [currentUser?.roles, showSystemPanel, isSystemPanelAvailable]);
 
-  // Tour can force the metrics panel open without flipping a closed preference the wrong way
+  // Tour can force the metrics panel open without flipping a closed preference the wrong way.
+  // Remember the pre-tour visibility so finish/skip can restore it.
+  const showSystemPanelRef = useRef(showSystemPanel);
+  showSystemPanelRef.current = showSystemPanel;
+  const systemPanelBeforeTourRef = useRef<boolean | null>(null);
+
   useEffect(() => {
     if (!isSystemPanelAvailable) return;
     const openForTour = () => {
+      if (systemPanelBeforeTourRef.current === null) {
+        systemPanelBeforeTourRef.current = showSystemPanelRef.current;
+      }
       setShowSystemPanel(true);
     };
+    const restoreAfterTour = () => {
+      if (systemPanelBeforeTourRef.current !== null) {
+        setShowSystemPanel(systemPanelBeforeTourRef.current);
+        systemPanelBeforeTourRef.current = null;
+      }
+    };
     window.addEventListener('tour:ensure-system-panel', openForTour);
-    return () => window.removeEventListener('tour:ensure-system-panel', openForTour);
+    window.addEventListener('tour:restore-system-panel', restoreAfterTour);
+    return () => {
+      window.removeEventListener('tour:ensure-system-panel', openForTour);
+      window.removeEventListener('tour:restore-system-panel', restoreAfterTour);
+    };
   }, [isSystemPanelAvailable]);
 
   const handleInviteClick = () => {
@@ -486,7 +459,7 @@ const Header: React.FC<HeaderProps> = ({
   };
 
   return (
-    <header className="sticky top-0 z-50 bg-white dark:bg-gray-800 shadow-sm border-b border-gray-100 dark:border-gray-700" data-tour-id="navigation">
+    <header className="sticky top-0 z-[60] bg-white dark:bg-gray-800 shadow-sm border-b border-gray-100 dark:border-gray-700" data-tour-id="navigation">
       <div className="app-page-shell app-page-inline-gutter py-2.5 flex justify-between items-center gap-2 min-w-0 max-w-full">
         <div className="flex items-center gap-2 sm:gap-3 min-w-0 shrink">
           <a
@@ -522,7 +495,8 @@ const Header: React.FC<HeaderProps> = ({
                 ) {
                   return value;
                 }
-                return getAuthenticatedAvatarUrl(value) || value;
+                // Never fall back to bare `/avatars/...` — SPA catch-all returns 404 for that path
+                return getAuthenticatedAvatarUrl(value);
               };
 
               const logoSrc = rawLogo ? resolveBrandLogo(rawLogo) : undefined;
@@ -661,7 +635,7 @@ const Header: React.FC<HeaderProps> = ({
                 {showAppNavMenu && (
                   <div
                     role="menu"
-                    className="absolute right-0 top-full mt-2 min-w-[11rem] bg-white dark:bg-gray-800 rounded-lg shadow-lg z-50 border border-gray-200 dark:border-gray-700 py-1"
+                    className="absolute right-0 top-full mt-2 min-w-[11rem] bg-white dark:bg-gray-800 rounded-lg shadow-lg z-[70] border border-gray-200 dark:border-gray-700 py-1"
                   >
                     <button
                       type="button"
@@ -742,7 +716,7 @@ const Header: React.FC<HeaderProps> = ({
                   </KanbanChromeTooltip>
 
                   {showInviteDropdown && (
-                    <div className="absolute right-0 top-full mt-2 w-[min(20rem,calc(100vw-1.5rem))] bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 z-50">
+                    <div className="absolute right-0 top-full mt-2 w-[min(20rem,calc(100vw-1.5rem))] bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 z-[70]">
                       <div className="p-4">
                         <div className="flex items-center gap-2 mb-3">
                           <Mail className="h-4 w-4 text-blue-600" />
@@ -913,7 +887,7 @@ const Header: React.FC<HeaderProps> = ({
               {showMoreMenu && (
                 <div
                   role="menu"
-                  className="absolute right-0 top-full mt-2 min-w-[12rem] bg-white dark:bg-gray-800 rounded-lg shadow-lg z-50 border border-gray-200 dark:border-gray-700 py-1"
+                  className="absolute right-0 top-full mt-2 min-w-[12rem] bg-white dark:bg-gray-800 rounded-lg shadow-lg z-[70] border border-gray-200 dark:border-gray-700 py-1"
                 >
                   <button
                     type="button"
@@ -1010,7 +984,7 @@ const Header: React.FC<HeaderProps> = ({
               {showProfileMenu && (
                 <div
                   role="menu"
-                  className="absolute right-0 top-full mt-2 min-w-max bg-white dark:bg-gray-800 rounded-lg shadow-lg z-50 border border-gray-200 dark:border-gray-700"
+                  className="absolute right-0 top-full mt-2 min-w-max bg-white dark:bg-gray-800 rounded-lg shadow-lg z-[70] border border-gray-200 dark:border-gray-700"
                 >
                   <div className="py-1">
                     <button

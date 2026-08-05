@@ -45,6 +45,9 @@ logs/
 # QA / Playwright suite (local only; not tracked)
 qa/
 
+# Local audit / assessment reports (not tracked)
+audit/
+
 # Runtime data
 pids/
 *.pid
