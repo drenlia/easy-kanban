@@ -1299,7 +1299,7 @@
       "mail": {
         "title": "Mail server",
         "description": "Under Admin → System Settings → Mail Server, configure SMTP and send a test email so invitations and password resets work. Skip if you only create users locally.",
-        "descriptionMultiTenant": "Tenants start on platform-managed email. Under Admin → System Settings → Mail Server, switch to Custom SMTP first, then configure SMTP and send a test email so invitations and password resets work. Skip if you only create users locally.",
+        "descriptionMultiTenant": "Email is managed by the platform. Under Admin → System Settings → Mail Server, switch to Custom SMTP first if you want your own mail server, then configure SMTP and send a test email so invitations and password resets work. Skip if you only create users locally.",
         "guide": "Fill SMTP settings, test, then enable mail.",
         "fields": {
           "switchToCustomSmtp": "First click Switch to Custom SMTP (confirm twice) so you can edit your own mail server settings.",
@@ -1361,6 +1361,21 @@
           "GOOGLE_CLIENT_ID": "Paste your Google OAuth Client ID.",
           "GOOGLE_CLIENT_SECRET": "Paste your Google OAuth Client Secret.",
           "GOOGLE_CALLBACK_URL": "Confirm the callback URL matches your Google Cloud console."
+        }
+      },
+      "storage": {
+        "title": "File storage (S3)",
+        "description": "Optional: under Admin → System Settings → Storage, use Disk or configure your own S3-compatible bucket for uploads and attachments. Test the connection before activating S3.",
+        "descriptionMultiTenant": "File storage is managed by the platform. Under Admin → System Settings → Storage, choose Use your own S3 bucket first if you want your own bucket, then enter credentials, test the connection, and finish the migration. Skip if platform storage is fine.",
+        "guide": "Configure storage or move to your own S3 bucket.",
+        "fields": {
+          "switchToCustomStorage": "First click Use your own S3 bucket (confirm) so you can enter your own bucket settings.",
+          "STORAGE_BACKEND": "Choose Disk or S3 for where files are stored.",
+          "S3_BUCKET": "Enter your S3 bucket name.",
+          "S3_REGION": "Enter the bucket region (e.g. ca-central-1).",
+          "S3_ACCESS_KEY_ID": "Enter the access key for the bucket.",
+          "S3_SECRET_ACCESS_KEY": "Enter the secret key for the bucket.",
+          "testConnection": "Test the connection before saving or migrating."
         }
       },
       "licensing": {

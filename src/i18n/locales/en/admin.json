@@ -420,6 +420,7 @@
     "credentialsSection": "Credentials",
     "optionsSection": "Options",
     "multiTenantHint": "In multi-tenant mode, local disk is not available across pods. Use platform or custom S3.",
+    "multiTenantDiskStuckHint": "This instance is still on local disk, which does not work across pods. Enter your S3 settings below, run Test S3 connection, select S3 / compatible, then Save.",
     "optional": "optional",
     "endpoint": "S3 endpoint",
     "endpointHint": "For Amazon S3, keep https://s3.amazonaws.com (or use https://s3.<your-region>.amazonaws.com). For MinIO / R2 / Spaces, paste that provider’s endpoint URL instead.",

@@ -421,6 +421,7 @@
     "credentialsSection": "Identifiants",
     "optionsSection": "Options",
     "multiTenantHint": "En mode multi-locataire, le disque local n’est pas partagé entre les pods. Utilisez le S3 plateforme ou personnalisé.",
+    "multiTenantDiskStuckHint": "Cette instance est encore sur le disque local, incompatible avec plusieurs pods. Saisissez vos paramètres S3 ci-dessous, lancez Tester la connexion S3, sélectionnez S3 / compatible, puis Enregistrer.",
     "optional": "optionnel",
     "endpoint": "Point de terminaison S3",
     "endpointHint": "Pour Amazon S3, gardez https://s3.amazonaws.com (ou https://s3.<votre-région>.amazonaws.com). Pour MinIO / R2 / Spaces, collez l’URL du fournisseur.",

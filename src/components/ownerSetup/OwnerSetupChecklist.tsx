@@ -54,17 +54,29 @@ const OwnerSetupChecklist: React.FC = () => {
   const { siteSettings, systemSettings } = useSettings();
 
   const guideFieldContext = useMemo(() => {
-    const raw = (systemSettings?.MAIL_MANAGED ?? siteSettings?.MAIL_MANAGED) as
+    const rawMail = (systemSettings?.MAIL_MANAGED ?? siteSettings?.MAIL_MANAGED) as
+      | string
+      | undefined;
+    const rawStorage = (systemSettings?.STORAGE_MANAGED ?? siteSettings?.STORAGE_MANAGED) as
       | string
       | undefined;
     return {
       multiTenant: isMultiTenantDeploy(),
       mailManaged:
-        raw === undefined || raw === ''
+        rawMail === undefined || rawMail === ''
           ? undefined
-          : String(raw).toLowerCase() === 'true',
+          : String(rawMail).toLowerCase() === 'true',
+      storageManaged:
+        rawStorage === undefined || rawStorage === ''
+          ? undefined
+          : String(rawStorage).toLowerCase() === 'true',
     };
-  }, [siteSettings?.MAIL_MANAGED, systemSettings?.MAIL_MANAGED]);
+  }, [
+    siteSettings?.MAIL_MANAGED,
+    systemSettings?.MAIL_MANAGED,
+    siteSettings?.STORAGE_MANAGED,
+    systemSettings?.STORAGE_MANAGED,
+  ]);
 
   const dragRef = useRef<{
     startClientX: number;
@@ -113,7 +125,9 @@ const OwnerSetupChecklist: React.FC = () => {
           ? [def.tourTarget]
           : [];
     if (targets.length === 0) return;
-    const cancel = applyOwnerSetupFieldHighlights(targets);
+    const cancel = applyOwnerSetupFieldHighlights(targets, {
+      scrollToTop: Boolean(def?.scrollToTop),
+    });
     return cancel;
   }, [progress.minimized, guidingStepId, guideFieldContext]);
 
@@ -362,8 +376,8 @@ const OwnerSetupChecklist: React.FC = () => {
     guideFieldContext
   );
   const stepDescriptionKey =
-    activeId === 'mail' && guideFieldContext.multiTenant
-      ? 'ownerSetup.steps.mail.descriptionMultiTenant'
+    (activeId === 'mail' || activeId === 'storage') && guideFieldContext.multiTenant
+      ? `ownerSetup.steps.${activeId}.descriptionMultiTenant`
       : `ownerSetup.steps.${activeId}.description`;
 
   const isBookend = activeKind === 'intro' || activeKind === 'outro';
@@ -585,8 +599,9 @@ const OwnerSetupChecklist: React.FC = () => {
                       {isActive && (
                         <p className="mt-0.5 text-xs text-gray-600 dark:text-gray-300">
                           {t(
-                            step.id === 'mail' && guideFieldContext.multiTenant
-                              ? 'ownerSetup.steps.mail.descriptionMultiTenant'
+                            (step.id === 'mail' || step.id === 'storage') &&
+                              guideFieldContext.multiTenant
+                              ? `ownerSetup.steps.${step.id}.descriptionMultiTenant`
                               : `ownerSetup.steps.${step.id}.description`
                           )}
                         </p>

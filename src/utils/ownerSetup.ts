@@ -11,6 +11,7 @@ export const OWNER_SETUP_STEP_IDS = [
   'tagsPriorities',
   'sprints',
   'sso',
+  'storage',
   'licensing',
   'reporting',
   'finish',
@@ -29,7 +30,9 @@ export type OwnerSetupGuideWhen =
   | 'multiTenant'
   | 'singleTenant'
   /** MULTI_TENANT and still on platform-managed mail (Switch to Custom SMTP). */
-  | 'multiTenantManagedMail';
+  | 'multiTenantManagedMail'
+  /** MULTI_TENANT and still on platform-managed S3 (Switch to Custom S3). */
+  | 'multiTenantManagedStorage';
 
 export interface OwnerSetupGuideField {
   /** CSS selector for the control to highlight during Guide me (omit for text-only tips) */
@@ -57,6 +60,11 @@ export type OwnerSetupGuideFieldContext = {
    * `undefined` = unknown / not loaded yet (treat as possibly managed on MULTI_TENANT).
    */
   mailManaged?: boolean;
+  /**
+   * Platform-managed object storage (`STORAGE_MANAGED === 'true'`).
+   * `undefined` = unknown / not loaded yet (treat as possibly managed on MULTI_TENANT).
+   */
+  storageManaged?: boolean;
 };
 
 /** Whether a guide field applies for the current deployment / mail mode. */
@@ -74,6 +82,10 @@ export function isOwnerSetupGuideFieldApplicable(
       // Show on tenant installs until we know custom SMTP is already active
       if (!multiTenant) return false;
       if (ctx.mailManaged === false) return false;
+      return true;
+    case 'multiTenantManagedStorage':
+      if (!multiTenant) return false;
+      if (ctx.storageManaged === false) return false;
       return true;
     default:
       return true;
@@ -107,6 +119,8 @@ export interface OwnerSetupStepDef {
   adminTab?: string;
   /** Switch to kanban before spotlight */
   goKanban?: boolean;
+  /** After navigate / Guide me, scroll the window to the top (e.g. boards with tall columns). */
+  scrollToTop?: boolean;
   /** Fallback single target (tab / button) when no guideFields */
   tourTarget?: string;
   /** Fields for Guide me: one instruction list + simultaneous highlights */
@@ -166,10 +180,11 @@ export function scrollOwnerSetupTargetIntoView(el: HTMLElement): void {
  */
 export function applyOwnerSetupFieldHighlights(
   selectors: string[],
-  options?: { attempts?: number; intervalMs?: number }
+  options?: { attempts?: number; intervalMs?: number; scrollToTop?: boolean }
 ): () => void {
   const attempts = options?.attempts ?? 20;
   const intervalMs = options?.intervalMs ?? 75;
+  const scrollToTop = Boolean(options?.scrollToTop);
   let cancelled = false;
   let tries = 0;
 
@@ -198,7 +213,11 @@ export function applyOwnerSetupFieldHighlights(
 
     if (found.length > 0) {
       found.forEach((el) => el.classList.add(OWNER_SETUP_HIGHLIGHT_CLASS));
-      scrollOwnerSetupTargetIntoView(found[0]);
+      if (scrollToTop) {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      } else {
+        scrollOwnerSetupTargetIntoView(found[0]);
+      }
       return;
     }
 
@@ -271,6 +290,8 @@ export const OWNER_SETUP_STEPS: OwnerSetupStepDef[] = [
     id: 'boards',
     optional: false,
     goKanban: true,
+    /** Kanban can leave the viewport mid-board when tasks exist — always show tabs first. */
+    scrollToTop: true,
     tourTarget: '[data-tour-id="add-board-button"]',
     guideFields: [
       {
@@ -332,6 +353,25 @@ export const OWNER_SETUP_STEPS: OwnerSetupStepDef[] = [
     ],
   },
   {
+    id: 'storage',
+    optional: true,
+    adminTab: 'storage',
+    tourTarget: '[data-tour-id="admin-storage"]',
+    guideFields: [
+      {
+        selector: '[data-owner-setup="switch-custom-storage"]',
+        fieldKey: 'switchToCustomStorage',
+        when: 'multiTenantManagedStorage',
+      },
+      { selector: '[data-setting-key="STORAGE_BACKEND"]', fieldKey: 'STORAGE_BACKEND' },
+      { selector: '[data-setting-key="S3_BUCKET"]', fieldKey: 'S3_BUCKET' },
+      { selector: '[data-setting-key="S3_REGION"]', fieldKey: 'S3_REGION' },
+      { selector: '[data-setting-key="S3_ACCESS_KEY_ID"]', fieldKey: 'S3_ACCESS_KEY_ID' },
+      { selector: '[data-setting-key="S3_SECRET_ACCESS_KEY"]', fieldKey: 'S3_SECRET_ACCESS_KEY' },
+      { selector: '[data-owner-setup="storage-test-connection"]', fieldKey: 'testConnection' },
+    ],
+  },
+  {
     id: 'licensing',
     optional: true,
     adminTab: 'licensing',
@@ -384,6 +424,7 @@ export interface OwnerSetupHints {
   tagsPriorities: boolean;
   sprints: boolean;
   sso: boolean;
+  storage: boolean;
   licensing: boolean;
   reporting: boolean;
 }
@@ -397,6 +438,7 @@ export const EMPTY_OWNER_SETUP_HINTS: OwnerSetupHints = {
   tagsPriorities: false,
   sprints: false,
   sso: false,
+  storage: false,
   licensing: false,
   reporting: false,
 };
@@ -553,6 +595,13 @@ export function computeOwnerSetupHints(input: {
 
   const sso = String(s.GOOGLE_CLIENT_ID || '').trim().length > 0;
 
+  const storageManaged = String(s.STORAGE_MANAGED || '').toLowerCase() === 'true';
+  const storageBackend = String(s.STORAGE_BACKEND || '').toLowerCase();
+  const storage =
+    !storageManaged &&
+    storageBackend === 's3' &&
+    String(s.S3_BUCKET || '').trim().length > 0;
+
   const licensing =
     String(s.LICENSE_KEY || s.LICENSE || '').trim().length > 0 ||
     String(s.LICENSE_STATUS || '').toLowerCase() === 'valid';
@@ -568,6 +617,7 @@ export function computeOwnerSetupHints(input: {
     tagsPriorities,
     sprints,
     sso,
+    storage,
     licensing,
     reporting,
   };

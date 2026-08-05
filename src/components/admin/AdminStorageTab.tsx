@@ -747,6 +747,7 @@ const AdminStorageTab: React.FC<AdminStorageTabProps> = ({
                 <button
                   type="button"
                   onClick={() => setShowFirstConfirm(true)}
+                  data-owner-setup="switch-custom-storage"
                   className="mt-3 text-sm bg-blue-100 dark:bg-blue-800 text-blue-800 dark:text-blue-200 px-3 py-1 rounded-md hover:bg-blue-200 dark:hover:bg-blue-700"
                 >
                   {t('storage.switchToCustom')}
@@ -782,9 +783,7 @@ const AdminStorageTab: React.FC<AdminStorageTabProps> = ({
             <div
               role="radiogroup"
               aria-label={t('storage.backend')}
-              className={`mt-1.5 grid grid-cols-1 sm:grid-cols-2 gap-2 ${
-                isManaged || multiTenant || configuringDest ? 'opacity-60' : ''
-              }`}
+              className="mt-1.5 grid grid-cols-1 sm:grid-cols-2 gap-2"
             >
               {(
                 [
@@ -810,7 +809,13 @@ const AdminStorageTab: React.FC<AdminStorageTabProps> = ({
               ).map(({ value, label, hint, Icon, selectedClass, iconWrap }) => {
                 const selected = backend === value;
                 const isSaved = savedBackend === value;
-                const disabled = isManaged || multiTenant || configuringDest;
+                // Multi-tenant: disk is never available across pods, but custom S3 must stay selectable
+                // (e.g. tenants that still have STORAGE_BACKEND=disk when platform S3 was not provisioned).
+                // Managed S3 locks both cards — use "Use your own S3 bucket" instead.
+                const disabled =
+                  configuringDest ||
+                  isManaged ||
+                  (value === 'disk' && multiTenant);
                 return (
                   <button
                     key={value}
@@ -821,7 +826,7 @@ const AdminStorageTab: React.FC<AdminStorageTabProps> = ({
                     onClick={() => {
                       if (!disabled && !selected) handleBackendChange(value);
                     }}
-                    className={`relative text-left rounded-lg border-2 p-3 transition-all disabled:cursor-not-allowed ${
+                    className={`relative text-left rounded-lg border-2 p-3 transition-all disabled:cursor-not-allowed disabled:opacity-60 ${
                       selected
                         ? selectedClass
                         : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800/40 hover:border-gray-300 dark:hover:border-gray-600'
@@ -869,7 +874,9 @@ const AdminStorageTab: React.FC<AdminStorageTabProps> = ({
             </div>
             {multiTenant && (
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
-                {t('storage.multiTenantHint')}
+                {!isManaged && backend === 'disk'
+                  ? t('storage.multiTenantDiskStuckHint')
+                  : t('storage.multiTenantHint')}
               </p>
             )}
             {s3ActivationBlocked && (
@@ -1049,7 +1056,10 @@ const AdminStorageTab: React.FC<AdminStorageTabProps> = ({
                   </label>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-3 pt-1 border-t border-gray-100 dark:border-gray-800">
+                <div
+                  className="flex flex-wrap items-center gap-3 pt-1 border-t border-gray-100 dark:border-gray-800"
+                  data-owner-setup="storage-test-connection"
+                >
                   <button
                     type="button"
                     disabled={!canTestS3() || isTesting}
@@ -1102,7 +1112,7 @@ const AdminStorageTab: React.FC<AdminStorageTabProps> = ({
                     {t('storage.connectionSection')}
                   </p>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
+                    <div data-setting-key="S3_ENDPOINT">
                       <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                         {t('storage.endpoint')}
                         <span className="ml-1.5 text-xs font-normal text-gray-500 dark:text-gray-400">
@@ -1120,7 +1130,7 @@ const AdminStorageTab: React.FC<AdminStorageTabProps> = ({
                         {t('storage.endpointHint')}
                       </p>
                     </div>
-                    <div>
+                    <div data-setting-key="S3_REGION">
                       <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                         {t('storage.region')}
                       </label>
@@ -1135,7 +1145,7 @@ const AdminStorageTab: React.FC<AdminStorageTabProps> = ({
                         {t('storage.regionHint')}
                       </p>
                     </div>
-                    <div>
+                    <div data-setting-key="S3_BUCKET">
                       <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                         {t('storage.bucket')}
                       </label>
@@ -1146,7 +1156,7 @@ const AdminStorageTab: React.FC<AdminStorageTabProps> = ({
                         className={inputClass}
                       />
                     </div>
-                    <div>
+                    <div data-setting-key="S3_KEY_PREFIX">
                       <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                         {t('storage.keyPrefix')}
                         <span className="ml-1.5 text-xs font-normal text-gray-500 dark:text-gray-400">
@@ -1172,7 +1182,7 @@ const AdminStorageTab: React.FC<AdminStorageTabProps> = ({
                     {t('storage.credentialsSection')}
                   </p>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
+                    <div data-setting-key="S3_ACCESS_KEY_ID">
                       <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                         {t('storage.accessKey')}
                       </label>
@@ -1184,7 +1194,7 @@ const AdminStorageTab: React.FC<AdminStorageTabProps> = ({
                         autoComplete="off"
                       />
                     </div>
-                    <div>
+                    <div data-setting-key="S3_SECRET_ACCESS_KEY">
                       <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                         {t('storage.secretKey')}
                       </label>
@@ -1226,7 +1236,10 @@ const AdminStorageTab: React.FC<AdminStorageTabProps> = ({
                   </label>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-3 pt-1 border-t border-gray-100 dark:border-gray-800">
+                <div
+                  className="flex flex-wrap items-center gap-3 pt-1 border-t border-gray-100 dark:border-gray-800"
+                  data-owner-setup="storage-test-connection"
+                >
                   <button
                     type="button"
                     disabled={!canTestDest() || isTestingDest}

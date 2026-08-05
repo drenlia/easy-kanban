@@ -163,6 +163,16 @@ const AdminLifecycleTab: React.FC<AdminLifecycleTabProps> = ({
       .sort((a, b) => b.count - a.count || a.title.localeCompare(b.title));
   }, [tasks]);
 
+  // Drop board filters that no longer have deleted tasks (chips hide; selection would empty the table)
+  useEffect(() => {
+    setSelectedBoardIds((prev) => {
+      if (prev.length === 0) return prev;
+      const valid = new Set(boardChips.map((chip) => chip.id));
+      const next = prev.filter((id) => valid.has(id));
+      return next.length === prev.length ? prev : next;
+    });
+  }, [boardChips]);
+
   const discreetCountClass =
     'inline-flex h-4 min-w-[1rem] items-center justify-center rounded-full px-1 text-[10px] font-semibold tabular-nums leading-none';
 
@@ -281,6 +291,8 @@ const AdminLifecycleTab: React.FC<AdminLifecycleTabProps> = ({
   const finishRestoreBatch = async (restoredCount: number, hadOtherErrors: boolean) => {
     if (restoredCount > 0) {
       toast.success(t('restoredCount', { count: restoredCount }));
+      // Avoid a stale board chip filter hiding newly deleted tasks after restore
+      setSelectedBoardIds([]);
     } else if (hadOtherErrors) {
       toast.error(t('restoreFailed'));
     }
@@ -369,6 +381,7 @@ const AdminLifecycleTab: React.FC<AdminLifecycleTabProps> = ({
         const result = await purgeLifecycleTasksBatch(ids);
         toast.success(t('purgedCount', { count: result?.purged?.length || 0 }));
         setSelectedTaskIds(new Set());
+        setSelectedBoardIds([]);
         await loadData();
       },
     });
@@ -384,6 +397,7 @@ const AdminLifecycleTab: React.FC<AdminLifecycleTabProps> = ({
         next.delete(taskId);
         return next;
       });
+      setSelectedBoardIds([]);
       await loadData();
     } catch (error: any) {
       const code = error?.response?.data?.code;
@@ -414,6 +428,7 @@ const AdminLifecycleTab: React.FC<AdminLifecycleTabProps> = ({
             next.delete(taskId);
             return next;
           });
+          setSelectedBoardIds([]);
           await loadData();
         },
       });
@@ -758,6 +773,7 @@ const AdminLifecycleTab: React.FC<AdminLifecycleTabProps> = ({
                     size="sm"
                   />
                 </th>
+                <th className="px-3 py-2 text-left font-medium text-gray-600 dark:text-gray-300">{t('colActions')}</th>
                 <th className="px-3 py-2 text-left font-medium text-gray-600 dark:text-gray-300">{t('colTicket')}</th>
                 <th className="px-3 py-2 text-left font-medium text-gray-600 dark:text-gray-300">{t('colTitle')}</th>
                 <th className="px-3 py-2 text-left font-medium text-gray-600 dark:text-gray-300">{t('colBoard')}</th>
@@ -767,7 +783,6 @@ const AdminLifecycleTab: React.FC<AdminLifecycleTabProps> = ({
                     {t('colDaysUntilPurge')}
                   </th>
                 )}
-                <th className="px-3 py-2 text-right font-medium text-gray-600 dark:text-gray-300">{t('colActions')}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
@@ -790,6 +805,17 @@ const AdminLifecycleTab: React.FC<AdminLifecycleTabProps> = ({
                         size="sm"
                       />
                     </td>
+                    <td className="px-3 py-2 text-left">
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => void handleRestoreOne(task.id)}
+                        className="inline-flex items-center gap-1 text-blue-600 hover:underline disabled:opacity-50 dark:text-blue-400"
+                      >
+                        <RotateCcw size={14} />
+                        {t('restore')}
+                      </button>
+                    </td>
                     <td className="px-3 py-2 font-mono text-xs text-gray-600 dark:text-gray-300">
                       {task.ticket || '—'}
                     </td>
@@ -805,17 +831,6 @@ const AdminLifecycleTab: React.FC<AdminLifecycleTabProps> = ({
                         {formatDaysUntilPurge(task.deletedAt)}
                       </td>
                     )}
-                    <td className="px-3 py-2 text-right">
-                      <button
-                        type="button"
-                        disabled={busy}
-                        onClick={() => void handleRestoreOne(task.id)}
-                        className="mr-2 inline-flex items-center gap-1 text-blue-600 hover:underline disabled:opacity-50 dark:text-blue-400"
-                      >
-                        <RotateCcw size={14} />
-                        {t('restore')}
-                      </button>
-                    </td>
                   </tr>
                 ))
               )}
@@ -906,6 +921,9 @@ const AdminLifecycleTab: React.FC<AdminLifecycleTabProps> = ({
                     />
                   </th>
                   <th className="px-3 py-2 text-left font-medium text-gray-600 dark:text-gray-300">
+                    {t('colActions')}
+                  </th>
+                  <th className="px-3 py-2 text-left font-medium text-gray-600 dark:text-gray-300">
                     {t('colTitle')}
                   </th>
                   <th className="px-3 py-2 text-left font-medium text-gray-600 dark:text-gray-300">
@@ -919,9 +937,6 @@ const AdminLifecycleTab: React.FC<AdminLifecycleTabProps> = ({
                       {t('colDaysUntilPurge')}
                     </th>
                   )}
-                  <th className="px-3 py-2 text-right font-medium text-gray-600 dark:text-gray-300">
-                    {t('colActions')}
-                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
@@ -935,6 +950,26 @@ const AdminLifecycleTab: React.FC<AdminLifecycleTabProps> = ({
                           onChange={() => toggleDeletedBoard(board.id)}
                           size="sm"
                         />
+                      </td>
+                      <td className="px-3 py-2 text-left">
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() => void handleRestoreBoard(board.id)}
+                          className="mr-2 inline-flex items-center gap-1 text-blue-600 hover:underline disabled:opacity-50 dark:text-blue-400"
+                        >
+                          <RotateCcw size={14} />
+                          {t('restore')}
+                        </button>
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() => handlePurgeBoard(board.id)}
+                          className="inline-flex items-center gap-1 text-red-600 hover:underline disabled:opacity-50 dark:text-red-400"
+                        >
+                          <Trash2 size={14} />
+                          {t('purge')}
+                        </button>
                       </td>
                       <td className="px-3 py-2 font-medium text-gray-900 dark:text-gray-100">
                         {board.title}
@@ -955,26 +990,6 @@ const AdminLifecycleTab: React.FC<AdminLifecycleTabProps> = ({
                           {formatDaysUntilPurge(board.deletedAt)}
                         </td>
                       )}
-                      <td className="px-3 py-2 text-right">
-                        <button
-                          type="button"
-                          disabled={busy}
-                          onClick={() => void handleRestoreBoard(board.id)}
-                          className="mr-2 inline-flex items-center gap-1 text-blue-600 hover:underline disabled:opacity-50 dark:text-blue-400"
-                        >
-                          <RotateCcw size={14} />
-                          {t('restore')}
-                        </button>
-                        <button
-                          type="button"
-                          disabled={busy}
-                          onClick={() => handlePurgeBoard(board.id)}
-                          className="inline-flex items-center gap-1 text-red-600 hover:underline disabled:opacity-50 dark:text-red-400"
-                        >
-                          <Trash2 size={14} />
-                          {t('purge')}
-                        </button>
-                      </td>
                     </tr>
                   );
                 })}
