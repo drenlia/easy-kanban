@@ -1999,6 +1999,7 @@ const TaskCard = React.memo(function TaskCard({
           isEditingTitle={isEditingTitle}
           isEditingDescription={isEditingDescription}
           isSelected={isSelected}
+          isAdmin={Boolean(currentUser?.roles?.includes('admin'))}
         />
 
         {/* Relationship Type Indicator - Only show when hovering over link tool */}

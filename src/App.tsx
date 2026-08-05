@@ -276,90 +276,84 @@ function AppContent() {
   }, [selectedTask, handleSelectTask]);
 
   // Task deletion handler with confirmation
-  const handleTaskDelete = async (taskId: string) => {
-    try {
-      // Track this task as recently deleted to prevent it from reappearing
-      recentlyDeletedTasksRef.current.add(taskId);
-      
-      // Clear the deleted task after 10 seconds (enough time for any delayed updates)
-      setTimeout(() => {
-        recentlyDeletedTasksRef.current.delete(taskId);
-      }, 10000);
-      
-      await deleteTask(taskId);
-      
-      // Remove task from local state and renumber remaining tasks
-      const updatedColumns = { ...columns };
-      const tasksToUpdate: Array<{ taskId: string; position: number; columnId: string }> = [];
-      
+  const removeTaskFromLocalColumns = (taskId: string) => {
+    setColumns(prev => {
+      const updatedColumns = { ...prev };
       Object.keys(updatedColumns).forEach(columnId => {
         const column = updatedColumns[columnId];
         if (column) {
-          // Remove the deleted task
           const remainingTasks = column.tasks.filter(task => task.id !== taskId);
-          
-          // Renumber remaining tasks sequentially from 0
           const renumberedTasks = remainingTasks
             .sort((a, b) => (a.position || 0) - (b.position || 0))
-            .map((task, index) => {
-              // Track tasks that need position updates
-              if (task.position !== index) {
-                tasksToUpdate.push({
-                  taskId: task.id,
-                  position: index,
-                  columnId: columnId
-                });
-              }
-              return {
-                ...task,
-                position: index
-              };
-            });
-          
+            .map((task, index) => ({
+              ...task,
+              position: index
+            }));
           updatedColumns[columnId] = {
             ...column,
             tasks: renumberedTasks
           };
         }
       });
-      setColumns(updatedColumns);
-      
-      // Also update filteredColumns to maintain consistency
-      taskFilters.setFilteredColumns(prevFilteredColumns => {
-        const updatedFilteredColumns = { ...prevFilteredColumns };
-        Object.keys(updatedFilteredColumns).forEach(columnId => {
-          const column = updatedFilteredColumns[columnId];
-          if (column) {
-            // Remove the deleted task
-            const remainingTasks = column.tasks.filter(task => task.id !== taskId);
-            
-            // Renumber remaining tasks sequentially from 0
-            const renumberedTasks = remainingTasks
-              .sort((a, b) => (a.position || 0) - (b.position || 0))
-              .map((task, index) => ({
-                ...task,
-                position: index
-              }));
-            
-            updatedFilteredColumns[columnId] = {
-              ...column,
-              tasks: renumberedTasks
-            };
-          }
-        });
-        return updatedFilteredColumns;
+      return updatedColumns;
+    });
+
+    taskFilters.setFilteredColumns(prevFilteredColumns => {
+      const updatedFilteredColumns = { ...prevFilteredColumns };
+      Object.keys(updatedFilteredColumns).forEach(columnId => {
+        const column = updatedFilteredColumns[columnId];
+        if (column) {
+          const remainingTasks = column.tasks.filter(task => task.id !== taskId);
+          const renumberedTasks = remainingTasks
+            .sort((a, b) => (a.position || 0) - (b.position || 0))
+            .map((task, index) => ({
+              ...task,
+              position: index
+            }));
+          updatedFilteredColumns[columnId] = {
+            ...column,
+            tasks: renumberedTasks
+          };
+        }
       });
-      
+      return updatedFilteredColumns;
+    });
+  };
+
+  const handleTaskDelete = async (taskId: string) => {
+    try {
+      recentlyDeletedTasksRef.current.add(taskId);
+      setTimeout(() => {
+        recentlyDeletedTasksRef.current.delete(taskId);
+      }, 10000);
+
+      await deleteTask(taskId);
+      removeTaskFromLocalColumns(taskId);
+
       // NOTE: Backend already renumbers tasks after deletion and sends a WebSocket event
-      // We don't need to send batch position updates - the backend handles it
-      // The local state update above is sufficient for immediate UI feedback
-      
-      // Refresh board data to ensure consistent state
       await refreshBoardData();
       await fetchQueryLogs();
     } catch (error) {
-      // console.error('Failed to delete task:', error);
-      throw error; // Re-throw so the hook can handle the error state
+      throw error;
+    }
+  };
+
+  /** Admin hard-delete (Shift+click) — bypasses trash. */
+  const handleTaskPermanentDelete = async (taskId: string) => {
+    try {
+      recentlyDeletedTasksRef.current.add(taskId);
+      setTimeout(() => {
+        recentlyDeletedTasksRef.current.delete(taskId);
+      }, 10000);
+
+      await purgeTask(taskId);
+      removeTaskFromLocalColumns(taskId);
+
+      await refreshBoardData();
+      await fetchQueryLogs();
+    } catch (error: any) {
+      toast.error(error?.response?.data?.error || t('trash.purgeFailed'));
+      throw error;
     }
   };
 
@@ -813,7 +807,8 @@ function AppContent() {
   const taskDeleteConfirmation = useTaskDeleteConfirmation({
     currentUser,
     systemSettings,
-    onDelete: handleTaskDelete
+    onDelete: handleTaskDelete,
+    onPurge: currentUser?.roles?.includes('admin') ? handleTaskPermanentDelete : undefined
   });
 
   // Now define the handleRemoveTask function
@@ -3653,6 +3648,9 @@ function AppContent() {
     onCopyTask: handleCopyTask,
     onTagAdd: handleTagAdd,
     onSoftDelete: handleTaskDelete,
+    onPermanentDelete: currentUser?.roles?.includes('admin')
+      ? handleTaskPermanentDelete
+      : undefined,
     onMoveToBoard: performCrossBoardMove,
     getArchiveColumnId: () => {
       const archive = Object.values(columns).find(
@@ -3676,6 +3674,7 @@ function AppContent() {
     onBulkCopy,
     onBulkArchive,
     onBulkDelete,
+    onBulkPermanentDelete,
     onBulkSprint,
     onBulkPriority,
     onBulkMoveToBoard,
@@ -4648,6 +4647,7 @@ function AppContent() {
                                     onBulkCopy={onBulkCopy}
                                     onBulkArchive={onBulkArchive}
                                     onBulkDelete={onBulkDelete}
+                                    onBulkPermanentDelete={onBulkPermanentDelete}
                                     onBulkSprint={onBulkSprint}
                                     onBulkPriority={onBulkPriority}
                                     onBulkMoveToBoard={onBulkMoveToBoard}
@@ -4714,6 +4714,7 @@ function AppContent() {
         onConfirm={taskDeleteConfirmation.confirmDelete}
         onCancel={taskDeleteConfirmation.cancelDelete}
         isDeleting={taskDeleteConfirmation.isDeleting}
+        permanent={taskDeleteConfirmation.isPermanent}
         position={taskDeleteConfirmation.confirmationPosition}
       />
 

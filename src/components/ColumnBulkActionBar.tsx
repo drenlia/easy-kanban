@@ -44,6 +44,8 @@ export type ColumnBulkActionBarProps = {
   onCopy: () => void;
   onArchive: () => void;
   onDelete: () => void;
+  /** When set (admin), Shift+click on delete confirms permanent purge. */
+  onPermanentDelete?: () => void;
   onSprint: (sprintId: string | null) => void;
   onPriority: (priorityId: string) => void;
   onMoveToBoard: (boardId: string) => void;
@@ -130,6 +132,7 @@ export default function ColumnBulkActionBar({
   onCopy,
   onArchive,
   onDelete,
+  onPermanentDelete,
   onSprint,
   onPriority,
   onMoveToBoard,
@@ -146,6 +149,7 @@ export default function ColumnBulkActionBar({
   const [menuPos, setMenuPos] = useState<{ top: number; left: number } | null>(null);
   const [showAddTagModal, setShowAddTagModal] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
+  const [permanentDeleteConfirm, setPermanentDeleteConfirm] = useState(false);
   const [boardConfirm, setBoardConfirm] = useState<{ id: string; name: string } | null>(null);
   const confirmRef = useRef<HTMLDivElement>(null);
   const [rootPos, setRootPos] = useState<{ top: number; left: number; visible: boolean }>({
@@ -234,16 +238,17 @@ export default function ColumnBulkActionBar({
     setMenuPos(null);
   };
 
-  const overlayOpen = !!menu || deleteConfirm || !!boardConfirm;
+  const overlayOpen = !!menu || deleteConfirm || permanentDeleteConfirm || !!boardConfirm;
 
   useEffect(() => {
-    if (!menu && !deleteConfirm && !boardConfirm) return;
+    if (!menu && !deleteConfirm && !permanentDeleteConfirm && !boardConfirm) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.preventDefault();
         e.stopPropagation();
         setMenu(null);
         setDeleteConfirm(false);
+        setPermanentDeleteConfirm(false);
         setBoardConfirm(null);
       }
     };
@@ -255,6 +260,7 @@ export default function ColumnBulkActionBar({
       if (portal?.contains(target)) return;
       setMenu(null);
       setDeleteConfirm(false);
+      setPermanentDeleteConfirm(false);
       setBoardConfirm(null);
     };
     document.addEventListener('keydown', onKey);
@@ -264,7 +270,7 @@ export default function ColumnBulkActionBar({
       document.removeEventListener('keydown', onKey);
       document.removeEventListener('mousedown', onDown);
     };
-  }, [menu, deleteConfirm, boardConfirm, columnId]);
+  }, [menu, deleteConfirm, permanentDeleteConfirm, boardConfirm, columnId]);
 
   const otherBoards = boards.filter((b) => b.id !== currentBoardId && !(b as any).deletedAt);
 
@@ -527,7 +533,7 @@ export default function ColumnBulkActionBar({
       : null;
 
   const confirmPortal =
-    (deleteConfirm || boardConfirm) && typeof document !== 'undefined'
+    (deleteConfirm || permanentDeleteConfirm || boardConfirm) && typeof document !== 'undefined'
       ? createPortal(
           <div
             ref={confirmRef}
@@ -540,12 +546,14 @@ export default function ColumnBulkActionBar({
             }}
           >
             <p className="mb-2 text-xs text-gray-700 dark:text-gray-200">
-              {deleteConfirm
-                ? t('kanbanSelect.deleteConfirm', { count: selectedCount })
-                : t('kanbanSelect.moveToBoardConfirm', {
-                    count: selectedCount,
-                    board: boardConfirm?.name,
-                  })}
+              {permanentDeleteConfirm
+                ? t('kanbanSelect.deleteConfirmPermanent', { count: selectedCount })
+                : deleteConfirm
+                  ? t('kanbanSelect.deleteConfirm', { count: selectedCount })
+                  : t('kanbanSelect.moveToBoardConfirm', {
+                      count: selectedCount,
+                      board: boardConfirm?.name,
+                    })}
             </p>
             <div className="flex justify-end gap-2">
               <button
@@ -553,6 +561,7 @@ export default function ColumnBulkActionBar({
                 className="rounded px-2 py-1 text-xs text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"
                 onClick={() => {
                   setDeleteConfirm(false);
+                  setPermanentDeleteConfirm(false);
                   setBoardConfirm(null);
                 }}
               >
@@ -562,13 +571,19 @@ export default function ColumnBulkActionBar({
                 type="button"
                 className="rounded bg-red-600 px-2 py-1 text-xs text-white hover:bg-red-700"
                 onClick={() => {
-                  if (deleteConfirm) onDelete();
-                  if (boardConfirm) onMoveToBoard(boardConfirm.id);
+                  if (permanentDeleteConfirm) onPermanentDelete?.();
+                  else if (deleteConfirm) onDelete();
+                  else if (boardConfirm) onMoveToBoard(boardConfirm.id);
                   setDeleteConfirm(false);
+                  setPermanentDeleteConfirm(false);
                   setBoardConfirm(null);
                 }}
               >
-                {deleteConfirm ? t('kanbanSelect.delete') : t('kanbanSelect.moveToBoard')}
+                {permanentDeleteConfirm
+                  ? t('kanbanSelect.deleteForever')
+                  : deleteConfirm
+                    ? t('kanbanSelect.delete')
+                    : t('kanbanSelect.moveToBoard')}
               </button>
             </div>
           </div>,
@@ -780,7 +795,13 @@ export default function ColumnBulkActionBar({
                 </KanbanChromeTooltip>
               )}
               <KanbanChromeTooltip
-                label={overlayOpen ? '' : t('kanbanSelect.delete')}
+                label={
+                  overlayOpen
+                    ? ''
+                    : isAdmin && onPermanentDelete
+                      ? t('kanbanSelect.deleteAdminHint')
+                      : t('kanbanSelect.delete')
+                }
                 delayMs={0}
                 placement="top"
               >
@@ -789,8 +810,9 @@ export default function ColumnBulkActionBar({
                   disabled={busy}
                   className={`${btnClass} text-red-600 hover:text-red-700`}
                   onClick={(e) => {
-                    if (deleteConfirm) {
+                    if (deleteConfirm || permanentDeleteConfirm) {
                       setDeleteConfirm(false);
+                      setPermanentDeleteConfirm(false);
                       setMenuPos(null);
                       return;
                     }
@@ -803,11 +825,17 @@ export default function ColumnBulkActionBar({
                           ? rect.right + 6
                           : Math.max(8, rect.left - popupWidth - 6),
                     });
-                    setDeleteConfirm(true);
+                    const wantPermanent = !!(e.shiftKey && isAdmin && onPermanentDelete);
+                    setPermanentDeleteConfirm(wantPermanent);
+                    setDeleteConfirm(!wantPermanent);
                     setMenu(null);
                     setBoardConfirm(null);
                   }}
-                  aria-label={t('kanbanSelect.delete')}
+                  aria-label={
+                    isAdmin && onPermanentDelete
+                      ? t('kanbanSelect.deleteAdminHint')
+                      : t('kanbanSelect.delete')
+                  }
                 >
                   <Trash2 size={14} />
                 </button>

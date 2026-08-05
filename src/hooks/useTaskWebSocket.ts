@@ -946,7 +946,25 @@ export const useTaskWebSocket = ({
     if (selectedTaskRef.current?.id === data.taskId) {
       setSelectedTask(null);
     }
-  }, [recentlyDeletedTasksRef, selectedTaskRef, setSelectedTask]);
+    // Also remove from board state if still present (live permanent delete / race)
+    setColumns((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      Object.keys(next).forEach((columnId) => {
+        const column = next[columnId];
+        if (!column?.tasks?.some((t) => t.id === data.taskId)) return;
+        changed = true;
+        const remaining = column.tasks.filter((t) => t.id !== data.taskId);
+        next[columnId] = {
+          ...column,
+          tasks: remaining
+            .sort((a, b) => (a.position || 0) - (b.position || 0))
+            .map((task, index) => ({ ...task, position: index })),
+        };
+      });
+      return changed ? next : prev;
+    });
+  }, [recentlyDeletedTasksRef, selectedTaskRef, setSelectedTask, setColumns]);
   
   const handleTaskRelationshipCreated = useCallback((data: any) => {
     wsHookLog('🔗 [WebSocket] task-relationship-created received:', data);

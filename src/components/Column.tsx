@@ -39,7 +39,7 @@ interface KanbanColumnProps {
   onDismissColumnWarning?: (columnId: string) => void;
   onClearFiltersForHiddenTask?: () => void;
   onAssignCreatedTaskToSprint?: (columnId: string, taskId: string, sprintId: string) => Promise<void>;
-  onRemoveTask: (taskId: string) => void;
+  onRemoveTask: (taskId: string, event?: React.MouseEvent) => void;
   onEditTask: (task: Task) => void;
   onCopyTask: (task: Task) => void;
   onEditColumn: (
@@ -106,6 +106,8 @@ interface KanbanColumnProps {
   onBulkCopy?: (taskIds: string[]) => void;
   onBulkArchive?: (taskIds: string[]) => void;
   onBulkDelete?: (taskIds: string[]) => void;
+  /** Admin Shift+click permanent delete for multi-select. */
+  onBulkPermanentDelete?: (taskIds: string[]) => void;
   onBulkSprint?: (taskIds: string[], sprintId: string | null) => void;
   onBulkPriority?: (taskIds: string[], priorityId: string) => void;
   onBulkMoveToBoard?: (taskIds: string[], boardId: string) => void;
@@ -194,6 +196,7 @@ export default function KanbanColumn({
   onBulkCopy,
   onBulkArchive,
   onBulkDelete,
+  onBulkPermanentDelete,
   onBulkSprint,
   onBulkPriority,
   onBulkMoveToBoard,
@@ -1550,6 +1553,11 @@ export default function KanbanColumn({
             onCopy={() => onBulkCopy(Array.from(checkedTaskIds))}
             onArchive={() => onBulkArchive?.(Array.from(checkedTaskIds))}
             onDelete={() => onBulkDelete(Array.from(checkedTaskIds))}
+            onPermanentDelete={
+              onBulkPermanentDelete
+                ? () => onBulkPermanentDelete(Array.from(checkedTaskIds))
+                : undefined
+            }
             onSprint={(sprintId) =>
               onBulkSprint?.(Array.from(checkedTaskIds), sprintId)
             }

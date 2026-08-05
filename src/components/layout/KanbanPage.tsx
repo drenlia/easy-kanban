@@ -158,7 +158,7 @@ interface KanbanPageProps {
   onDismissColumnWarning: (columnId: string) => void;
   onClearFiltersForHiddenTask?: () => void;
   onAssignCreatedTaskToSprint?: (columnId: string, taskId: string, sprintId: string) => Promise<void>;
-  onRemoveTask: (taskId: string) => Promise<void>;
+  onRemoveTask: (taskId: string, event?: React.MouseEvent) => Promise<void>;
   onEditTask: (task: Task) => Promise<void>;
   onCopyTask: (task: Task) => Promise<void>;
   onTagAdd: (taskId: string) => (tagId: string) => Promise<void>;
@@ -231,6 +231,7 @@ interface KanbanPageProps {
   onBulkCopy?: (taskIds: string[]) => void;
   onBulkArchive?: (taskIds: string[]) => void;
   onBulkDelete?: (taskIds: string[]) => void;
+  onBulkPermanentDelete?: (taskIds: string[]) => void;
   onBulkSprint?: (taskIds: string[], sprintId: string | null) => void;
   onBulkPriority?: (taskIds: string[], priorityId: string) => void;
   onBulkMoveToBoard?: (taskIds: string[], boardId: string) => void;
@@ -372,6 +373,7 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
   onBulkCopy,
   onBulkArchive,
   onBulkDelete,
+  onBulkPermanentDelete,
   onBulkSprint,
   onBulkPriority,
   onBulkMoveToBoard,
@@ -1501,6 +1503,7 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
                             onBulkCopy={onBulkCopy}
                             onBulkArchive={onBulkArchive}
                             onBulkDelete={onBulkDelete}
+                            onBulkPermanentDelete={onBulkPermanentDelete}
                             onBulkSprint={onBulkSprint}
                             onBulkPriority={onBulkPriority}
                             onBulkMoveToBoard={onBulkMoveToBoard}
@@ -1604,6 +1607,7 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
                       onBulkCopy={onBulkCopy}
                       onBulkArchive={onBulkArchive}
                       onBulkDelete={onBulkDelete}
+                      onBulkPermanentDelete={onBulkPermanentDelete}
                       onBulkSprint={onBulkSprint}
                       onBulkPriority={onBulkPriority}
                       onBulkMoveToBoard={onBulkMoveToBoard}

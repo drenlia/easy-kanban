@@ -116,6 +116,7 @@
     "copyTask": "Copy Task",
     "archiveTask": "Archive Task",
     "deleteTask": "Delete Task",
+    "deleteTaskAdminHint": "Delete Task (Shift+click to delete forever)",
     "changeAssignee": "Change Assignee",
     "assignTo": "Assign to:",
     "assignToAgentSection": "AI Agent",
@@ -195,7 +196,9 @@
   },
   "deleteConfirmation": {
     "areYouSure": "Move this task to trash?",
-    "deleting": "Moving to trash..."
+    "areYouSurePermanent": "Permanently delete this task? This cannot be undone.",
+    "deleting": "Moving to trash...",
+    "deletingPermanent": "Deleting forever..."
   },
   "trash": {
     "title": "Trash",
@@ -253,6 +256,8 @@
     "copy": "Duplicate",
     "archive": "Archive",
     "delete": "Delete",
+    "deleteForever": "Delete forever",
+    "deleteAdminHint": "Delete (Shift+click to delete forever)",
     "sprint": "Sprint",
     "priority": "Priority",
     "assignee": "Assignee",
@@ -264,10 +269,12 @@
     "moveToBoard": "Move to board",
     "noSprint": "None (Backlog)",
     "deleteConfirm": "Move {{count}} selected task(s) to trash?",
+    "deleteConfirmPermanent": "Permanently delete {{count}} selected task(s)? This cannot be undone.",
     "moveToBoardConfirm": "Move {{count}} task(s) to “{{board}}”? Relationships may be removed.",
     "copiedCount": "{{count}} task(s) duplicated",
     "archivedCount": "{{count}} task(s) archived",
     "deletedCount": "{{count}} task(s) moved to trash",
+    "purgedCount": "{{count}} task(s) permanently deleted",
     "taggedCount": "Tag added to {{count}} task(s)",
     "sprintUpdatedCount": "Sprint updated on {{count}} task(s)",
     "priorityUpdatedCount": "Priority updated on {{count}} task(s)",
@@ -311,6 +318,7 @@
     "showHideColumns": "Show/Hide Columns",
     "copyTask": "Copy Task",
     "deleteTask": "Delete Task",
+    "deleteTaskAdminHint": "Delete Task (Shift+click to delete forever)",
     "enterTaskDescription": "Enter task description...",
     "clickToSelectSprint": "Click to select sprint",
     "clickToSetDates": "Click to set dates",

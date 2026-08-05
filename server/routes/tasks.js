@@ -2000,12 +2000,22 @@ router.post('/permanent-batch', authenticateToken, requireRole(['admin']), async
       const task = await taskQueries.getTaskById(db, taskId);
       if (!task) continue;
       const boardId = task.boardid || task.boardId;
+      const columnId = task.columnid || task.columnId;
+      const wasSoftDeleted = !!(task.deleted_at || task.deletedAt);
       await purgeTaskCompletelyAndUpdateStorage(db, taskId, storagePaths);
-      await notificationService.publish('task-purged', {
-        boardId,
-        taskId,
-        timestamp: new Date().toISOString(),
-      }, getTenantId(req));
+      if (!wasSoftDeleted && columnId && boardId) {
+        const remainingTasks = await taskQueries.getRemainingTasksInColumn(db, columnId, boardId);
+        await taskQueries.renumberTasksInColumn(db, remainingTasks);
+      }
+      await notificationService.publish(
+        wasSoftDeleted ? 'task-purged' : 'task-deleted',
+        {
+          boardId,
+          taskId,
+          timestamp: new Date().toISOString(),
+        },
+        getTenantId(req)
+      );
       purged.push(taskId);
     }
     res.json({ purged });

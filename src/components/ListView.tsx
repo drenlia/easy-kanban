@@ -46,7 +46,7 @@ interface ListViewProps {
   taskViewMode: TaskViewMode;
   onSelectTask: (task: Task | null) => void;
   selectedTask: Task | null;
-  onRemoveTask: (taskId: string) => void;
+  onRemoveTask: (taskId: string, event?: React.MouseEvent) => void;
   onEditTask: (task: Task) => void;
   onCopyTask: (task: Task) => void;
   onMoveTaskToColumn: (taskId: string, targetColumnId: string) => Promise<void>;
@@ -1935,7 +1935,11 @@ export default function ListView({
                         <span className="relative inline-flex">
                           <button
                             type="button"
-                            aria-label={t('listView.deleteTask')}
+                            aria-label={
+                              currentUser?.roles?.includes('admin')
+                                ? t('listView.deleteTaskAdminHint')
+                                : t('listView.deleteTask')
+                            }
                             onMouseEnter={() =>
                               setRowActionTooltip({ taskId: task.id, action: 'delete' })
                             }
@@ -1950,7 +1954,9 @@ export default function ListView({
                           {rowActionTooltip?.taskId === task.id &&
                           rowActionTooltip?.action === 'delete' ? (
                             <span className={LIST_VIEW_INSTANT_TOOLTIP_CLASS}>
-                              {t('listView.deleteTask')}
+                              {currentUser?.roles?.includes('admin')
+                                ? t('listView.deleteTaskAdminHint')
+                                : t('listView.deleteTask')}
                             </span>
                           ) : null}
                         </span>

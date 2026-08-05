@@ -9,6 +9,8 @@ interface TaskDeleteConfirmationProps {
   onConfirm: () => void;
   onCancel: () => void;
   isDeleting?: boolean;
+  /** When true, confirm permanent (hard) delete instead of soft-delete to trash. */
+  permanent?: boolean;
   position: { top: number; left: number } | null;
 }
 
@@ -18,6 +20,7 @@ const TaskDeleteConfirmation: React.FC<TaskDeleteConfirmationProps> = ({
   onConfirm,
   onCancel,
   isDeleting = false,
+  permanent = false,
   position
 }) => {
   const { t } = useTranslation(['tasks', 'common']);
@@ -46,14 +49,16 @@ const TaskDeleteConfirmation: React.FC<TaskDeleteConfirmationProps> = ({
         left: `${position.left}px`,
       }}
     >
-      <div className="text-sm text-gray-700 mb-3">
-        {t('deleteConfirmation.areYouSure')}
+      <div className="text-sm text-gray-700 dark:text-gray-200 mb-3">
+        {permanent
+          ? t('deleteConfirmation.areYouSurePermanent')
+          : t('deleteConfirmation.areYouSure')}
       </div>
       <div className="flex space-x-2 justify-end">
         <button
           onClick={onCancel}
           disabled={isDeleting}
-          className="px-3 py-1 text-sm bg-gray-200 text-gray-700 rounded hover:bg-gray-300 transition-colors disabled:opacity-50"
+          className="px-3 py-1 text-sm bg-gray-200 text-gray-700 rounded hover:bg-gray-300 transition-colors disabled:opacity-50 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600"
         >
           {t('buttons.no', { ns: 'common' })}
         </button>
@@ -62,7 +67,9 @@ const TaskDeleteConfirmation: React.FC<TaskDeleteConfirmationProps> = ({
           disabled={isDeleting}
           className="px-3 py-1 text-sm bg-red-600 text-white rounded hover:bg-red-700 transition-colors disabled:opacity-50"
         >
-          {isDeleting ? t('deleteConfirmation.deleting') : t('buttons.yes', { ns: 'common' })}
+          {isDeleting
+            ? (permanent ? t('deleteConfirmation.deletingPermanent') : t('deleteConfirmation.deleting'))
+            : t('buttons.yes', { ns: 'common' })}
         </button>
       </div>
     </div>,
