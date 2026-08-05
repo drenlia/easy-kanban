@@ -1,12 +1,14 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { createPortal } from 'react-dom';
 import { Edit, Trash2, Crown, User as UserIcon } from 'lucide-react';
 import { getAuthenticatedAvatarUrl } from '../../utils/authImageUrl';
+import { AGENT_BOT_AVATAR_SRC } from '../../utils/agentMemberUi';
 import { toast } from '../../utils/toast';
 import { CHROME_TOOLTIP_SURFACE_CLASS } from '../KanbanChromeTooltip';
 import { ModernCheckbox } from '../ModernCheckbox';
 import { useEscapeDismiss } from '../../hooks/useEscapeDismiss';
+import { useSettings } from '../../contexts/SettingsContext';
 
 interface User {
   id: string;
@@ -62,8 +64,14 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
   onResendInvitation,
 }) => {
   const { t } = useTranslation('admin');
+  const { systemSettings } = useSettings();
   // Email invites are disabled when DEMO_ENABLED=true (see emailService)
   const isDemoMode = process.env.DEMO_ENABLED === 'true';
+  const visibleUsers = useMemo(() => {
+    const aiEnabled = systemSettings?.AI_ENABLED === 'true';
+    if (!Array.isArray(users)) return [];
+    return aiEnabled ? users : users.filter((u) => u.email !== 'agent@local');
+  }, [users, systemSettings?.AI_ENABLED]);
   const [showAddUserForm, setShowAddUserForm] = useState(false);
   const [showEditUserForm, setShowEditUserForm] = useState(false);
   const [showColorPicker, setShowColorPicker] = useState<string | null>(null);
@@ -531,8 +539,8 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
               </tr>
             </thead>
             <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-              {Array.isArray(users) && users.length > 0 ? (
-                users.map((user) => (
+              {visibleUsers.length > 0 ? (
+                visibleUsers.map((user) => (
                 <tr key={user.id}>
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium w-48">
                     <div className="flex items-center space-x-2">
@@ -651,7 +659,13 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap w-16">
                     <div className="flex-shrink-0 h-10 w-10">
-                      {(user.googleAvatarUrl || user.avatarUrl) ? (
+                      {user.email === 'agent@local' ? (
+                        <img
+                          src={AGENT_BOT_AVATAR_SRC}
+                          alt={`${user.firstName} ${user.lastName}`}
+                          className="h-10 w-10 rounded-full object-cover"
+                        />
+                      ) : (user.googleAvatarUrl || user.avatarUrl) ? (
                         <img
                           src={getAuthenticatedAvatarUrl(user.googleAvatarUrl || user.avatarUrl)}
                           alt={`${user.firstName} ${user.lastName}`}

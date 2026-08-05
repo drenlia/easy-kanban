@@ -46,8 +46,12 @@ router.get('/', authenticateToken, requireRole(['admin']), async (req, res) => {
     
     // MIGRATED: Get all users with roles and member info using sqlManager
     const users = await userQueries.getAllUsersWithRolesAndMembers(db);
+    const aiEnabled = (await helpers.getSetting(db, 'AI_ENABLED')) === 'true';
 
-    const transformedUsers = users.map(user => ({
+    const transformedUsers = users
+      // Agent pseudo-user is only meaningful while AI is enabled
+      .filter((user) => aiEnabled || user.email !== 'agent@local')
+      .map((user) => ({
       id: user.id,
       email: user.email,
       firstName: user.first_name,
