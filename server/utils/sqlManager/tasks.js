@@ -1300,6 +1300,7 @@ export async function getTasksForFlowChart(db, taskIds) {
       t.id as "id",
       t.ticket as "ticket",
       t.title as "title",
+      t.description as "description",
       t.memberid as "memberId",
       mem.name as "memberName",
       mem.color as "memberColor",

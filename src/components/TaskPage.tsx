@@ -113,6 +113,8 @@ export default function TaskPage({
   const [relationships, setRelationships] = useState<any[]>([]);
   const [parentTask, setParentTask] = useState<{id: string, ticket: string, title: string, projectId?: string} | null>(null);
   const [childTasks, setChildTasks] = useState<{id: string, ticket: string, title: string, projectId?: string}[]>([]);
+  /** Bumps TaskFlowChart to refetch after local relationship mutations. */
+  const [flowChartRevision, setFlowChartRevision] = useState(0);
   const [availableTasksForChildren, setAvailableTasksForChildren] = useState<{id: string, ticket: string, title: string, status: string, projectId?: string}[]>([]);
   const [showChildrenDropdown, setShowChildrenDropdown] = useState(false);
   const [childrenSearchTerm, setChildrenSearchTerm] = useState('');
@@ -182,6 +184,7 @@ export default function TaskPage({
     setAvailableTasksForChildren([]);
     setShowChildrenDropdown(false);
     setChildrenSearchTerm('');
+    setFlowChartRevision(0);
   }, [taskId]);
   
 
@@ -384,6 +387,7 @@ export default function TaskPage({
       const availableTasksData = await getAvailableTasksForRelationship(task.id);
       setAvailableTasksForChildren(availableTasksData);
       
+      setFlowChartRevision((n) => n + 1);
       setShowChildrenDropdown(false);
       setChildrenSearchTerm('');
     } catch (error) {
@@ -435,6 +439,8 @@ export default function TaskPage({
         // Reload available tasks
         const availableTasksData = await getAvailableTasksForRelationship(task.id);
         setAvailableTasksForChildren(availableTasksData);
+
+        setFlowChartRevision((n) => n + 1);
       }
     } catch (error) {
       console.error('Failed to remove child task:', error);
@@ -1387,6 +1393,7 @@ export default function TaskPage({
                   <TaskFlowChart 
                     currentTaskId={task?.id || ''} 
                     currentTaskData={task}
+                    refreshRevision={flowChartRevision}
                   />
                 </div>
               )}

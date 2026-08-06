@@ -13,13 +13,11 @@ export interface UseTaskLinkingReturn {
   setLinkingSourceTask: (task: Task | null) => void;
   linkingLine: { startX: number; startY: number; endX: number; endY: number } | null;
   setLinkingLine: (line: { startX: number; startY: number; endX: number; endY: number } | null) => void;
-  linkingFeedbackMessage: string | null;
-  setLinkingFeedbackMessage: (message: string | null) => void;
-  
+
   // Hover highlighting
   hoveredLinkTask: Task | null;
   setHoveredLinkTask: (task: Task | null) => void;
-  
+
   // Relationships
   taskRelationships: { [taskId: string]: any[] };
   setTaskRelationships: (relationships: { [taskId: string]: any[] }) => void;
@@ -28,15 +26,17 @@ export interface UseTaskLinkingReturn {
 }
 
 export const useTaskLinking = (): UseTaskLinkingReturn => {
-  // Task linking state
   const [isLinkingMode, setIsLinkingMode] = useState(false);
   const [linkingSourceTask, setLinkingSourceTask] = useState<Task | null>(null);
-  const [linkingLine, setLinkingLine] = useState<{startX: number, startY: number, endX: number, endY: number} | null>(null);
-  const [linkingFeedbackMessage, setLinkingFeedbackMessage] = useState<string | null>(null);
-  
-  // Hover highlighting for relationships
+  const [linkingLine, setLinkingLine] = useState<{
+    startX: number;
+    startY: number;
+    endX: number;
+    endY: number;
+  } | null>(null);
+
   const [hoveredLinkTask, setHoveredLinkTask] = useState<Task | null>(null);
-  const [taskRelationships, setTaskRelationships] = useState<{[taskId: string]: any[]}>({});
+  const [taskRelationships, setTaskRelationships] = useState<{ [taskId: string]: any[] }>({});
   const [boardRelationships, setBoardRelationships] = useState<any[]>([]);
 
   return {
@@ -46,8 +46,6 @@ export const useTaskLinking = (): UseTaskLinkingReturn => {
     setLinkingSourceTask,
     linkingLine,
     setLinkingLine,
-    linkingFeedbackMessage,
-    setLinkingFeedbackMessage,
     hoveredLinkTask,
     setHoveredLinkTask,
     taskRelationships,
@@ -56,4 +54,3 @@ export const useTaskLinking = (): UseTaskLinkingReturn => {
     setBoardRelationships,
   };
 };
-

@@ -107,7 +107,17 @@
     "moveBoardConfirmBody_other": "This task has {{count}} relationships (parent, child, or related). Moving it to another board will remove those links for this task.",
     "moveBoardTargetBoard": "Target board: {{board}}",
     "moveBoardConfirmAction": "Move and remove links",
-    "moveBoardMoving": "Moving…"
+    "moveBoardMoving": "Moving…",
+    "linkCreatedTitle": "Relationship created",
+    "linkCreatedMessage": "{{from}} is now {{relationship}} of {{to}}",
+    "linkCancelledTitle": "Link cancelled",
+    "linkCancelledMessage": "No relationship was created",
+    "linkFailedTitle": "Could not create relationship",
+    "linkAlreadyExistsTitle": "Relationship already exists",
+    "linkingFrom": "Linking from {{ticket}} — release on a task or press Esc to cancel",
+    "relationshipParent": "parent",
+    "relationshipChild": "child",
+    "relationshipRelated": "related"
   },
   "toolbar": {
     "dragToMove": "Drag to move task",

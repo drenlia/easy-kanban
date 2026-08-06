@@ -1867,26 +1867,6 @@ const TaskCard = React.memo(function TaskCard({
           // Double-click doesn't do anything special for now, but prevents single-click action
           e.stopPropagation();
         }}
-        onMouseUp={isLinkingMode ? (e) => {
-          cardLog('🔗 TaskCard onMouseUp in linking mode:', {
-            taskId: task.id,
-            sourceTaskId: linkingSourceTask?.id,
-            isDifferentTask: linkingSourceTask?.id !== task.id
-          });
-          e.preventDefault();
-          e.stopPropagation();
-          if (onFinishLinking) {
-            if (linkingSourceTask?.id !== task.id) {
-              // Different task - create relationship
-              cardLog('🔗 Creating relationship:', linkingSourceTask?.ticket, '→', task.ticket);
-              onFinishLinking(task);
-            } else {
-              // Same task - cancel linking
-              cardLog('🔗 Same task - canceling linking');
-              onFinishLinking(null);
-            }
-          }
-        } : undefined}
         onPointerUp={isLinkingMode ? (e) => {
           cardLog('🔗 TaskCard onPointerUp in linking mode:', {
             taskId: task.id,
@@ -1897,13 +1877,11 @@ const TaskCard = React.memo(function TaskCard({
           e.stopPropagation();
           if (onFinishLinking) {
             if (linkingSourceTask?.id !== task.id) {
-              // Different task - create relationship
               cardLog('🔗 Creating relationship (pointer):', linkingSourceTask?.ticket, '→', task.ticket);
-              onFinishLinking(task);
+              void onFinishLinking(task);
             } else {
-              // Same task - cancel linking
               cardLog('🔗 Same task - canceling linking (pointer)');
-              onFinishLinking(null);
+              void onFinishLinking(null);
             }
           }
         } : undefined}
