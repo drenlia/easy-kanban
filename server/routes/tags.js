@@ -64,13 +64,13 @@ router.post('/', authenticateToken, async (req, res, next) => {
       newTag = allTags.find(t => t.tag === tag);
     }
     
-    // Publish to Redis for real-time updates
-    console.log('📤 Publishing tag-created to Redis (user-created)');
+    // Publish for real-time updates (tenant-scoped channel in multi-tenant mode)
+    console.log('📤 Publishing tag-created (user-created)');
     await notificationService.publish('tag-created', {
       tag: newTag,
       timestamp: new Date().toISOString()
-    });
-    console.log('✅ Tag-created published to Redis');
+    }, getTenantId(req));
+    console.log('✅ Tag-created published');
     
     res.json(newTag);
   } catch (error) {
@@ -121,13 +121,12 @@ router.post('/', authenticateToken, requireRole(['admin']), async (req, res) => 
       newTag = allTags.find(t => t.tag === tag);
     }
     
-    // Publish to Redis for real-time updates
-    console.log('📤 Publishing tag-created to Redis');
+    console.log('📤 Publishing tag-created');
     await notificationService.publish('tag-created', {
       tag: newTag,
       timestamp: new Date().toISOString()
-    });
-    console.log('✅ Tag-created published to Redis');
+    }, getTenantId(req));
+    console.log('✅ Tag-created published');
     
     res.json(newTag);
   } catch (error) {
@@ -155,13 +154,12 @@ router.put('/:tagId', authenticateToken, requireRole(['admin']), async (req, res
     // MIGRATED: Get updated tag using sqlManager
     const updatedTag = await tagQueries.getTagById(db, tagId);
     
-    // Publish to Redis for real-time updates
-    console.log('📤 Publishing tag-updated to Redis');
+    console.log('📤 Publishing tag-updated');
     await notificationService.publish('tag-updated', {
       tag: updatedTag,
       timestamp: new Date().toISOString()
-    });
-    console.log('✅ Tag-updated published to Redis');
+    }, getTenantId(req));
+    console.log('✅ Tag-updated published');
     
     res.json(updatedTag);
   } catch (error) {

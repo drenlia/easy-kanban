@@ -1,7 +1,7 @@
 import express from 'express';
 import { authenticateToken } from '../middleware/auth.js';
 import notificationService from '../services/notificationService.js';
-import { getRequestDatabase } from '../middleware/tenantRouting.js';
+import { getRequestDatabase, getTenantId } from '../middleware/tenantRouting.js';
 // MIGRATED: Import sqlManager
 import { views as viewQueries } from '../utils/sqlManager/index.js';
 import { parseBody, createViewBodySchema, updateViewBodySchema } from '../utils/requestValidation.js';
@@ -209,12 +209,12 @@ router.post('/', authenticateToken, async (req, res) => {
     
     // Publish to Redis for real-time updates if the filter is shared
     if (shared) {
-      console.log('📤 Publishing filter-created to Redis for shared filter:', formattedView.filterName);
+      console.log('📤 Publishing filter-created for shared filter:', formattedView.filterName);
       await notificationService.publish('filter-created', {
         filter: formattedView,
         timestamp: new Date().toISOString()
-      });
-      console.log('✅ Filter-created published to Redis');
+      }, getTenantId(req));
+      console.log('✅ Filter-created published');
     }
     
     res.status(201).json(formattedView);
@@ -295,14 +295,14 @@ router.put('/:id', authenticateToken, async (req, res) => {
     
     
     if (originalShared !== newShared || newShared) {
-      console.log('📤 Publishing filter-updated to Redis for filter:', formattedView.filterName, 'shared:', newShared);
+      console.log('📤 Publishing filter-updated for filter:', formattedView.filterName, 'shared:', newShared);
       await notificationService.publish('filter-updated', {
         filter: formattedView,
         timestamp: new Date().toISOString()
-      });
-      console.log('✅ Filter-updated published to Redis');
+      }, getTenantId(req));
+      console.log('✅ Filter-updated published');
     } else {
-      console.log('⏭️ Skipping Redis publish - no shared status change and filter not shared');
+      console.log('⏭️ Skipping publish - no shared status change and filter not shared');
     }
     
     res.json(formattedView);
@@ -338,13 +338,13 @@ router.delete('/:id', authenticateToken, async (req, res) => {
     
     // Publish to Redis for real-time updates if the filter was shared
     if (viewToDelete.shared) {
-      console.log('📤 Publishing filter-deleted to Redis for shared filter:', viewToDelete.filterName);
+      console.log('📤 Publishing filter-deleted for shared filter:', viewToDelete.filterName);
       await notificationService.publish('filter-deleted', {
         filterId: viewId,
         filterName: viewToDelete.filterName,
         timestamp: new Date().toISOString()
-      });
-      console.log('✅ Filter-deleted published to Redis');
+      }, getTenantId(req));
+      console.log('✅ Filter-deleted published');
     }
     
     res.status(204).send();

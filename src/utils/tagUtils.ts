@@ -21,8 +21,12 @@ export function mergeTaskTagsWithLiveData(taskTags: Tag[], availableTags: Tag[])
         return liveTag;
       }
 
-      // Catalog loaded but tag missing (deleted elsewhere) — drop orphan
+      // Catalog loaded but id missing: keep displayable embedded tags (create→attach race
+      // before tag-created refreshes availableTags). Drop id-only stubs (deleted elsewhere).
       if (availableTags.length > 0) {
+        if (taskTag?.tag) {
+          return taskTag;
+        }
         return null;
       }
 

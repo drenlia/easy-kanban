@@ -232,7 +232,7 @@ router.delete('/:id', authenticateToken, requireRole(['admin']), async (req, res
               boardId: boardId,
               task: updatedTask,
               timestamp: new Date().toISOString()
-            });
+            }, getTenantId(req));
           }
         }
       }

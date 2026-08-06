@@ -2,7 +2,7 @@ import express from 'express';
 import { authenticateToken, requireRole } from '../middleware/auth.js';
 import { wrapQuery } from '../utils/queryLogger.js';
 import notificationService from '../services/notificationService.js';
-import { getRequestDatabase } from '../middleware/tenantRouting.js';
+import { getRequestDatabase, getTenantId } from '../middleware/tenantRouting.js';
 import { dbTransaction } from '../utils/dbAsync.js';
 import { priorities as priorityQueries } from '../utils/sqlManager/index.js';
 import { tasks as taskQueries } from '../utils/sqlManager/index.js';
@@ -126,7 +126,7 @@ router.post('/', authenticateToken, requireRole(['admin']), async (req, res) => 
     await notificationService.publish('priority-created', {
       priority: newPriority,
       timestamp: new Date().toISOString()
-    });
+    }, getTenantId(req));
     console.log(`✅ Priority-created published via ${getNotificationSystem()}`);
     
     res.json(newPriority);
@@ -168,7 +168,7 @@ router.put('/reorder', authenticateToken, requireRole(['admin']), async (req, re
     await notificationService.publish('priority-reordered', {
       priorities: updatedPriorities,
       timestamp: new Date().toISOString()
-    });
+    }, getTenantId(req));
     console.log(`✅ Priority-reordered published via ${getNotificationSystem()}`);
     
     res.json(updatedPriorities);
@@ -196,7 +196,7 @@ router.put('/:priorityId', authenticateToken, requireRole(['admin']), async (req
     await notificationService.publish('priority-updated', {
       priority: updatedPriority,
       timestamp: new Date().toISOString()
-    });
+    }, getTenantId(req));
     console.log(`✅ Priority-updated published via ${getNotificationSystem()}`);
     
     res.json(updatedPriority);
@@ -212,6 +212,7 @@ router.put('/:priorityId', authenticateToken, requireRole(['admin']), async (req
 router.delete('/:priorityId', authenticateToken, requireRole(['admin']), async (req, res) => {
   const { priorityId } = req.params;
   const db = getRequestDatabase(req);
+  const tenantId = getTenantId(req);
   
   try {
     // MIGRATED: Get priority info before deletion using sqlManager
@@ -267,7 +268,7 @@ router.delete('/:priorityId', authenticateToken, requireRole(['admin']), async (
       priorityId: priorityId,
       priority: priorityToDelete,
       timestamp: new Date().toISOString()
-    });
+    }, tenantId);
     console.log(`✅ Priority-deleted published via ${getNotificationSystem()}`);
     
     // If tasks were reassigned, publish task updates for each affected board
@@ -311,7 +312,7 @@ router.delete('/:priorityId', authenticateToken, requireRole(['admin']), async (
               boardId: boardId,
               task: cleanTask,
               timestamp: new Date().toISOString()
-            });
+            }, tenantId);
           }
         }
       }

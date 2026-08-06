@@ -2,7 +2,7 @@ import express from 'express';
 import { authenticateToken, requireRole } from '../middleware/auth.js';
 import { checkUserLimit } from '../middleware/licenseCheck.js';
 import notificationService from '../services/notificationService.js';
-import { getRequestDatabase } from '../middleware/tenantRouting.js';
+import { getRequestDatabase, getTenantId } from '../middleware/tenantRouting.js';
 import { members as memberQueries } from '../utils/sqlManager/index.js';
 import { isAiEnabled } from '../utils/aiEnabled.js';
 import { parseBody, createMemberBodySchema } from '../utils/requestValidation.js';
@@ -55,13 +55,12 @@ router.post('/', authenticateToken, requireRole(['admin']), checkUserLimit, asyn
     // MIGRATED: Create member using sqlManager
     await memberQueries.createMember(db, id, name, color);
     
-    // Publish to Redis for real-time updates
-    console.log('📤 Publishing member-created to Redis');
+    console.log('📤 Publishing member-created');
     await notificationService.publish('member-created', {
       member: { id, name, color },
       timestamp: new Date().toISOString()
-    });
-    console.log('✅ Member-created published to Redis');
+    }, getTenantId(req));
+    console.log('✅ Member-created published');
     
     res.json({ id, name, color });
   } catch (error) {
@@ -79,13 +78,12 @@ router.delete('/:id', authenticateToken, requireRole(['admin']), async (req, res
     // MIGRATED: Delete member using sqlManager
     await memberQueries.deleteMember(db, id);
     
-    // Publish to Redis for real-time updates
-    console.log('📤 Publishing member-deleted to Redis');
+    console.log('📤 Publishing member-deleted');
     await notificationService.publish('member-deleted', {
       memberId: id,
       timestamp: new Date().toISOString()
-    });
-    console.log('✅ Member-deleted published to Redis');
+    }, getTenantId(req));
+    console.log('✅ Member-deleted published');
     
     res.json({ message: 'Member deleted successfully' });
   } catch (error) {

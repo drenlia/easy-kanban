@@ -7,7 +7,7 @@ import notificationService from '../services/notificationService.js';
  * Check all users for new achievements/badges using badges table
  * @param {Database} db - SQLite database instance
  */
-export const checkAllUserAchievements = async (db) => {
+export const checkAllUserAchievements = async (db, tenantId = null) => {
   try {
     const startTime = Date.now();
     console.log('🏆 Checking for new achievements...');
@@ -228,7 +228,7 @@ export const checkAllUserAchievements = async (db) => {
         await notificationService.publish('achievements-awarded', {
           achievements: newAchievements,
           timestamp: new Date().toISOString()
-        });
+        }, tenantId);
       } catch (publishError) {
         console.error('❌ Failed to publish achievement notifications:', publishError);
       }

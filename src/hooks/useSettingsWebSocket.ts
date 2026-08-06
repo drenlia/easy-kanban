@@ -45,6 +45,15 @@ export const useSettingsWebSocket = ({
   
   const handleTagCreated = useCallback(async (data: any) => {
     console.log('📨 Tag created via WebSocket:', data);
+    // Optimistic catalog update so cards can render the chip before getAllTags returns
+    if (data?.tag?.id != null) {
+      setAvailableTags((prev) => {
+        if (prev.some((t) => t.id === data.tag.id || String(t.id) === String(data.tag.id))) {
+          return prev;
+        }
+        return [...prev, data.tag];
+      });
+    }
     try {
       const tags = await getAllTags();
       setAvailableTags(tags);
@@ -56,6 +65,15 @@ export const useSettingsWebSocket = ({
 
   const handleTagUpdated = useCallback(async (data: any) => {
     console.log('📨 Tag updated via WebSocket:', data);
+    if (data?.tag?.id != null) {
+      setAvailableTags((prev) => {
+        const idx = prev.findIndex((t) => t.id === data.tag.id || String(t.id) === String(data.tag.id));
+        if (idx === -1) return [...prev, data.tag];
+        const next = [...prev];
+        next[idx] = { ...next[idx], ...data.tag };
+        return next;
+      });
+    }
     try {
       const tags = await getAllTags();
       setAvailableTags(tags);
@@ -78,6 +96,14 @@ export const useSettingsWebSocket = ({
 
   const handlePriorityCreated = useCallback(async (data: any) => {
     console.log('📨 Priority created via WebSocket:', data);
+    if (data?.priority?.id != null) {
+      setAvailablePriorities((prev) => {
+        if (prev.some((p) => p.id === data.priority.id || String(p.id) === String(data.priority.id))) {
+          return prev;
+        }
+        return [...prev, data.priority];
+      });
+    }
     try {
       const priorities = await getAllPriorities();
       setAvailablePriorities(priorities);
@@ -89,6 +115,15 @@ export const useSettingsWebSocket = ({
 
   const handlePriorityUpdated = useCallback(async (data: any) => {
     console.log('📨 Priority updated via WebSocket:', data);
+    if (data?.priority?.id != null) {
+      setAvailablePriorities((prev) => {
+        const idx = prev.findIndex((p) => p.id === data.priority.id || String(p.id) === String(data.priority.id));
+        if (idx === -1) return [...prev, data.priority];
+        const next = [...prev];
+        next[idx] = { ...next[idx], ...data.priority };
+        return next;
+      });
+    }
     try {
       const priorities = await getAllPriorities();
       setAvailablePriorities(priorities);

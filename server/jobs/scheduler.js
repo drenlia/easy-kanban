@@ -25,7 +25,7 @@ export const initializeScheduler = (db) => {
           console.log(`📸 [CRON] Processing ${tenantDbs.length} tenant(s)...`);
           for (const { tenantId, db: tenantDb } of tenantDbs) {
             try {
-              await createDailyTaskSnapshots(tenantDb);
+              await createDailyTaskSnapshots(tenantDb, tenantId);
               console.log(`✅ [CRON] Snapshots created for tenant: ${tenantId || 'default'}`);
             } catch (error) {
               console.error(`❌ [CRON] Failed for tenant ${tenantId || 'default'}:`, error.message);
@@ -55,7 +55,7 @@ export const initializeScheduler = (db) => {
           console.log(`🏆 [CRON] Processing ${tenantDbs.length} tenant(s)...`);
           for (const { tenantId, db: tenantDb } of tenantDbs) {
             try {
-              await checkAllUserAchievements(tenantDb);
+              await checkAllUserAchievements(tenantDb, tenantId);
               console.log(`✅ [CRON] Achievements checked for tenant: ${tenantId || 'default'}`);
             } catch (error) {
               console.error(`❌ [CRON] Failed for tenant ${tenantId || 'default'}:`, error.message);

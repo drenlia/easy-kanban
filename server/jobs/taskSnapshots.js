@@ -6,7 +6,7 @@ import notificationService from '../services/notificationService.js';
  * Create daily snapshots of all tasks for historical reporting
  * @param {Database} db - SQLite database instance
  */
-export const createDailyTaskSnapshots = async (db) => {
+export const createDailyTaskSnapshots = async (db, tenantId = null) => {
   try {
     const startTime = Date.now();
     console.log('📸 Starting daily task snapshots...');
@@ -236,7 +236,7 @@ export const createDailyTaskSnapshots = async (db) => {
         newSnapshots: newSnapshotCount,
         updatedSnapshots: updatedSnapshotCount,
         timestamp: new Date().toISOString()
-      });
+      }, tenantId);
       console.log('✅ Task snapshots update broadcasted via Redis');
     } catch (publishError) {
       console.error('❌ Failed to publish task snapshots update:', publishError);
