@@ -1,10 +1,20 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { getTaskFlowChart } from '../api';
 import { Maximize2, Minimize2, X, Filter, ZoomIn, ZoomOut, RotateCcw, GitBranch } from 'lucide-react';
 import { feDebug } from '../utils/clientDebug';
 import { useTheme } from '../contexts/ThemeContext';
 import { ModernCheckbox } from './ModernCheckbox';
+import websocketClient from '../services/websocketClient';
+import { plainTextFromHtml } from '../utils/agentTaskHints';
+import { generateTaskUrl } from '../utils/routingUtils';
+import {
+  CHROME_TOOLTIP_DELAY_MS,
+  CHROME_TOOLTIP_MULTILINE_SURFACE_CLASS,
+} from './KanbanChromeTooltip';
+
+const PAN_THRESHOLD_PX = 5;
 
 function flowLog(...args: unknown[]) {
   if (feDebug('FE_DEBUG_FLOWCHART')) console.log(...args);
@@ -27,6 +37,8 @@ interface TaskNode {
   id: string;
   ticket: string;
   title: string;
+  description: string;
+  projectId: string;
   memberId: string;
   memberName: string;
   memberColor: string;
@@ -72,9 +84,15 @@ function padViewBoxForReadableNodes(
 interface TaskFlowChartProps {
   currentTaskId: string; // Now expects the actual task UUID, not ticket
   currentTaskData: any; // The task object from TaskPage
+  /** Increment after local relationship add/remove so the chart refetches. */
+  refreshRevision?: number;
 }
 
-export default function TaskFlowChart({ currentTaskId, currentTaskData }: TaskFlowChartProps) {
+export default function TaskFlowChart({
+  currentTaskId,
+  currentTaskData,
+  refreshRevision = 0,
+}: TaskFlowChartProps) {
   const { t } = useTranslation('tasks');
   const { theme } = useTheme();
   const isDark = theme === 'dark';
@@ -91,6 +109,16 @@ export default function TaskFlowChart({ currentTaskId, currentTaskData }: TaskFl
   const [panY, setPanY] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  const [descriptionTooltip, setDescriptionTooltip] = useState<{
+    text: string;
+    x: number;
+    y: number;
+  } | null>(null);
+  const [hoveredTicketId, setHoveredTicketId] = useState<string | null>(null);
+  const descriptionTooltipTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const panPointerStartRef = useRef<{ x: number; y: number } | null>(null);
+  const hasPannedRef = useRef(false);
+  const tooltipMouseRef = useRef({ x: 0, y: 0 });
 
   // Build task tree from optimized API response
   const buildTaskTreeFromAPI = async (rootTaskId: string): Promise<{ tasks: Map<string, any>, relationships: any[] }> => {
@@ -110,22 +138,28 @@ export default function TaskFlowChart({ currentTaskId, currentTaskData }: TaskFl
         });
       });
       
-      // Build parent-child relationships
+      // Build parent→child links from "parent" rows only.
+      // Inverse "child" rows are the same edge the other way; using both duplicates
+      // children and triggers false "circular reference" warnings in the tree walk.
       relRows.forEach(rel => {
         const fromId = rel.taskId ?? (rel as { task_id?: string }).task_id;
         const toId = rel.relatedTaskId ?? (rel as { to_task_id?: string }).to_task_id;
-        const parentTask = tasksMap.get(fromId);
-        const childTask = tasksMap.get(toId);
-        
-        if (parentTask && childTask && fromId && toId) {
-          if (rel.relationship === 'parent') {
-            // Current task is parent of related task
-            parentTask.children.push(toId);
-            childTask.parents.push(fromId);
-          } else if (rel.relationship === 'child') {
-            // Current task is child of related task
-            childTask.children.push(fromId);
-            parentTask.parents.push(toId);
+        if (!fromId || !toId) return;
+
+        if (rel.relationship === 'parent') {
+          const parentTask = tasksMap.get(fromId);
+          const childTask = tasksMap.get(toId);
+          if (parentTask && childTask) {
+            if (!parentTask.children.includes(toId)) parentTask.children.push(toId);
+            if (!childTask.parents.includes(fromId)) childTask.parents.push(fromId);
+          }
+        } else if (rel.relationship === 'child') {
+          // from is child of to → to is parent of from
+          const parentTask = tasksMap.get(toId);
+          const childTask = tasksMap.get(fromId);
+          if (parentTask && childTask) {
+            if (!parentTask.children.includes(fromId)) parentTask.children.push(fromId);
+            if (!childTask.parents.includes(toId)) childTask.parents.push(toId);
           }
         }
       });
@@ -152,6 +186,7 @@ export default function TaskFlowChart({ currentTaskId, currentTaskData }: TaskFl
     flowLog(`🌲 TaskFlowChart: Starting buildHierarchy with ${allTasks.size} tasks`);
     
     const visited = new Set<string>();
+    const path = new Set<string>(); // ancestors of the node being built (true cycles only)
     const MAX_DEPTH = 10; // Prevent deep recursion
     let nodeCount = 0;
     const MAX_NODES = 50; // Prevent too many nodes
@@ -167,17 +202,25 @@ export default function TaskFlowChart({ currentTaskId, currentTaskData }: TaskFl
         console.warn(`🚨 TaskFlowChart: Max nodes (${MAX_NODES}) reached`);
         return null;
       }
-      
+
+      // Already placed elsewhere in the tree (e.g. shared child / diamond) — skip quietly
       if (visited.has(taskId)) {
+        return null;
+      }
+
+      // True cycle: task reappears among its own ancestors
+      if (path.has(taskId)) {
         console.warn(`🔄 TaskFlowChart: Circular reference detected for task ${taskId} at level ${level}`);
-        return null; // Prevent infinite loops
+        return null;
       }
       
       visited.add(taskId);
+      path.add(taskId);
       nodeCount++;
       
       const taskData = allTasks.get(taskId);
       if (!taskData) {
+        path.delete(taskId);
         console.warn(`❓ TaskFlowChart: No data found for task ${taskId}`);
         return null;
       }
@@ -189,6 +232,8 @@ export default function TaskFlowChart({ currentTaskId, currentTaskData }: TaskFl
         id: taskId,
         ticket: taskData.ticket || `TASK-${taskId.slice(-5)}`,
         title: taskData.title || 'Unknown Task',
+        description: taskData.description || '',
+        projectId: taskData.projectId || '',
         memberId: taskData.memberId || '',
         memberName: taskData.memberName || 'Unknown',
         memberColor: taskData.memberColor || '#6366F1',
@@ -211,6 +256,8 @@ export default function TaskFlowChart({ currentTaskId, currentTaskData }: TaskFl
           .filter((child: TaskNode | null) => child !== null);
         flowLog(`✅ TaskFlowChart: Built ${node.children.length} children for ${taskData.ticket}`);
       }
+
+      path.delete(taskId);
       
       return node;
     };
@@ -283,52 +330,95 @@ export default function TaskFlowChart({ currentTaskId, currentTaskData }: TaskFl
   };
 
   // Load and build the task tree
-  useEffect(() => {
-    const loadTaskTree = async () => {
-      if (!currentTaskId) {
-        flowLog('❌ TaskFlowChart: No currentTaskId provided');
+  const loadTaskTree = useCallback(async (options?: { silent?: boolean }) => {
+    if (!currentTaskId) {
+      flowLog('❌ TaskFlowChart: No currentTaskId provided');
+      return;
+    }
+
+    if (!options?.silent) {
+      setLoading(true);
+    }
+    setError(null);
+
+    try {
+      flowLog(`🚀 TaskFlowChart: Building task flow chart for UUID: ${currentTaskId}`);
+      flowLog(`🚀 TaskFlowChart: Task ticket: ${currentTaskData?.ticket}`);
+
+      const { tasks: allTasks } = await buildTaskTreeFromAPI(currentTaskId);
+
+      if (allTasks.size === 0) {
+        flowLog('📭 TaskFlowChart: No tasks found');
+        setTaskTree(null);
         return;
       }
-      
-      setLoading(true);
-      setError(null);
-      
-      try {
-        flowLog(`🚀 TaskFlowChart: Building task flow chart for UUID: ${currentTaskId}`);
-        flowLog(`🚀 TaskFlowChart: Task ticket: ${currentTaskData?.ticket}`);
-        
-        // Step 1: Get all flow chart data in one optimized API call
-        const { tasks: allTasks } = await buildTaskTreeFromAPI(currentTaskId);
-        
-        if (allTasks.size === 0) {
-          flowLog('📭 TaskFlowChart: No tasks found');
-          setTaskTree(null);
-          return;
-        }
-        
-        // Step 2: Build hierarchical tree structure
-        const tree = buildHierarchy(allTasks, currentTaskId);
-        flowLog(`🌲 TaskFlowChart: Tree structure built:`, tree);
-        
-        if (tree) {
-          // Step 3: Calculate positions
-          calculatePositions(tree, 400, 50); // Start at center-top
-          setTaskTree(tree);
-          flowLog('✅ TaskFlowChart: Task tree built successfully');
-        } else {
-          flowLog('❌ TaskFlowChart: Failed to build tree structure');
-          setError('Failed to build task tree structure');
-        }
-        
-      } catch (error) {
-        console.error('❌ TaskFlowChart: Error building task tree:', error);
-        setError('Failed to load task relationships');
-      } finally {
+
+      const tree = buildHierarchy(allTasks, currentTaskId);
+      flowLog(`🌲 TaskFlowChart: Tree structure built:`, tree);
+
+      if (tree) {
+        calculatePositions(tree, 400, 50);
+        setTaskTree(tree);
+        flowLog('✅ TaskFlowChart: Task tree built successfully');
+      } else {
+        flowLog('❌ TaskFlowChart: Failed to build tree structure');
+        setError('Failed to build task tree structure');
+      }
+    } catch (error) {
+      console.error('❌ TaskFlowChart: Error building task tree:', error);
+      setError('Failed to load task relationships');
+    } finally {
+      if (!options?.silent) {
         setLoading(false);
       }
+    }
+  }, [currentTaskId, currentTaskData?.ticket]);
+
+  const loadTaskTreeRef = useRef(loadTaskTree);
+  useEffect(() => {
+    loadTaskTreeRef.current = loadTaskTree;
+  }, [loadTaskTree]);
+
+  const treeTaskIdsRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    const ids = new Set<string>();
+    if (currentTaskId) ids.add(currentTaskId);
+    const walk = (node: TaskNode | null) => {
+      if (!node) return;
+      ids.add(node.id);
+      node.children.forEach(walk);
     };
-    
-    loadTaskTree();
+    walk(taskTree);
+    treeTaskIdsRef.current = ids;
+  }, [taskTree, currentTaskId]);
+
+  useEffect(() => {
+    void loadTaskTree({ silent: refreshRevision > 0 });
+  }, [currentTaskId, refreshRevision, loadTaskTree]);
+
+  // Keep chart in sync when relationships change elsewhere (other tabs / kanban link)
+  useEffect(() => {
+    if (!currentTaskId) return;
+
+    const maybeRefresh = (data: any) => {
+      if (!data) return;
+      const ids = treeTaskIdsRef.current;
+      if (
+        data.taskId === currentTaskId ||
+        data.toTaskId === currentTaskId ||
+        ids.has(data.taskId) ||
+        ids.has(data.toTaskId)
+      ) {
+        void loadTaskTreeRef.current({ silent: true });
+      }
+    };
+
+    websocketClient.onTaskRelationshipCreated(maybeRefresh);
+    websocketClient.onTaskRelationshipDeleted(maybeRefresh);
+    return () => {
+      websocketClient.offTaskRelationshipCreated(maybeRefresh);
+      websocketClient.offTaskRelationshipDeleted(maybeRefresh);
+    };
   }, [currentTaskId]);
 
   // Fullscreen toggle functions
@@ -340,30 +430,21 @@ export default function TaskFlowChart({ currentTaskId, currentTaskData }: TaskFl
     setIsFullscreen(false);
   }, []);
 
-  // Navigate to a specific task
-  const navigateToTask = useCallback((taskId: string, projectId?: string) => {
-    if (projectId) {
-      // Get the task data to find the ticket
-      const taskData = taskTree && findTaskInTree(taskTree, taskId);
-      if (taskData?.ticket) {
-        const url = `#${projectId}#${taskData.ticket}`;
-        flowLog(`🔗 TaskFlowChart: Navigating to task: ${url}`);
-        window.location.hash = url;
-      }
-    }
-  }, [taskTree]);
-
-  // Helper function to find task in tree
-  const findTaskInTree = (node: TaskNode, targetId: string): TaskNode | null => {
-    if (node.id === targetId) return node;
-    
-    for (const child of node.children) {
-      const found = findTaskInTree(child, targetId);
-      if (found) return found;
-    }
-    
-    return null;
-  };
+  // Navigate to a specific task (ticket + project from the node when available)
+  const navigateToTask = useCallback(
+    (node: TaskNode) => {
+      if (!node.ticket) return;
+      const projectId =
+        node.projectId ||
+        currentTaskData?.projectId ||
+        currentTaskData?.project ||
+        undefined;
+      const url = generateTaskUrl(node.ticket, projectId || undefined);
+      flowLog(`🔗 TaskFlowChart: Navigating to task: ${url}`);
+      window.location.href = url;
+    },
+    [currentTaskData]
+  );
 
   // Zoom functions
   const zoomIn = useCallback(() => {
@@ -380,24 +461,75 @@ export default function TaskFlowChart({ currentTaskId, currentTaskData }: TaskFl
     setPanY(0);
   }, []);
 
-  // Pan functions
-  const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    if (e.button === 0) { // Left mouse button
-      setIsDragging(true);
-      setDragStart({ x: e.clientX - panX, y: e.clientY - panY });
-      e.preventDefault();
+  const clearDescriptionTooltipTimer = useCallback(() => {
+    if (descriptionTooltipTimerRef.current) {
+      clearTimeout(descriptionTooltipTimerRef.current);
+      descriptionTooltipTimerRef.current = null;
     }
-  }, [panX, panY]);
+  }, []);
+
+  const hideDescriptionTooltip = useCallback(() => {
+    clearDescriptionTooltipTimer();
+    setDescriptionTooltip(null);
+  }, [clearDescriptionTooltipTimer]);
+
+  const showDescriptionTooltip = useCallback(
+    (node: TaskNode, clientX: number, clientY: number) => {
+      const text = plainTextFromHtml(node.description);
+      if (!text) {
+        hideDescriptionTooltip();
+        return;
+      }
+      tooltipMouseRef.current = { x: clientX, y: clientY };
+      clearDescriptionTooltipTimer();
+      descriptionTooltipTimerRef.current = setTimeout(() => {
+        const { x, y } = tooltipMouseRef.current;
+        setDescriptionTooltip({ text, x, y });
+      }, CHROME_TOOLTIP_DELAY_MS);
+    },
+    [clearDescriptionTooltipTimer, hideDescriptionTooltip]
+  );
+
+  useEffect(() => () => clearDescriptionTooltipTimer(), [clearDescriptionTooltipTimer]);
+
+  // Pan functions — require a small move before treating as drag so clicks still work
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    if (e.button !== 0) return;
+    // Don't start pan when interacting with the ticket link hit-target
+    const target = e.target as Element | null;
+    if (target?.closest?.('[data-flow-ticket-link="true"]')) {
+      return;
+    }
+    hideDescriptionTooltip();
+    panPointerStartRef.current = { x: e.clientX, y: e.clientY };
+    hasPannedRef.current = false;
+    setDragStart({ x: e.clientX - panX, y: e.clientY - panY });
+    e.preventDefault();
+  }, [panX, panY, hideDescriptionTooltip]);
 
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
-    if (isDragging) {
-      setPanX(e.clientX - dragStart.x);
-      setPanY(e.clientY - dragStart.y);
+    const start = panPointerStartRef.current;
+    if (!start) return;
+
+    const dx = e.clientX - start.x;
+    const dy = e.clientY - start.y;
+    if (!hasPannedRef.current) {
+      if (Math.hypot(dx, dy) < PAN_THRESHOLD_PX) return;
+      hasPannedRef.current = true;
+      setIsDragging(true);
     }
-  }, [isDragging, dragStart]);
+
+    setPanX(e.clientX - dragStart.x);
+    setPanY(e.clientY - dragStart.y);
+  }, [dragStart]);
 
   const handleMouseUp = useCallback(() => {
+    panPointerStartRef.current = null;
     setIsDragging(false);
+    // Keep hasPannedRef until next mousedown so click handlers can ignore this gesture
+    requestAnimationFrame(() => {
+      hasPannedRef.current = false;
+    });
   }, []);
 
   // Mouse wheel zoom
@@ -456,92 +588,129 @@ export default function TaskFlowChart({ currentTaskId, currentTaskData }: TaskFl
   const renderTaskNode = (node: TaskNode) => {
     if (!isTaskVisible(node)) return null;
 
+    const ticketHovered = hoveredTicketId === node.id;
+    const ticketFill = ticketHovered ? '#2563eb' : svgColors.ticketFill; // blue-600 on hover
+
     return (
-      <g key={node.id}>
-        {/* Clickable overlay */}
+      <g
+        key={node.id}
+        onMouseEnter={(e) => {
+          showDescriptionTooltip(node, e.clientX, e.clientY);
+        }}
+        onMouseMove={(e) => {
+          tooltipMouseRef.current = { x: e.clientX, y: e.clientY };
+          if (descriptionTooltip) {
+            setDescriptionTooltip((prev) =>
+              prev ? { ...prev, x: e.clientX, y: e.clientY } : prev
+            );
+          }
+        }}
+        onMouseLeave={hideDescriptionTooltip}
+      >
+        {/* Task box (decorative) */}
         <rect
           x={node.x - 100}
           y={node.y}
           width={200}
           height={100}
-          fill="transparent"
-          className="cursor-pointer"
-          onClick={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            // Only navigate if we're not dragging
-            if (!isDragging) {
-              const projectId = currentTaskData?.projectId || currentTaskData?.project;
-              navigateToTask(node.id, projectId);
-            }
-          }}
-        />
-        
-        {/* Task box */}
-        <rect
-          x={node.x - 100} // Center the box (width/2)
-          y={node.y}
-          width={200}
-          height={100}
           fill={svgColors.nodeFill}
           stroke={node.id === currentTaskId ? svgColors.nodeStrokeCurrent : svgColors.nodeStroke}
-          strokeWidth={node.id === currentTaskId ? "3" : "1"}
+          strokeWidth={node.id === currentTaskId ? '3' : '1'}
           rx={8}
-          className={`drop-shadow-md ${node.id !== currentTaskId ? 'hover:stroke-blue-400 transition-colors cursor-pointer' : ''}`}
+          pointerEvents="none"
+          className={`drop-shadow-md ${node.id !== currentTaskId ? 'transition-colors' : ''}`}
         />
-        
+
         {/* Status indicator dot */}
         <circle
           cx={node.x - 85}
           cy={node.y + 15}
           r={4}
           fill={getStatusColor(node.status)}
+          pointerEvents="none"
           className="drop-shadow-sm"
         />
-        
-        {/* Task ticket */}
+
+        {/* Task ticket (visual) */}
         <text
           x={node.x}
           y={node.y + 20}
           textAnchor="middle"
-          fill={svgColors.ticketFill}
-          className="text-sm font-bold pointer-events-none"
+          fill={ticketFill}
+          pointerEvents="none"
+          className="text-sm font-bold"
+          style={{ textDecoration: ticketHovered ? 'underline' : 'none' }}
         >
           {node.ticket}
         </text>
-        
+
         {/* Task title */}
         <text
           x={node.x}
           y={node.y + 40}
           textAnchor="middle"
           fill={svgColors.titleFill}
-          className="text-xs pointer-events-none"
+          pointerEvents="none"
+          className="text-xs"
         >
           {node.title.length > 25 ? `${node.title.slice(0, 25)}...` : node.title}
         </text>
-        
+
         {/* Member name */}
         <text
           x={node.x}
           y={node.y + 60}
           textAnchor="middle"
           fill={svgColors.memberFill}
-          className="text-xs pointer-events-none"
+          pointerEvents="none"
+          className="text-xs"
         >
           {node.memberName}
         </text>
-        
+
         {/* Status */}
         <text
           x={node.x}
           y={node.y + 80}
           textAnchor="middle"
-          className="text-xs font-medium pointer-events-none"
+          className="text-xs font-medium"
           fill={getStatusColor(node.status)}
+          pointerEvents="none"
         >
           {node.status}
         </text>
+
+        {/* Full-card hit target (pan + description hover); below ticket link */}
+        <rect
+          x={node.x - 100}
+          y={node.y}
+          width={200}
+          height={100}
+          fill="transparent"
+          className="cursor-grab"
+        />
+
+        {/* Ticket link hit-target — opens task page */}
+        <rect
+          data-flow-ticket-link="true"
+          x={node.x - 70}
+          y={node.y + 4}
+          width={140}
+          height={22}
+          fill="transparent"
+          className="cursor-pointer"
+          onMouseEnter={() => setHoveredTicketId(node.id)}
+          onMouseLeave={() => setHoveredTicketId(null)}
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (hasPannedRef.current) return;
+            hideDescriptionTooltip();
+            navigateToTask(node);
+          }}
+        >
+          <title>{node.ticket}</title>
+        </rect>
       </g>
     );
   };
@@ -715,6 +884,7 @@ export default function TaskFlowChart({ currentTaskId, currentTaskData }: TaskFl
     );
 
     return (
+      <>
       <div 
         className={`w-full overflow-hidden bg-gray-50 dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 ${isFullscreen ? 'h-full' : ''} ${isDragging ? 'cursor-grabbing' : 'cursor-grab'}`}
         onMouseDown={handleMouseDown}
@@ -752,6 +922,25 @@ export default function TaskFlowChart({ currentTaskId, currentTaskData }: TaskFl
           })()}
         </svg>
       </div>
+      {descriptionTooltip &&
+        createPortal(
+          <div
+            className={`${CHROME_TOOLTIP_MULTILINE_SURFACE_CLASS} max-h-[min(12rem,40vh)] overflow-y-auto`}
+            style={{
+              position: 'fixed',
+              zIndex: 99999,
+              left: Math.min(descriptionTooltip.x + 12, window.innerWidth - 16),
+              top: Math.min(descriptionTooltip.y + 16, window.innerHeight - 16),
+              transform: 'translateX(-50%)',
+              pointerEvents: 'none',
+            }}
+            role="tooltip"
+          >
+            {descriptionTooltip.text}
+          </div>,
+          document.body
+        )}
+    </>
     );
   };
 

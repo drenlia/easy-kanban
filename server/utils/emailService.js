@@ -124,15 +124,15 @@ class EmailService {
     const transporter = await this.createTransporter(settings);
 
     const testEmailContent = {
-      from: `"${settings.SMTP_FROM_NAME || 'Easy Kanban'}" <${settings.SMTP_FROM_EMAIL}>`,
+      from: `"${settings.SMTP_FROM_NAME || 'Docru'}" <${settings.SMTP_FROM_EMAIL}>`,
       to: recipientEmail,
-      subject: `Email Test - ${settings.SITE_NAME || 'Easy Kanban'}`,
-      text: `Hello!\n\nThis is a test email from your Easy Kanban application.\n\nIf you're reading this, your email configuration is working correctly!\n\nSent at: ${new Date().toISOString()}\n\nBest regards,\nEasy Kanban System`,
+      subject: `Email Test - ${settings.SITE_NAME || 'Docru'}`,
+      text: `Hello!\n\nThis is a test email from your Docru application.\n\nIf you're reading this, your email configuration is working correctly!\n\nSent at: ${new Date().toISOString()}\n\nBest regards,\nDocru System`,
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
           <h2 style="color: #2563eb;">📧 Email Test Successful!</h2>
           <p>Hello!</p>
-          <p>This is a test email from your <strong>Easy Kanban</strong> application.</p>
+          <p>This is a test email from your <strong>Docru</strong> application.</p>
           <p>If you're reading this, your email configuration is working correctly! 🎉</p>
           <div style="background-color: #f3f4f6; padding: 16px; border-radius: 8px; margin: 20px 0;">
             <p><strong>Test Details:</strong></p>
@@ -144,7 +144,7 @@ class EmailService {
               <li><strong>Security:</strong> ${settings.SMTP_SECURE.toUpperCase()}</li>
             </ul>
           </div>
-          <p>Best regards,<br><strong>Easy Kanban System</strong></p>
+          <p>Best regards,<br><strong>Docru System</strong></p>
         </div>
       `
     };
@@ -184,12 +184,12 @@ class EmailService {
     const transporter = await this.createTransporter(settings);
 
     const emailContent = {
-      from: `"${settings.SMTP_FROM_NAME || 'Easy Kanban'}" <${settings.SMTP_FROM_EMAIL}>`,
+      from: `"${settings.SMTP_FROM_NAME || 'Docru'}" <${settings.SMTP_FROM_EMAIL}>`,
       to: user.email,
-      subject: `Password Reset - ${settings.SITE_NAME || 'Easy Kanban'}`,
+      subject: `Password Reset - ${settings.SITE_NAME || 'Docru'}`,
       text: `Hi ${user.first_name} ${user.last_name},
 
-You requested a password reset for your Easy Kanban account.
+You requested a password reset for your Docru account.
 
 Click the link below to reset your password:
 ${resetUrl}
@@ -199,12 +199,12 @@ This link will expire in 1 hour.
 If you didn't request this reset, please ignore this email.
 
 Best regards,
-The Easy Kanban Team`,
+The Docru Team`,
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
           <h2 style="color: #2563eb;">🔐 Password Reset Request</h2>
           <p>Hi ${user.first_name} ${user.last_name},</p>
-          <p>You requested a password reset for your <strong>Easy Kanban</strong> account.</p>
+          <p>You requested a password reset for your <strong>Docru</strong> account.</p>
           
           <div style="text-align: center; margin: 30px 0;">
             <a href="${resetUrl}" style="background-color: #2563eb; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">
@@ -221,7 +221,7 @@ The Easy Kanban Team`,
           
           <p>If you didn't request this reset, please ignore this email.</p>
           
-          <p>Best regards,<br><strong>The Easy Kanban Team</strong></p>
+          <p>Best regards,<br><strong>The Docru Team</strong></p>
         </div>
       `
     };
@@ -251,7 +251,7 @@ The Easy Kanban Team`,
 
     // Set default from address if not provided
     if (!emailOptions.from) {
-      emailOptions.from = `"${settings.SMTP_FROM_NAME || 'Easy Kanban'}" <${settings.SMTP_FROM_EMAIL}>`;
+      emailOptions.from = `"${settings.SMTP_FROM_NAME || 'Docru'}" <${settings.SMTP_FROM_EMAIL}>`;
     }
 
     console.log('📧 Sending email to:', emailOptions.to);

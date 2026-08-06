@@ -15,6 +15,7 @@ class ToastManager {
   private toasts: Toast[] = [];
   private listeners: ((toasts: Toast[]) => void)[] = [];
   private container: HTMLElement | null = null;
+  private dismissTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
   constructor() {
     this.createContainer();
@@ -52,10 +53,16 @@ class ToastManager {
     };
   }
 
+  private defaultDurationForType(type: ToastType): number {
+    // Errors / warnings stay longer so users can read and dismiss them
+    if (type === 'error' || type === 'warning') return 10000;
+    return 3000;
+  }
+
   show(toast: Omit<Toast, 'id'>) {
     const id = Math.random().toString(36).substr(2, 9);
-    // Use provided duration or default to 3000ms (3 seconds)
-    const duration = toast.duration !== undefined ? toast.duration : 3000;
+    const duration =
+      toast.duration !== undefined ? toast.duration : this.defaultDurationForType(toast.type);
     const newToast: Toast = {
       id,
       duration,
@@ -69,20 +76,28 @@ class ToastManager {
 
     // Auto-dismiss after duration (skip if duration is 0 for persistent toasts)
     if (duration && duration > 0) {
-      setTimeout(() => {
+      const timer = setTimeout(() => {
         this.dismiss(id);
       }, duration);
+      this.dismissTimers.set(id, timer);
     }
 
     return id;
   }
 
   dismiss(id: string) {
+    const timer = this.dismissTimers.get(id);
+    if (timer) {
+      clearTimeout(timer);
+      this.dismissTimers.delete(id);
+    }
     this.toasts = this.toasts.filter(toast => toast.id !== id);
     this.notifyListeners();
   }
 
   dismissAll() {
+    this.dismissTimers.forEach((timer) => clearTimeout(timer));
+    this.dismissTimers.clear();
     this.toasts = [];
     this.notifyListeners();
   }
@@ -203,11 +218,13 @@ export const ToastComponent: React.FC<{ toast: Toast; onDismiss: (id: string) =>
         </div>
         <div className="ml-4 flex-shrink-0">
           <button
+            type="button"
             onClick={() => onDismiss(toastData.id)}
-            className={`inline-flex ${styles.button}`}
+            className={`inline-flex rounded p-0.5 ${styles.button}`}
+            aria-label="Dismiss"
           >
             <span className="sr-only">Dismiss</span>
-            <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+            <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
               <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
             </svg>
           </button>

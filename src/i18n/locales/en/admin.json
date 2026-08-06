@@ -94,7 +94,6 @@
   "emailServerNotAvailableForResend": "Email server is not available: {{error}}. Please configure email settings before resending invitations.",
   "invitationEmailSent": "Invitation email sent successfully to {{email}}",
   "failedToSendInvitationEmail": "Failed to send invitation email",
-  "failedToUpdateUser": "Failed to update user",
   "users": {
     "title": "Users",
     "description": "Manage user accounts and permissions. Regular users can only manage their own profile information, while administrators have full access to manage all content, users, and site settings.",
@@ -250,7 +249,7 @@
     "description": "Configure basic site information that appears throughout the application.",
     "siteName": "Site Name",
     "enterSiteName": "Enter site name",
-    "siteNameEmptyHint": "Leave blank to hide the site name in the header (useful when using a logo only). Clearing the name will not fall back to \"Easy Kanban\".",
+    "siteNameEmptyHint": "Leave blank to hide the site name in the header (useful when using a logo only). Clearing the name will not fall back to \"Docru\".",
     "siteUrl": "Site URL",
     "websiteUrl": "Website URL (Customer Portal)",
     "websiteUrlDescription": "URL to your customer portal for subscription management. This value is set during instance purchase and is read-only.",
@@ -307,7 +306,7 @@
     "demoModeActive": "Demo Mode Active",
     "demoModeDescription": "Email communication is disabled in demo mode. The mail server settings cannot be enabled to prevent sending emails from demo environments. This restriction will be automatically lifted when demo mode is disabled.",
     "managedEmailService": "Managed Email Service",
-    "managedEmailDescription": "Your email service is currently managed by Easy Kanban. This means emails are sent using our infrastructure with the sender address",
+    "managedEmailDescription": "Your email service is currently managed by Docru. This means emails are sent using our infrastructure with the sender address",
     "switchToCustomSMTP": "Switch to Custom SMTP",
     "switchToCustomSMTPConfirm": "Are you sure you want to switch to custom SMTP settings? This will clear the current managed settings and require you to configure your own SMTP server. You will need to test the configuration before it can be enabled.",
     "switchToCustomSMTPConfirmFinal": "⚠️ Warning: This action cannot be undone. Once you switch to custom SMTP settings, you will not be able to return to the managed email service. Are you absolutely sure you want to proceed?",
@@ -379,7 +378,7 @@
     "title": "File Storage",
     "description": "Store attachments and avatars on local disk or an S3-compatible bucket. Public URLs stay the same; only where bytes live changes.",
     "managedTitle": "Managed Storage",
-    "managedDescription": "Object storage is provided by Easy Kanban. Attachments and avatars use the platform S3 configuration.",
+    "managedDescription": "Object storage is provided by Docru. Attachments and avatars use the platform S3 configuration.",
     "switchToCustom": "Use your own S3 bucket",
     "switchConfirm1": "Configure your own S3 bucket as the destination. Platform storage stays the source until Migrate S3 → S3 finishes successfully.",
     "switchConfirm2": "You will enter destination credentials, Test destination, then run Migrate S3 → S3. Source files are copied; platform settings are replaced only after a successful migrate. Continue?",
@@ -552,7 +551,7 @@
     "notificationQueue": "Notification Queue",
     "ai": "AI",
     "aiTitle": "AI & Agent",
-    "aiDescription": "Turn on the in-app Agent, connect an LLM provider, and point Easy Kanban at the runner that executes coding jobs.",
+    "aiDescription": "Turn on the in-app Agent, connect an LLM provider, and point Docru at the runner that executes coding jobs.",
     "aiSectionEnable": "1. Enable AI",
     "aiSectionEnableHint": "Master switch for agent features on this instance.",
     "aiSectionAgent": "2. Agent identity",
@@ -575,7 +574,7 @@
     "aiSuggestedEndpoint": "Suggested endpoint",
     "aiUseSuggestedUrlShort": "click to restore",
     "aiApiBaseUrl": "AI API base URL",
-    "aiApiBaseUrlDescription": "Endpoint Easy Kanban probes for connectivity. Override when using a proxy, Azure, or a host reachable from this server (e.g. host.docker.internal for Ollama in Docker).",
+    "aiApiBaseUrlDescription": "Endpoint Docru probes for connectivity. Override when using a proxy, Azure, or a host reachable from this server (e.g. host.docker.internal for Ollama in Docker).",
     "aiApiKey": "AI API key",
     "aiApiKeyPlaceholder": "Enter API key",
     "aiApiKeyOptional": "Optional for this provider.",
@@ -604,7 +603,7 @@
     "aiRunnerUrl": "Agent runner URL",
     "aiRunnerUrlDescription": "Internal URL of the push runner (Docker: http://kanban-runner:8080). Leave blank to use the platform default from the environment.",
     "aiRunnerToken": "Runner bearer token",
-    "aiRunnerTokenDescription": "Shared secret so only Easy Kanban can launch jobs. Leave blank to use RUNNER_TOKEN from the environment.",
+    "aiRunnerTokenDescription": "Shared secret so only Docru can launch jobs. Leave blank to use RUNNER_TOKEN from the environment.",
     "aiRunnerTokenPlaceholder": "Same value as runner RUNNER_TOKEN",
     "aiGithubToken": "GitHub token",
     "aiGithubTokenDescription": "Moved to each user’s Profile → Dev. Admin no longer stores a shared GitHub PAT.",
@@ -738,7 +737,6 @@
     "emailSystemNotConfiguredHint": "Configure SMTP settings under System Settings → Mail Server to enable email notifications.",
     "notificationDefaultsSaved": "Notification defaults saved",
     "emailThrottlingDelaySaved": "Email throttling delay saved",
-    "settingSaved": "Setting saved",
     "notificationTypes": {
       "newTaskAssigned": "New task assigned to me",
       "newTaskAssignedDescription": "Get notified when someone assigns a task to you",
@@ -1051,7 +1049,13 @@
     "noSentNotifications": "No sent notifications found in queue",
     "recipient": "Recipient",
     "task": "Task",
-    "type": "Type",
+    "type": {
+      "assignee": "Assignee",
+      "watcher": "Watcher",
+      "collaborator": "Collaborator",
+      "creator": "Creator",
+      "requester": "Requester"
+    },
     "scheduled": "Scheduled",
     "changes": "Changes",
     "updated": "Updated",
@@ -1065,13 +1069,6 @@
       "pending": "Pending",
       "sent": "Sent",
       "failed": "Failed"
-    },
-    "type": {
-      "assignee": "Assignee",
-      "watcher": "Watcher",
-      "collaborator": "Collaborator",
-      "creator": "Creator",
-      "requester": "Requester"
     }
   },
   "lifecycle": {

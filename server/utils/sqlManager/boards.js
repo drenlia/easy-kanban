@@ -272,9 +272,7 @@ export async function getBoardTaskRelationships(db, boardId) {
   `;
   
   const stmt = wrapQuery(db.prepare(query), 'SELECT');
-  const result = await stmt.all(boardId);
-  console.log(`🔗 [getBoardTaskRelationships] Found ${result.length} relationships for board ${boardId}`, result);
-  return result;
+  return await stmt.all(boardId);
 }
 
 /**

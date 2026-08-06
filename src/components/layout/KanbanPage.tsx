@@ -19,6 +19,7 @@ import {
   allTasksCheckedInColumn,
   checkedIdsInColumn,
 } from '../../utils/kanbanMultiSelect';
+import { buildTaskRelationshipSummaryMap } from '../../utils/taskRelationshipSummary';
 import { ModernCheckbox } from '../ModernCheckbox';
 import TeamMembers from '../TeamMembers';
 import Tools from '../Tools';
@@ -41,8 +42,22 @@ import {
 } from '../../api';
 import { toast } from '../../utils/toast';
 import websocketClient from '../../services/websocketClient';
+import {
+  BOARD_TRASH_CHANGED_EVENT,
+  type BoardTrashChangedDetail,
+} from '../../utils/boardTrashEvents';
 
 import { lazyWithRetry } from '../../utils/lazyWithRetry';
+
+const HIGHLIGHT_LINKS_STORAGE_KEY = 'ek_highlight_links_mode';
+
+function readHighlightLinksMode(): boolean {
+  try {
+    return localStorage.getItem(HIGHLIGHT_LINKS_STORAGE_KEY) === 'true';
+  } catch {
+    return false;
+  }
+}
 
 const TRASH_OPEN_STORAGE_KEY = 'easyKanban.trashOpenByBoard';
 
@@ -203,6 +218,8 @@ interface KanbanPageProps {
   onLinkToolHover?: (task: Task) => void;
   onLinkToolHoverEnd?: () => void;
   getTaskRelationshipType?: (taskId: string) => 'parent' | 'child' | 'related' | null;
+  /** Shift+click a highlighted related card to remove the link */
+  onUnlinkRelatedTask?: (targetTask: Task) => void | Promise<void>;
   
   // Auto-synced relationships
   boardRelationships?: any[];
@@ -352,6 +369,7 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
   onLinkToolHover,
   onLinkToolHoverEnd,
   getTaskRelationshipType,
+  onUnlinkRelatedTask,
   
   // Auto-synced relationships
   boardRelationships = [],
@@ -394,6 +412,7 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
     const prefs = loadUserPreferences(currentUser?.id ?? null);
     return prefs.appSettings.showBoardToolbar !== false;
   });
+  const [highlightLinksMode, setHighlightLinksMode] = useState(readHighlightLinksMode);
   const [trashOpen, setTrashOpen] = useState(() =>
     readTrashOpenPreference(selectedBoard)
   );
@@ -413,13 +432,17 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
     [selectedBoard]
   );
 
+  const trashCountRequestRef = useRef(0);
+
   const refreshTrashCount = useCallback(async (boardId: string | null) => {
     if (!boardId) {
       setTrashCount(0);
       return;
     }
+    const requestId = ++trashCountRequestRef.current;
     try {
       const count = await getBoardTrashCount(boardId);
+      if (requestId !== trashCountRequestRef.current) return;
       setTrashCount(count);
       if (count === 0) {
         setTrashOpen(false);
@@ -475,29 +498,33 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
 
   // Keep trash count/list in sync with soft-delete / restore / purge events
   useEffect(() => {
-    const onDeleted = (data: any) => {
-      if (!data?.boardId || data.boardId !== selectedBoard) return;
+    const syncTrashForBoard = (boardId: string | undefined) => {
+      if (!boardId || boardId !== selectedBoard) return;
       if (trashOpen) {
         void loadTrashTasks(selectedBoard, { silent: true });
       } else {
         void refreshTrashCount(selectedBoard);
       }
     };
+    const onDeleted = (data: any) => {
+      syncTrashForBoard(data?.boardId);
+    };
     const onRestoredOrPurged = (data: any) => {
-      if (!data?.boardId || data.boardId !== selectedBoard) return;
-      if (trashOpen) {
-        void loadTrashTasks(selectedBoard, { silent: true });
-      } else {
-        void refreshTrashCount(selectedBoard);
-      }
+      syncTrashForBoard(data?.boardId);
+    };
+    const onLocalTrashChanged = (event: Event) => {
+      const boardId = (event as CustomEvent<BoardTrashChangedDetail>).detail?.boardId;
+      syncTrashForBoard(boardId);
     };
     websocketClient.onTaskDeleted(onDeleted);
     websocketClient.onTaskRestored(onRestoredOrPurged);
     websocketClient.onTaskPurged(onRestoredOrPurged);
+    window.addEventListener(BOARD_TRASH_CHANGED_EVENT, onLocalTrashChanged);
     return () => {
       websocketClient.offTaskDeleted(onDeleted);
       websocketClient.offTaskRestored(onRestoredOrPurged);
       websocketClient.offTaskPurged(onRestoredOrPurged);
+      window.removeEventListener(BOARD_TRASH_CHANGED_EVENT, onLocalTrashChanged);
     };
   }, [selectedBoard, trashOpen, loadTrashTasks, refreshTrashCount]);
 
@@ -756,6 +783,26 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
       console.error('Failed to save board toolbar preference:', error);
     }
   };
+
+  const handleToggleHighlightLinks = useCallback(() => {
+    setHighlightLinksMode((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem(HIGHLIGHT_LINKS_STORAGE_KEY, next ? 'true' : 'false');
+      } catch {
+        // ignore quota / private mode
+      }
+      return next;
+    });
+  }, []);
+
+  const relationSummaryByTaskId = useMemo(
+    () => buildTaskRelationshipSummaryMap(boardRelationships),
+    [boardRelationships]
+  );
+  const hasBoardRelationships = boardRelationships.length > 0;
+  /** Don't dim the board when there is nothing to highlight (e.g. stale localStorage). */
+  const effectiveHighlightLinksMode = highlightLinksMode && hasBoardRelationships;
 
   // Column filtering logic - memoized to prevent unnecessary re-renders
   const visibleColumnsForCurrentBoard = useMemo(() => {
@@ -1149,6 +1196,9 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
               hasActiveFilters={showSearchFilterBadge}
               activeFilterTooltip={activeFilterTooltip}
               onHideToolbar={() => void handleToggleBoardToolbar()}
+              highlightLinksMode={effectiveHighlightLinksMode}
+              onToggleHighlightLinks={handleToggleHighlightLinks}
+              hasBoardRelationships={hasBoardRelationships}
             />
           </div>
           <div className="min-w-0 flex-1 flex">
@@ -1485,6 +1535,9 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
                             onLinkToolHover={onLinkToolHover}
                             onLinkToolHoverEnd={onLinkToolHoverEnd}
                             getTaskRelationshipType={getTaskRelationshipType}
+                            onUnlinkRelatedTask={onUnlinkRelatedTask}
+                            highlightLinksMode={effectiveHighlightLinksMode}
+                            relationSummaryByTaskId={relationSummaryByTaskId}
                             
                             // Network status
                             isOnline={isOnline}
@@ -1589,6 +1642,9 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
                       onLinkToolHover={onLinkToolHover}
                       onLinkToolHoverEnd={onLinkToolHoverEnd}
                       getTaskRelationshipType={getTaskRelationshipType}
+                      onUnlinkRelatedTask={onUnlinkRelatedTask}
+                      highlightLinksMode={effectiveHighlightLinksMode}
+                      relationSummaryByTaskId={relationSummaryByTaskId}
                       
                       // Network status
                       isOnline={isOnline}

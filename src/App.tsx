@@ -88,7 +88,7 @@ import websocketClient from './services/websocketClient';
 import { loadUserPreferences, loadUserPreferencesAsync, mergeClearedKanbanVisibilityFilters, saveUserPreferences, updateUserPreference, updateActivityFeedPreference, loadAdminDefaults, TaskViewMode, ViewMode, isGloballySavingPreferences, registerSavingStateCallback, UserPreferences, clearAllUserPreferenceCookies } from './utils/userPreferences';
 import { resolveGuestLanguage, normalizeAppLanguage } from './utils/guestLanguage';
 import { versionDetection } from './utils/versionDetection';
-import { getAllPriorities, getAllTags, getTags, getPriorities, getSettings, getTaskWatchers, getTaskCollaborators, addTagToTask, removeTagFromTask, getBoardTaskRelationships, getTaskRelationships, getAllSprints, getUserSettings } from './api';
+import { getAllPriorities, getAllTags, getTags, getPriorities, getSettings, getTaskWatchers, getTaskCollaborators, addTagToTask, removeTagFromTask, getBoardTaskRelationships, getTaskRelationships, getAllSprints, getUserSettings, removeTaskRelationship } from './api';
 import { 
   DEFAULT_COLUMNS, 
   DRAG_COOLDOWN_DURATION, 
@@ -98,6 +98,13 @@ import {
 } from './constants';
 import { feDebug } from './utils/clientDebug';
 import { dndLog } from './utils/dndDebug';
+import {
+  findBoardRelationshipEdge,
+  getBoardRelationshipCounterpartIds,
+  getBoardRelationshipType,
+  normalizeBoardRelationshipEdge,
+  pickBoardRelationshipEdgeToDelete,
+} from './utils/taskRelationshipSummary';
 import { 
   getInitialSelectedBoard, 
   getInitialPage,
@@ -126,6 +133,7 @@ import { useKanbanMultiSelect } from './hooks/useKanbanMultiSelect';
 import { hasEscapeConsumingOverlay, isEditableEscapeTarget } from './utils/escapeKeyUtils';
 import { focusHeaderTaskSearch } from './utils/keyboardShortcutUtils';
 import { handleInviteUser as handleInviteUserUtil } from './utils/userInvitationUtils';
+import { notifyBoardTrashChanged } from './utils/boardTrashEvents';
 import BoardLimitReachedDialog, { BoardLimitInfo } from './components/BoardLimitReachedDialog';
 import { KeyboardSensor, PointerSensor, useSensor, useSensors, DragEndEvent, DragStartEvent, DndContext, DragOverlay } from '@dnd-kit/core';
 import { arrayMove, sortableKeyboardCoordinates } from '@dnd-kit/sortable';
@@ -327,12 +335,24 @@ function AppContent() {
         recentlyDeletedTasksRef.current.delete(taskId);
       }, 10000);
 
+      let boardIdForTrash = selectedBoardRef.current;
+      for (const column of Object.values(columns)) {
+        const found = column?.tasks?.find((task) => task.id === taskId);
+        if (found) {
+          boardIdForTrash = found.boardId || boardIdForTrash;
+          break;
+        }
+      }
+
       await deleteTask(taskId);
       removeTaskFromLocalColumns(taskId);
 
       // NOTE: Backend already renumbers tasks after deletion and sends a WebSocket event
       await refreshBoardData();
       await fetchQueryLogs();
+
+      // Do not rely only on WebSocket for the trash badge — refresh after HTTP success
+      notifyBoardTrashChanged(boardIdForTrash);
     } catch (error) {
       throw error;
     }
@@ -1625,101 +1645,100 @@ function AppContent() {
     }
   };
 
-  const handleFinishLinking = async (targetTask: Task | null, relationshipType: 'parent' | 'child' | 'related' = 'parent') => {
-    // console.log('🔗 handleFinishLinking called:', { 
-    //   linkingSourceTask: linkingSourceTask?.ticket, 
-    //   targetTask: targetTask?.ticket, 
-    //   relationshipType 
-    // });
-    
-    if (taskLinking.linkingSourceTask && targetTask && taskLinking.linkingSourceTask.id !== targetTask.id) {
-      try {
-        // console.log('🚀 Making API call to create relationship...');
-        const token = localStorage.getItem('authToken');
-        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-        if (token) {
-          headers.Authorization = `Bearer ${token}`;
-        }
-        
-        const response = await fetch(`/api/tasks/${taskLinking.linkingSourceTask.id}/relationships`, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({
-            relationship: relationshipType,
-            toTaskId: targetTask.id
-          })
-        });
-        
-        // console.log('📡 API Response status:', response.status);
-        
-        if (!response.ok) {
-          let errorMessage = 'Failed to create task relationship';
-          try {
-            const errorData = await response.json();
-            errorMessage = errorData.error || errorMessage;
-          } catch (parseError) {
-            // If JSON parsing fails, try text
-            try {
-              const errorText = await response.text();
-              errorMessage = errorText || errorMessage;
-            } catch (textError) {
-              // Keep default message
-            }
-          }
-          
-          // console.error('❌ API Error response:', {
-          //   status: response.status,
-          //   statusText: response.statusText,
-          //   error: errorMessage
-          // });
-          throw new Error(errorMessage);
-        }
-        
-        const result = await response.json();
-        // console.log('✅ API Success result:', result);
-        // console.log(`✅ Created ${relationshipType} relationship: ${linkingSourceTask.ticket} → ${targetTask.ticket}`);
-        
-        // Set success feedback message
-        taskLinking.setLinkingFeedbackMessage(`${taskLinking.linkingSourceTask.ticket} now ${relationshipType} of ${targetTask.ticket}`);
-      } catch (error) {
-        // console.error('❌ Error creating task relationship:', error);
-        // Set specific error feedback message
-        const errorMessage = error instanceof Error ? error.message : 'Failed to create task relationship';
-        taskLinking.setLinkingFeedbackMessage(errorMessage);
-      }
-    } else {
-      // console.log('⚠️ Relationship creation skipped:', {
-      //   hasSource: !!linkingSourceTask,
-      //   hasTarget: !!targetTask,
-      //   sameTask: linkingSourceTask?.id === targetTask?.id
-      // });
-      
-      // Set cancellation feedback message
-      taskLinking.setLinkingFeedbackMessage('Task link cancelled');
-    }
-    
-    // Reset linking state (but keep feedback message visible)
-    // console.log('🔄 Resetting linking state...');
+  const linkingFinishInFlightRef = useRef(false);
+
+  const resetLinkingUi = () => {
     taskLinking.setIsLinkingMode(false);
     taskLinking.setLinkingSourceTask(null);
     taskLinking.setLinkingLine(null);
-    
-    // Clear feedback message after 3 seconds
-    setTimeout(() => {
-      taskLinking.setLinkingFeedbackMessage(null);
-    }, 3000);
+  };
+
+  const handleFinishLinking = async (
+    targetTask: Task | null,
+    relationshipType: 'parent' | 'child' | 'related' = 'parent'
+  ) => {
+    if (linkingFinishInFlightRef.current) return;
+    linkingFinishInFlightRef.current = true;
+
+    const sourceTask = taskLinking.linkingSourceTask;
+    const relationshipLabel =
+      relationshipType === 'parent'
+        ? t('relationships.relationshipParent')
+        : relationshipType === 'child'
+          ? t('relationships.relationshipChild')
+          : t('relationships.relationshipRelated');
+
+    try {
+      if (sourceTask && targetTask && sourceTask.id !== targetTask.id) {
+        try {
+          const token = localStorage.getItem('authToken');
+          const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+          if (token) {
+            headers.Authorization = `Bearer ${token}`;
+          }
+
+          const response = await fetch(`/api/tasks/${sourceTask.id}/relationships`, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
+              relationship: relationshipType,
+              toTaskId: targetTask.id,
+            }),
+          });
+
+          if (!response.ok) {
+            let errorMessage = t('relationships.linkFailedTitle');
+            try {
+              const errorData = await response.json();
+              errorMessage = errorData.error || errorMessage;
+            } catch {
+              try {
+                const errorText = await response.text();
+                errorMessage = errorText || errorMessage;
+              } catch {
+                // keep default
+              }
+            }
+            const err = new Error(errorMessage) as Error & { status?: number };
+            err.status = response.status;
+            throw err;
+          }
+
+          await response.json();
+          toast.success(
+            t('relationships.linkCreatedTitle'),
+            t('relationships.linkCreatedMessage', {
+              from: sourceTask.ticket,
+              to: targetTask.ticket,
+              relationship: relationshipLabel,
+            })
+          );
+        } catch (error) {
+          const errorMessage =
+            error instanceof Error ? error.message : t('relationships.linkFailedTitle');
+          const status = (error as Error & { status?: number })?.status;
+          const alreadyExists =
+            status === 409 ||
+            /already exists|existe déjà/i.test(errorMessage);
+          if (alreadyExists) {
+            toast.warning(t('relationships.linkAlreadyExistsTitle'), errorMessage);
+          } else {
+            toast.error(t('relationships.linkFailedTitle'), errorMessage);
+          }
+        }
+      } else {
+        toast.info(t('relationships.linkCancelledTitle'), t('relationships.linkCancelledMessage'));
+      }
+    } finally {
+      resetLinkingUi();
+      linkingFinishInFlightRef.current = false;
+    }
   };
 
   const handleCancelLinking = () => {
-    taskLinking.setIsLinkingMode(false);
-    taskLinking.setLinkingSourceTask(null);
-    taskLinking.setLinkingLine(null);
-    taskLinking.setLinkingFeedbackMessage('Task link cancelled');
-    
-    // Clear feedback message after 3 seconds
-    setTimeout(() => {
-      taskLinking.setLinkingFeedbackMessage(null);
-    }, 3000);
+    if (linkingFinishInFlightRef.current) return;
+    resetLinkingUi();
+    toast.info(t('relationships.linkCancelledTitle'), t('relationships.linkCancelledMessage'));
   };
 
   // Hover highlighting handlers
@@ -1727,67 +1746,215 @@ function AppContent() {
   // - Green: Parent tasks (tasks that this one depends on)
   // - Purple: Child tasks (tasks that depend on this one)  
   // - Yellow: Related tasks (loosely connected tasks)
+  const linkHoverClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const unlinkInFlightRef = useRef(false);
+  /** Sync focus for Shift+click unlink (state can lag / clear before click). */
+  const highlightFocusTaskRef = useRef<Task | null>(null);
+  /** Previous focus — when you move onto a related card, Shift+click its link still unlinks the pair. */
+  const previousHighlightFocusTaskRef = useRef<Task | null>(null);
+  const boardRelationshipsRef = useRef(taskLinking.boardRelationships);
+  boardRelationshipsRef.current = taskLinking.boardRelationships;
+
   const handleLinkToolHover = async (task: Task) => {
-    // Load relationships for this task if not already loaded
+    // Cancel pending clear so moving onto a related card keeps highlights for Shift+click
+    if (linkHoverClearTimerRef.current) {
+      clearTimeout(linkHoverClearTimerRef.current);
+      linkHoverClearTimerRef.current = null;
+    }
+    const prev = highlightFocusTaskRef.current;
+    if (prev && prev.id !== task.id) {
+      previousHighlightFocusTaskRef.current = prev;
+    }
+    highlightFocusTaskRef.current = task;
+    // Highlight immediately from boardRelationships; warm per-task cache in background
+    taskLinking.setHoveredLinkTask(task);
     if (!taskLinking.taskRelationships[task.id]) {
       try {
         const relationships = await api.get(`/tasks/${task.id}/relationships`);
         const rows = Array.isArray(relationships.data) ? relationships.data : [];
-        taskLinking.setTaskRelationships((prev: { [taskId: string]: any[] }) => ({
-          ...prev,
+        taskLinking.setTaskRelationships((prevRels: { [taskId: string]: any[] }) => ({
+          ...prevRels,
           [task.id]: rows
         }));
-        // Set hovered task AFTER relationships are loaded to ensure highlighting works immediately
-        taskLinking.setHoveredLinkTask(task);
-      } catch (error) {
-        // console.error('Failed to load task relationships for hover:', error);
-        // Still set hovered task even if loading fails (user can see there are no relationships)
-        taskLinking.setHoveredLinkTask(task);
+      } catch {
+        // Board relationships still drive same-board highlight
       }
-    } else {
-      // Relationships already loaded - set hovered task immediately
-      taskLinking.setHoveredLinkTask(task);
     }
   };
 
   const handleLinkToolHoverEnd = () => {
-    taskLinking.setHoveredLinkTask(null);
+    if (linkHoverClearTimerRef.current) {
+      clearTimeout(linkHoverClearTimerRef.current);
+    }
+    // Longer delay so DnD / pointer travel to a related card still sees focus
+    linkHoverClearTimerRef.current = setTimeout(() => {
+      highlightFocusTaskRef.current = null;
+      previousHighlightFocusTaskRef.current = null;
+      taskLinking.setHoveredLinkTask(null);
+      linkHoverClearTimerRef.current = null;
+    }, 800);
   };
 
   // Helper function to check if a task is related to the hovered task
-  const getTaskRelationshipType = (taskId: string): 'parent' | 'child' | 'related' | null => {
-    if (!taskLinking.hoveredLinkTask || !taskLinking.taskRelationships[taskLinking.hoveredLinkTask.id]) return null;
-    
-    const relationships = taskLinking.taskRelationships[taskLinking.hoveredLinkTask.id];
+  const getTaskRelationshipType = useCallback((taskId: string): 'parent' | 'child' | 'related' | null => {
+    const focus = highlightFocusTaskRef.current ?? taskLinking.hoveredLinkTask;
+    if (!focus) return null;
+    const hoveredId = focus.id;
+
+    const fromBoard = getBoardRelationshipType(
+      boardRelationshipsRef.current,
+      hoveredId,
+      taskId
+    );
+    if (fromBoard) return fromBoard;
+
+    const relationships = taskLinking.taskRelationships[hoveredId];
     if (!Array.isArray(relationships)) return null;
-    
-    // Check if the task is a parent of the hovered task
-    const parentRel = relationships.find(rel => 
-      rel.relationship === 'child' && 
-      taskLinking.hoveredLinkTask && rel.task_id === taskLinking.hoveredLinkTask.id && 
+
+    const parentRel = relationships.find(rel =>
+      rel.relationship === 'child' &&
+      rel.task_id === hoveredId &&
       rel.to_task_id === taskId
     );
     if (parentRel) return 'parent';
-    
-    // Check if the task is a child of the hovered task
-    const childRel = relationships.find(rel => 
-      rel.relationship === 'parent' && 
-      taskLinking.hoveredLinkTask && rel.task_id === taskLinking.hoveredLinkTask.id && 
+
+    const childRel = relationships.find(rel =>
+      rel.relationship === 'parent' &&
+      rel.task_id === hoveredId &&
       rel.to_task_id === taskId
     );
     if (childRel) return 'child';
-    
-    // Check if the task has a 'related' relationship
-    const relatedRel = relationships.find(rel => 
-      rel.relationship === 'related' && 
-      taskLinking.hoveredLinkTask &&
-      ((rel.task_id === taskLinking.hoveredLinkTask.id && rel.to_task_id === taskId) ||
-       (rel.task_id === taskId && rel.to_task_id === taskLinking.hoveredLinkTask.id))
+
+    const relatedRel = relationships.find(rel =>
+      rel.relationship === 'related' &&
+      ((rel.task_id === hoveredId && rel.to_task_id === taskId) ||
+       (rel.task_id === taskId && rel.to_task_id === hoveredId))
     );
     if (relatedRel) return 'related';
-    
+
     return null;
-  };
+  }, [taskLinking.hoveredLinkTask, taskLinking.taskRelationships, taskLinking.boardRelationships]);
+
+  /** Shift+click the link icon to remove a relationship involving this card. */
+  const handleUnlinkRelatedTask = useCallback(async (clickedTask: Task) => {
+    if (unlinkInFlightRef.current) return;
+
+    const focus = highlightFocusTaskRef.current ?? taskLinking.hoveredLinkTask;
+    const previous = previousHighlightFocusTaskRef.current;
+    const edges = boardRelationshipsRef.current;
+
+    let otherTaskId: string | null = null;
+
+    // 1) Clicked a counterpart of the current focus
+    if (focus && focus.id !== clickedTask.id && findBoardRelationshipEdge(edges, focus.id, clickedTask.id)) {
+      otherTaskId = focus.id;
+    } else if (
+      // 2) Clicked the focus card after moving from a related card
+      focus &&
+      focus.id === clickedTask.id &&
+      previous &&
+      previous.id !== clickedTask.id &&
+      findBoardRelationshipEdge(edges, previous.id, clickedTask.id)
+    ) {
+      otherTaskId = previous.id;
+    } else if (
+      previous &&
+      previous.id !== clickedTask.id &&
+      findBoardRelationshipEdge(edges, previous.id, clickedTask.id)
+    ) {
+      otherTaskId = previous.id;
+    } else {
+      // 3) Fallback: resolve from this card's on-board edges (e.g. child with one parent)
+      const counterparts = getBoardRelationshipCounterpartIds(edges, clickedTask.id);
+      if (counterparts.length === 1) {
+        otherTaskId = counterparts[0];
+      } else if (previous && counterparts.includes(previous.id)) {
+        otherTaskId = previous.id;
+      } else if (focus && focus.id !== clickedTask.id && counterparts.includes(focus.id)) {
+        otherTaskId = focus.id;
+      } else if (counterparts.length > 1) {
+        toast.warning(
+          t('relationships.linkRemoveFailedTitle'),
+          t('relationships.linkRemovePickRelated')
+        );
+        return;
+      }
+    }
+
+    if (!otherTaskId) {
+      toast.warning(
+        t('relationships.linkRemoveFailedTitle'),
+        t('relationships.linkRemoveNotFound')
+      );
+      return;
+    }
+
+    const edge = pickBoardRelationshipEdgeToDelete(edges, clickedTask.id, otherTaskId);
+    if (!edge?.id) {
+      toast.warning(
+        t('relationships.linkRemoveFailedTitle'),
+        t('relationships.linkRemoveNotFound')
+      );
+      return;
+    }
+
+    const findTaskOnBoard = (id: string): Task | null => {
+      for (const col of Object.values(columns)) {
+        const found = (col.tasks || []).find((tk: Task) => tk.id === id);
+        if (found) return found;
+      }
+      return null;
+    };
+    const otherTask = findTaskOnBoard(otherTaskId);
+    const otherLabel = otherTask?.ticket || otherTaskId;
+
+    unlinkInFlightRef.current = true;
+    const idA = clickedTask.id;
+    const idB = otherTaskId;
+    const nextEdges = edges.filter((raw) => {
+      const e = normalizeBoardRelationshipEdge(raw);
+      if (!e) return true;
+      const pair =
+        (e.taskId === idA && e.toTaskId === idB) || (e.taskId === idB && e.toTaskId === idA);
+      return !pair;
+    });
+    boardRelationshipsRef.current = nextEdges;
+    taskLinking.setBoardRelationships(nextEdges);
+
+    try {
+      await removeTaskRelationship(edge.taskId, String(edge.id));
+      if (linkHoverClearTimerRef.current) {
+        clearTimeout(linkHoverClearTimerRef.current);
+        linkHoverClearTimerRef.current = null;
+      }
+      highlightFocusTaskRef.current = null;
+      previousHighlightFocusTaskRef.current = null;
+      taskLinking.setHoveredLinkTask(null);
+      taskLinking.setTaskRelationships((prevRels: { [taskId: string]: any[] }) => {
+        const next = { ...prevRels };
+        delete next[idA];
+        delete next[idB];
+        return next;
+      });
+      toast.success(
+        t('relationships.linkRemovedTitle'),
+        t('relationships.linkRemovedMessage', {
+          from: clickedTask.ticket,
+          to: otherLabel,
+        })
+      );
+    } catch (error: unknown) {
+      boardRelationshipsRef.current = edges;
+      taskLinking.setBoardRelationships(edges);
+      const ax = error as { response?: { data?: { error?: string } }; message?: string };
+      const message =
+        ax?.response?.data?.error ||
+        (error instanceof Error ? error.message : t('relationships.linkRemoveFailedTitle'));
+      toast.error(t('relationships.linkRemoveFailedTitle'), message);
+    } finally {
+      unlinkInFlightRef.current = false;
+    }
+  }, [t, taskLinking, columns]);
 
   // Use the extracted collision detection function
   const collisionDetection = (args: any) => customCollisionDetection(args, draggedColumn, draggedTask, columns);
@@ -4633,6 +4800,7 @@ function AppContent() {
                                     onLinkToolHover={handleLinkToolHover}
                                     onLinkToolHoverEnd={handleLinkToolHoverEnd}
                                     getTaskRelationshipType={getTaskRelationshipType}
+                                    onUnlinkRelatedTask={handleUnlinkRelatedTask}
                                     
                                     // Auto-synced relationships
                                     boardRelationships={taskLinking.boardRelationships}
@@ -4812,9 +4980,7 @@ function AppContent() {
         isLinkingMode={taskLinking.isLinkingMode}
         linkingSourceTask={taskLinking.linkingSourceTask}
         linkingLine={taskLinking.linkingLine}
-        feedbackMessage={taskLinking.linkingFeedbackMessage}
         onUpdateLinkingLine={handleUpdateLinkingLine}
-        onFinishLinking={handleFinishLinking}
         onCancelLinking={handleCancelLinking}
       />
       </div>

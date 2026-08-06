@@ -97,6 +97,9 @@
     "badgeParent": "PARENT",
     "badgeChild": "ENFANT",
     "badgeRelated": "LIÉE",
+    "markParent": "P",
+    "markChild": "E",
+    "markRelated": "L",
     "addChildTask": "Ajouter une tâche enfant...",
     "searchTasks": "Rechercher des tâches par numéro ou titre...",
     "goToParent": "Aller à la tâche parente",
@@ -107,7 +110,24 @@
     "moveBoardConfirmBody_other": "Cette tâche a {{count}} relations (parent, enfant ou associée). Le déplacement vers un autre tableau supprimera ces liens pour cette tâche.",
     "moveBoardTargetBoard": "Tableau cible : {{board}}",
     "moveBoardConfirmAction": "Déplacer et supprimer les liens",
-    "moveBoardMoving": "Déplacement…"
+    "moveBoardMoving": "Déplacement…",
+    "linkCreatedTitle": "Relation créée",
+    "linkCreatedMessage": "{{from}} est maintenant {{relationship}} de {{to}}",
+    "linkRemovedTitle": "Relation supprimée",
+    "linkRemovedMessage": "Lien entre {{from}} et {{to}} supprimé",
+    "linkRemoveFailedTitle": "Impossible de supprimer la relation",
+    "linkRemoveNotFound": "Aucune relation trouvée entre ces tâches sur ce tableau",
+    "linkRemovePickRelated": "Cette tâche a plusieurs liens — survolez la carte liée, puis Maj+clic sur son icône de lien (ou celle-ci)",
+    "shiftClickToUnlink": "Maj+clic pour dissocier",
+    "shiftClickLinkToUnlink": "Maj+clic sur l'icône de lien pour supprimer cette relation",
+    "linkCancelledTitle": "Lien annulé",
+    "linkCancelledMessage": "Aucune relation n'a été créée",
+    "linkFailedTitle": "Impossible de créer la relation",
+    "linkAlreadyExistsTitle": "La relation existe déjà",
+    "linkingFrom": "Liaison depuis {{ticket}} — relâchez sur une tâche ou Esc pour annuler",
+    "relationshipParent": "parent",
+    "relationshipChild": "enfant",
+    "relationshipRelated": "lié"
   },
   "toolbar": {
     "dragToMove": "Glisser pour déplacer la tâche",
@@ -122,6 +142,7 @@
     "assignToAgentSection": "Agent IA",
     "sourceTaskForLinking": "Tâche source pour le lien",
     "holdAndDragToLink": "Maintenir et glisser pour lier les tâches",
+    "holdAndDragToLinkWithRelations": "A des liens — maintenir et glisser pour en lier d'autres ; Maj+clic pour supprimer une relation mise en évidence",
     "noMoreTagsAvailable": "Aucune autre étiquette disponible",
     "disabledWhileAgent": "Indisponible pendant que l'Agent travaille sur cette tâche"
   },
@@ -313,7 +334,6 @@
     "adding": "Ajout...",
     "updateComment": "Mettre à jour le commentaire"
   },
-
   "listView": {
     "showHideColumns": "Afficher/Masquer les colonnes",
     "copyTask": "Copier la tâche",
@@ -473,4 +493,3 @@
     }
   }
 }
-

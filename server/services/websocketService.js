@@ -8,6 +8,7 @@ import { JWT_SECRET, isUserActive, userMayUseSession } from '../middleware/auth.
 import { extractTenantId, getTenantDatabase } from '../middleware/tenantRouting.js';
 import { wrapQuery } from '../utils/queryLogger.js';
 import { wsVerboseLog } from '../utils/serverDebug.js';
+import { getTenantDomain } from '../utils/tenantDomain.js';
 
 function userSocketRoom(tenantId, userId) {
   return tenantId ? `user-${tenantId}-${userId}` : `user-${userId}`;
@@ -29,7 +30,7 @@ class WebSocketService {
       .split(',')
       .map((s) => s.trim())
       .filter(Boolean);
-    const tenantDomain = process.env.TENANT_DOMAIN || 'ezkan.cloud';
+    const tenantDomain = getTenantDomain();
 
     const allowedOrigins =
       process.env.MULTI_TENANT === 'true'

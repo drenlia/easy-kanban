@@ -122,7 +122,7 @@ function escapeHtml(value) {
  * Table-based layout for broad client support; no emoji chrome.
  */
 function wrapTransactionalEmail({ siteName, headline, bodyHtml, footerNote, logoHtml }) {
-  const brand = escapeHtml(siteName || 'Easy Kanban');
+  const brand = escapeHtml(siteName || 'Docru');
   const headlineSafe = escapeHtml(headline);
   const headerRow = logoHtml
     ? `<tr>
@@ -208,7 +208,7 @@ export const EmailTemplates = {
       lang: langOverride,
     } = data;
     const { t } = await getEmailLangAndTranslator({ user, db, lang: langOverride });
-    const brand = siteName || 'Easy Kanban';
+    const brand = siteName || 'Docru';
     const firstName = escapeHtml(user.first_name || '');
     const lastName = escapeHtml(user.last_name || '');
     const email = escapeHtml(user.email || '');
@@ -464,7 +464,7 @@ ${textChangeBlock}
 ${t('emails.taskNotification.common.viewTask')}: ${taskUrl}
 
 Best regards,
-${t('emails.taskNotification.common.teamSignature', { siteName: siteName || 'Easy Kanban' })}`,
+${t('emails.taskNotification.common.teamSignature', { siteName: siteName || 'Docru' })}`,
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
           <div style="text-align: center; margin-bottom: 30px;">
@@ -505,7 +505,7 @@ ${t('emails.taskNotification.common.teamSignature', { siteName: siteName || 'Eas
           
           <p style="color: #9ca3af; font-size: 12px; text-align: center;">
             ${receivingReason}<br>
-            <strong>${t('emails.taskNotification.common.teamSignature', { siteName: siteName || 'Easy Kanban' })}</strong>
+            <strong>${t('emails.taskNotification.common.teamSignature', { siteName: siteName || 'Docru' })}</strong>
           </p>
         </div>
       `
@@ -577,7 +577,7 @@ Comment: ${commentText}
 ${t('emails.taskNotification.common.viewTask')}: ${taskUrl}
 
 Best regards,
-${t('emails.taskNotification.common.teamSignature', { siteName: siteName || 'Easy Kanban' })}`,
+${t('emails.taskNotification.common.teamSignature', { siteName: siteName || 'Docru' })}`,
       attachments: emailAttachments,
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
@@ -625,7 +625,7 @@ ${t('emails.taskNotification.common.teamSignature', { siteName: siteName || 'Eas
           
           <p style="color: #9ca3af; font-size: 12px; text-align: center;">
             ${t('emails.taskNotification.common.receivingReason')}<br>
-            <strong>${t('emails.taskNotification.common.teamSignature', { siteName: siteName || 'Easy Kanban' })}</strong>
+            <strong>${t('emails.taskNotification.common.teamSignature', { siteName: siteName || 'Docru' })}</strong>
           </p>
         </div>
       `
@@ -649,7 +649,7 @@ ${t('emails.taskNotification.common.teamSignature', { siteName: siteName || 'Eas
       lang: langOverride,
     } = data;
     const { t } = await getEmailLangAndTranslator({ user, db, lang: langOverride });
-    const brand = siteName || 'Easy Kanban';
+    const brand = siteName || 'Docru';
 
     const logoPath = hideSiteLogo ? '' : (siteLogo || siteLogoDark || '');
     const siteLogoEmbed = buildEmailSiteLogo({
@@ -849,7 +849,7 @@ ${taskLinesText}
 ${formattedTimestamp}
 
 ${t('emails.bulkTaskNotification.receivingReason')}
-${t('emails.bulkTaskNotification.teamSignature', { siteName: siteName || 'Easy Kanban' })}`,
+${t('emails.bulkTaskNotification.teamSignature', { siteName: siteName || 'Docru' })}`,
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 640px; margin: 0 auto; padding: 20px;">
           <div style="text-align: center; margin-bottom: 24px;">
@@ -879,7 +879,7 @@ ${t('emails.bulkTaskNotification.teamSignature', { siteName: siteName || 'Easy K
           <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 24px 0;">
           <p style="color: #9ca3af; font-size: 12px; text-align: center;">
             ${t('emails.bulkTaskNotification.receivingReason')}<br>
-            <strong>${t('emails.bulkTaskNotification.teamSignature', { siteName: siteName || 'Easy Kanban' })}</strong>
+            <strong>${t('emails.bulkTaskNotification.teamSignature', { siteName: siteName || 'Docru' })}</strong>
           </p>
         </div>
       `,

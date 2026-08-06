@@ -8,6 +8,7 @@ import { getTenantId, getRequestDatabase } from '../middleware/tenantRouting.js'
 // MIGRATED: Import sqlManager
 import { boards as boardQueries, tasks as taskQueries, helpers } from '../utils/sqlManager/index.js';
 import { purgeBoardCompletely, purgeTaskCompletelyAndUpdateStorage } from '../services/taskPurgeService.js';
+import { serverDebug } from '../utils/serverDebug.js';
 import {
   parseBody,
   createBoardBodySchema,
@@ -610,6 +611,10 @@ router.get('/:boardId/relationships', authenticateToken, async (req, res) => {
     
     // MIGRATED: Get all relationships for tasks in this board using sqlManager
     const relationships = await boardQueries.getBoardTaskRelationships(db, boardId);
+
+    if (await serverDebug(db, 'SERVER_DEBUG_HTTP')) {
+      console.log(`🔗 [getBoardTaskRelationships] Found ${relationships.length} relationships for board ${boardId}`, relationships);
+    }
     
     res.json(relationships);
   } catch (error) {

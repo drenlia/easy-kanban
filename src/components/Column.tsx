@@ -19,6 +19,8 @@ import {
   shouldShowColumnBulkUndo,
 } from '../utils/kanbanMultiSelect';
 import ColumnBulkUndoFab from './ColumnBulkUndoFab';
+import type { TaskRelationshipSummary } from '../utils/taskRelationshipSummary';
+import { getTaskRelationshipSummary } from '../utils/taskRelationshipSummary';
 
 interface KanbanColumnProps {
   column: Column;
@@ -84,6 +86,9 @@ interface KanbanColumnProps {
   onLinkToolHover?: (task: Task) => void;
   onLinkToolHoverEnd?: () => void;
   getTaskRelationshipType?: (taskId: string) => 'parent' | 'child' | 'related' | null;
+  onUnlinkRelatedTask?: (targetTask: Task) => void | Promise<void>;
+  highlightLinksMode?: boolean;
+  relationSummaryByTaskId?: Map<string, TaskRelationshipSummary>;
   
   // Network status
   isOnline?: boolean;
@@ -179,6 +184,9 @@ export default function KanbanColumn({
   onLinkToolHover,
   onLinkToolHoverEnd,
   getTaskRelationshipType,
+  onUnlinkRelatedTask,
+  highlightLinksMode = false,
+  relationSummaryByTaskId,
   
   // Network status
   isOnline = true, // Default to true if not provided
@@ -785,6 +793,9 @@ export default function KanbanColumn({
             onLinkToolHover={onLinkToolHover}
             onLinkToolHoverEnd={onLinkToolHoverEnd}
             getTaskRelationshipType={getTaskRelationshipType}
+            onUnlinkRelatedTask={onUnlinkRelatedTask}
+            highlightLinksMode={highlightLinksMode}
+            relationSummary={getTaskRelationshipSummary(relationSummaryByTaskId, task.id)}
           />
         </div>
       );
@@ -809,7 +820,7 @@ export default function KanbanColumn({
     }
     
     return taskElements;
-  }, [filteredTasks, members, onRemoveTask, onEditTask, onCopyTask, onTaskDragStart, onTaskDragEnd, onSelectTask, draggedTask, dragPreview, column.id, column.title, isDragging, t, taskViewMode, currentUser, siteSettings, column.is_finished, column.is_archived, draggedColumn, availablePriorities, selectedTask, availableTags, onTagAdd, onTagRemove, boards, columns, selectedSprintId, availableSprints, isLinkingMode, linkingSourceTask, onStartLinking, onFinishLinking, hoveredLinkTask, onLinkToolHover, onLinkToolHoverEnd, getTaskRelationshipType, checkedTaskIds, onToggleTaskChecked, isMultiSelectDragLocked, draggedTaskIds]);
+    }, [filteredTasks, members, onRemoveTask, onEditTask, onCopyTask, onTaskDragStart, onTaskDragEnd, onSelectTask, draggedTask, dragPreview, column.id, column.title, isDragging, t, taskViewMode, currentUser, siteSettings, column.is_finished, column.is_archived, draggedColumn, availablePriorities, selectedTask, availableTags, onTagAdd, onTagRemove, boards, columns, selectedSprintId, availableSprints, isLinkingMode, linkingSourceTask, onStartLinking, onFinishLinking, hoveredLinkTask, onLinkToolHover, onLinkToolHoverEnd, getTaskRelationshipType, onUnlinkRelatedTask, highlightLinksMode, relationSummaryByTaskId, checkedTaskIds, onToggleTaskChecked, isMultiSelectDragLocked, draggedTaskIds]);
 
   // Combine sortable and column droppable refs for the column container
   const setColumnRef = (node: HTMLElement | null) => {

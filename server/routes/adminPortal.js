@@ -10,6 +10,7 @@ import notificationService from '../services/notificationService.js';
 import { getLicenseManager } from '../config/license.js';
 import { getTranslator } from '../utils/i18n.js';
 import { getTenantId, getRequestDatabase } from '../middleware/tenantRouting.js';
+import { getTenantDomain } from '../utils/tenantDomain.js';
 import { clearSqlDebugSettingsCache } from '../utils/sqlDebugSettingsCache.js';
 // MIGRATED: Import sqlManager modules
 import { users as userQueries, settings as settingsQueries, licenseSettings as licenseSettingsQueries, auth as authQueries, adminUsers as adminUserQueries, helpers } from '../utils/sqlManager/index.js';
@@ -1318,11 +1319,11 @@ router.post('/send-invitation', authenticateAdminPortal, async (req, res) => {
       } else {
         const tenantId = req.tenantId;
         if (tenantId) {
-          const domain = process.env.TENANT_DOMAIN || 'ezkan.cloud';
+          const domain = getTenantDomain();
           baseUrl = `https://${tenantId}.${domain}`;
         } else {
           const instanceName = process.env.INSTANCE_NAME || 'easy-kanban-app';
-          const domain = process.env.TENANT_DOMAIN || 'ezkan.cloud';
+          const domain = getTenantDomain();
           baseUrl = `https://${instanceName}.${domain}`;
         }
       }

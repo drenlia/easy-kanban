@@ -91,7 +91,7 @@ export default defineConfig({
     host: '0.0.0.0',
     port: 3010,
     // Allow all hosts in preview mode (needed for multi-tenant deployments)
-    // In multi-tenant mode, we don't know all hostnames in advance (e.g., daniel.ezkan.cloud, app.ezkan.cloud, etc.)
+    // In multi-tenant mode, we don't know all hostnames in advance (e.g., tenant.docru.app, app.docru.app, etc.)
     // Security is handled by nginx reverse proxy which validates hostnames before forwarding requests
     // Use true to disable host checking (allows all hosts)
     allowedHosts: true,

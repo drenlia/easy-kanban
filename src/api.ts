@@ -1226,6 +1226,7 @@ export const getTaskFlowChart = async (taskId: string): Promise<{
     id: string;
     ticket: string;
     title: string;
+    description?: string;
     memberId: string;
     memberName: string;
     memberColor: string;
