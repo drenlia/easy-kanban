@@ -16,12 +16,12 @@ data:
   # Instance configuration for admin portal access
   INSTANCE_NAME: "easy-kanban-pg"
   INSTANCE_TOKEN: "INSTANCE_TOKEN_PLACEHOLDER"
-  ADMIN_SERVICE_URL: "https://admin.ezkan.cloud"
+  ADMIN_SERVICE_URL: "https://admin.docru.app"
   
   # Security configuration
   JWT_SECRET: "JWT_SECRET_PLACEHOLDER"
-  # CORS origins - Use different subdomain for testing
-  ALLOWED_ORIGINS: "localhost,127.0.0.1,app-pg.ezkan.cloud,admin.ezkan.cloud,ezkan.cloud"
+  # CORS / Socket.IO extras — tenants are {id}.docru.app
+  ALLOWED_ORIGINS: "localhost,127.0.0.1,amanda-pg.docru.app,drenlia.docru.app,admin.docru.app,docru.app"
   
   # License settings
   LICENSE_ENABLED: "true"
@@ -31,7 +31,7 @@ data:
   
   # Multi-tenant configuration
   MULTI_TENANT: "true"
-  TENANT_DOMAIN: "ezkan.cloud"
+  TENANT_DOMAIN: "docru.app"
   STARTUP_TENANT_ID: ""
   
   # PostgreSQL Configuration (replaces SQLite)

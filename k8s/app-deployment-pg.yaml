@@ -164,7 +164,7 @@ spec:
             port: 3222
             httpHeaders:
             - name: Host
-              value: app-pg.ezkan.cloud
+              value: drenlia.docru.app
           initialDelaySeconds: 10
           periodSeconds: 10
           timeoutSeconds: 5
@@ -175,7 +175,7 @@ spec:
             port: 3222
             httpHeaders:
             - name: Host
-              value: app-pg.ezkan.cloud
+              value: drenlia.docru.app
           initialDelaySeconds: 30
           periodSeconds: 10
           timeoutSeconds: 5
