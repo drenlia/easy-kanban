@@ -9,6 +9,7 @@ import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { initializeDatabase } from '../config/database.js';
 import notificationService from '../services/notificationService.js';
+import { getTenantDomain } from '../utils/tenantDomain.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -24,7 +25,7 @@ const isMultiTenant = () => {
  * Hostname used for tenant extraction (must match {tenantId}.{TENANT_DOMAIN}).
  * - Prefer X-Forwarded-Host / X-Original-Host / Host in that order (ingress usually sets these).
  * - If a header lists multiple hosts (comma-separated proxy chain), use the first hop (client-facing host).
- * - Strip port so drenlia-pg.ezkan.cloud:443 still resolves.
+ * - Strip port so tenant.docru.app:443 still resolves.
  */
 function pickHostnameForTenant(req) {
   const forwardedHost = req.get('x-forwarded-host');
@@ -37,8 +38,8 @@ function pickHostnameForTenant(req) {
 
 // Extract tenant ID from hostname
 // Examples:
-//   customer1.ezkan.cloud -> customer1
-//   customer2.ezkan.cloud -> customer2
+//   customer1.docru.app -> customer1
+//   customer2.docru.app -> customer2
 //   localhost -> null (single-tenant mode)
 const extractTenantId = (hostname) => {
   if (!hostname) return null;
@@ -50,8 +51,7 @@ const extractTenantId = (hostname) => {
   
   const hostnameWithoutPort = hostname.split(':')[0].trim();
   
-  // Get domain from environment or use default
-  const domain = process.env.TENANT_DOMAIN || 'ezkan.cloud';
+  const domain = getTenantDomain();
   
   // Check if hostname matches tenant pattern: {tenantId}.{domain}
   // Note: only a single DNS label is supported as tenantId (subdomain), not nested names.
@@ -201,7 +201,7 @@ export const tenantRouting = async (req, res, next) => {
     let tenantId = extractTenantId(hostname);
     
     if (isMultiTenant()) {
-      const domain = process.env.TENANT_DOMAIN || 'ezkan.cloud';
+      const domain = getTenantDomain();
       const schemaHint = tenantId ? `tenant_${tenantId}` : 'public (no tenant subdomain — check Host / TENANT_DOMAIN=${domain})';
       console.log(`🔍 Tenant routing → tenantId: ${tenantId || 'null'}, schema: ${schemaHint}`);
     }

@@ -203,15 +203,15 @@ class EmailService {
     const transporter = await this.createTransporter(settings);
 
     const testEmailContent = {
-      from: `"${settings.SMTP_FROM_NAME || 'Easy Kanban'}" <${settings.SMTP_FROM_EMAIL}>`,
+      from: `"${settings.SMTP_FROM_NAME || 'Docru'}" <${settings.SMTP_FROM_EMAIL}>`,
       to: recipientEmail,
-      subject: `Email Test - ${settings.SITE_NAME || 'Easy Kanban'}`,
-      text: `Hello!\n\nThis is a test email from your Easy Kanban application.\n\nIf you're reading this, your email configuration is working correctly!\n\nSent at: ${new Date().toISOString()}\n\nBest regards,\nEasy Kanban System`,
+      subject: `Email Test - ${settings.SITE_NAME || 'Docru'}`,
+      text: `Hello!\n\nThis is a test email from your Docru application.\n\nIf you're reading this, your email configuration is working correctly!\n\nSent at: ${new Date().toISOString()}\n\nBest regards,\nDocru System`,
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
           <h2 style="color: #2563eb;">📧 Email Test Successful!</h2>
           <p>Hello!</p>
-          <p>This is a test email from your <strong>Easy Kanban</strong> application.</p>
+          <p>This is a test email from your <strong>Docru</strong> application.</p>
           <p>If you're reading this, your email configuration is working correctly! 🎉</p>
           <div style="background-color: #f3f4f6; padding: 16px; border-radius: 8px; margin: 20px 0;">
             <p><strong>Test Details:</strong></p>
@@ -223,7 +223,7 @@ class EmailService {
               <li><strong>Security:</strong> ${(settings.SMTP_SECURE || 'tls').toUpperCase()}</li>
             </ul>
           </div>
-          <p>Best regards,<br><strong>Easy Kanban System</strong></p>
+          <p>Best regards,<br><strong>Docru System</strong></p>
         </div>
       `
     };
@@ -272,7 +272,7 @@ class EmailService {
     const emailTemplate = await EmailTemplates.passwordReset({
       user,
       resetUrl,
-      siteName: settings.SITE_NAME || 'Easy Kanban',
+      siteName: settings.SITE_NAME || 'Docru',
       siteLogo: settings.SITE_LOGO,
       siteLogoDark: settings.SITE_LOGO_DARK,
       hideSiteLogo: settings.HIDE_SITE_LOGO === 'true',
@@ -281,7 +281,7 @@ class EmailService {
     });
 
     const emailContent = {
-      from: `"${settings.SMTP_FROM_NAME || 'Easy Kanban'}" <${settings.SMTP_FROM_EMAIL}>`,
+      from: `"${settings.SMTP_FROM_NAME || 'Docru'}" <${settings.SMTP_FROM_EMAIL}>`,
       to: user.email,
       subject: emailTemplate.subject,
       text: emailTemplate.text,
@@ -313,7 +313,7 @@ class EmailService {
 
     // Set default from address if not provided
     if (!emailOptions.from) {
-      emailOptions.from = `"${settings.SMTP_FROM_NAME || 'Easy Kanban'}" <${settings.SMTP_FROM_EMAIL}>`;
+      emailOptions.from = `"${settings.SMTP_FROM_NAME || 'Docru'}" <${settings.SMTP_FROM_EMAIL}>`;
     }
 
     console.log('📧 Sending email to:', emailOptions.to);
@@ -364,7 +364,7 @@ class EmailService {
       }
 
       const inviteUrl = `${normalizedBase}/#activate-account?token=${encodeURIComponent(inviteToken)}&email=${encodeURIComponent(user.email)}`;
-      const siteName = settings.SITE_NAME || 'Easy Kanban';
+      const siteName = settings.SITE_NAME || 'Docru';
       const emailTemplate = await EmailTemplates.userInvite({
         user,
         inviteUrl,
@@ -378,7 +378,7 @@ class EmailService {
       });
 
       const mail = {
-        from: `"${settings.SMTP_FROM_NAME || 'Easy Kanban'}" <${settings.SMTP_FROM_EMAIL}>`,
+        from: `"${settings.SMTP_FROM_NAME || 'Docru'}" <${settings.SMTP_FROM_EMAIL}>`,
         to: user.email,
         subject: emailTemplate.subject,
         text: emailTemplate.text,

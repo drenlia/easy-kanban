@@ -16,6 +16,7 @@ import {
 import { initializeDemoData, installDemoSeedAvatar } from './demoData.js';
 import { wrapQuery } from '../utils/queryLogger.js';
 import { dbExec, dbGet, dbAll, dbRun } from '../utils/dbAsync.js';
+import { getTenantDomain, getManagedSmtpSeedDefaults } from '../utils/tenantDomain.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -863,11 +864,12 @@ const initializeDefaultData = async (db, tenantId = null) => {
     console.log('');
 
     // Initialize default settings
+    const tenantDomain = getTenantDomain();
     const defaultSettings = [
       ['APP_VERSION', '0'],
-      ['ADMIN_PORTAL_URL', 'https://admin.ezkan.cloud'],
-      ['WEBSITE_URL', 'https://ezkan.cloud'],
-      ['SITE_NAME', 'Easy Kanban'],
+      ['ADMIN_PORTAL_URL', `https://admin.${tenantDomain}`],
+      ['WEBSITE_URL', `https://${tenantDomain}`],
+      ['SITE_NAME', 'Docru'],
       ['SITE_URL', '/'],
       ['MAIL_ENABLED', 'false'],
       ['MAIL_MANAGED', 'false'], // Default to false, will be set to true for licensed instances
@@ -877,7 +879,7 @@ const initializeDefaultData = async (db, tenantId = null) => {
       ['SMTP_USERNAME', ''],
       ['SMTP_PASSWORD', ''],
       ['SMTP_FROM_EMAIL', ''],
-      ['SMTP_FROM_NAME', 'Easy Kanban'],
+      ['SMTP_FROM_NAME', 'Docru'],
       ['SMTP_SECURE', 'tls'],
       ['GOOGLE_CLIENT_ID', ''],
       ['GOOGLE_CLIENT_SECRET', ''],
@@ -1037,13 +1039,14 @@ const initializeDefaultData = async (db, tenantId = null) => {
         const managedSmtpPasswordStored = managedSmtpPasswordPlain
           ? encryptSettingValue(managedSmtpPasswordPlain)
           : '';
+        const managedSmtp = getManagedSmtpSeedDefaults();
         const managedSmtpSettings = [
-          ['SMTP_HOST', 'smtp.ezkan.cloud'],
+          ['SMTP_HOST', managedSmtp.host],
           ['SMTP_PORT', '587'],
-          ['SMTP_USERNAME', 'noreply@ezkan.cloud'],
+          ['SMTP_USERNAME', managedSmtp.username],
           ['SMTP_PASSWORD', managedSmtpPasswordStored],
-          ['SMTP_FROM_EMAIL', 'noreply@ezkan.cloud'],
-          ['SMTP_FROM_NAME', 'Easy Kanban'],
+          ['SMTP_FROM_EMAIL', managedSmtp.fromEmail],
+          ['SMTP_FROM_NAME', managedSmtp.fromName],
           ['SMTP_SECURE', 'tls'],
           ['MAIL_ENABLED', 'true']
         ];
@@ -1314,7 +1317,7 @@ const initializeDefaultData = async (db, tenantId = null) => {
 // Initialize database connection (PostgreSQL-only; single-tenant or multi-tenant)
 export const initializeDatabase = async (tenantId = null) => {
   if (!process.env.POSTGRES_HOST) {
-    throw new Error('POSTGRES_HOST is required. Easy Kanban is PostgreSQL-only.');
+    throw new Error('POSTGRES_HOST is required. Docru is PostgreSQL-only.');
   }
 
   console.log(`🐘 Using PostgreSQL for tenant: ${tenantId || 'default'}`);

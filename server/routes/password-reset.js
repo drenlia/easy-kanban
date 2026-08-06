@@ -14,6 +14,7 @@ import {
   passwordResetRequestBodySchema,
   passwordResetCompleteBodySchema
 } from '../utils/requestValidation.js';
+import { getTenantDomain } from '../utils/tenantDomain.js';
 
 const router = express.Router();
 
@@ -83,7 +84,7 @@ router.post('/request', passwordResetRequestLimiter, async (req, res) => {
       // Construct from tenantId if available (multi-tenant mode)
       const tenantId = req.tenantId;
       if (tenantId) {
-        const domain = process.env.TENANT_DOMAIN || 'ezkan.cloud';
+        const domain = getTenantDomain();
         baseUrl = `https://${tenantId}.${domain}`;
       } else {
         // Fallback to request origin/host

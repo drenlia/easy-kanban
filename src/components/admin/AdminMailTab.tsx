@@ -200,7 +200,7 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
               <div className="flex-1 min-w-0">
                 <h3 className="text-sm font-medium text-blue-800 dark:text-blue-200">{t('mail.managedEmailService')}</h3>
                 <p className="text-xs text-blue-700 dark:text-blue-300 mt-0.5 leading-snug">
-                  {t('mail.managedEmailDescription')} <code className="bg-blue-100 dark:bg-blue-800 px-1 rounded">{editingSettings.SMTP_FROM_EMAIL || 'noreply@ezkan.cloud'}</code>.
+                  {t('mail.managedEmailDescription')} <code className="bg-blue-100 dark:bg-blue-800 px-1 rounded">{editingSettings.SMTP_FROM_EMAIL || 'noreply@docru.app'}</code>.
                 </p>
                 <div className="mt-2" data-owner-setup="switch-custom-smtp">
                   <button

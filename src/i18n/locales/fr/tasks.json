@@ -313,7 +313,6 @@
     "adding": "Ajout...",
     "updateComment": "Mettre à jour le commentaire"
   },
-
   "listView": {
     "showHideColumns": "Afficher/Masquer les colonnes",
     "copyTask": "Copier la tâche",
@@ -473,4 +472,3 @@
     }
   }
 }
-

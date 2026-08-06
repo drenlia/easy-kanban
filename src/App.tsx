@@ -126,6 +126,7 @@ import { useKanbanMultiSelect } from './hooks/useKanbanMultiSelect';
 import { hasEscapeConsumingOverlay, isEditableEscapeTarget } from './utils/escapeKeyUtils';
 import { focusHeaderTaskSearch } from './utils/keyboardShortcutUtils';
 import { handleInviteUser as handleInviteUserUtil } from './utils/userInvitationUtils';
+import { notifyBoardTrashChanged } from './utils/boardTrashEvents';
 import BoardLimitReachedDialog, { BoardLimitInfo } from './components/BoardLimitReachedDialog';
 import { KeyboardSensor, PointerSensor, useSensor, useSensors, DragEndEvent, DragStartEvent, DndContext, DragOverlay } from '@dnd-kit/core';
 import { arrayMove, sortableKeyboardCoordinates } from '@dnd-kit/sortable';
@@ -327,12 +328,24 @@ function AppContent() {
         recentlyDeletedTasksRef.current.delete(taskId);
       }, 10000);
 
+      let boardIdForTrash = selectedBoardRef.current;
+      for (const column of Object.values(columns)) {
+        const found = column?.tasks?.find((task) => task.id === taskId);
+        if (found) {
+          boardIdForTrash = found.boardId || boardIdForTrash;
+          break;
+        }
+      }
+
       await deleteTask(taskId);
       removeTaskFromLocalColumns(taskId);
 
       // NOTE: Backend already renumbers tasks after deletion and sends a WebSocket event
       await refreshBoardData();
       await fetchQueryLogs();
+
+      // Do not rely only on WebSocket for the trash badge — refresh after HTTP success
+      notifyBoardTrashChanged(boardIdForTrash);
     } catch (error) {
       throw error;
     }

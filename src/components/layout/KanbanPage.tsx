@@ -41,6 +41,10 @@ import {
 } from '../../api';
 import { toast } from '../../utils/toast';
 import websocketClient from '../../services/websocketClient';
+import {
+  BOARD_TRASH_CHANGED_EVENT,
+  type BoardTrashChangedDetail,
+} from '../../utils/boardTrashEvents';
 
 import { lazyWithRetry } from '../../utils/lazyWithRetry';
 
@@ -413,13 +417,17 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
     [selectedBoard]
   );
 
+  const trashCountRequestRef = useRef(0);
+
   const refreshTrashCount = useCallback(async (boardId: string | null) => {
     if (!boardId) {
       setTrashCount(0);
       return;
     }
+    const requestId = ++trashCountRequestRef.current;
     try {
       const count = await getBoardTrashCount(boardId);
+      if (requestId !== trashCountRequestRef.current) return;
       setTrashCount(count);
       if (count === 0) {
         setTrashOpen(false);
@@ -475,29 +483,33 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
 
   // Keep trash count/list in sync with soft-delete / restore / purge events
   useEffect(() => {
-    const onDeleted = (data: any) => {
-      if (!data?.boardId || data.boardId !== selectedBoard) return;
+    const syncTrashForBoard = (boardId: string | undefined) => {
+      if (!boardId || boardId !== selectedBoard) return;
       if (trashOpen) {
         void loadTrashTasks(selectedBoard, { silent: true });
       } else {
         void refreshTrashCount(selectedBoard);
       }
     };
+    const onDeleted = (data: any) => {
+      syncTrashForBoard(data?.boardId);
+    };
     const onRestoredOrPurged = (data: any) => {
-      if (!data?.boardId || data.boardId !== selectedBoard) return;
-      if (trashOpen) {
-        void loadTrashTasks(selectedBoard, { silent: true });
-      } else {
-        void refreshTrashCount(selectedBoard);
-      }
+      syncTrashForBoard(data?.boardId);
+    };
+    const onLocalTrashChanged = (event: Event) => {
+      const boardId = (event as CustomEvent<BoardTrashChangedDetail>).detail?.boardId;
+      syncTrashForBoard(boardId);
     };
     websocketClient.onTaskDeleted(onDeleted);
     websocketClient.onTaskRestored(onRestoredOrPurged);
     websocketClient.onTaskPurged(onRestoredOrPurged);
+    window.addEventListener(BOARD_TRASH_CHANGED_EVENT, onLocalTrashChanged);
     return () => {
       websocketClient.offTaskDeleted(onDeleted);
       websocketClient.offTaskRestored(onRestoredOrPurged);
       websocketClient.offTaskPurged(onRestoredOrPurged);
+      window.removeEventListener(BOARD_TRASH_CHANGED_EVENT, onLocalTrashChanged);
     };
   }, [selectedBoard, trashOpen, loadTrashTasks, refreshTrashCount]);
 

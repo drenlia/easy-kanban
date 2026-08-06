@@ -11,6 +11,7 @@ import { createDefaultAvatar, getRandomColor } from '../utils/avatarGenerator.js
 import notificationService from '../services/notificationService.js';
 import { getTranslator } from '../utils/i18n.js';
 import { getTenantId, getRequestDatabase } from '../middleware/tenantRouting.js';
+import { getTenantDomain } from '../utils/tenantDomain.js';
 // MIGRATED: Import sqlManager modules
 import { users as userQueries, tasks as taskQueries, adminUsers as adminUserQueries, auth as authQueries, helpers } from '../utils/sqlManager/index.js';
 import { commitUploadedFile, getRequestStoragePaths } from '../services/storage/index.js';
@@ -353,7 +354,7 @@ router.post('/', authenticateToken, requireRole(['admin']), async (req, res) => 
       // Construct from tenantId if available (multi-tenant mode)
       const tenantId = req.tenantId;
       if (tenantId) {
-        const domain = process.env.TENANT_DOMAIN || 'ezkan.cloud';
+        const domain = getTenantDomain();
         baseUrl = `https://${tenantId}.${domain}`;
       } else {
         // Fallback to request origin
@@ -577,7 +578,7 @@ router.post('/:userId/resend-invitation', authenticateToken, requireRole(['admin
       // Construct from tenantId if available (multi-tenant mode)
       const tenantId = req.tenantId;
       if (tenantId) {
-        const domain = process.env.TENANT_DOMAIN || 'ezkan.cloud';
+        const domain = getTenantDomain();
         baseUrl = `https://${tenantId}.${domain}`;
       } else {
         // Fallback to request origin

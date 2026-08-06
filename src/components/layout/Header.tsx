@@ -500,9 +500,9 @@ const Header: React.FC<HeaderProps> = ({
               };
 
               const logoSrc = rawLogo ? resolveBrandLogo(rawLogo) : undefined;
-              // Missing SITE_NAME → "Easy Kanban"; explicit empty string → hide name
+              // Missing SITE_NAME → "Docru"; explicit empty string → hide name
               const siteName = siteSettings.SITE_NAME === undefined
-                ? 'Easy Kanban'
+                ? 'Docru'
                 : siteSettings.SITE_NAME;
               const showName = siteName.trim().length > 0;
 
@@ -516,7 +516,7 @@ const Header: React.FC<HeaderProps> = ({
                     <img
                       key={logoSrc}
                       src={logoSrc}
-                      alt={showName ? siteName : 'Easy Kanban'}
+                      alt={showName ? siteName : 'Docru'}
                       className="h-7 max-w-[100px] sm:max-w-[140px] object-contain shrink-0"
                     />
                   )}

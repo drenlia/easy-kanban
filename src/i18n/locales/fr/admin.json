@@ -94,7 +94,6 @@
   "emailServerNotAvailableForResend": "Le serveur de messagerie n'est pas disponible : {{error}}. Veuillez configurer les paramètres de messagerie avant de renvoyer les invitations.",
   "invitationEmailSent": "Email d'invitation envoyé avec succès à {{email}}",
   "failedToSendInvitationEmail": "Échec de l'envoi de l'email d'invitation",
-  "failedToUpdateUser": "Échec de la mise à jour de l'utilisateur",
   "users": {
     "title": "Utilisateurs",
     "description": "Gérer les comptes utilisateurs et les permissions. Les utilisateurs réguliers ne peuvent gérer que leurs propres informations de profil, tandis que les administrateurs ont un accès complet pour gérer tout le contenu, les utilisateurs et les paramètres du site.",
@@ -251,7 +250,7 @@
     "description": "Configurez les informations de base du site qui apparaissent dans toute l'application.",
     "siteName": "Nom du site",
     "enterSiteName": "Entrer le nom du site",
-    "siteNameEmptyHint": "Laissez vide pour masquer le nom du site dans l'en-tête (utile avec un logo uniquement). Un nom vide n'affichera pas « Easy Kanban ».",
+    "siteNameEmptyHint": "Laissez vide pour masquer le nom du site dans l'en-tête (utile avec un logo uniquement). Un nom vide n'affichera pas « Docru ».",
     "siteUrl": "URL du site",
     "websiteUrl": "URL du site web (Portail client)",
     "websiteUrlDescription": "URL vers votre portail client pour la gestion des abonnements. Cette valeur est définie lors de l'achat de l'instance et est en lecture seule.",
@@ -308,7 +307,7 @@
     "demoModeActive": "Mode démo actif",
     "demoModeDescription": "La communication par email est désactivée en mode démo. Les paramètres du serveur de messagerie ne peuvent pas être activés pour empêcher l'envoi d'emails depuis les environnements de démonstration. Cette restriction sera automatiquement levée lorsque le mode démo sera désactivé.",
     "managedEmailService": "Service de messagerie géré",
-    "managedEmailDescription": "Votre service de messagerie est actuellement géré par Easy Kanban. Cela signifie que les emails sont envoyés en utilisant notre infrastructure avec l'adresse d'expéditeur",
+    "managedEmailDescription": "Votre service de messagerie est actuellement géré par Docru. Cela signifie que les emails sont envoyés en utilisant notre infrastructure avec l'adresse d'expéditeur",
     "switchToCustomSMTP": "Passer à SMTP personnalisé",
     "switchToCustomSMTPConfirm": "Êtes-vous sûr de vouloir passer aux paramètres SMTP personnalisés ? Cela effacera les paramètres gérés actuels et vous obligera à configurer votre propre serveur SMTP. Vous devrez tester la configuration avant qu'elle ne puisse être activée.",
     "switchToCustomSMTPConfirmFinal": "⚠️ Avertissement : Cette action ne peut pas être annulée. Une fois que vous passez aux paramètres SMTP personnalisés, vous ne pourrez plus revenir au service de messagerie géré. Êtes-vous absolument sûr de vouloir continuer ?",
@@ -380,7 +379,7 @@
     "title": "Stockage des fichiers",
     "description": "Stockez les pièces jointes et avatars sur le disque local ou un bucket S3 compatible. Les URL publiques restent identiques.",
     "managedTitle": "Stockage géré",
-    "managedDescription": "Le stockage objet est fourni par Easy Kanban. Les pièces jointes et avatars utilisent la configuration S3 de la plateforme.",
+    "managedDescription": "Le stockage objet est fourni par Docru. Les pièces jointes et avatars utilisent la configuration S3 de la plateforme.",
     "switchToCustom": "Utiliser votre propre bucket S3",
     "switchConfirm1": "Configurez votre propre bucket S3 comme destination. Le stockage plateforme reste la source jusqu’à la fin réussie de Migrer S3 → S3.",
     "switchConfirm2": "Vous saisirez les identifiants de destination, testerez la destination, puis lancerez Migrer S3 → S3. Les fichiers source sont copiés ; les réglages plateforme ne sont remplacés qu’après une migration réussie. Continuer ?",
@@ -553,7 +552,7 @@
     "notificationQueue": "File d'attente des notifications",
     "ai": "IA",
     "aiTitle": "IA et Agent",
-    "aiDescription": "Activez l'Agent intégré, connectez un fournisseur LLM, et pointez Easy Kanban vers le runner qui exécute les tâches de code.",
+    "aiDescription": "Activez l'Agent intégré, connectez un fournisseur LLM, et pointez Docru vers le runner qui exécute les tâches de code.",
     "aiSectionEnable": "1. Activer l'IA",
     "aiSectionEnableHint": "Interrupteur principal des fonctions agent sur cette instance.",
     "aiSectionAgent": "2. Identité de l'Agent",
@@ -576,7 +575,7 @@
     "aiSuggestedEndpoint": "Point de terminaison suggéré",
     "aiUseSuggestedUrlShort": "cliquer pour restaurer",
     "aiApiBaseUrl": "URL de base de l'API IA",
-    "aiApiBaseUrlDescription": "Point de terminaison testé par Easy Kanban. Remplacez-le pour un proxy, Azure, ou un hôte joignable depuis ce serveur (ex. host.docker.internal pour Ollama sous Docker).",
+    "aiApiBaseUrlDescription": "Point de terminaison testé par Docru. Remplacez-le pour un proxy, Azure, ou un hôte joignable depuis ce serveur (ex. host.docker.internal pour Ollama sous Docker).",
     "aiApiKey": "Clé API IA",
     "aiApiKeyPlaceholder": "Entrer la clé API",
     "aiApiKeyOptional": "Optionnelle pour ce fournisseur.",
@@ -605,7 +604,7 @@
     "aiRunnerUrl": "URL du runner agent",
     "aiRunnerUrlDescription": "URL interne du runner push (Docker : http://kanban-runner:8080). Laissez vide pour la valeur plateforme de l'environnement.",
     "aiRunnerToken": "Jeton bearer du runner",
-    "aiRunnerTokenDescription": "Secret partagé pour que seul Easy Kanban puisse lancer des tâches. Laissez vide pour utiliser RUNNER_TOKEN de l'environnement.",
+    "aiRunnerTokenDescription": "Secret partagé pour que seul Docru puisse lancer des tâches. Laissez vide pour utiliser RUNNER_TOKEN de l'environnement.",
     "aiRunnerTokenPlaceholder": "Même valeur que RUNNER_TOKEN du runner",
     "aiGithubToken": "Jeton GitHub",
     "aiGithubTokenDescription": "Déplacé vers Profil → Dev de chaque utilisateur. L’admin ne stocke plus de PAT GitHub partagé.",
@@ -739,7 +738,6 @@
     "emailSystemNotConfiguredHint": "Configurez les paramètres SMTP dans Paramètres système → Serveur de messagerie pour activer les notifications par email.",
     "notificationDefaultsSaved": "Paramètres de notification par défaut enregistrés",
     "emailThrottlingDelaySaved": "Délai de limitation des emails enregistré",
-    "settingSaved": "Paramètre enregistré",
     "notificationTypes": {
       "newTaskAssigned": "Nouvelle tâche assignée à moi",
       "newTaskAssignedDescription": "Être notifié lorsqu'une tâche vous est assignée",
@@ -1052,7 +1050,13 @@
     "noSentNotifications": "Aucune notification envoyée trouvée dans la file d'attente",
     "recipient": "Destinataire",
     "task": "Tâche",
-    "type": "Type",
+    "type": {
+      "assignee": "Assigné",
+      "watcher": "Observateur",
+      "collaborator": "Collaborateur",
+      "creator": "Créateur",
+      "requester": "Demandeur"
+    },
     "scheduled": "Planifié",
     "changes": "Modifications",
     "updated": "Mis à jour",
@@ -1066,13 +1070,6 @@
       "pending": "En attente",
       "sent": "Envoyé",
       "failed": "Échec"
-    },
-    "type": {
-      "assignee": "Assigné",
-      "watcher": "Observateur",
-      "collaborator": "Collaborateur",
-      "creator": "Créateur",
-      "requester": "Demandeur"
     }
   },
   "lifecycle": {

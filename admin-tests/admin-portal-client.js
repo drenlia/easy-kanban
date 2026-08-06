@@ -5,7 +5,7 @@
  * using the INSTANCE_TOKEN for authentication.
  * 
  * Usage:
- *   const client = new EasyKanbanAdminClient('https://my-company.ezkan.cloud', 'kanban-token-12345');
+ *   const client = new EasyKanbanAdminClient('https://my-company.docru.app', 'kanban-token-12345');
  *   await client.createUser({ email: 'user@example.com', password: 'password', firstName: 'John', lastName: 'Doe', role: 'user' });
  *   await client.updateSettings({ SMTP_HOST: 'smtp.gmail.com', SMTP_PORT: '587' });
  */

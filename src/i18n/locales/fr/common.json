@@ -290,8 +290,8 @@
     "devSshGenerated": "Clé SSH générée",
     "devSshGenerateError": "Échec de la génération de la clé SSH",
     "devSshDownloadError": "Échec du téléchargement de la clé privée",
-    "devApiTokens": "Jetons API Easy Kanban",
-    "devApiTokensHint": "Pour les outils externes appelant cette instance Easy Kanban (Authorization: Bearer). Pas pour GitHub.",
+    "devApiTokens": "Jetons API Docru",
+    "devApiTokensHint": "Pour les outils externes appelant cette instance Docru (Authorization: Bearer). Pas pour GitHub.",
     "devDefaultTokenName": "Jeton API Agent",
     "devTokenShowOnce": "Copiez ce jeton maintenant — il ne sera plus affiché.",
     "devGenerateToken": "Générer un jeton",
@@ -431,7 +431,7 @@
     "status_undone": "Automatisation annulée"
   },
   "help": {
-    "title": "Aide Easy Kanban",
+    "title": "Aide Docru",
     "pressF1": "Appuyez sur F1 ou ? à tout moment pour ouvrir cette aide",
     "startTutorial": "Démarrer le tutoriel",
     "ownerSetup": "Guide de configuration",
@@ -476,8 +476,8 @@
       "editorNav": "Navigation normale du curseur"
     },
     "overview": {
-      "whatIsEasyKanban": "Qu'est-ce qu'Easy Kanban ?",
-      "whatIsEasyKanbanDesc1": "Easy Kanban est un espace de travail Kanban collaboratif avec tableaux multi-boards, vues Liste et Gantt, collaboration en temps réel, et sprints optionnels avec burndown. Conçu pour les petites et moyennes équipes — pas un ALM agile d'entreprise complet.",
+      "whatIsEasyKanban": "Qu'est-ce que Docru ?",
+      "whatIsEasyKanbanDesc1": "Docru est un espace de travail Kanban collaboratif avec tableaux multi-boards, vues Liste et Gantt, collaboration en temps réel, et sprints optionnels avec burndown. Conçu pour les petites et moyennes équipes — pas un ALM agile d'entreprise complet.",
       "whatIsEasyKanbanDesc2": "Les aides au flux incluent des limites WIP souples par colonne, le vieillissement des cartes, un indicateur bloqué, et de courtes notes de politique de colonne. Fonctions avancées : relations entre tâches, filtres, pièces jointes, texte enrichi, rôles, et agent IA optionnel.",
       "navigation": "Navigation et interface",
       "boardSelector": "Sélecteur de tableau : Basculez entre les tableaux via les onglets en haut. Chaque tableau a ses colonnes et tâches. Utilisez les flèches de défilement s'il y en a beaucoup.",
@@ -729,9 +729,6 @@
   "boardTabs": {
     "dragToReorder": "Glisser pour réorganiser",
     "clickToSelectDoubleClickToRename": "Cliquer pour sélectionner, double-cliquer pour renommer (Admin uniquement)",
-    "deleteBoard": "Supprimer le tableau (Admin uniquement)",
-    "deleteBoardAndTasks": "Supprimer le tableau et {{count}} tâche",
-    "deleteBoardAndTasks_plural": "Supprimer le tableau et {{count}} tâches",
     "deleteBoard": "Supprimer le tableau (Admin uniquement)",
     "deleteBoardAndTasks": "Supprimer le tableau et {{count}} tâche",
     "deleteBoardAndTasks_plural": "Supprimer le tableau et {{count}} tâches",
@@ -1207,7 +1204,7 @@
       "switchedToKanban": "Passé à la vue Kanban",
       "switchedToList": "Passé à la vue Liste",
       "switchedToAdmin": "Passé au panneau Admin",
-      "welcome": "Bienvenue sur Easy Kanban ! C'est votre zone de navigation principale où vous pouvez basculer entre différents tableaux.",
+      "welcome": "Bienvenue sur Docru ! C'est votre zone de navigation principale où vous pouvez basculer entre différents tableaux.",
       "boardTabs": "Ce sont vos onglets de tableaux. Cliquez sur n'importe quel onglet pour basculer entre différents tableaux de projet.",
       "kanbanColumns": "C'est votre tableau Kanban ! Les tâches sont organisées en colonnes. Vous pouvez faire glisser et déposer les tâches entre les colonnes pour mettre à jour leur statut.",
       "addTaskButton": "Cliquez sur le bouton \"+\" de n'importe quelle colonne pour ajouter une nouvelle tâche. C'est le principal moyen de créer de nouveaux éléments de travail.",
@@ -1406,4 +1403,3 @@
     }
   }
 }
-

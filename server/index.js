@@ -17,6 +17,7 @@ import { wrapQuery, getQueryLogs, clearQueryLogs } from './utils/queryLogger.js'
 import { checkInstanceStatus, initializeInstanceStatus } from './middleware/instanceStatus.js';
 import { loginLimiter, passwordResetLimiter, registrationLimiter, activationLimiter } from './middleware/rateLimiters.js';
 import { getAppVersion } from './utils/appVersion.js';
+import { getTenantDomain } from './utils/tenantDomain.js';
 
 // Import generateRandomPassword function
 const generateRandomPassword = (length = 12) => {
@@ -174,7 +175,7 @@ app.use((req, res, next) => {
   // Report-Only CSP: observe violations without breaking TipTap / Socket.IO / Vite.
   // Reports land in tenant DB via /api/csp-report; review in Admin → Troubleshooting.
   // Tighten and switch to enforcing Content-Security-Policy after the list stays quiet.
-  const tenantDomain = process.env.TENANT_DOMAIN || 'ezkan.cloud';
+  const tenantDomain = getTenantDomain();
   const proto = (req.get('x-forwarded-proto') || req.protocol || 'https').split(',')[0].trim();
   const host = (req.get('x-forwarded-host') || req.get('host') || '').split(',')[0].trim();
   res.setHeader(
