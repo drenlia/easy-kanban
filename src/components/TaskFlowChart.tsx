@@ -138,22 +138,28 @@ export default function TaskFlowChart({
         });
       });
       
-      // Build parent-child relationships
+      // Build parent→child links from "parent" rows only.
+      // Inverse "child" rows are the same edge the other way; using both duplicates
+      // children and triggers false "circular reference" warnings in the tree walk.
       relRows.forEach(rel => {
         const fromId = rel.taskId ?? (rel as { task_id?: string }).task_id;
         const toId = rel.relatedTaskId ?? (rel as { to_task_id?: string }).to_task_id;
-        const parentTask = tasksMap.get(fromId);
-        const childTask = tasksMap.get(toId);
-        
-        if (parentTask && childTask && fromId && toId) {
-          if (rel.relationship === 'parent') {
-            // Current task is parent of related task
-            parentTask.children.push(toId);
-            childTask.parents.push(fromId);
-          } else if (rel.relationship === 'child') {
-            // Current task is child of related task
-            childTask.children.push(fromId);
-            parentTask.parents.push(toId);
+        if (!fromId || !toId) return;
+
+        if (rel.relationship === 'parent') {
+          const parentTask = tasksMap.get(fromId);
+          const childTask = tasksMap.get(toId);
+          if (parentTask && childTask) {
+            if (!parentTask.children.includes(toId)) parentTask.children.push(toId);
+            if (!childTask.parents.includes(fromId)) childTask.parents.push(fromId);
+          }
+        } else if (rel.relationship === 'child') {
+          // from is child of to → to is parent of from
+          const parentTask = tasksMap.get(toId);
+          const childTask = tasksMap.get(fromId);
+          if (parentTask && childTask) {
+            if (!parentTask.children.includes(fromId)) parentTask.children.push(fromId);
+            if (!childTask.parents.includes(toId)) childTask.parents.push(toId);
           }
         }
       });
@@ -180,6 +186,7 @@ export default function TaskFlowChart({
     flowLog(`🌲 TaskFlowChart: Starting buildHierarchy with ${allTasks.size} tasks`);
     
     const visited = new Set<string>();
+    const path = new Set<string>(); // ancestors of the node being built (true cycles only)
     const MAX_DEPTH = 10; // Prevent deep recursion
     let nodeCount = 0;
     const MAX_NODES = 50; // Prevent too many nodes
@@ -195,17 +202,25 @@ export default function TaskFlowChart({
         console.warn(`🚨 TaskFlowChart: Max nodes (${MAX_NODES}) reached`);
         return null;
       }
-      
+
+      // Already placed elsewhere in the tree (e.g. shared child / diamond) — skip quietly
       if (visited.has(taskId)) {
+        return null;
+      }
+
+      // True cycle: task reappears among its own ancestors
+      if (path.has(taskId)) {
         console.warn(`🔄 TaskFlowChart: Circular reference detected for task ${taskId} at level ${level}`);
-        return null; // Prevent infinite loops
+        return null;
       }
       
       visited.add(taskId);
+      path.add(taskId);
       nodeCount++;
       
       const taskData = allTasks.get(taskId);
       if (!taskData) {
+        path.delete(taskId);
         console.warn(`❓ TaskFlowChart: No data found for task ${taskId}`);
         return null;
       }
@@ -241,6 +256,8 @@ export default function TaskFlowChart({
           .filter((child: TaskNode | null) => child !== null);
         flowLog(`✅ TaskFlowChart: Built ${node.children.length} children for ${taskData.ticket}`);
       }
+
+      path.delete(taskId);
       
       return node;
     };

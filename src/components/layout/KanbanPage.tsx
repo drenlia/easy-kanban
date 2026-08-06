@@ -19,6 +19,7 @@ import {
   allTasksCheckedInColumn,
   checkedIdsInColumn,
 } from '../../utils/kanbanMultiSelect';
+import { buildTaskRelationshipSummaryMap } from '../../utils/taskRelationshipSummary';
 import { ModernCheckbox } from '../ModernCheckbox';
 import TeamMembers from '../TeamMembers';
 import Tools from '../Tools';
@@ -47,6 +48,16 @@ import {
 } from '../../utils/boardTrashEvents';
 
 import { lazyWithRetry } from '../../utils/lazyWithRetry';
+
+const HIGHLIGHT_LINKS_STORAGE_KEY = 'ek_highlight_links_mode';
+
+function readHighlightLinksMode(): boolean {
+  try {
+    return localStorage.getItem(HIGHLIGHT_LINKS_STORAGE_KEY) === 'true';
+  } catch {
+    return false;
+  }
+}
 
 const TRASH_OPEN_STORAGE_KEY = 'easyKanban.trashOpenByBoard';
 
@@ -207,6 +218,8 @@ interface KanbanPageProps {
   onLinkToolHover?: (task: Task) => void;
   onLinkToolHoverEnd?: () => void;
   getTaskRelationshipType?: (taskId: string) => 'parent' | 'child' | 'related' | null;
+  /** Shift+click a highlighted related card to remove the link */
+  onUnlinkRelatedTask?: (targetTask: Task) => void | Promise<void>;
   
   // Auto-synced relationships
   boardRelationships?: any[];
@@ -356,6 +369,7 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
   onLinkToolHover,
   onLinkToolHoverEnd,
   getTaskRelationshipType,
+  onUnlinkRelatedTask,
   
   // Auto-synced relationships
   boardRelationships = [],
@@ -398,6 +412,7 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
     const prefs = loadUserPreferences(currentUser?.id ?? null);
     return prefs.appSettings.showBoardToolbar !== false;
   });
+  const [highlightLinksMode, setHighlightLinksMode] = useState(readHighlightLinksMode);
   const [trashOpen, setTrashOpen] = useState(() =>
     readTrashOpenPreference(selectedBoard)
   );
@@ -768,6 +783,26 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
       console.error('Failed to save board toolbar preference:', error);
     }
   };
+
+  const handleToggleHighlightLinks = useCallback(() => {
+    setHighlightLinksMode((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem(HIGHLIGHT_LINKS_STORAGE_KEY, next ? 'true' : 'false');
+      } catch {
+        // ignore quota / private mode
+      }
+      return next;
+    });
+  }, []);
+
+  const relationSummaryByTaskId = useMemo(
+    () => buildTaskRelationshipSummaryMap(boardRelationships),
+    [boardRelationships]
+  );
+  const hasBoardRelationships = boardRelationships.length > 0;
+  /** Don't dim the board when there is nothing to highlight (e.g. stale localStorage). */
+  const effectiveHighlightLinksMode = highlightLinksMode && hasBoardRelationships;
 
   // Column filtering logic - memoized to prevent unnecessary re-renders
   const visibleColumnsForCurrentBoard = useMemo(() => {
@@ -1161,6 +1196,9 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
               hasActiveFilters={showSearchFilterBadge}
               activeFilterTooltip={activeFilterTooltip}
               onHideToolbar={() => void handleToggleBoardToolbar()}
+              highlightLinksMode={effectiveHighlightLinksMode}
+              onToggleHighlightLinks={handleToggleHighlightLinks}
+              hasBoardRelationships={hasBoardRelationships}
             />
           </div>
           <div className="min-w-0 flex-1 flex">
@@ -1497,6 +1535,9 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
                             onLinkToolHover={onLinkToolHover}
                             onLinkToolHoverEnd={onLinkToolHoverEnd}
                             getTaskRelationshipType={getTaskRelationshipType}
+                            onUnlinkRelatedTask={onUnlinkRelatedTask}
+                            highlightLinksMode={effectiveHighlightLinksMode}
+                            relationSummaryByTaskId={relationSummaryByTaskId}
                             
                             // Network status
                             isOnline={isOnline}
@@ -1601,6 +1642,9 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
                       onLinkToolHover={onLinkToolHover}
                       onLinkToolHoverEnd={onLinkToolHoverEnd}
                       getTaskRelationshipType={getTaskRelationshipType}
+                      onUnlinkRelatedTask={onUnlinkRelatedTask}
+                      highlightLinksMode={effectiveHighlightLinksMode}
+                      relationSummaryByTaskId={relationSummaryByTaskId}
                       
                       // Network status
                       isOnline={isOnline}

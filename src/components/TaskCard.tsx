@@ -12,6 +12,8 @@ import DateRangePicker from './DateRangePicker';
 import { formatToYYYYMMDD, formatToYYYYMMDDHHmmss, parseLocalDate } from '../utils/dateUtils';
 import { getColumnAgeDays } from '../utils/kanbanFlowUtils';
 import { formatEffortDisplay, parseEffortUnit } from '../utils/taskUtils';
+import type { TaskRelationshipSummary } from '../utils/taskRelationshipSummary';
+import { getTaskRelationshipSummary } from '../utils/taskRelationshipSummary';
 import {
   createComment,
   fetchTaskAttachments,
@@ -105,6 +107,9 @@ interface TaskCardProps {
   onLinkToolHover?: (task: Task) => void;
   onLinkToolHoverEnd?: () => void;
   getTaskRelationshipType?: (taskId: string) => 'parent' | 'child' | 'related' | null;
+  highlightLinksMode?: boolean;
+  relationSummary?: TaskRelationshipSummary;
+  onUnlinkRelatedTask?: (targetTask: Task) => void | Promise<void>;
   
   // Sprint filtering props
   selectedSprintId?: string | null;
@@ -155,6 +160,9 @@ const TaskCard = React.memo(function TaskCard({
   onLinkToolHover,
   onLinkToolHoverEnd,
   getTaskRelationshipType,
+  highlightLinksMode = false,
+  relationSummary: relationSummaryProp,
+  onUnlinkRelatedTask,
   
   // Sprint filtering props
   selectedSprintId = null,
@@ -164,6 +172,8 @@ const TaskCard = React.memo(function TaskCard({
   isMultiSelectDragLocked = false,
 }: TaskCardProps) {
   const { t } = useTranslation('tasks');
+  const relationSummary =
+    relationSummaryProp ?? getTaskRelationshipSummary(undefined, task.id);
   const [showMemberSelect, setShowMemberSelect] = useState(false);
   const [showCommentTooltip, setShowCommentTooltip] = useState(false);
 
@@ -430,12 +440,13 @@ const TaskCard = React.memo(function TaskCard({
           e.stopPropagation();
           return;
         }
+
         // Call original listener - CRITICAL: Don't prevent default or stop propagation
         // The sensor needs these events to track pointer movement
         originalListeners.onPointerDown?.(e);
       }
     };
-  }, [originalListeners, task.id]);
+  }, [originalListeners]);
 
   // @dnd-kit droppable hook for cross-column insertion
   // CRITICAL: Disable task droppable when a column is being dragged to prevent interference
@@ -1558,6 +1569,12 @@ const TaskCard = React.memo(function TaskCard({
             }
             return '';
           })() : ''
+        } ${
+          highlightLinksMode && !relationSummary.hasAny ? 'opacity-40' : ''
+        } ${
+          highlightLinksMode && relationSummary.hasAny && hoveredLinkTask?.id === task.id
+            ? 'ring-2 ring-blue-300 dark:ring-blue-500'
+            : ''
         }`}
         {...attributes}
         {...listeners}
@@ -1844,6 +1861,12 @@ const TaskCard = React.memo(function TaskCard({
             setIsHoveringTitle(true);
             setIsHoveringDescription(true);
           }
+          if (highlightLinksMode && relationSummary.hasAny) {
+            // Switch highlight focus to this card so counterpart badges (PARENT/CHILD) update
+            onLinkToolHover?.(task);
+          } else if (highlightLinksMode && !relationSummary.hasAny) {
+            onLinkToolHoverEnd?.();
+          }
         }}
         onMouseLeave={() => {
           setIsCardHovered(false);
@@ -1852,6 +1875,8 @@ const TaskCard = React.memo(function TaskCard({
             setIsHoveringTitle(false);
             setIsHoveringDescription(false);
           }
+          // Do not clear highlight focus on leave while highlight mode is on —
+          // column scroll would otherwise remove PARENT/CHILD badges mid-inspect.
         }}
         onDoubleClick={(e) => {
           // Cancel pending single-click timer to prevent TaskDetails from opening/closing
@@ -1972,6 +1997,10 @@ const TaskCard = React.memo(function TaskCard({
           hoveredLinkTask={hoveredLinkTask}
           onLinkToolHover={onLinkToolHover}
           onLinkToolHoverEnd={onLinkToolHoverEnd}
+          relationSummary={relationSummary}
+          highlightLinksMode={highlightLinksMode}
+          getTaskRelationshipType={getTaskRelationshipType}
+          onUnlinkRelatedTask={onUnlinkRelatedTask}
           
           // Toolbar visibility: CSS group-hover on card (survives list reorder without mouseenter)
           isEditingTitle={isEditingTitle}
@@ -1980,7 +2009,7 @@ const TaskCard = React.memo(function TaskCard({
           isAdmin={Boolean(currentUser?.roles?.includes('admin'))}
         />
 
-        {/* Relationship Type Indicator - Only show when hovering over link tool */}
+        {/* Relationship Type Indicator - when focus card highlights related ones */}
         {hoveredLinkTask && getTaskRelationshipType && hoveredLinkTask.id !== task.id && (() => {
           const relationshipType = getTaskRelationshipType(task.id);
           if (relationshipType) {
@@ -1991,8 +2020,11 @@ const TaskCard = React.memo(function TaskCard({
             };
             const badge = badges[relationshipType];
             return (
-              <div className="absolute top-2 left-2 z-20">
-                <div className={`${badge.color} text-white text-xs px-1.5 py-0.5 rounded-full font-bold shadow-md`}>
+              <div className="absolute top-2 left-2 z-[40] pointer-events-none">
+                <div
+                  className={`${badge.color} text-white text-xs px-1.5 py-0.5 rounded-full font-bold shadow-md`}
+                  title={t('relationships.shiftClickLinkToUnlink')}
+                >
                   {badge.text}
                 </div>
               </div>
@@ -3372,6 +3404,26 @@ const TaskCard = React.memo(function TaskCard({
   
   // Re-render if hovered link task changes
   if (prevProps.hoveredLinkTask?.id !== nextProps.hoveredLinkTask?.id) {
+    return false;
+  }
+
+  // Relationships list may load after hover — must refresh PARENT/CHILD badges
+  if (prevProps.getTaskRelationshipType !== nextProps.getTaskRelationshipType) {
+    return false;
+  }
+
+  if (prevProps.highlightLinksMode !== nextProps.highlightLinksMode) {
+    return false;
+  }
+
+  const prevRel = prevProps.relationSummary;
+  const nextRel = nextProps.relationSummary;
+  if (
+    prevRel?.hasAny !== nextRel?.hasAny ||
+    prevRel?.hasParent !== nextRel?.hasParent ||
+    prevRel?.hasChildren !== nextRel?.hasChildren ||
+    prevRel?.hasRelated !== nextRel?.hasRelated
+  ) {
     return false;
   }
   

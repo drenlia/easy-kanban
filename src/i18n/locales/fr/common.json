@@ -137,6 +137,8 @@
     "currentCompactViewHiddenDescriptions": "Vue compacte (tickets uniquement) — les descriptions sont masquées",
     "showBoardToolbar": "Afficher outils, membres et progression",
     "hideBoardToolbar": "Masquer outils, membres et progression",
+    "highlightLinksOff": "Mettre en évidence les tâches liées (désactivé)",
+    "highlightLinksOn": "Mettre en évidence les tâches liées (activé) — survolez une carte liée pour voir parents/enfants ; Maj+clic sur l'icône de lien d'une carte mise en évidence pour dissocier",
     "filtersActiveHeading": "Filtres actifs",
     "filterReasonSearch": "Critères de recherche",
     "filterReasonSearchPanelClosed": "Critères de recherche (panneau fermé — non appliqués)",

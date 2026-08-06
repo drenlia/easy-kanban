@@ -137,6 +137,8 @@
     "currentCompactViewHiddenDescriptions": "Compact view (tickets only) — descriptions are hidden",
     "showBoardToolbar": "Show tools, members & progress",
     "hideBoardToolbar": "Hide tools, members & progress",
+    "highlightLinksOff": "Highlight linked tasks (off)",
+    "highlightLinksOn": "Highlight linked tasks (on) — hover a linked card to see parents/children; Shift+click the link icon on a highlighted card to unlink",
     "filtersActiveHeading": "Filters active",
     "filterReasonSearch": "Search criteria",
     "filterReasonSearchPanelClosed": "Search criteria (panel closed — not applied)",

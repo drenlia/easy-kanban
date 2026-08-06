@@ -18,6 +18,8 @@ import {
   getAgentAvatarSrc,
   isAgentMemberId,
 } from '../utils/agentMemberUi';
+import type { TaskRelationshipSummary } from '../utils/taskRelationshipSummary';
+import { getTaskRelationshipSummary } from '../utils/taskRelationshipSummary';
 
 interface TaskCardToolbarProps {
   task: Task;
@@ -54,6 +56,11 @@ interface TaskCardToolbarProps {
   hoveredLinkTask?: Task | null;
   onLinkToolHover?: (task: Task) => void;
   onLinkToolHoverEnd?: () => void;
+  relationSummary?: TaskRelationshipSummary;
+  /** When true, card owns hover-end so leaving the link control does not clear badges */
+  highlightLinksMode?: boolean;
+  getTaskRelationshipType?: (taskId: string) => 'parent' | 'child' | 'related' | null;
+  onUnlinkRelatedTask?: (targetTask: Task) => void | Promise<void>;
   
   // Toolbar pinned open when editing or selected; hover uses parent `group` + group-hover
   isEditingTitle?: boolean;
@@ -93,9 +100,13 @@ export default function TaskCardToolbar({
   onStartLinking,
   
   // Hover highlighting props
-  hoveredLinkTask: _hoveredLinkTask,
+  hoveredLinkTask,
   onLinkToolHover,
   onLinkToolHoverEnd,
+  relationSummary: relationSummaryProp,
+  highlightLinksMode = false,
+  getTaskRelationshipType,
+  onUnlinkRelatedTask,
   
   isEditingTitle = false,
   isEditingDescription = false,
@@ -113,6 +124,14 @@ export default function TaskCardToolbar({
   
   const toolbarPinnedOpen =
     isEditingTitle || isEditingDescription || isSelected;
+
+  const relationSummary =
+    relationSummaryProp ?? getTaskRelationshipSummary(undefined, task.id);
+  const hasRelations = relationSummary.hasAny;
+  const highlightedAsRelated =
+    !!hoveredLinkTask &&
+    hoveredLinkTask.id !== task.id &&
+    !!getTaskRelationshipType?.(task.id);
 
   const handleCopy = () => {
     onCopy(task);
@@ -379,11 +398,11 @@ export default function TaskCardToolbar({
     "relative after:absolute after:-inset-0.5 after:rounded-full after:content-[''] hover:scale-110 transition-[transform,background-color,color,opacity] disabled:hover:scale-100";
 
   const gripHandle = !agentBlocking && !isDragDisabled ? (
-    <KanbanChromeTooltip label={t('toolbar.dragToMove')} wrapperClassName="">
+    <KanbanChromeTooltip label={t('toolbar.dragToMove')} wrapperClassName="relative inline-flex h-[22px] w-[22px] shrink-0 items-center justify-center">
       <div
         {...listeners}
         {...attributes}
-        className={`p-1 rounded cursor-grab active:cursor-grabbing hover:bg-gray-200 dark:hover:bg-gray-700 opacity-60 hover:opacity-100 ${toolbarReachClass}`}
+        className={`p-1 rounded cursor-grab active:cursor-grabbing hover:bg-gray-200 dark:hover:bg-gray-700 opacity-60 hover:opacity-100 inline-flex h-[22px] w-[22px] items-center justify-center ${toolbarReachClass}`}
       >
         <GripVertical size={14} className="text-gray-400" />
       </div>
@@ -392,10 +411,118 @@ export default function TaskCardToolbar({
     <span className="inline-flex h-[22px] w-[22px] shrink-0 p-1" aria-hidden />
   );
 
+  const linkButton =
+    onStartLinking ? (
+      <KanbanChromeTooltip
+        label={
+          agentBlocking
+            ? agentLockedLabel
+            : isLinkingMode && linkingSourceTask?.id === task.id
+              ? t('toolbar.sourceTaskForLinking')
+              : hasRelations && hoveredLinkTask
+                ? t('relationships.shiftClickLinkToUnlink')
+                : hasRelations
+                  ? t('toolbar.holdAndDragToLinkWithRelations')
+                  : t('toolbar.holdAndDragToLink')
+        }
+        wrapperClassName="relative inline-flex h-[22px] w-[22px] shrink-0 items-center justify-center"
+      >
+        <button
+          data-no-dnd="true"
+          disabled={agentBlocking}
+          onPointerDown={(e) => {
+            if (agentBlocking) return;
+            // Shift+click link icon → unlink (pointerdown only — click would double-fire and 404)
+            if (e.shiftKey && e.button === 0 && onUnlinkRelatedTask && hasRelations) {
+              e.preventDefault();
+              e.stopPropagation();
+              void onUnlinkRelatedTask(task);
+              return;
+            }
+            handleLinkPointerDown(e);
+          }}
+          onMouseDown={(e) => {
+            if (agentBlocking) return;
+            if (e.shiftKey && e.button === 0 && onUnlinkRelatedTask && hasRelations) {
+              e.preventDefault();
+              e.stopPropagation();
+              return;
+            }
+            handleLinkMouseDown(e);
+          }}
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            // Unlink is handled on pointerdown to avoid a second DELETE after success
+          }}
+          onMouseEnter={(e) => {
+            if (agentBlocking) return;
+            e.stopPropagation();
+            onLinkToolHover?.(task);
+          }}
+          onMouseLeave={(e) => {
+            e.stopPropagation();
+            // Avoid clearing while highlight mode keeps sticky focus across cards
+            if (!(highlightLinksMode && hasRelations)) {
+              onLinkToolHoverEnd?.();
+            }
+          }}
+          onPointerEnter={(e) => {
+            if (agentBlocking) return;
+            e.stopPropagation();
+            onLinkToolHover?.(task);
+          }}
+          onPointerLeave={(e) => {
+            e.stopPropagation();
+            if (!(highlightLinksMode && hasRelations)) {
+              onLinkToolHoverEnd?.();
+            }
+          }}
+          className={`p-1 rounded-full inline-flex h-[22px] w-[22px] items-center justify-center ${toolbarReachClass} ${
+            agentBlocking
+              ? 'opacity-40 cursor-not-allowed text-gray-400'
+              : isLinkingMode && linkingSourceTask?.id === task.id
+                ? 'bg-blue-100 dark:bg-blue-900 text-blue-600 dark:text-blue-400'
+                : hasRelations || highlightedAsRelated
+                  ? 'text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900'
+                  : 'hover:bg-blue-100 dark:hover:bg-blue-900 text-gray-400 dark:text-gray-500 hover:text-blue-600 dark:hover:text-blue-400'
+          }`}
+          style={{ pointerEvents: 'auto', zIndex: 100, touchAction: 'none', userSelect: 'none' }}
+        >
+          <span className="relative inline-flex h-[14px] w-[14px] items-center justify-center overflow-visible">
+            <Link size={14} className="shrink-0" />
+            {hasRelations && (
+              <span
+                className="absolute -top-1 -right-1.5 flex items-center gap-px leading-none pointer-events-none"
+                aria-hidden="true"
+              >
+                {relationSummary.hasParent && (
+                  <span className="text-[8px] font-bold text-green-600 dark:text-green-400">{t('relationships.markParent')}</span>
+                )}
+                {relationSummary.hasChildren && (
+                  <span className="text-[8px] font-bold text-purple-600 dark:text-purple-400">{t('relationships.markChild')}</span>
+                )}
+                {!relationSummary.hasParent &&
+                  !relationSummary.hasChildren &&
+                  relationSummary.hasRelated && (
+                    <span className="text-[8px] font-bold text-yellow-600 dark:text-yellow-400">{t('relationships.markRelated')}</span>
+                  )}
+              </span>
+            )}
+          </span>
+        </button>
+      </KanbanChromeTooltip>
+    ) : null;
+
+  const linkVisibility =
+    hasRelations || highlightedAsRelated
+      ? 'pointer-events-auto opacity-100'
+      : toolbarHoverVisibility;
+
   return (
     <>
       {/* Left cluster: AI (when assigned) + grip; grip takes AI slot when agent absent */}
-      <div className="absolute top-1 left-1 z-[6] flex items-center gap-0.5">
+      <div className="absolute top-1 left-1 z-[6] flex items-start gap-0.5">
         {isAgentAssigned ? (
           <>
             <AgentStatusButton
@@ -413,16 +540,16 @@ export default function TaskCardToolbar({
         )}
 
         <div
-          className={`flex items-center gap-0.5 transition-opacity duration-200 ${toolbarHoverVisibility}`}
+          className="flex h-[22px] items-center gap-0.5"
           data-tour-id="task-card-toolbar"
         >
-
           {onTagAdd && (
+            <div className={`flex h-[22px] items-center transition-opacity duration-200 ${toolbarHoverVisibility}`}>
               <KanbanChromeTooltip label={agentBlocking ? agentLockedLabel : t('toolbar.addTag')}>
                 <button
                   ref={quickTagButtonRef}
                   disabled={agentBlocking}
-                  className={`p-1 rounded-full ${toolbarReachClass} ${
+                  className={`p-1 rounded-full inline-flex h-[22px] w-[22px] items-center justify-center ${toolbarReachClass} ${
                     agentBlocking
                       ? 'opacity-40 cursor-not-allowed'
                       : 'hover:bg-gray-100 dark:hover:bg-gray-700'
@@ -435,85 +562,38 @@ export default function TaskCardToolbar({
                   </div>
                 </button>
               </KanbanChromeTooltip>
-            )}
-            
+            </div>
+          )}
+
+          <div className={`flex h-[22px] items-center transition-opacity duration-200 ${toolbarHoverVisibility}`}>
             <KanbanChromeTooltip label={t('toolbar.copyTask')}>
               <button
                 onClick={handleCopy}
-                className={`p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full ${toolbarReachClass}`}
+                className={`p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full inline-flex h-[22px] w-[22px] items-center justify-center ${toolbarReachClass}`}
               >
                 <Copy size={14} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors" />
               </button>
             </KanbanChromeTooltip>
-            
-            {onStartLinking && (
-              <KanbanChromeTooltip
-                label={
-                  agentBlocking
-                    ? agentLockedLabel
-                    : isLinkingMode && linkingSourceTask?.id === task.id
-                      ? t('toolbar.sourceTaskForLinking')
-                      : t('toolbar.holdAndDragToLink')
-                }
-              >
-                <button
-                  data-no-dnd="true"
-                  disabled={agentBlocking}
-                  onPointerDown={(e) => {
-                    if (agentBlocking) return;
-                    handleLinkPointerDown(e);
-                  }}
-                  onMouseDown={(e) => {
-                    if (agentBlocking) return;
-                    handleLinkMouseDown(e);
-                  }}
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                  }}
-                  onMouseEnter={(e) => {
-                    if (agentBlocking) return;
-                    e.stopPropagation();
-                    onLinkToolHover?.(task);
-                  }}
-                  onMouseLeave={(e) => {
-                    e.stopPropagation();
-                    onLinkToolHoverEnd?.();
-                  }}
-                  onPointerEnter={(e) => {
-                    if (agentBlocking) return;
-                    e.stopPropagation();
-                    onLinkToolHover?.(task);
-                  }}
-                  onPointerLeave={(e) => {
-                    e.stopPropagation();
-                    onLinkToolHoverEnd?.();
-                  }}
-                  className={`p-1 rounded-full ${toolbarReachClass} ${
-                    agentBlocking
-                      ? 'opacity-40 cursor-not-allowed text-gray-400'
-                      : isLinkingMode && linkingSourceTask?.id === task.id
-                        ? 'bg-blue-100 dark:bg-blue-900 text-blue-600 dark:text-blue-400'
-                        : 'hover:bg-blue-100 dark:hover:bg-blue-900 text-gray-400 dark:text-gray-500 hover:text-blue-600 dark:hover:text-blue-400'
-                  }`}
-                  style={{ pointerEvents: 'auto', zIndex: 100, touchAction: 'none', userSelect: 'none' }}
-                >
-                  <Link size={14} />
-                </button>
-              </KanbanChromeTooltip>
-            )}
-            
-            {(() => {
-              const archiveColumn = columns && Object.values(columns).find(col => 
-                col.is_archived === true || (col.is_archived as any) === 1
-              );
-              
-              const currentColumn = columns && columns[task.columnId];
-              const isCurrentColumnArchived = currentColumn && (
-                currentColumn.is_archived === true || (currentColumn.is_archived as any) === 1
-              );
-              
-              return archiveColumn && !isCurrentColumnArchived ? (
+          </div>
+
+          {linkButton && (
+            <div className={`flex h-[22px] items-center transition-opacity duration-200 ${linkVisibility}`}>
+              {linkButton}
+            </div>
+          )}
+
+          {(() => {
+            const archiveColumn = columns && Object.values(columns).find(col =>
+              col.is_archived === true || (col.is_archived as any) === 1
+            );
+
+            const currentColumn = columns && columns[task.columnId];
+            const isCurrentColumnArchived = currentColumn && (
+              currentColumn.is_archived === true || (currentColumn.is_archived as any) === 1
+            );
+
+            return archiveColumn && !isCurrentColumnArchived ? (
+              <div className={`flex h-[22px] items-center transition-opacity duration-200 ${toolbarHoverVisibility}`}>
                 <KanbanChromeTooltip label={agentBlocking ? agentLockedLabel : t('toolbar.archiveTask')}>
                   <button
                     disabled={agentBlocking}
@@ -522,7 +602,7 @@ export default function TaskCardToolbar({
                       e.stopPropagation();
                       onEdit({ ...task, columnId: archiveColumn.id });
                     }}
-                    className={`p-1 rounded-full ${toolbarReachClass} ${
+                    className={`p-1 rounded-full inline-flex h-[22px] w-[22px] items-center justify-center ${toolbarReachClass} ${
                       agentBlocking
                         ? 'opacity-40 cursor-not-allowed'
                         : 'hover:bg-yellow-100 dark:hover:bg-yellow-900/40'
@@ -531,8 +611,9 @@ export default function TaskCardToolbar({
                     <Archive size={14} className="text-yellow-600" />
                   </button>
                 </KanbanChromeTooltip>
-              ) : null;
-            })()}
+              </div>
+            ) : null;
+          })()}
         </div>
       </div>
 

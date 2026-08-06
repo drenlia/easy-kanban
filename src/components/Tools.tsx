@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Minimize2, Maximize2, Search, Minus, LayoutGrid, List, Calendar, ChevronUp, type LucideIcon } from 'lucide-react';
+import { Minimize2, Maximize2, Search, Minus, LayoutGrid, List, Calendar, ChevronUp, GitBranch, type LucideIcon } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { TaskViewMode, ViewMode } from '../utils/userPreferences';
 import { KanbanChromeTooltip } from './KanbanChromeTooltip';
@@ -17,6 +17,11 @@ interface ToolsProps {
   activeFilterTooltip?: string;
   /** When set, shows a chevron in the title row to collapse Tools / members / progress */
   onHideToolbar?: () => void;
+  /** Kanban-only: dim unlinked cards and highlight related cards on hover */
+  highlightLinksMode?: boolean;
+  onToggleHighlightLinks?: () => void;
+  /** Hide the highlight-links control when the board has no relationships */
+  hasBoardRelationships?: boolean;
 }
 
 type OpenMenu = 'view' | 'density' | null;
@@ -45,6 +50,9 @@ export default function Tools({
   hasActiveFilters = false,
   activeFilterTooltip = '',
   onHideToolbar,
+  highlightLinksMode = false,
+  onToggleHighlightLinks,
+  hasBoardRelationships = false,
 }: ToolsProps) {
   const { t } = useTranslation('common');
   const [openMenu, setOpenMenu] = useState<OpenMenu>(null);
@@ -143,19 +151,50 @@ export default function Tools({
     >
       <div className="flex items-center justify-between mb-3 gap-1 min-h-5 shrink-0">
         <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-200 uppercase tracking-wide leading-5">{t('tools.title')}</h2>
-        {onHideToolbar && (
-          <KanbanChromeTooltip label={t('tools.hideBoardToolbar')}>
-            <button
-              type="button"
-              onClick={onHideToolbar}
-              className="-mr-1 p-0.5 rounded text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-              aria-label={t('tools.hideBoardToolbar')}
-              aria-expanded={true}
+        <div className="flex items-center gap-0.5 shrink-0 -mr-1">
+          {viewMode === 'kanban' &&
+            onToggleHighlightLinks &&
+            hasBoardRelationships && (
+            <KanbanChromeTooltip
+              label={
+                highlightLinksMode
+                  ? t('tools.highlightLinksOn')
+                  : t('tools.highlightLinksOff')
+              }
             >
-              <ChevronUp size={16} />
-            </button>
-          </KanbanChromeTooltip>
-        )}
+              <button
+                type="button"
+                onClick={onToggleHighlightLinks}
+                className={`p-0.5 rounded transition-colors ${
+                  highlightLinksMode
+                    ? 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/40'
+                    : 'text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700'
+                }`}
+                aria-label={
+                  highlightLinksMode
+                    ? t('tools.highlightLinksOn')
+                    : t('tools.highlightLinksOff')
+                }
+                aria-pressed={highlightLinksMode}
+              >
+                <GitBranch size={16} strokeWidth={ICON_STROKE} absoluteStrokeWidth />
+              </button>
+            </KanbanChromeTooltip>
+          )}
+          {onHideToolbar && (
+            <KanbanChromeTooltip label={t('tools.hideBoardToolbar')}>
+              <button
+                type="button"
+                onClick={onHideToolbar}
+                className="p-0.5 rounded text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                aria-label={t('tools.hideBoardToolbar')}
+                aria-expanded={true}
+              >
+                <ChevronUp size={16} />
+              </button>
+            </KanbanChromeTooltip>
+          )}
+        </div>
       </div>
 
       <div className="flex gap-2 justify-center items-center flex-1 min-h-[2.5rem]">
