@@ -94,7 +94,7 @@ Still operator-owned before calling kanban “fully done”:
 - Confirm Google OAuth authorized redirect includes `https://kanban.agila.dev/api/auth/google/callback`
 - Optional smoke: password login, Google SSO, WebSocket, media cookie on new host
 - SMTP rows were **not** rewritten (still may show legacy From addresses) — Admin → Mail if you care
-- `admin.agila.dev` / marketing `agila.dev` / clients — deferred
+- `admin.agila.dev` / marketing `agila.dev` — **code rebrand applied** in `ezkan-admin` / `ezkan-web`; **web03 vhosts + certs done** (`120-agila.dev.conf`, mirrors Docru)
 
 ---
 

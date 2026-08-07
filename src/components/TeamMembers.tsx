@@ -338,7 +338,7 @@ function MeetTheTeamCard({
         {member.name}
       </div>
       {showBios ? (
-        <div className="mt-1.5 flex-1 flex flex-col w-full min-h-0">
+        <div className="mt-1.5 flex-1 flex flex-col items-center w-full min-h-0">
           {hasBio ? (
             <p className="text-xs text-gray-700 dark:text-gray-300 whitespace-pre-wrap break-words leading-relaxed w-full pointer-events-none">
               {bioText}
@@ -349,17 +349,19 @@ function MeetTheTeamCard({
             </p>
           )}
           {isSelf && onEditOwnProfile ? (
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                openOwnProfile();
-              }}
-              onPointerDown={(e) => e.stopPropagation()}
-              className="mt-auto pt-3 inline-flex self-center items-center justify-center px-2.5 py-1 text-xs font-medium rounded-full bg-blue-600 text-white hover:bg-blue-700 shadow-sm transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-gray-800"
-            >
-              {hasBio ? t('teamMembers.updateYourBio') : t('teamMembers.addYourBio')}
-            </button>
+            <div className="mt-auto pt-3 w-full flex justify-center shrink-0">
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  openOwnProfile();
+                }}
+                onPointerDown={(e) => e.stopPropagation()}
+                className="inline-flex items-center justify-center px-2.5 py-1 text-xs font-medium rounded-full bg-blue-600 text-white hover:bg-blue-700 shadow-sm transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-gray-800"
+              >
+                {hasBio ? t('teamMembers.updateYourBio') : t('teamMembers.addYourBio')}
+              </button>
+            </div>
           ) : null}
         </div>
       ) : null}
