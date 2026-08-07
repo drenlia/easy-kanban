@@ -35,7 +35,7 @@
 ### 4. Required Template Files
 - [ ] `namespace.yaml`
 - [ ] `redis-deployment.yaml`
-- [ ] `configmap.yaml`
+- [ ] `configmap.yaml.example` (copy to gitignored `configmap.yaml` for local secrets)
 - [ ] `app-deployment.yaml`
 - [ ] `service.yaml`
 - [ ] `ingress.yaml`

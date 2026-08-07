@@ -129,8 +129,9 @@ spec:
             secretKeyRef:
               name: kanban-runner-secret
               key: RUNNER_TOKEN
-        # Prefer dedicated crypto Secret; falls back to ConfigMap JWT_SECRET in app code if unset.
-        # Encrypts admin settings at rest including S3_SECRET_ACCESS_KEY.
+        # Settings-at-rest key (SMTP / Google SSO / S3 / AI secrets in tenant settings).
+        # Independent of JWT_SECRET. deploy-pg.sh never rotates the Secret if already set.
+        # If unset, app code falls back to ConfigMap JWT_SECRET.
         - name: SETTINGS_ENCRYPTION_KEY
           valueFrom:
             secretKeyRef:
@@ -164,7 +165,7 @@ spec:
             port: 3222
             httpHeaders:
             - name: Host
-              value: drenlia.docru.app
+              value: app.agila.dev
           initialDelaySeconds: 10
           periodSeconds: 10
           timeoutSeconds: 5
@@ -175,7 +176,7 @@ spec:
             port: 3222
             httpHeaders:
             - name: Host
-              value: drenlia.docru.app
+              value: app.agila.dev
           initialDelaySeconds: 30
           periodSeconds: 10
           timeoutSeconds: 5

@@ -24,7 +24,12 @@ fi
 INSTANCE_NAME="$1"
 # Shared namespace for all PostgreSQL tenants
 NAMESPACE="easy-kanban-pg"
-DOMAIN="ezkan.cloud"
+# Prefer explicit TENANT_DOMAIN, then live ConfigMap, then agila.dev
+DOMAIN="${TENANT_DOMAIN:-}"
+if [ -z "${DOMAIN}" ]; then
+    DOMAIN=$(kubectl get configmap easy-kanban-config-pg -n "${NAMESPACE}" -o jsonpath='{.data.TENANT_DOMAIN}' 2>/dev/null || true)
+fi
+DOMAIN="${DOMAIN:-agila.dev}"
 FULL_HOSTNAME="${INSTANCE_NAME}.${DOMAIN}"
 INGRESS_NAME="easy-kanban-ingress-${INSTANCE_NAME}"
 WEBSOCKET_INGRESS_NAME="easy-kanban-websocket-ingress-pg"

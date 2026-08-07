@@ -1,0 +1,55 @@
+# TEMPLATE ONLY — copy to the same path without .example and fill secrets.
+# The non-.example file is gitignored so real values never enter the repo.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: easy-kanban-config
+  namespace: easy-kanban
+  labels:
+    app: easy-kanban
+data:
+  NODE_ENV: "production"
+  DOCKER_ENV: "true"
+  PORT: "3222"
+  VITE_API_URL: "http://localhost:3222"
+  REDIS_URL: "redis://redis:6379"
+  DEMO_ENABLED: "false"
+  
+  # Instance configuration for admin portal access
+  # Note: In multi-tenant mode, INSTANCE_NAME is generic (all tenants share same deployment)
+  # Tenant-specific hostnames are determined from request hostname (tenantId.ezkan.cloud)
+  INSTANCE_NAME: "easy-kanban-app"
+  INSTANCE_TOKEN: "INSTANCE_TOKEN_PLACEHOLDER"
+  ADMIN_SERVICE_URL: "https://admin.ezkan.cloud"
+  
+  # Security configuration
+  JWT_SECRET: "JWT_SECRET_PLACEHOLDER"
+  # CORS origins - Note: nginx handles CORS validation, this is mainly for WebSocket
+  # In multi-tenant mode, nginx should allow *.ezkan.cloud pattern
+  # Socket.IO will use this list, but nginx is the primary CORS validator
+  ALLOWED_ORIGINS: "localhost,127.0.0.1,app.ezkan.cloud,admin.ezkan.cloud,ezkan.cloud"
+  
+  # License settings are stored per-tenant in database (license_settings table)
+  # Admin portal will update these when deploying/updating instances
+  LICENSE_ENABLED: "true"
+  
+  # Application version
+  APP_VERSION: "APP_VERSION_PLACEHOLDER"
+  
+  # Multi-tenant configuration
+  # Set to "true" for shared pods with multiple tenants, "false" for single-tenant
+  MULTI_TENANT: "false"
+  # Tenant domain for extracting tenant ID from hostname
+  # Example: If TENANT_DOMAIN=ezkan.cloud, then customer1.ezkan.cloud -> tenant ID: customer1
+  # This should match your ingress domain configuration
+  TENANT_DOMAIN: "ezkan.cloud"
+  # Optional: Pre-initialize a tenant database at startup (useful for first tenant or testing)
+  # Leave empty or unset to initialize tenants on first request only
+  # Set by deploy.sh based on instance name
+  STARTUP_TENANT_ID: ""
+  
+  # Email configuration (optional - can be set later)
+  # EMAIL_HOST: "smtp.gmail.com"
+  # EMAIL_PORT: "587"
+  # EMAIL_USER: "your-email@gmail.com"
+  # EMAIL_PASS: "your-app-password"

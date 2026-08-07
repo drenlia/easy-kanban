@@ -115,8 +115,8 @@ Replace `docru.app` with `agila.dev` (and product strings where user-facing) in 
 
 | File | What to change |
 |------|----------------|
-| [`k8s/configmap.yaml`](../k8s/configmap.yaml) | `TENANT_DOMAIN`, `ALLOWED_ORIGINS`, `ADMIN_SERVICE_URL`, comments mentioning `*.docru.app` (or any leftover `*.ezkan.cloud`) |
-| [`k8s/configmap-pg.yaml`](../k8s/configmap-pg.yaml) | Same + `app-pg.…` origins |
+| [`k8s/configmap.yaml.example`](../k8s/configmap.yaml.example) | `TENANT_DOMAIN`, `ALLOWED_ORIGINS`, `ADMIN_SERVICE_URL` (live `configmap.yaml` is gitignored) |
+| [`k8s/configmap-pg.yaml.example`](../k8s/configmap-pg.yaml.example) | Same + origins (live `configmap-pg.yaml` is gitignored — copy from example) |
 | [`k8s/app-deployment.yaml`](../k8s/app-deployment.yaml) | Probe `Host:` `app.docru.app` → `app.agila.dev` (or actual probe host) |
 | [`k8s/app-deployment-pg.yaml`](../k8s/app-deployment-pg.yaml) | Probe `Host:` → new host |
 | [`k8s/ingress-websocket.yaml`](../k8s/ingress-websocket.yaml) | Every `*.docru.app` host → `*.agila.dev` |
@@ -171,7 +171,7 @@ Suggested order for a **soft** dual-edge cutover (matches how kanban.dev was don
    node scripts/rebrand-domain-cutover.js
    ```
 
-   Defaults are already `OLD_DOMAIN=docru.app` / `NEW_DOMAIN=agila.dev`. Adjust DB name/user to match [`k8s/postgres-secret-pg.yaml`](../k8s/postgres-secret-pg.yaml) / live secrets.
+   Defaults are already `OLD_DOMAIN=docru.app` / `NEW_DOMAIN=agila.dev`. Adjust DB name/user to match [`k8s/postgres-secret-pg.yaml.example`](../k8s/postgres-secret-pg.yaml.example) / live secrets.
 
 8. Smoke sample tenants on **both** hostnames if dual-edge, then on Agila only after redirect/DNS flip.
 9. Optional: permanent redirects `*.docru.app` → `*.agila.dev` on web03; then retire Docru DNS/vhosts.

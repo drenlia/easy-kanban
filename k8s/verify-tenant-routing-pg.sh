@@ -1,7 +1,8 @@
 #!/bin/bash
-# Verify that traffic for <instance>.ezkan.cloud is wired to easy-kanban-pg in-cluster.
+# Verify that traffic for <instance>.${TENANT_DOMAIN} is wired to easy-kanban-pg in-cluster.
 # Usage: ./k8s/verify-tenant-routing-pg.sh <instance_name>
-# Example: ./k8s/verify-tenant-routing-pg.sh drenlia-pg
+# Example: ./k8s/verify-tenant-routing-pg.sh drenlia
+# Optional: TENANT_DOMAIN=agila.dev (default: live ConfigMap or agila.dev)
 #
 # Checks: per-tenant HTTP ingress, WebSocket ingress host, Service endpoints,
 # duplicate host claims cluster-wide, optional public DNS (dig), optional in-cluster curl.
@@ -16,14 +17,19 @@ NC='\033[0m'
 
 usage() {
   echo "Usage: $0 <instance_name>"
-  echo "  instance_name — subdomain label (e.g. drenlia-pg → drenlia-pg.ezkan.cloud)"
+  echo "  instance_name — subdomain label (e.g. drenlia → drenlia.agila.dev)"
+  echo "  TENANT_DOMAIN — optional override (default: ConfigMap or agila.dev)"
   exit 1
 }
 
 [[ $# -eq 1 ]] || usage
 INSTANCE_NAME="$1"
 NAMESPACE="easy-kanban-pg"
-DOMAIN="${TENANT_DOMAIN:-ezkan.cloud}"
+DOMAIN="${TENANT_DOMAIN:-}"
+if [[ -z "$DOMAIN" ]]; then
+  DOMAIN=$(kubectl get configmap easy-kanban-config-pg -n "${NAMESPACE}" -o jsonpath='{.data.TENANT_DOMAIN}' 2>/dev/null || true)
+fi
+DOMAIN="${DOMAIN:-agila.dev}"
 FULL_HOSTNAME="${INSTANCE_NAME}.${DOMAIN}"
 HTTP_INGRESS="easy-kanban-ingress-${INSTANCE_NAME}"
 WS_INGRESS="easy-kanban-websocket-ingress-pg"

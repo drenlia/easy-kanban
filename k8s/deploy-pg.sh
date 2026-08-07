@@ -6,20 +6,24 @@ set -e
 
 # Function to display usage
 usage() {
-    echo "Usage: $0 <instance_name> <plan>"
+    echo "Usage: $0 <instance_name> <plan> [--i-understand-shared-crypto]"
     echo ""
     echo "Parameters:"
     echo "  instance_name  - The instance hostname (e.g., my-instance-name)"
     echo "  plan          - License plan: 'basic' or 'pro'"
+    echo "  --i-understand-shared-crypto"
+    echo "      Required only when this run would change shared JWT_SECRET or"
+    echo "      SETTINGS_ENCRYPTION_KEY vs what is already live (affects ALL tenants)."
     echo ""
     echo "Example:"
     echo "  $0 my-company basic"
     echo "  $0 enterprise pro"
     echo ""
-    echo "This will deploy Easy Kanban accessible at: https://my-company.ezkan.cloud"
+    echo "This will deploy Easy Kanban accessible at: https://my-company.\${TENANT_DOMAIN}"
     echo ""
     echo "Note: Instance token is automatically generated on first deployment"
     echo "      and preserved for all subsequent deployments."
+    echo "      First-time setup (no live ConfigMap) does not require crypto confirmation."
     exit 1
 }
 
@@ -37,19 +41,35 @@ generate_instance_token() {
     fi
 }
 
-# Check parameters
-if [ $# -ne 2 ]; then
+# Check parameters (optional crypto override flag)
+FORCE_SHARED_CRYPTO_IMPACT=false
+POSITIONAL_ARGS=()
+for arg in "$@"; do
+    case "$arg" in
+        --i-understand-shared-crypto)
+            FORCE_SHARED_CRYPTO_IMPACT=true
+            ;;
+        -h|--help)
+            usage
+            ;;
+        *)
+            POSITIONAL_ARGS+=("$arg")
+            ;;
+    esac
+done
+
+if [ ${#POSITIONAL_ARGS[@]} -ne 2 ]; then
     echo "❌ Error: Missing required parameters"
     usage
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-INSTANCE_NAME="$1"
-PLAN="$2"
+INSTANCE_NAME="${POSITIONAL_ARGS[0]}"
+PLAN="${POSITIONAL_ARGS[1]}"
 # Use pg namespace for PostgreSQL deployments
 NAMESPACE="easy-kanban-pg"
-DOMAIN="ezkan.cloud"
-FULL_HOSTNAME="${INSTANCE_NAME}.${DOMAIN}"
+# TENANT_DOMAIN: explicit env > live ConfigMap > local configmap-pg.yaml > agila.dev
+DOMAIN="${TENANT_DOMAIN:-}"
 # Tenant ID is the instance name (extracted from hostname by middleware)
 TENANT_ID="${INSTANCE_NAME}"
 
@@ -84,11 +104,11 @@ else
     SUPPORT_TYPE="pro"
 fi
 
-# Generate random JWT secret
+# Generate random JWT secret (overwritten from local configmap-pg.yaml when present)
 JWT_SECRET=$(openssl rand -base64 32 | tr -d "=+/" | cut -c1-32)
 # Shared app ↔ runner bearer (preserved if secret already exists — see ensure block)
 RUNNER_TOKEN=$(openssl rand -hex 32)
-# Dedicated settings-at-rest key (preserved if Secret already exists)
+# Dedicated settings-at-rest key (independent of JWT; preserved if Secret already exists)
 SETTINGS_ENCRYPTION_KEY=$(openssl rand -hex 32)
 
 # Initialize RECOVERED_TOKEN variable
@@ -96,7 +116,6 @@ RECOVERED_TOKEN=""
 
 echo "🚀 Deploying Easy Kanban PostgreSQL instance: ${INSTANCE_NAME}"
 echo "📍 Namespace: ${NAMESPACE}"
-echo "🌐 Hostname: ${FULL_HOSTNAME}"
 echo "📋 Plan: ${PLAN} (${SUPPORT_TYPE})"
 echo "👥 User Limit: ${USER_LIMIT}"
 echo "📝 Task Limit: ${TASK_LIMIT}"
@@ -117,6 +136,169 @@ fi
 
 echo "✅ Kubernetes cluster is accessible"
 
+# Prefer local (gitignored) manifests with real secrets; fall back to *.example templates
+resolve_manifest() {
+    local base="$1"
+    if [ -f "${SCRIPT_DIR}/${base}" ]; then
+        echo "${SCRIPT_DIR}/${base}"
+    elif [ -f "${SCRIPT_DIR}/${base}.example" ]; then
+        echo "   ℹ️  Using ${base}.example (copy to ${base} for local secrets)" >&2
+        echo "${SCRIPT_DIR}/${base}.example"
+    else
+        echo "❌ Missing ${SCRIPT_DIR}/${base} or ${base}.example" >&2
+        exit 1
+    fi
+}
+
+# Resolve shared tenant DNS suffix (e.g. agila.dev)
+if [ -z "${DOMAIN}" ]; then
+    DOMAIN=$(kubectl get configmap easy-kanban-config-pg -n "${NAMESPACE}" -o jsonpath='{.data.TENANT_DOMAIN}' 2>/dev/null || true)
+fi
+if [ -z "${DOMAIN}" ]; then
+    DOMAIN=$(python3 - "$(resolve_manifest configmap-pg.yaml)" <<'PY' 2>/dev/null || true
+import sys
+try:
+    import yaml
+except ImportError:
+    sys.exit(0)
+with open(sys.argv[1]) as f:
+    doc = yaml.safe_load(f) or {}
+print((doc.get("data") or {}).get("TENANT_DOMAIN") or "", end="")
+PY
+)
+fi
+DOMAIN="${DOMAIN:-agila.dev}"
+FULL_HOSTNAME="${INSTANCE_NAME}.${DOMAIN}"
+echo "🌐 Hostname: ${FULL_HOSTNAME} (TENANT_DOMAIN=${DOMAIN})"
+
+# Read a data./stringData. value from a simple ConfigMap/Secret YAML (python3 + PyYAML).
+yaml_string_field() {
+    local file="$1"
+    local section="$2" # data | stringData
+    local key="$3"
+    python3 - "$file" "$section" "$key" <<'PY'
+import sys
+try:
+    import yaml
+except ImportError:
+    sys.exit(0)
+path, section, key = sys.argv[1], sys.argv[2], sys.argv[3]
+with open(path) as f:
+    doc = yaml.safe_load(f) or {}
+val = (doc.get(section) or {}).get(key)
+if val is None:
+    sys.exit(0)
+print(val, end="")
+PY
+}
+
+# Shared JWT / SETTINGS_ENCRYPTION_KEY affect every tenant. Interrupt only when a live
+# key would change vs local manifests (first-time setup = no live ConfigMap → no prompt).
+validate_shared_crypto_keys() {
+    echo ""
+    echo "🔐 Shared crypto preflight (all tenants)..."
+
+    local local_cm
+    local_cm="$(resolve_manifest configmap-pg.yaml)"
+    local local_jwt
+    local_jwt="$(yaml_string_field "${local_cm}" data JWT_SECRET || true)"
+
+    local local_crypto_src=""
+    if [ -f "${SCRIPT_DIR}/settings-crypto-secret-pg.yaml" ]; then
+        local_crypto_src="${SCRIPT_DIR}/settings-crypto-secret-pg.yaml"
+    elif [ -f "${SCRIPT_DIR}/settings-crypto-secret-pg.yaml.example" ]; then
+        local_crypto_src="${SCRIPT_DIR}/settings-crypto-secret-pg.yaml.example"
+    fi
+    local local_settings_key=""
+    if [ -n "${local_crypto_src}" ]; then
+        local_settings_key="$(yaml_string_field "${local_crypto_src}" stringData SETTINGS_ENCRYPTION_KEY || true)"
+        if [ -z "${local_settings_key}" ]; then
+            local_settings_key="$(yaml_string_field "${local_crypto_src}" data SETTINGS_ENCRYPTION_KEY || true)"
+        fi
+    fi
+
+    local live_jwt=""
+    local live_settings_key=""
+    local live_pod_settings=""
+    local has_live_cm=false
+
+    if kubectl get configmap easy-kanban-config-pg -n "${NAMESPACE}" &>/dev/null; then
+        has_live_cm=true
+        live_jwt=$(kubectl get configmap easy-kanban-config-pg -n "${NAMESPACE}" -o jsonpath='{.data.JWT_SECRET}' 2>/dev/null || true)
+    fi
+    if kubectl get secret easy-kanban-settings-crypto -n "${NAMESPACE}" &>/dev/null; then
+        live_settings_key=$(kubectl get secret easy-kanban-settings-crypto -n "${NAMESPACE}" -o jsonpath='{.data.SETTINGS_ENCRYPTION_KEY}' 2>/dev/null | base64 -d 2>/dev/null || true)
+    fi
+    local pod_name
+    pod_name=$(kubectl get pods -n "${NAMESPACE}" -l app=easy-kanban -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+    if [ -n "${pod_name}" ]; then
+        live_pod_settings=$(kubectl exec -n "${NAMESPACE}" "${pod_name}" -c easy-kanban -- printenv SETTINGS_ENCRYPTION_KEY 2>/dev/null || true)
+    fi
+
+    # Effective key pods use for enc:v1 (explicit SETTINGS_ENCRYPTION_KEY, else JWT fallback)
+    local live_effective="${live_pod_settings}"
+    if [ -z "${live_effective}" ]; then
+        live_effective="${live_jwt}"
+    fi
+
+    echo "   Local ConfigMap source: ${local_cm}"
+    echo "   Live ConfigMap:         ${has_live_cm}"
+    echo "   Pod SETTINGS_ENCRYPTION_KEY set: $([ -n "${live_pod_settings}" ] && echo yes || echo no)"
+
+    if [ "${has_live_cm}" != "true" ]; then
+        echo "   ✅ No live shared ConfigMap — first-time setup, no crypto confirmation needed"
+        return 0
+    fi
+
+    local impacts=()
+
+    # JWT: local file has a real value different from live
+    if [ -n "${local_jwt}" ] && [ "${local_jwt}" != "JWT_SECRET_PLACEHOLDER" ] \
+        && [ -n "${live_jwt}" ] && [ "${local_jwt}" != "${live_jwt}" ]; then
+        impacts+=("JWT_SECRET: local configmap-pg.yaml differs from live ConfigMap (would re-key ALL tenants)")
+    fi
+
+    # SETTINGS_ENCRYPTION_KEY: local secret file has a real value different from live Secret
+    if [ -n "${local_settings_key}" ] && [ "${local_settings_key}" != "SETTINGS_ENCRYPTION_KEY_PLACEHOLDER" ] \
+        && [ -n "${live_settings_key}" ] && [ "${live_settings_key}" != "SETTINGS_ENCRYPTION_KEY_PLACEHOLDER" ] \
+        && [ "${local_settings_key}" != "${live_settings_key}" ]; then
+        impacts+=("SETTINGS_ENCRYPTION_KEY: local settings-crypto-secret-pg.yaml differs from live Secret")
+    fi
+
+    # Mounting a Secret that differs from the effective in-pod key (usually JWT fallback today)
+    if [ -n "${live_settings_key}" ] && [ "${live_settings_key}" != "SETTINGS_ENCRYPTION_KEY_PLACEHOLDER" ] \
+        && [ -n "${live_effective}" ] && [ "${live_settings_key}" != "${live_effective}" ]; then
+        impacts+=("SETTINGS_ENCRYPTION_KEY: live Secret differs from effective in-pod key — mounting it would change decrypt for ALL tenants")
+    fi
+
+    if [ ${#impacts[@]} -eq 0 ]; then
+        echo "   ✅ Local crypto keys match live (or no conflicting local override) — continuing"
+        return 0
+    fi
+
+    echo ""
+    echo "⚠️  Shared crypto impact detected (affects EVERY tenant in ${NAMESPACE}):"
+    local i
+    for i in "${impacts[@]}"; do
+        echo "   - ${i}"
+    done
+    echo ""
+    echo "   After a key change you must re-enter encrypted Admin secrets"
+    echo "   (SMTP / Google SSO / S3 / AI) for each tenant."
+    echo ""
+
+    if [ "${FORCE_SHARED_CRYPTO_IMPACT}" = "true" ]; then
+        echo "   ✅ Continuing because --i-understand-shared-crypto was set"
+        return 0
+    fi
+
+    echo "   Re-run with --i-understand-shared-crypto to proceed, or sync local"
+    echo "   configmap-pg.yaml / settings-crypto-secret-pg.yaml to the live values."
+    exit 1
+}
+
+validate_shared_crypto_keys
+
 # Create temporary directory for generated manifests
 TEMP_DIR=$(mktemp -d)
 echo "📁 Using temporary directory: ${TEMP_DIR}"
@@ -126,14 +308,14 @@ generate_manifests() {
     echo ""
     echo "🔧 Generating Kubernetes manifests..."
     echo "   📝 Creating deployment manifests in ${TEMP_DIR}..."
-    
+
     # Ensure namespace exists
     if ! kubectl get namespace "${NAMESPACE}" &>/dev/null; then
         echo "   📦 Creating namespace..."
         kubectl apply -f "${SCRIPT_DIR}/namespace-pg.yaml"
     fi
     
-    # Ensure PostgreSQL secret exists (create or update)
+    # Ensure PostgreSQL secret exists (create only — never overwrite live password)
     echo "   🔐 Ensuring PostgreSQL secret exists..."
     if kubectl get secret postgres-secret -n "${NAMESPACE}" &>/dev/null; then
         echo "   ✅ PostgreSQL secret already exists"
@@ -141,7 +323,8 @@ generate_manifests() {
         # Create secret from template
         sed -e "s/easy-kanban-pg/${NAMESPACE}/g" \
             -e "s/change-me-in-production/${POSTGRES_PASSWORD}/g" \
-            "${SCRIPT_DIR}/postgres-secret-pg.yaml" > "${TEMP_DIR}/postgres-secret.yaml"
+            -e "s/POSTGRES_PASSWORD_PLACEHOLDER/${POSTGRES_PASSWORD}/g" \
+            "$(resolve_manifest postgres-secret-pg.yaml)" > "${TEMP_DIR}/postgres-secret.yaml"
         kubectl apply -f "${TEMP_DIR}/postgres-secret.yaml"
         echo "   ✅ PostgreSQL secret created"
     fi
@@ -185,35 +368,43 @@ generate_manifests() {
     fi
     sed -e "s/easy-kanban-pg/${NAMESPACE}/g" \
         -e "s/RUNNER_TOKEN_PLACEHOLDER/${RUNNER_TOKEN}/g" \
-        "${SCRIPT_DIR}/runner-secret-pg.yaml" > "${TEMP_DIR}/runner-secret.yaml"
+        "$(resolve_manifest runner-secret-pg.yaml)" > "${TEMP_DIR}/runner-secret.yaml"
     kubectl apply -f "${TEMP_DIR}/runner-secret.yaml"
 
-    # Settings encryption key (preserve across redeploys)
+    # Settings encryption key (independent of JWT; never change if Secret already set)
     echo "   🔐 Ensuring easy-kanban-settings-crypto Secret..."
+    SETTINGS_CRYPTO_SKIP_APPLY=false
     if kubectl get secret easy-kanban-settings-crypto -n "${NAMESPACE}" &>/dev/null; then
         EXISTING_SETTINGS_KEY=$(kubectl get secret easy-kanban-settings-crypto -n "${NAMESPACE}" -o jsonpath='{.data.SETTINGS_ENCRYPTION_KEY}' 2>/dev/null | base64 -d 2>/dev/null || true)
         if [ -n "${EXISTING_SETTINGS_KEY}" ] && [ "${EXISTING_SETTINGS_KEY}" != "SETTINGS_ENCRYPTION_KEY_PLACEHOLDER" ]; then
             SETTINGS_ENCRYPTION_KEY="${EXISTING_SETTINGS_KEY}"
-            echo "   ✅ Reusing existing SETTINGS_ENCRYPTION_KEY"
-        else
-            # Prefer ConfigMap JWT_SECRET so existing ciphertext (if any used JWT fallback) stays decryptable
-            CM_JWT=$(kubectl get configmap easy-kanban-config-pg -n "${NAMESPACE}" -o jsonpath='{.data.JWT_SECRET}' 2>/dev/null || true)
-            if [ -n "${CM_JWT}" ]; then
-                SETTINGS_ENCRYPTION_KEY="${CM_JWT}"
-                echo "   ✅ Seeding SETTINGS_ENCRYPTION_KEY from ConfigMap JWT_SECRET"
-            fi
-        fi
-    else
-        CM_JWT=$(kubectl get configmap easy-kanban-config-pg -n "${NAMESPACE}" -o jsonpath='{.data.JWT_SECRET}' 2>/dev/null || true)
-        if [ -n "${CM_JWT}" ]; then
-            SETTINGS_ENCRYPTION_KEY="${CM_JWT}"
-            echo "   ✅ Creating SETTINGS_ENCRYPTION_KEY from existing JWT_SECRET (compat)"
+            SETTINGS_CRYPTO_SKIP_APPLY=true
+            echo "   ✅ SETTINGS_ENCRYPTION_KEY already set — leaving Secret unchanged"
         fi
     fi
-    sed -e "s/easy-kanban-pg/${NAMESPACE}/g" \
-        -e "s/SETTINGS_ENCRYPTION_KEY_PLACEHOLDER/${SETTINGS_ENCRYPTION_KEY}/g" \
-        "${SCRIPT_DIR}/settings-crypto-secret-pg.yaml" > "${TEMP_DIR}/settings-crypto-secret.yaml"
-    kubectl apply -f "${TEMP_DIR}/settings-crypto-secret.yaml"
+    if [ "${SETTINGS_CRYPTO_SKIP_APPLY}" != "true" ]; then
+        # Prefer a real value from local settings-crypto-secret-pg.yaml when present
+        LOCAL_CRYPTO_SRC="$(resolve_manifest settings-crypto-secret-pg.yaml)"
+        LOCAL_SETTINGS_KEY="$(yaml_string_field "${LOCAL_CRYPTO_SRC}" stringData SETTINGS_ENCRYPTION_KEY || true)"
+        if [ -z "${LOCAL_SETTINGS_KEY}" ]; then
+            LOCAL_SETTINGS_KEY="$(yaml_string_field "${LOCAL_CRYPTO_SRC}" data SETTINGS_ENCRYPTION_KEY || true)"
+        fi
+        if [ -n "${LOCAL_SETTINGS_KEY}" ] && [ "${LOCAL_SETTINGS_KEY}" != "SETTINGS_ENCRYPTION_KEY_PLACEHOLDER" ]; then
+            SETTINGS_ENCRYPTION_KEY="${LOCAL_SETTINGS_KEY}"
+            echo "   ✅ Creating SETTINGS_ENCRYPTION_KEY from local settings-crypto secret manifest"
+        else
+            echo "   ✅ Creating new random SETTINGS_ENCRYPTION_KEY"
+        fi
+        SETTINGS_CRYPTO_SRC="${SCRIPT_DIR}/settings-crypto-secret-pg.yaml.example"
+        if [ ! -f "${SETTINGS_CRYPTO_SRC}" ]; then
+            SETTINGS_CRYPTO_SRC="$(resolve_manifest settings-crypto-secret-pg.yaml)"
+        fi
+        SETTINGS_KEY_ESC=$(printf '%s' "${SETTINGS_ENCRYPTION_KEY}" | sed -e 's/[\/&]/\\&/g')
+        sed -e "s/easy-kanban-pg/${NAMESPACE}/g" \
+            -e "s/SETTINGS_ENCRYPTION_KEY_PLACEHOLDER/${SETTINGS_KEY_ESC}/g" \
+            "${SETTINGS_CRYPTO_SRC}" > "${TEMP_DIR}/settings-crypto-secret.yaml"
+        kubectl apply -f "${TEMP_DIR}/settings-crypto-secret.yaml"
+    fi
 
     # Platform-managed S3 credentials (optional; preserve existing values on redeploy)
     echo "   🔐 Ensuring easy-kanban-managed-s3 Secret..."
@@ -237,7 +428,7 @@ generate_manifests() {
     sed -e "s/easy-kanban-pg/${NAMESPACE}/g" \
         -e "s/MANAGED_S3_ACCESS_KEY_ID_PLACEHOLDER/${MANAGED_S3_AK_ESC}/g" \
         -e "s/MANAGED_S3_SECRET_ACCESS_KEY_PLACEHOLDER/${MANAGED_S3_SK_ESC}/g" \
-        "${SCRIPT_DIR}/managed-s3-secret-pg.yaml" > "${TEMP_DIR}/managed-s3-secret.yaml"
+        "$(resolve_manifest managed-s3-secret-pg.yaml)" > "${TEMP_DIR}/managed-s3-secret.yaml"
     kubectl apply -f "${TEMP_DIR}/managed-s3-secret.yaml"
 
     if ! kubectl get deployment kanban-runner -n "${NAMESPACE}" &>/dev/null; then
@@ -257,12 +448,14 @@ generate_manifests() {
     
     # Generate ConfigMap for PostgreSQL
     # All tenants share the same ConfigMap with MULTI_TENANT=true
+    # Prefer local configmap-pg.yaml (gitignored secrets); fall back to example template
     # NOTE: INSTANCE_TOKEN_PLACEHOLDER will be replaced later after checking existing ConfigMap
+    CONFIGMAP_SRC="$(resolve_manifest configmap-pg.yaml)"
     sed -e "s/easy-kanban-pg/${NAMESPACE}/g" \
         -e "s/JWT_SECRET_PLACEHOLDER/${JWT_SECRET}/g" \
         -e "s/APP_VERSION_PLACEHOLDER//g" \
         -e "s/STARTUP_TENANT_ID: \"\"/STARTUP_TENANT_ID: \"${TENANT_ID}\"/g" \
-        "${SCRIPT_DIR}/configmap-pg.yaml" > "${TEMP_DIR}/configmap.yaml"
+        "${CONFIGMAP_SRC}" > "${TEMP_DIR}/configmap.yaml"
     
     # Generate app deployment (shared for all tenants)
     sed -e "s/easy-kanban-pg/${NAMESPACE}/g" \
@@ -294,6 +487,37 @@ if kubectl get configmap easy-kanban-config-pg -n "${NAMESPACE}" &>/dev/null; th
     # Check if STARTUP_TENANT_ID is already set
     CURRENT_STARTUP_TENANT=$(kubectl get configmap easy-kanban-config-pg -n "${NAMESPACE}" -o jsonpath='{.data.STARTUP_TENANT_ID}' 2>/dev/null || echo "")
     CURRENT_INSTANCE_TOKEN=$(kubectl get configmap easy-kanban-config-pg -n "${NAMESPACE}" -o jsonpath='{.data.INSTANCE_TOKEN}' 2>/dev/null || echo "")
+    CURRENT_JWT_SECRET=$(kubectl get configmap easy-kanban-config-pg -n "${NAMESPACE}" -o jsonpath='{.data.JWT_SECRET}' 2>/dev/null || echo "")
+    LOCAL_JWT_FROM_FILE="$(yaml_string_field "$(resolve_manifest configmap-pg.yaml)" data JWT_SECRET || true)"
+
+    # Preserve live JWT unless operator confirmed applying a different local value
+    if [ -n "$CURRENT_JWT_SECRET" ] && [ "$CURRENT_JWT_SECRET" != "JWT_SECRET_PLACEHOLDER" ]; then
+        if [ "${FORCE_SHARED_CRYPTO_IMPACT}" = "true" ] \
+            && [ -n "${LOCAL_JWT_FROM_FILE}" ] \
+            && [ "${LOCAL_JWT_FROM_FILE}" != "JWT_SECRET_PLACEHOLDER" ] \
+            && [ "${LOCAL_JWT_FROM_FILE}" != "${CURRENT_JWT_SECRET}" ]; then
+            echo "   ⚠️  Applying local JWT_SECRET from configmap-pg.yaml (--i-understand-shared-crypto)"
+            JWT_SECRET="${LOCAL_JWT_FROM_FILE}"
+        else
+            echo "   ℹ️  JWT_SECRET already set — leaving unchanged"
+            JWT_SECRET="$CURRENT_JWT_SECRET"
+            python3 - "$TEMP_DIR/configmap.yaml" "$CURRENT_JWT_SECRET" <<'PY' || true
+import sys
+path, jwt = sys.argv[1], sys.argv[2]
+try:
+    import yaml
+except ImportError:
+    sys.exit(0)
+with open(path) as f:
+    doc = yaml.safe_load(f)
+if not doc or "data" not in doc:
+    sys.exit(0)
+doc["data"]["JWT_SECRET"] = jwt
+with open(path, "w") as f:
+    yaml.safe_dump(doc, f, default_flow_style=False, sort_keys=False)
+PY
+        fi
+    fi
     
     # Preserve existing INSTANCE_TOKEN to avoid pod restart
     if [ -n "$CURRENT_INSTANCE_TOKEN" ] && [ "$CURRENT_INSTANCE_TOKEN" != "" ] && [ "$CURRENT_INSTANCE_TOKEN" != '""' ]; then
@@ -384,26 +608,21 @@ else
     [ "$PVC_AVATARS_EXISTS" = "no" ] && echo "      - easy-kanban-shared-pvc-avatars missing"
 fi
 
-# Deploy shared application (only if not already deployed)
+# Deploy shared application (apply manifest so env like SETTINGS_ENCRYPTION_KEY stays in sync)
 echo ""
 echo "📦 Step 3/7: Deploying application..."
+kubectl apply -f "${TEMP_DIR}/app-deployment.yaml"
 if kubectl get deployment easy-kanban -n "${NAMESPACE}" &>/dev/null; then
-    echo "   🎯 Application already deployed (shared for all tenants)"
+    echo "   🎯 Application deployment applied (shared for all tenants)"
     if [ "$CONFIGMAP_UPDATED" = "true" ]; then
-        echo "   🔄 ConfigMap updated with STARTUP_TENANT_ID='${TENANT_ID}', restarting pods..."
-        kubectl rollout restart deployment/easy-kanban -n "${NAMESPACE}"
+        echo "   🔄 ConfigMap updated with STARTUP_TENANT_ID='${TENANT_ID}', waiting for rollout..."
         kubectl rollout status deployment/easy-kanban -n "${NAMESPACE}" --timeout=120s || echo "   ⚠️  Rollout may still be in progress"
     else
-        echo "   ℹ️  No pod restart needed - tenant schema will be created on first request"
+        echo "   ℹ️  Waiting for rollout if spec changed (e.g. new env refs)..."
+        kubectl rollout status deployment/easy-kanban -n "${NAMESPACE}" --timeout=180s || echo "   ⚠️  Rollout may still be in progress"
     fi
 else
-    echo "   🎯 Deploying shared Easy Kanban application (for all tenants)..."
-    kubectl apply -f "${TEMP_DIR}/app-deployment.yaml"
-    echo "   ✅ Deployment manifest applied"
-    echo "   ⏳ Waiting for application to be ready..."
-    kubectl wait --for=condition=available --timeout=300s deployment/easy-kanban -n "${NAMESPACE}" || {
-        echo "   ⚠️  Application may still be starting"
-    }
+    echo "   ⚠️  Deployment object missing after apply"
 fi
 
 # Apply shared services (only if not already deployed)

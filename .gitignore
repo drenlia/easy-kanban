@@ -18,6 +18,18 @@ build/
 .env.development.local
 .env.test.local
 .env.production.local
+.env.k8s*
+.env.*.backup
+.env.customer-secrets
+.env.customer*
+
+# Live k8s manifests with secrets — use *.yaml.example in git; copy locally to fill values
+k8s/configmap-pg.yaml
+k8s/configmap.yaml
+k8s/postgres-secret-pg.yaml
+k8s/runner-secret-pg.yaml
+k8s/settings-crypto-secret-pg.yaml
+k8s/managed-s3-secret-pg.yaml
 
 # Database files
 *.db

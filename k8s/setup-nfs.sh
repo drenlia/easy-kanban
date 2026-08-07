@@ -119,6 +119,6 @@ echo ""
 echo "💡 Next steps:"
 echo "   1. Update your deployment to use 'easy-kanban-shared-pvc'"
 echo "   2. Set MULTI_TENANT=true in your ConfigMap"
-echo "   3. Set TENANT_DOMAIN in your ConfigMap (e.g., ezkan.cloud)"
+echo "   3. Set TENANT_DOMAIN in your ConfigMap (e.g., agila.dev)"
 echo ""
 

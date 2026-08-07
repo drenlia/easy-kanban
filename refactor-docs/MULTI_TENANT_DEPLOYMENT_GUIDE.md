@@ -9,7 +9,7 @@ A single shared application Deployment serves all tenants. Each tenant has:
 
 | Shared | Per tenant |
 |--------|------------|
-| Namespace `easy-kanban-pg` | Ingress host `{tenantId}.ezkan.cloud` |
+| Namespace `easy-kanban-pg` | Ingress host `{tenantId}.agila.dev` (or `TENANT_DOMAIN`) |
 | App pods (`easy-kanban`) | PostgreSQL schema `tenant_{tenantId}` |
 | PostgreSQL (`easykanban` DB) | NFS dirs for attachments / avatars |
 | Redis (Socket.IO adapter) | License / settings rows in that schema |
@@ -79,10 +79,10 @@ Use `k8s/remove-instance-pg.sh` only when intentionally removing shared infrastr
 
 ## Environment (shared ConfigMap)
 
-Typical keys in `k8s/configmap-pg.yaml` / app env:
+Typical keys in `k8s/configmap-pg.yaml.example` / app env (local `configmap-pg.yaml` is gitignored):
 
 - `MULTI_TENANT=true`
-- `TENANT_DOMAIN=ezkan.cloud` (hostname → tenant id)
+- `TENANT_DOMAIN=agila.dev` (hostname → tenant id)
 - `DB_TYPE=postgresql` / `POSTGRES_*` pointing at in-cluster Postgres
 - `REDIS_URL` for the Socket.IO adapter
 - Keep `DEMO_ENABLED` unset/`false` and do not set `ALLOW_TEST_ENDPOINTS` on real production hosts
