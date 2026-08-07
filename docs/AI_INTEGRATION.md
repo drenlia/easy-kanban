@@ -1,6 +1,6 @@
 # AI Integration (Developer Guide)
 
-Easy Kanban can assign tasks to an **Agent** pseudo-user that runs coding or assist jobs via a push-based **runner** and a configured **LLM provider**. This document covers architecture, settings, data model, APIs, and local setup for developers.
+Agila can assign tasks to an **Agent** pseudo-user that runs coding or assist jobs via a push-based **runner** and a configured **LLM provider**. This document covers architecture, settings, data model, APIs, and local setup for developers.
 
 Related user-facing docs: [`Documentation.md`](../Documentation.md) (Admin AI Settings, Profile → Dev, Assign to Agent).
 
@@ -10,7 +10,7 @@ Related user-facing docs: [`Documentation.md`](../Documentation.md) (Admin AI Se
 
 ```
 ┌─────────────┐     assign / queue      ┌──────────────────┐
-│  React UI   │ ───────────────────────►│  Easy Kanban API │
+│  React UI   │ ───────────────────────►│  Agila API       │
 │  (JWT)      │ ◄── task-work-updated ──│  (Express)       │
 └─────────────┘      (WebSocket)        └────────┬─────────┘
                                                  │

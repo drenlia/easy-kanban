@@ -2,7 +2,7 @@
 
 ## Overview
 
-This guide explains how to set up NFS (Network File System) storage for Easy Kanban's multi-tenant Kubernetes deployment. NFS enables multiple pods to share the same storage, allowing multiple customers to run on shared infrastructure.
+This guide explains how to set up NFS (Network File System) storage for Agila's multi-tenant Kubernetes deployment. NFS enables multiple pods to share the same storage, allowing multiple customers to run on shared infrastructure.
 
 ## Why NFS?
 

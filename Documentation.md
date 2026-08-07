@@ -94,7 +94,7 @@ The sticky header contains branding, sprint context, app navigation, and utiliti
 ### Left Side
 - **Site brand**: Logo and/or site name (from Admin → Site Settings). Click to follow the configured site URL.
   - Default logo is `/kanban.ico` when no custom logo is set
-  - Empty site name hides the text (no fallback to “Easy Kanban”)
+  - Empty site name hides the text (no fallback to a default product name)
   - **Hide Site Logo** (admin setting) removes the logo entirely
 - **Sprint selector** (Kanban page): Filter by sprint or backlog
 - **Demo countdown** (when demo mode is enabled)
@@ -374,7 +374,7 @@ The Admin section provides comprehensive system management capabilities.
 [Screenshot: Admin site settings tab]
 
 #### General
-- **Site Name**: Shown in the header (leave blank to hide the name; does not fall back to “Easy Kanban”)
+- **Site Name**: Shown in the header (leave blank to hide the name; does not fall back to a default product name)
 - **Site URL**: Destination when clicking the brand in the header
 - **Website URL**: Customer portal URL (read-only; set at instance purchase)
 - **Open Links in New Tab**: Global link behavior in rich text

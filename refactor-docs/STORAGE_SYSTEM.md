@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Easy Kanban application now includes a comprehensive storage tracking system that monitors disk usage for attachments and enforces storage limits based on licensing plans.
+The Agila application includes a comprehensive storage tracking system that monitors disk usage for attachments and enforces storage limits based on licensing plans.
 
 ## Features
 

@@ -1,6 +1,6 @@
-# Easy Kanban Screenshots
+# Agila Screenshots
 
-This document showcases a sample set of screenshots from the Easy Kanban interface.
+This document showcases a sample set of screenshots from the Agila interface.
 
 ---
 

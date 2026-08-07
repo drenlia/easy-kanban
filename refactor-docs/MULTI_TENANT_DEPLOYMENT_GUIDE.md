@@ -1,7 +1,7 @@
 # Multi-Tenant Deployment Guide (PostgreSQL)
 
 > **Canonical ops guide for SaaS / K8s multi-tenant.**  
-> Easy Kanban is **PostgreSQL-only**. Per-tenant SQLite files (`kanban.db`) and the old `deploy-instance.sh` / `deploy.sh` scripts are **retired**.
+> Agila is **PostgreSQL-only**. Per-tenant SQLite files (`kanban.db`) and the old `deploy-instance.sh` / `deploy.sh` scripts are **retired**.
 
 ## Overview
 

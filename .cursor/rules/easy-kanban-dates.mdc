@@ -1,9 +1,9 @@
 ---
-description: Dates, PostgreSQL JSON, and HTML date inputs for Easy Kanban
+description: Dates, PostgreSQL JSON, and HTML date inputs for Agila
 alwaysApply: true
 ---
 
-# Date handling (Easy Kanban)
+# Date handling (Agila)
 
 ## PostgreSQL → browser (API / `sqlManager`)
 

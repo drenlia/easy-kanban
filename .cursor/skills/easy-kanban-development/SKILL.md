@@ -1,13 +1,13 @@
 ---
 name: easy-kanban-development
-description: Build features for Easy Kanban, a multi-tenant Kanban board application with Express backend and React frontend. Use when adding API endpoints, database migrations, real-time features, or working with the sqlManager abstraction layer, multi-tenant architecture, or authentication flows.
+description: Build features for Agila (easy-kanban repo), a multi-tenant Kanban board application with Express backend and React frontend. Use when adding API endpoints, database migrations, real-time features, or working with the sqlManager abstraction layer, multi-tenant architecture, or authentication flows.
 ---
 
-# Easy Kanban Development
+# Agila Development
 
 ## Project Overview
 
-Easy Kanban is a full-stack Kanban board application with:
+Agila is a full-stack Kanban board application with:
 - **Backend**: Express.js with JWT authentication
 - **Frontend**: React + TypeScript with Vite
 - **Databases**: PostgreSQL only (all editions)

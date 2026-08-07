@@ -205,3 +205,55 @@ Suggested order for a **soft** dual-edge cutover (matches how kanban.dev was don
 - Dual-domain acceptance in `extractTenantId`
 - Migrating existing tenant `SMTP_*` rows
 - Replacing favicon until an Agila asset is provided
+
+---
+
+## Infra identifiers: `easy-kanban` → `agila` (difficulty notes)
+
+Product branding is **Agila**; technical IDs mostly stay **`easy-kanban*`**. Renaming infra is optional and separate from domain cutover. Decide whether you care about **operator-facing** names (`kubectl`, image tags, `docker ps`) or only **user-facing** branding (already largely Agila via `SITE_NAME` / `*.agila.dev`).
+
+### Do not rename (crypto / protocol)
+
+These are not branding — changing them breaks data or sessions:
+
+- Settings / SSH crypto salts in `server/utils/secretCrypto.js` (`easy-kanban-settings-v1`, `easy-kanban-agent-ssh-v1`, …)
+- `ek_media` cookie / localStorage-style prefixes unless you ship an explicit migration
+- S3 probe key prefixes that already exist in buckets (optional later; not required for Agila UX)
+
+### Docker — easy (hours, mostly cosmetic)
+
+Compose **service** names are already neutral (`kanban-app`, `postgres`, `redis`). What still says Easy Kanban is mainly:
+
+- `container_name: easy-kanban` (+ runner / postgres / redis) across `docker-compose*.yml`
+- Published image tags if anything still builds/pushes `easy-kanban:latest`
+- App defaults such as `INSTANCE_NAME` fallback `easy-kanban-app` (optional)
+
+Networking inside Compose uses **service** names, so renaming containers does not break Redis/Postgres DNS. Test stacks recreate on next `docker compose up`. **Low risk; safe anytime** if you want operator-facing Agila names on Docker.
+
+### Kubernetes — two scopes
+
+| Scope | Effort | Risk |
+|-------|--------|------|
+| Docs / scripts / YAML for **greenfield** only | Medium (many files; `deploy-pg.sh` sed patterns, labels, registry push scripts) | Low if live cluster untouched |
+| **Rename live** cluster objects | High (careful cutover; likely downtime) | High |
+
+Live identifiers today include (non-exhaustive):
+
+- Namespaces: `easy-kanban-pg`, `easy-kanban` (nfs-server only after SQLite cleanup)
+- Workloads / networking: Deployment `easy-kanban`, Service `easy-kanban-service` / NodePort, label `app=easy-kanban`
+- Config / secrets: `easy-kanban-config-pg`, `easy-kanban-settings-crypto`, `easy-kanban-managed-s3`, …
+- Images in the internal registry: `…:5000/easy-kanban:latest` (+ runner)
+- Storage: PVs/PVCs named `easy-kanban-*`; NFS DNS `nfs-server.easy-kanban.svc.cluster.local`; some PVs pin the NFS **ClusterIP** (do not recreate that Service casually)
+- Host paths such as `/data/easy-kanban-pv/…`
+- Per-tenant ingress names: `easy-kanban-ingress-{tenant}`
+
+Kubernetes does **not** rename namespaces or most resources in place. A real rename is create-new → migrate data/bindings → cut traffic → delete-old (Postgres PVC, Redis, NFS mounts, registry storage, NodePort/web03, every script that assumes `NAMESPACE=easy-kanban-pg`).
+
+**Recommendation:** leave live k8s IDs as `easy-kanban*` unless you want a clean operator namespace and can schedule a dual-run. User-facing hosts already use `*.agila.dev`. Optional cheap wins: Docker `container_name` / image tags only; or Agila names in **new** manifests without migrating the current cluster.
+
+### Practical options (summary)
+
+1. **Keep infra IDs** — default; matches Decisions table above.
+2. **Docker + image tags only** — cheap operator clarity for local/test.
+3. **Greenfield YAML aliases** — new installs named `agila*`; does not rename live objects.
+4. **Full live k8s rename** — only with explicit downtime / dual-run plan; not part of this domain cutover.
