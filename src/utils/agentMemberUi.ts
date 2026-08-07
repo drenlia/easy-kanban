@@ -22,10 +22,17 @@ export function isSystemMemberId(id: string | null | undefined): boolean {
 }
 
 /**
- * People first (API order), then System, then Agent.
- * Keeps special accounts at the end of member pickers / the team strip.
+ * People: current user first (when known), then A→Z; then Agent, then System.
+ * Optional `preferredOrder` (people ids) overrides the default people order for known members;
+ * unknown / new people append A→Z (still after preferred, before Agent/System).
  */
-export function sortMembersAgentLast<T extends { id: string }>(members: T[]): T[] {
+export function sortMembersAgentLast<
+  T extends { id: string; name?: string; user_id?: string }
+>(
+  members: T[],
+  preferredOrder?: string[] | null,
+  currentUserId?: string | null
+): T[] {
   if (!members?.length) return members || [];
   const people: T[] = [];
   const systems: T[] = [];
@@ -35,8 +42,38 @@ export function sortMembersAgentLast<T extends { id: string }>(members: T[]): T[
     else if (isSystemMemberId(m.id)) systems.push(m);
     else people.push(m);
   }
-  if (!systems.length && !agents.length) return members;
-  return [...people, ...systems, ...agents];
+  const byDisplayName = (a: T, b: T) =>
+    (a.name || '').localeCompare(b.name || '', undefined, {
+      sensitivity: 'base',
+      numeric: true,
+    });
+
+  let orderedPeople: T[];
+  if (preferredOrder?.length) {
+    const byId = new Map(people.map((p) => [p.id, p]));
+    const seen = new Set<string>();
+    orderedPeople = [];
+    for (const id of preferredOrder) {
+      const hit = byId.get(id);
+      if (hit && !seen.has(id)) {
+        orderedPeople.push(hit);
+        seen.add(id);
+      }
+    }
+    const rest = people.filter((p) => !seen.has(p.id)).sort(byDisplayName);
+    orderedPeople = [...orderedPeople, ...rest];
+  } else {
+    const selfId = currentUserId ? String(currentUserId) : null;
+    const self = selfId
+      ? people.filter((p) => p.user_id && String(p.user_id) === selfId)
+      : [];
+    const selfIds = new Set(self.map((p) => p.id));
+    const others = people.filter((p) => !selfIds.has(p.id)).sort(byDisplayName);
+    orderedPeople = [...self, ...others];
+  }
+
+  // Agent before System (special accounts stay after people)
+  return [...orderedPeople, ...agents, ...systems];
 }
 
 /** Always use the shipped bot art in UI (auth-free, consistent). */

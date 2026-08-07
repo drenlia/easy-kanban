@@ -2,12 +2,25 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { X, Upload, Trash2 } from 'lucide-react';
 import { uploadAvatar, deleteAccount, getUserSettings } from '../api';
-import { loadUserPreferences, loadUserPreferencesAsync, updateUserPreference } from '../utils/userPreferences';
+import { loadUserPreferences, loadUserPreferencesAsync, updateUserPreference, type UserPreferences } from '../utils/userPreferences';
 import api from '../api';
 import { getAuthenticatedAvatarUrl } from '../utils/authImageUrl';
 import { useSettings } from '../contexts/SettingsContext';
 import ProfileDevTab from './profile/ProfileDevTab';
 import { useEscapeDismiss } from '../hooks/useEscapeDismiss';
+
+type NotificationPreferenceKey = keyof UserPreferences['notifications'];
+
+const NOTIFICATION_PREF_KEYS: NotificationPreferenceKey[] = [
+  'newTaskAssigned',
+  'myTaskUpdated',
+  'watchedTaskUpdated',
+  'addedAsCollaborator',
+  'collaboratingTaskUpdated',
+  'commentAdded',
+  'requesterTaskCreated',
+  'requesterTaskUpdated',
+];
 
 interface ProfileProps {
   isOpen: boolean;
@@ -18,14 +31,17 @@ interface ProfileProps {
   onProfileEditingChange: (isEditing: boolean) => void;
   onActivityFeedToggle?: (enabled: boolean) => void;
   onAccountDeleted?: () => void;
+  /** Field to focus when the modal opens (default: display name). */
+  initialFocus?: 'displayName' | 'bio';
 }
 
-export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated, isProfileBeingEdited, onProfileEditingChange, onActivityFeedToggle, onAccountDeleted }: ProfileProps) {
+export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated, isProfileBeingEdited, onProfileEditingChange, onActivityFeedToggle, onAccountDeleted, initialFocus = 'displayName' }: ProfileProps) {
   const { t, i18n } = useTranslation('common');
   const { systemSettings: contextSystemSettings, siteSettings } = useSettings(); // Use SettingsContext instead of fetching
   const aiEnabled = siteSettings?.AI_ENABLED === 'true' || contextSystemSettings?.AI_ENABLED === 'true';
   const [activeTab, setActiveTab] = useState<'profile' | 'app-settings' | 'notifications' | 'dev'>('profile');
   const [displayName, setDisplayName] = useState(currentUser?.firstName + ' ' + currentUser?.lastName || '');
+  const [bio, setBio] = useState(currentUser?.bio || '');
   const [systemSettings, setSystemSettings] = useState<{
     TASK_DELETE_CONFIRM?: string;
     SHOW_ACTIVITY_FEED?: string;
@@ -46,10 +62,12 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
   
   // Refs for focus management
   const displayNameRef = useRef<HTMLInputElement>(null);
+  const bioRef = useRef<HTMLTextAreaElement>(null);
   const deleteConfirmationRef = useRef<HTMLInputElement>(null);
   
   // Track original values to detect changes
   const [originalDisplayName, setOriginalDisplayName] = useState(currentUser?.displayName || currentUser?.firstName + ' ' + currentUser?.lastName || '');
+  const [originalBio, setOriginalBio] = useState(currentUser?.bio || '');
   const [originalAvatarUrl, setOriginalAvatarUrl] = useState(currentUser?.googleAvatarUrl || currentUser?.avatarUrl || '');
 
   // Load system settings when modal opens - use SettingsContext instead of fetching
@@ -93,9 +111,12 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
     if (isOpen && !isProfileBeingEdited) {
       const initialDisplayName = currentUser?.displayName || currentUser?.firstName + ' ' + currentUser?.lastName || '';
       const initialAvatarUrl = currentUser?.googleAvatarUrl || currentUser?.avatarUrl || '';
+      const initialBio = currentUser?.bio || '';
       
       setDisplayName(initialDisplayName);
       setOriginalDisplayName(initialDisplayName);
+      setBio(initialBio);
+      setOriginalBio(initialBio);
       setOriginalAvatarUrl(initialAvatarUrl);
       setSelectedFile(null);
       setPreviewUrl(null);
@@ -113,30 +134,35 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
     }
   }, [aiEnabled, activeTab]);
 
-  // Monitor for changes to display name or avatar to set editing state
+  // Monitor for changes to display name, bio, or avatar to set editing state
   useEffect(() => {
     if (isOpen) {
       const hasDisplayNameChanged = displayName.trim() !== originalDisplayName.trim();
+      const hasBioChanged = bio.trim() !== originalBio.trim();
       const hasAvatarChanged = selectedFile !== null || 
         (currentUser?.authProvider === 'local' && !currentUser?.avatarUrl && originalAvatarUrl);
 
-      const isEditing = hasDisplayNameChanged || hasAvatarChanged;
+      const isEditing = hasDisplayNameChanged || hasBioChanged || hasAvatarChanged;
       onProfileEditingChange(isEditing);
     }
-  }, [displayName, selectedFile, originalDisplayName, originalAvatarUrl, currentUser, isOpen, onProfileEditingChange]);
+  }, [displayName, bio, selectedFile, originalDisplayName, originalBio, originalAvatarUrl, currentUser, isOpen, onProfileEditingChange]);
 
-  // Auto-focus display name field when modal opens
+  // Focus the requested field when the modal opens
   useEffect(() => {
-    if (isOpen && displayNameRef.current) {
-      // Small delay to ensure modal is fully rendered
-      const timer = setTimeout(() => {
-        displayNameRef.current?.focus();
-        displayNameRef.current?.select();
-      }, 100);
-      
-      return () => clearTimeout(timer);
-    }
-  }, [isOpen]);
+    if (!isOpen) return;
+    const timer = setTimeout(() => {
+      if (initialFocus === 'bio' && bioRef.current) {
+        bioRef.current.focus();
+        const len = bioRef.current.value.length;
+        bioRef.current.setSelectionRange(len, len);
+        return;
+      }
+      displayNameRef.current?.focus();
+      displayNameRef.current?.select();
+    }, 100);
+
+    return () => clearTimeout(timer);
+  }, [isOpen, initialFocus]);
 
   // Auto-focus delete confirmation field when it becomes visible
   useEffect(() => {
@@ -217,8 +243,10 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
     setError(null);
 
     try {
-      // Update display name first (fast operation)
-      await api.put('/users/profile', { displayName: displayName.trim() });
+      await api.put('/users/profile', {
+        displayName: displayName.trim(),
+        bio: bio.trim()
+      });
       
       // Handle avatar upload if needed
       if (currentUser?.authProvider === 'local' && selectedFile) {
@@ -364,6 +392,8 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
 
   if (!isOpen) return null;
 
+  const avatarClass = 'h-16 w-16 rounded-full object-cover shadow';
+
   // Function to get avatar display
   const getAvatarDisplay = () => {
     // Priority: File preview > Current avatar > Default initials
@@ -372,7 +402,7 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
         <img
           src={previewUrl}
           alt="Preview"
-          className="h-20 w-20 rounded-full object-cover shadow-lg"
+          className={avatarClass}
         />
       );
     }
@@ -382,7 +412,7 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
         <img
           src={getAuthenticatedAvatarUrl(currentUser.googleAvatarUrl)}
           alt="Profile"
-          className="h-20 w-20 rounded-full object-cover shadow-lg"
+          className={avatarClass}
         />
       );
     }
@@ -392,7 +422,7 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
         <img
           src={getAuthenticatedAvatarUrl(currentUser.avatarUrl)}
           alt="Profile"
-          className="h-20 w-20 rounded-full object-cover shadow-lg"
+          className={avatarClass}
         />
       );
     }
@@ -400,10 +430,35 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
     // Default initials avatar
     const initials = (currentUser?.firstName?.[0] || '') + (currentUser?.lastName?.[0] || '');
     return (
-      <div className="h-20 w-20 rounded-full flex items-center justify-center text-2xl font-bold text-white shadow-lg bg-gradient-to-br from-blue-500 to-purple-600">
+      <div className="h-16 w-16 rounded-full flex items-center justify-center text-xl font-bold text-white shadow bg-gradient-to-br from-blue-500 to-purple-600">
         {initials || 'U'}
       </div>
     );
+  };
+
+  const mailEnabled = systemSettings.MAIL_ENABLED === 'true';
+
+  const setAllNotificationPrefs = (enabled: boolean) => {
+    const notifications = NOTIFICATION_PREF_KEYS.reduce(
+      (acc, key) => {
+        acc[key] = enabled;
+        return acc;
+      },
+      {} as UserPreferences['notifications']
+    );
+    const newPrefs = { ...userPrefs, notifications };
+    setUserPrefs(newPrefs);
+    updateUserPreference('notifications', notifications, currentUser?.id);
+  };
+
+  const setNotificationPref = (key: NotificationPreferenceKey, enabled: boolean) => {
+    const notifications = {
+      ...userPrefs.notifications,
+      [key]: enabled,
+    };
+    const newPrefs = { ...userPrefs, notifications };
+    setUserPrefs(newPrefs);
+    updateUserPreference('notifications', notifications, currentUser?.id);
   };
 
   return (
@@ -481,84 +536,91 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
           {/* Profile Tab Content */}
           {activeTab === 'profile' && (
             <>
-              <form onSubmit={handleSubmit} className="space-y-6">
-                {/* Avatar Section */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-3">
-                    {t('profile.profilePicture')}
-                  </label>
-                  <div className="flex items-center space-x-4">
-                    {/* Avatar Display */}
-                    <div className="flex-shrink-0 relative">
-                      {getAvatarDisplay()}
-                      
-                      {/* Remove button - only show for local users with file preview or current avatar */}
-                      {currentUser?.authProvider === 'local' && (previewUrl || currentUser?.avatarUrl) && (
+              <form onSubmit={handleSubmit} className="space-y-4">
+                {/* Avatar + display name */}
+                <div className="flex items-start gap-3">
+                  <div className="flex-shrink-0 relative">
+                    {getAvatarDisplay()}
+                    {currentUser?.authProvider === 'local' && (previewUrl || currentUser?.avatarUrl) && (
+                      <button
+                        type="button"
+                        onClick={handleRemoveFile}
+                        className="absolute -top-1.5 -right-1.5 h-5 w-5 bg-red-500 hover:bg-red-600 text-white rounded-full flex items-center justify-center transition-colors shadow"
+                        title={t('profile.removeAvatar')}
+                      >
+                        <X size={10} />
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="flex-1 min-w-0 space-y-2">
+                    <div>
+                      <label htmlFor="displayName" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                        {t('profile.displayName')}
+                      </label>
+                      <input
+                        ref={displayNameRef}
+                        type="text"
+                        id="displayName"
+                        value={displayName}
+                        onChange={(e) => setDisplayName(e.target.value)}
+                        maxLength={30}
+                        className="w-full px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+                        placeholder={t('profile.displayNamePlaceholder')}
+                        required
+                      />
+                    </div>
+                    {currentUser?.authProvider === 'local' && (
+                      <div className="flex flex-wrap items-center gap-2">
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={handleFileSelect}
+                          className="hidden"
+                          id="avatar-upload"
+                          ref={fileInputRef}
+                        />
                         <button
                           type="button"
-                          onClick={handleRemoveFile}
-                          className="absolute -top-2 -right-2 h-6 w-6 bg-red-500 hover:bg-red-600 text-white rounded-full flex items-center justify-center transition-colors shadow-lg"
-                          title={t('profile.removeAvatar')}
+                          onClick={() => fileInputRef.current?.click()}
+                          className="inline-flex items-center px-2.5 py-1.5 border border-gray-300 dark:border-gray-600 shadow-sm text-xs font-medium rounded-md text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-blue-500"
                         >
-                          <X size={12} />
+                          <Upload className="h-3.5 w-3.5 mr-1.5" />
+                          {currentUser?.avatarUrl || previewUrl ? t('profile.changePhoto') : t('profile.uploadPhoto')}
                         </button>
-                      )}
-                    </div>
-                    
-                    {/* Upload Controls - Only show for local users */}
-                    {currentUser?.authProvider === 'local' ? (
-                      <div className="flex-1 space-y-3">
-                        <div>
-                          <input
-                            type="file"
-                            accept="image/*"
-                            onChange={handleFileSelect}
-                            className="hidden"
-                            id="avatar-upload"
-                            ref={fileInputRef}
-                          />
-                          <button
-                            type="button"
-                            onClick={() => fileInputRef.current?.click()}
-                            className="inline-flex items-center px-3 py-2 border border-gray-300 dark:border-gray-600 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-                          >
-                            <Upload className="h-4 w-4 mr-2" />
-                            {currentUser?.avatarUrl || previewUrl ? t('profile.changePhoto') : t('profile.uploadPhoto')}
-                          </button>
-                        </div>
-                        <p className="text-xs text-gray-500">
-                          {t('profile.photoFormatHint')}
-                        </p>
-                      </div>
-                    ) : (
-                      <div className="flex-1">
-                        <p className="text-sm text-gray-500">
-                          {t('profile.profilePictureManaged', { provider: currentUser?.authProvider === 'google' ? 'Google' : 'SSO' })}
-                        </p>
+                        <span className="text-xs text-gray-500">{t('profile.photoFormatHint')}</span>
                       </div>
                     )}
                   </div>
                 </div>
 
-                {/* Display Name */}
-                <div>
-                  <label htmlFor="displayName" className="block text-sm font-medium text-gray-700 mb-1">
-                    {t('profile.displayName')}
-                  </label>
-                  <input
-                    ref={displayNameRef}
-                    type="text"
-                    id="displayName"
-                    value={displayName}
-                    onChange={(e) => setDisplayName(e.target.value)}
-                    maxLength={30}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-                    placeholder={t('profile.displayNamePlaceholder')}
-                    required
-                  />
-                  <p className="mt-1 text-sm text-gray-500">
-                    {t('profile.displayNameHint')}
+                {currentUser?.authProvider !== 'local' && (
+                  <p className="text-xs text-gray-500 -mt-2">
+                    {t('profile.profilePictureManagedBrief', {
+                      provider: currentUser?.authProvider === 'google' ? 'Google' : 'SSO',
+                    })}
                   </p>
+                )}
+
+                {/* Bio */}
+                <div>
+                  <label htmlFor="profileBio" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    {t('profile.bio')}
+                  </label>
+                  <textarea
+                    ref={bioRef}
+                    id="profileBio"
+                    value={bio}
+                    onChange={(e) => setBio(e.target.value.slice(0, 280))}
+                    maxLength={280}
+                    rows={5}
+                    className="w-full px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 resize-y min-h-[7.5rem]"
+                    placeholder={t('profile.bioPlaceholder')}
+                  />
+                  <div className="mt-1 flex items-center justify-between gap-2 text-xs text-gray-500">
+                    <p>{t('profile.bioHint')}</p>
+                    <span className="shrink-0 tabular-nums">{bio.trim().length}/280</span>
+                  </div>
                 </div>
 
                 {/* Error Display */}
@@ -795,264 +857,69 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
 
           {/* Notifications Tab Content */}
           {activeTab === 'notifications' && (
-            <div className="space-y-6">
-              <div>
-                <h4 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">{t('profile.emailNotifications')}</h4>
-                <p className="text-sm text-gray-600 mb-6">
-                  {t('profile.emailNotificationsDescription')}
-                </p>
-
-                {/* Check if email is enabled */}
-                {systemSettings.MAIL_ENABLED !== 'true' ? (
-                  <div className="mb-6 bg-yellow-50 border border-yellow-200 rounded-md p-4">
-                    <div className="flex">
-                      <div className="flex-shrink-0">
-                        <svg className="h-5 w-5 text-yellow-400" viewBox="0 0 20 20" fill="currentColor">
-                          <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-                        </svg>
-                      </div>
-                      <div className="ml-3">
-                        <h3 className="text-sm font-medium text-yellow-800">{t('profile.emailServerDisabled')}</h3>
-                        <p className="text-sm text-yellow-700 mt-1">
-                          {t('profile.emailServerDisabledDescription')}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                ) : null}
-
-                {/* Notification Settings */}
-                <div className={`space-y-4 ${systemSettings.MAIL_ENABLED !== 'true' ? 'opacity-50 pointer-events-none' : ''}`}>
-                  <div className="text-sm font-medium text-gray-700 mb-3">{t('profile.notifyMeWhen')}</div>
-                  
-                  {/* New Task Assigned */}
-                  <div className="flex items-center justify-between py-2">
-                    <div>
-                      <label className="text-sm font-medium text-gray-700">{t('profile.newTaskAssigned')}</label>
-                      <p className="text-xs text-gray-500">{t('profile.newTaskAssignedDescription')}</p>
-                    </div>
-                    <label className="relative inline-flex items-center cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={userPrefs.notifications?.newTaskAssigned || false}
-                        onChange={(e) => {
-                          const newPrefs = {
-                            ...userPrefs,
-                            notifications: {
-                              ...userPrefs.notifications,
-                              newTaskAssigned: e.target.checked
-                            }
-                          };
-                          setUserPrefs(newPrefs);
-                          updateUserPreference('notifications', newPrefs.notifications, currentUser?.id);
-                        }}
-                        className="sr-only peer"
-                        disabled={systemSettings.MAIL_ENABLED !== 'true'}
-                      />
-                      <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-                    </label>
-                  </div>
-
-                  {/* My Task Updated */}
-                  <div className="flex items-center justify-between py-2">
-                    <div>
-                      <label className="text-sm font-medium text-gray-700">{t('profile.myTaskUpdated')}</label>
-                      <p className="text-xs text-gray-500">{t('profile.myTaskUpdatedDescription')}</p>
-                    </div>
-                    <label className="relative inline-flex items-center cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={userPrefs.notifications?.myTaskUpdated || false}
-                        onChange={(e) => {
-                          const newPrefs = {
-                            ...userPrefs,
-                            notifications: {
-                              ...userPrefs.notifications,
-                              myTaskUpdated: e.target.checked
-                            }
-                          };
-                          setUserPrefs(newPrefs);
-                          updateUserPreference('notifications', newPrefs.notifications, currentUser?.id);
-                        }}
-                        className="sr-only peer"
-                        disabled={systemSettings.MAIL_ENABLED !== 'true'}
-                      />
-                      <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-                    </label>
-                  </div>
-
-                  {/* Watched Task Updated */}
-                  <div className="flex items-center justify-between py-2">
-                    <div>
-                      <label className="text-sm font-medium text-gray-700">{t('profile.watchedTaskUpdated')}</label>
-                      <p className="text-xs text-gray-500">{t('profile.watchedTaskUpdatedDescription')}</p>
-                    </div>
-                    <label className="relative inline-flex items-center cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={userPrefs.notifications?.watchedTaskUpdated || false}
-                        onChange={(e) => {
-                          const newPrefs = {
-                            ...userPrefs,
-                            notifications: {
-                              ...userPrefs.notifications,
-                              watchedTaskUpdated: e.target.checked
-                            }
-                          };
-                          setUserPrefs(newPrefs);
-                          updateUserPreference('notifications', newPrefs.notifications, currentUser?.id);
-                        }}
-                        className="sr-only peer"
-                        disabled={systemSettings.MAIL_ENABLED !== 'true'}
-                      />
-                      <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-                    </label>
-                  </div>
-
-                  {/* Added as Collaborator */}
-                  <div className="flex items-center justify-between py-2">
-                    <div>
-                      <label className="text-sm font-medium text-gray-700">{t('profile.addedAsCollaborator')}</label>
-                      <p className="text-xs text-gray-500">{t('profile.addedAsCollaboratorDescription')}</p>
-                    </div>
-                    <label className="relative inline-flex items-center cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={userPrefs.notifications?.addedAsCollaborator || false}
-                        onChange={(e) => {
-                          const newPrefs = {
-                            ...userPrefs,
-                            notifications: {
-                              ...userPrefs.notifications,
-                              addedAsCollaborator: e.target.checked
-                            }
-                          };
-                          setUserPrefs(newPrefs);
-                          updateUserPreference('notifications', newPrefs.notifications, currentUser?.id);
-                        }}
-                        className="sr-only peer"
-                        disabled={systemSettings.MAIL_ENABLED !== 'true'}
-                      />
-                      <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-                    </label>
-                  </div>
-
-                  {/* Collaborating Task Updated */}
-                  <div className="flex items-center justify-between py-2">
-                    <div>
-                      <label className="text-sm font-medium text-gray-700">{t('profile.collaboratingTaskUpdated')}</label>
-                      <p className="text-xs text-gray-500">{t('profile.collaboratingTaskUpdatedDescription')}</p>
-                    </div>
-                    <label className="relative inline-flex items-center cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={userPrefs.notifications?.collaboratingTaskUpdated || false}
-                        onChange={(e) => {
-                          const newPrefs = {
-                            ...userPrefs,
-                            notifications: {
-                              ...userPrefs.notifications,
-                              collaboratingTaskUpdated: e.target.checked
-                            }
-                          };
-                          setUserPrefs(newPrefs);
-                          updateUserPreference('notifications', newPrefs.notifications, currentUser?.id);
-                        }}
-                        className="sr-only peer"
-                        disabled={systemSettings.MAIL_ENABLED !== 'true'}
-                      />
-                      <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-                    </label>
-                  </div>
-
-                  {/* Comment Added */}
-                  <div className="flex items-center justify-between py-2">
-                    <div>
-                      <label className="text-sm font-medium text-gray-700">{t('profile.commentAdded')}</label>
-                      <p className="text-xs text-gray-500">{t('profile.commentAddedDescription')}</p>
-                    </div>
-                    <label className="relative inline-flex items-center cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={userPrefs.notifications?.commentAdded || false}
-                        onChange={(e) => {
-                          const newPrefs = {
-                            ...userPrefs,
-                            notifications: {
-                              ...userPrefs.notifications,
-                              commentAdded: e.target.checked
-                            }
-                          };
-                          setUserPrefs(newPrefs);
-                          updateUserPreference('notifications', newPrefs.notifications, currentUser?.id);
-                        }}
-                        className="sr-only peer"
-                        disabled={systemSettings.MAIL_ENABLED !== 'true'}
-                      />
-                      <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-                    </label>
-                  </div>
-
-                  {/* Requester Task Created */}
-                  <div className="flex items-center justify-between py-2">
-                    <div>
-                      <label className="text-sm font-medium text-gray-700">{t('profile.requesterTaskCreated')}</label>
-                      <p className="text-xs text-gray-500">{t('profile.requesterTaskCreatedDescription')}</p>
-                    </div>
-                    <label className="relative inline-flex items-center cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={userPrefs.notifications?.requesterTaskCreated || false}
-                        onChange={(e) => {
-                          const newPrefs = {
-                            ...userPrefs,
-                            notifications: {
-                              ...userPrefs.notifications,
-                              requesterTaskCreated: e.target.checked
-                            }
-                          };
-                          setUserPrefs(newPrefs);
-                          updateUserPreference('notifications', newPrefs.notifications, currentUser?.id);
-                        }}
-                        className="sr-only peer"
-                        disabled={systemSettings.MAIL_ENABLED !== 'true'}
-                      />
-                      <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-                    </label>
-                  </div>
-
-                  {/* Requester Task Updated */}
-                  <div className="flex items-center justify-between py-2">
-                    <div>
-                      <label className="text-sm font-medium text-gray-700">{t('profile.requesterTaskUpdated')}</label>
-                      <p className="text-xs text-gray-500">{t('profile.requesterTaskUpdatedDescription')}</p>
-                    </div>
-                    <label className="relative inline-flex items-center cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={userPrefs.notifications?.requesterTaskUpdated || false}
-                        onChange={(e) => {
-                          const newPrefs = {
-                            ...userPrefs,
-                            notifications: {
-                              ...userPrefs.notifications,
-                              requesterTaskUpdated: e.target.checked
-                            }
-                          };
-                          setUserPrefs(newPrefs);
-                          updateUserPreference('notifications', newPrefs.notifications, currentUser?.id);
-                        }}
-                        className="sr-only peer"
-                        disabled={systemSettings.MAIL_ENABLED !== 'true'}
-                      />
-                      <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-                    </label>
-                  </div>
+            <div className="space-y-3">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <h4 className="text-base font-medium text-gray-900 dark:text-gray-100">{t('profile.emailNotifications')}</h4>
+                  <p className="text-xs text-gray-600 dark:text-gray-400 mt-0.5">
+                    {t('profile.emailNotificationsDescription')}
+                  </p>
                 </div>
+                {mailEnabled && (
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setAllNotificationPrefs(true)}
+                      className="px-2 py-1 text-xs font-medium rounded border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600"
+                    >
+                      {t('profile.enableAllNotifications')}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setAllNotificationPrefs(false)}
+                      className="px-2 py-1 text-xs font-medium rounded border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600"
+                    >
+                      {t('profile.disableAllNotifications')}
+                    </button>
+                  </div>
+                )}
+              </div>
 
-                <div className="text-sm text-gray-500 italic mt-6">
-                  {t('profile.changesSavedAutomatically')}
+              {!mailEnabled ? (
+                <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-md px-3 py-2">
+                  <p className="text-xs font-medium text-yellow-800 dark:text-yellow-200">{t('profile.emailServerDisabled')}</p>
+                  <p className="text-xs text-yellow-700 dark:text-yellow-300 mt-0.5">
+                    {t('profile.emailServerDisabledDescription')}
+                  </p>
                 </div>
+              ) : null}
+
+              <div className={`${!mailEnabled ? 'opacity-50 pointer-events-none' : ''}`}>
+                <div className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1.5">{t('profile.notifyMeWhen')}</div>
+                <div className="divide-y divide-gray-100 dark:divide-gray-700 border border-gray-200 dark:border-gray-600 rounded-md">
+                  {NOTIFICATION_PREF_KEYS.map((key) => (
+                    <div key={key} className="flex items-center justify-between gap-3 px-3 py-1.5 bg-white dark:bg-gray-800">
+                      <label htmlFor={`notify-${key}`} className="text-sm text-gray-800 dark:text-gray-200 cursor-pointer min-w-0">
+                        {t(`profile.${key}`)}
+                      </label>
+                      <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                        <input
+                          id={`notify-${key}`}
+                          type="checkbox"
+                          checked={userPrefs.notifications?.[key] || false}
+                          onChange={(e) => setNotificationPref(key, e.target.checked)}
+                          className="sr-only peer"
+                          disabled={!mailEnabled}
+                        />
+                        <div className="relative w-9 h-5 bg-gray-200 rounded-full peer peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-300 peer-checked:bg-blue-600 after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:border after:border-gray-300 after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-4 peer-checked:after:border-white"></div>
+                      </label>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="text-xs text-gray-500 italic">
+                {t('profile.changesSavedAutomatically')}
               </div>
             </div>
           )}

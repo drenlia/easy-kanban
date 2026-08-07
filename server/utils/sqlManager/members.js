@@ -41,13 +41,20 @@ export async function getAllMembers(db, includeSystemOrOpts = false) {
       m.created_at as "createdAt",
       u.email as "email",
       u.is_active as "isActive",
+      u.bio as "bio",
       u.avatar_path as "avatarPath", 
       u.auth_provider as "authProvider", 
       u.google_avatar_url as "googleAvatarUrl"
     FROM members m
     LEFT JOIN users u ON m.user_id = u.id
     ${whereClause}
-    ORDER BY m.created_at ASC
+    ORDER BY
+      CASE m.id
+        WHEN '${AGENT_MEMBER_ID}' THEN 2
+        WHEN '${SYSTEM_MEMBER_ID}' THEN 3
+        ELSE 1
+      END,
+      LOWER(m.name) ASC
   `;
   
   const stmt = wrapQuery(db.prepare(query), 'SELECT');
@@ -62,6 +69,7 @@ export async function getAllMembers(db, includeSystemOrOpts = false) {
     email: member.email || undefined,
     // No linked user (Agent/orphans) → treat as active for UI; inactive only when users.is_active is false
     isActive: member.isActive === false || member.isActive === 0 ? false : true,
+    bio: member.bio || undefined,
     avatarUrl: member.avatarPath,
     authProvider: member.authProvider,
     googleAvatarUrl: member.googleAvatarUrl
@@ -103,6 +111,7 @@ export async function getMemberById(db, id) {
       m.created_at as "createdAt",
       u.email as "email",
       u.is_active as "isActive",
+      u.bio as "bio",
       u.avatar_path as "avatarPath", 
       u.auth_provider as "authProvider", 
       u.google_avatar_url as "googleAvatarUrl"
@@ -120,6 +129,7 @@ export async function getMemberById(db, id) {
     user_id: member.userId,
     email: member.email || undefined,
     isActive: member.isActive === false || member.isActive === 0 ? false : true,
+    bio: member.bio || undefined,
     avatarUrl: member.avatarPath,
     authProvider: member.authProvider,
     googleAvatarUrl: member.googleAvatarUrl

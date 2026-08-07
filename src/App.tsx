@@ -4651,7 +4651,7 @@ function AppContent() {
         // isPolling={isPolling} // Removed - using real-time WebSocket updates
         // lastPollTime={lastPollTime} // Removed - using real-time WebSocket updates
         members={members}
-        onProfileClick={() => modalState.setShowProfileModal(true)}
+        onProfileClick={() => modalState.openProfileModal()}
         onLogout={handleLogout}
         onPageChange={handlePageChange}
           onRefresh={handleRefreshData}
@@ -4733,7 +4733,7 @@ function AppContent() {
         onToggleCollaborators={taskFilters.handleToggleCollaborators}
         onToggleRequesters={taskFilters.handleToggleRequesters}
         onToggleSystem={taskFilters.handleToggleSystem}
-        onEditOwnProfile={() => modalState.setShowProfileModal(true)}
+        onEditOwnProfile={(opts) => modalState.openProfileModal(opts?.focus)}
         showAgentTasks={taskFilters.showAgentTasks}
         onToggleShowAgentTasks={taskFilters.handleToggleShowAgentTasks}
         onTaskViewModeChange={handleTaskViewModeChange}
@@ -4860,12 +4860,13 @@ function AppContent() {
           showProfileModal={modalState.showProfileModal}
           currentUser={currentUser}
           onProfileClose={() => {
-            modalState.setShowProfileModal(false);
+            modalState.closeProfileModal();
             modalState.setIsProfileBeingEdited(false); // Reset editing state when modal closes
           }}
           onProfileUpdated={handleProfileUpdated}
           isProfileBeingEdited={modalState.isProfileBeingEdited}
           onProfileEditingChange={modalState.setIsProfileBeingEdited}
+          profileInitialFocus={modalState.profileInitialFocus}
           onActivityFeedToggle={activityFeed.handleActivityFeedToggle}
           onAccountDeleted={() => {
             // Account deleted successfully - handle logout and redirect

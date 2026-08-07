@@ -325,7 +325,9 @@ export const registerBodySchema = z.object({
 });
 
 export const updateProfileBodySchema = z.object({
-  displayName: z.string().trim().min(1, 'Display name is required').max(30)
+  displayName: z.string().trim().min(1, 'Display name is required').max(30),
+  /** Optional short memo; empty string clears. Max 280 chars. */
+  bio: z.string().max(280).optional()
 });
 
 /** One user preference per request; value may be JSON-serializable. */

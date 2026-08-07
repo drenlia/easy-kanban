@@ -166,6 +166,7 @@ const CREATE_SCHEMA_SQL = `
       password_hash TEXT NOT NULL,
       first_name TEXT,
       last_name TEXT,
+      bio TEXT,
       avatar_path TEXT,
       auth_provider TEXT DEFAULT 'local',
       google_avatar_url TEXT,

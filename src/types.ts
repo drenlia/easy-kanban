@@ -4,6 +4,8 @@ export interface TeamMember {
   color: string;
   user_id?: string;
   email?: string;
+  /** Optional short bio from the linked user (shown via (i) in member tooltip). */
+  bio?: string;
   /** false when linked user is inactive; omitted/true otherwise (Agent stubs, etc.) */
   isActive?: boolean;
   avatarUrl?: string;
@@ -176,4 +178,6 @@ export interface CurrentUser {
   authProvider?: 'local' | 'google';
   googleAvatarUrl?: string;
   displayName?: string;
+  /** Optional short bio / memo */
+  bio?: string;
 }

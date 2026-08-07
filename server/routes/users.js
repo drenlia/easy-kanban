@@ -175,7 +175,7 @@ router.delete('/avatar', authenticateToken, async (req, res) => {
   }
 });
 
-// Update user profile (display name)
+// Update user profile (display name + optional bio)
 router.put('/profile', authenticateToken, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
@@ -185,6 +185,13 @@ router.put('/profile', authenticateToken, async (req, res) => {
       return res.status(400).json({ error: t('errors.displayNameRequired') });
     }
     const trimmedDisplayName = parsed.data.displayName;
+    const bioRaw = parsed.data.bio;
+    const bio =
+      bioRaw === undefined
+        ? undefined
+        : String(bioRaw).trim() === ''
+          ? null
+          : String(bioRaw).trim();
     const userId = req.user.id;
     
     // MIGRATED: Check for duplicate display name using sqlManager
@@ -196,6 +203,10 @@ router.put('/profile', authenticateToken, async (req, res) => {
     
     // MIGRATED: Update the member's name using sqlManager
     await userQueries.updateMemberName(db, userId, trimmedDisplayName);
+
+    if (bio !== undefined) {
+      await userQueries.updateUserBio(db, userId, bio);
+    }
     
     // MIGRATED: Get the member ID using sqlManager
     const member = await userQueries.getMemberByUserId(db, userId);
@@ -208,6 +219,7 @@ router.put('/profile', authenticateToken, async (req, res) => {
         userId: userId,
         memberId: member.id,
         displayName: trimmedDisplayName,
+        bio: bio === undefined ? undefined : bio,
         timestamp: new Date().toISOString()
       }, tenantId);
       console.log('✅ User-profile-updated published to Redis');
@@ -215,7 +227,8 @@ router.put('/profile', authenticateToken, async (req, res) => {
     
     res.json({ 
       message: 'Profile updated successfully',
-      displayName: trimmedDisplayName
+      displayName: trimmedDisplayName,
+      ...(bio !== undefined ? { bio } : {})
     });
   } catch (error) {
     console.error('Profile update error:', error);

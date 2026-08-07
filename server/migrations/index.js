@@ -591,6 +591,28 @@ const migrations = [
 
       console.log('✅ Migration 29: default admin display → Alex Morgan (when still stock name)');
     }
+  },
+  {
+    version: 30,
+    name: 'add_user_bio',
+    description: 'Optional short bio / memo on users, shown in member tooltips',
+    up: async (db) => {
+      const schema = db.schema && typeof db.schema === 'string' ? db.schema : 'public';
+      const cols = await dbAll(
+        db.prepare(`
+          SELECT column_name
+          FROM information_schema.columns
+          WHERE table_schema = ? AND table_name = 'users' AND column_name = 'bio'
+        `),
+        schema
+      );
+      if (!cols.length) {
+        await dbExec(db, 'ALTER TABLE users ADD COLUMN bio TEXT');
+        console.log('✅ Migration 30: users.bio column added');
+      } else {
+        console.log('✅ Migration 30: users.bio already present');
+      }
+    }
   }
 ];
 

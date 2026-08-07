@@ -20,7 +20,26 @@ export default function Login({ onLogin, siteSettings, hasDefaultAdmin = true, i
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState('');
+  // Prefer i18n keys so errors re-translate on language toggle; raw is for API messages.
+  const [errorKey, setErrorKey] = useState<string | null>(null);
+  const [errorRaw, setErrorRaw] = useState('');
+
+  const clearError = () => {
+    setErrorKey(null);
+    setErrorRaw('');
+  };
+
+  const setI18nError = (key: string) => {
+    setErrorKey(key);
+    setErrorRaw('');
+  };
+
+  const setRawError = (message: string) => {
+    setErrorKey(null);
+    setErrorRaw(message);
+  };
+
+  const errorMessage = errorKey ? t(errorKey) : errorRaw;
   
   // Get current language for toggle
   const currentLanguage = (i18n.language || 'en').toLowerCase().startsWith('fr') ? 'fr' : 'en';
@@ -81,7 +100,7 @@ export default function Login({ onLogin, siteSettings, hasDefaultAdmin = true, i
   const handleRefreshCredentials = async () => {
     if (refreshingCredentials) return;
     setRefreshingCredentials(true);
-    setError('');
+    clearError();
     // Clear typed password so testers don't submit the pre-reset value
     setPassword('');
     try {
@@ -104,7 +123,7 @@ export default function Login({ onLogin, siteSettings, hasDefaultAdmin = true, i
     if (!adminCredentials || !credentialsReady) return;
     setEmail(adminCredentials.email);
     setPassword(adminCredentials.password);
-    setError('');
+    clearError();
   };
 
   // Check backend availability on mount and periodically
@@ -194,20 +213,20 @@ export default function Login({ onLogin, siteSettings, hasDefaultAdmin = true, i
     };
   }, [isDemoMode, fetchAdminCredentials]);
 
-  // Check for token expiration / demo-reset redirect
+  // Check for token expiration / demo-reset redirect (store keys so language toggle updates text)
   useEffect(() => {
     const demoReset = sessionStorage.getItem('demoResetRedirect');
     if (demoReset === 'true') {
-      setError(t('login.demoWasReset'));
+      setI18nError('login.demoWasReset');
       sessionStorage.removeItem('demoResetRedirect');
       return;
     }
     const tokenExpired = sessionStorage.getItem('tokenExpiredRedirect');
     if (tokenExpired === 'true') {
-      setError(t('login.sessionExpired'));
+      setI18nError('login.sessionExpired');
       sessionStorage.removeItem('tokenExpiredRedirect');
     }
-  }, [t]);
+  }, []);
 
   // Check for OAuth errors in URL parameters
   useEffect(() => {
@@ -215,27 +234,27 @@ export default function Login({ onLogin, siteSettings, hasDefaultAdmin = true, i
     const errorParam = urlParams.get('error');
     
     if (errorParam) {
-      let errorMessage = t('login.loginFailed');
+      let key = 'login.loginFailed';
       
       switch (errorParam) {
         case 'account_deactivated':
-          errorMessage = t('login.accountDeactivated');
+          key = 'login.accountDeactivated';
           break;
         case 'user_not_invited':
-          errorMessage = t('login.accessDenied');
+          key = 'login.accessDenied';
           break;
         case 'oauth_failed':
-          errorMessage = t('login.oauthFailed');
+          key = 'login.oauthFailed';
           break;
         case 'oauth_not_configured':
-          errorMessage = t('login.oauthNotConfigured');
+          key = 'login.oauthNotConfigured';
           break;
         case 'oauth_userinfo_failed':
-          errorMessage = t('login.oauthUserinfoFailed');
+          key = 'login.oauthUserinfoFailed';
           break;
       }
       
-      setError(errorMessage);
+      setI18nError(key);
       
       // Clean up the URL by removing the error parameter
       const newUrl = new URL(window.location);
@@ -257,14 +276,19 @@ export default function Login({ onLogin, siteSettings, hasDefaultAdmin = true, i
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError('');
+    clearError();
     setIsLoading(true);
 
     try {
       const response = await login(email, password);
       await onLogin(response.user, response.token);
     } catch (error: any) {
-      setError(error.response?.data?.error || t('login.loginFailed'));
+      const apiMessage = error.response?.data?.error;
+      if (typeof apiMessage === 'string' && apiMessage.trim()) {
+        setRawError(apiMessage);
+      } else {
+        setI18nError('login.loginFailed');
+      }
     } finally {
       setIsLoading(false);
     }
@@ -272,11 +296,11 @@ export default function Login({ onLogin, siteSettings, hasDefaultAdmin = true, i
 
   const handleGoogleSignIn = async () => {
     if (!googleOAuthEnabled) {
-      setError('Google OAuth is not configured. Please contact an administrator.');
+      setI18nError('login.oauthNotConfigured');
       return;
     }
 
-    setError('');
+    clearError();
     setIsLoading(true);
 
     try {
@@ -297,7 +321,7 @@ export default function Login({ onLogin, siteSettings, hasDefaultAdmin = true, i
         throw new Error('Failed to get Google OAuth URL');
       }
     } catch (error: any) {
-      setError('Google sign-in failed. Please try again.');
+      setI18nError('login.oauthFailed');
       setIsLoading(false);
     }
   };
@@ -447,9 +471,9 @@ export default function Login({ onLogin, siteSettings, hasDefaultAdmin = true, i
             </div>
           </div>
 
-          {error && (
+          {errorMessage && (
             <div className="text-red-600 text-sm text-center">
-              {error}
+              {errorMessage}
             </div>
           )}
 
@@ -522,7 +546,7 @@ export default function Login({ onLogin, siteSettings, hasDefaultAdmin = true, i
               <p className="font-semibold mb-2">{t('login.demoCredentials')}</p>
               <div className="space-y-2">
                 <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-md p-3">
-                  <p className="text-xs font-medium text-blue-800 dark:text-blue-200 mb-2">Admin Account</p>
+                  <p className="text-xs font-medium text-blue-800 dark:text-blue-200 mb-2">{t('login.adminAccount')}</p>
                   {credentialsReady && adminCredentials ? (
                     <>
                       <div className="space-y-1 text-left">

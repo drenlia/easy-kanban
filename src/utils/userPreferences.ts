@@ -80,6 +80,12 @@ export interface UserPreferences {
   /** Per-board visible column IDs (includes Archive when the user unhides it). */
   boardColumnVisibility: { [boardId: string]: string[] };
 
+  /**
+   * Preferred member chip / Meet-the-team order (people ids only).
+   * Empty → me first, then A→Z; Agent then System always pinned last by the sort helper.
+   */
+  memberDisplayOrder: string[];
+
   searchFilters: {
     text: string;
     dateFrom: string;
@@ -272,6 +278,7 @@ const BASE_DEFAULT_PREFERENCES: UserPreferences = {
   language: 'en', // Default to English
   timezone: null, // Detected from browser and synced to user_settings
   boardColumnVisibility: {}, // Default: no overrides (archived columns hidden by Kanban UI)
+  memberDisplayOrder: [], // Empty = A→Z default
   listViewColumnVisibility: {
     // Default column visibility - all columns visible except some less important ones
     ticket: true,
@@ -650,6 +657,8 @@ export const saveUserPreferences = async (preferences: UserPreferences, userId: 
           
           // Selected Members (persistent filter)
           saveIfDefined('selectedMembers', JSON.stringify(preferences.selectedMembers)),
+          // Personal member chip / Meet-the-team order
+          saveIfDefined('memberDisplayOrder', JSON.stringify(preferences.memberDisplayOrder || [])),
           
           // Sprint Selection
           saveIfDefined('selectedSprintId', preferences.selectedSprintId),
@@ -855,6 +864,23 @@ export const loadUserPreferencesAsync = async (userId: string | null = null): Pr
         isAdvancedSearchExpanded: smartMerge(preferences.isAdvancedSearchExpanded, dbSettings.isAdvancedSearchExpanded, defaults.isAdvancedSearchExpanded),
         lastSelectedBoard: smartMerge(preferences.lastSelectedBoard, dbSettings.lastSelectedBoard, defaults.lastSelectedBoard),
         selectedMembers: smartMerge(preferences.selectedMembers, dbSettings.selectedMembers ? JSON.parse(dbSettings.selectedMembers) : undefined, defaults.selectedMembers),
+
+        memberDisplayOrder: (() => {
+          let dbOrder: string[] | undefined;
+          try {
+            const raw = dbSettings.memberDisplayOrder;
+            if (raw == null || raw === '') dbOrder = undefined;
+            else if (Array.isArray(raw)) dbOrder = raw as string[];
+            else dbOrder = JSON.parse(String(raw));
+          } catch {
+            dbOrder = undefined;
+          }
+          return smartMerge(
+            preferences.memberDisplayOrder || [],
+            dbOrder,
+            defaults.memberDisplayOrder
+          );
+        })(),
         
         // Sprint Selection (allow null to represent "All Sprints")
         selectedSprintId: smartMerge(preferences.selectedSprintId, dbSettings.selectedSprintId, defaults.selectedSprintId, true),
@@ -1100,6 +1126,7 @@ export const updateUserPreference = async <K extends keyof UserPreferences>(
         'isAdvancedSearchExpanded': 'isAdvancedSearchExpanded',
         'lastSelectedBoard': 'lastSelectedBoard',
         'selectedMembers': 'selectedMembers',
+        'memberDisplayOrder': 'memberDisplayOrder',
         'selectedSprintId': 'selectedSprintId',
         'currentFilterViewId': 'currentFilterViewId',
         'lastReportTab': 'lastReportTab',
@@ -1134,6 +1161,7 @@ export const updateUserPreference = async <K extends keyof UserPreferences>(
       // Special handling for JSON-serialized values
       if (
         dbKey === 'selectedMembers' ||
+        dbKey === 'memberDisplayOrder' ||
         dbKey === 'listViewColumnVisibility' ||
         dbKey === 'listViewColumnWidths' ||
         dbKey === 'boardColumnVisibility' ||

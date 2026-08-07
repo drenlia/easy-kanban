@@ -31,6 +31,8 @@ interface ModalManagerProps {
   onProfileEditingChange: (isEditing: boolean) => void;
   onActivityFeedToggle?: (enabled: boolean) => void;
   onAccountDeleted?: () => void;
+  /** Focus target when Profile opens (e.g. bio from Meet the team). */
+  profileInitialFocus?: 'displayName' | 'bio';
   siteSettings?: { [key: string]: string };
   boards?: any[];
 }
@@ -51,6 +53,7 @@ const ModalManager: React.FC<ModalManagerProps> = ({
   onProfileUpdated,
   isProfileBeingEdited,
   onProfileEditingChange,
+  profileInitialFocus = 'displayName',
   onActivityFeedToggle,
   onAccountDeleted,
   siteSettings,
@@ -112,6 +115,7 @@ const ModalManager: React.FC<ModalManagerProps> = ({
             onProfileEditingChange={onProfileEditingChange}
             onActivityFeedToggle={onActivityFeedToggle}
             onAccountDeleted={onAccountDeleted}
+            initialFocus={profileInitialFocus}
           />
         </Suspense>
       )}

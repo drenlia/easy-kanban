@@ -140,7 +140,8 @@ export async function createDemoUsers(db) {
       email: 'john.smith@demo.local',
       color: '#3B82F6', // Blue - distinctive and professional
       letter: 'J',
-      avatarSlug: 'john'
+      avatarSlug: 'john',
+      bio: 'Frontend lead · React & design systems. Coffee-powered. Ask me about accessibility or CSS that actually works.',
     },
     {
       firstName: 'Sarah',
@@ -148,7 +149,8 @@ export async function createDemoUsers(db) {
       email: 'sarah.johnson@demo.local',
       color: '#10B981', // Green - fresh and vibrant
       letter: 'S',
-      avatarSlug: 'sarah'
+      avatarSlug: 'sarah',
+      bio: 'Product & UX. I turn fuzzy ideas into clear tickets. Usually in standups with a notebook and too many stickies.',
     },
     {
       firstName: 'Mike',
@@ -156,8 +158,9 @@ export async function createDemoUsers(db) {
       email: 'mike.davis@demo.local',
       color: '#F59E0B', // Amber/Orange - warm and energetic
       letter: 'M',
-      avatarSlug: 'mike'
-    }
+      avatarSlug: 'mike',
+      bio: 'Backend & APIs. PostgreSQL enthusiast. If it involves queues, auth, or “why is this slow?”, ping me.',
+    },
   ];
 
   const userRoleResult = await wrapQuery(db.prepare('SELECT id FROM roles WHERE name = $1'), 'SELECT').get('user');
@@ -177,9 +180,17 @@ export async function createDemoUsers(db) {
 
     // Create user
     await wrapQuery(db.prepare(`
-      INSERT INTO users (id, email, password_hash, first_name, last_name, avatar_path) 
-      VALUES ($1, $2, $3, $4, $5, $6)
-    `), 'INSERT').run(userId, user.email, passwordHash, user.firstName, user.lastName, avatarPath);
+      INSERT INTO users (id, email, password_hash, first_name, last_name, avatar_path, bio) 
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
+    `), 'INSERT').run(
+      userId,
+      user.email,
+      passwordHash,
+      user.firstName,
+      user.lastName,
+      avatarPath,
+      user.bio
+    );
 
     // Assign user role
     await wrapQuery(db.prepare('INSERT INTO user_roles (user_id, role_id) VALUES ($1, $2)'), 'INSERT').run(userId, userRoleId);
@@ -261,6 +272,17 @@ export async function initializeDemoData(db, boardId, columns) {
       name: adminMember.name,
       userId: adminMember.userId
     });
+    await wrapQuery(
+      db.prepare(`
+        UPDATE users
+        SET bio = $1, updated_at = CURRENT_TIMESTAMP
+        WHERE email = 'admin@kanban.local'
+          AND (bio IS NULL OR TRIM(bio) = '')
+      `),
+      'UPDATE'
+    ).run(
+      'Demo admin · Keeps the board humming. Happy to help with roles, settings, or “where did that task go?”'
+    );
     console.log(`✅ Included admin member in demo assignments: ${adminMember.name}`);
   }
 

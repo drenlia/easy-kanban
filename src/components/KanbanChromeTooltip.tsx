@@ -75,6 +75,8 @@ type KanbanChromeTooltipProps = {
   wrapperClassName?: string;
   /** `bottom` = below anchor (default), `top` = above */
   placement?: 'bottom' | 'top';
+  /** Override portaled bubble z-index (e.g. above a high z-index modal). */
+  portalZIndex?: number;
 };
 
 /**
@@ -89,6 +91,7 @@ export function KanbanChromeTooltip({
   delayMs = CHROME_TOOLTIP_DELAY_MS,
   wrapperClassName = 'relative inline-flex',
   placement = 'bottom',
+  portalZIndex = CHROME_TOOLTIP_PORTAL_Z,
 }: KanbanChromeTooltipProps) {
   const [visible, setVisible] = useState(false);
   const [portalStyle, setPortalStyle] = useState<React.CSSProperties | null>(null);
@@ -164,14 +167,14 @@ export function KanbanChromeTooltip({
           position: 'fixed',
           top: rect.bottom + 4,
           left: rect.left,
-          zIndex: CHROME_TOOLTIP_PORTAL_Z,
+          zIndex: portalZIndex,
         });
       } else {
         setPortalStyle({
           position: 'fixed',
           top: rect.top - 4,
           left: rect.left,
-          zIndex: CHROME_TOOLTIP_PORTAL_Z,
+          zIndex: portalZIndex,
           transform: 'translateY(-100%)',
         });
       }
@@ -184,7 +187,7 @@ export function KanbanChromeTooltip({
       window.removeEventListener('scroll', update, true);
       window.removeEventListener('resize', update);
     };
-  }, [visible, placement]);
+  }, [visible, placement, portalZIndex]);
 
   useEffect(
     () => () => {

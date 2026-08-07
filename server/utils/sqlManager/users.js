@@ -23,6 +23,7 @@ export async function getUserById(db, userId) {
       email,
       first_name as "firstName",
       last_name as "lastName",
+      bio,
       avatar_path as "avatarPath",
       auth_provider as "authProvider",
       google_avatar_url as "googleAvatarUrl",
@@ -128,6 +129,24 @@ export async function updateMemberName(db, userId, name) {
   
   const stmt = wrapQuery(db.prepare(query), 'UPDATE');
   return await stmt.run(name, userId);
+}
+
+/**
+ * Update user bio (optional short memo for member tooltips)
+ *
+ * @param {Database} db
+ * @param {string} userId
+ * @param {string|null} bio
+ */
+export async function updateUserBio(db, userId, bio) {
+  const query = `
+    UPDATE users
+    SET bio = $1,
+        updated_at = CURRENT_TIMESTAMP
+    WHERE id = $2
+  `;
+  const stmt = wrapQuery(db.prepare(query), 'UPDATE');
+  return await stmt.run(bio, userId);
 }
 
 /**

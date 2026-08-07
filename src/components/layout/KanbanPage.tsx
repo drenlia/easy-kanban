@@ -148,7 +148,7 @@ interface KanbanPageProps {
   onToggleCollaborators: (include: boolean) => void;
   onToggleRequesters: (include: boolean) => void;
   onToggleSystem: (include: boolean) => void;
-  onEditOwnProfile?: () => void;
+  onEditOwnProfile?: (opts?: { focus?: 'displayName' | 'bio' }) => void;
   showAgentTasks?: boolean;
   onToggleShowAgentTasks?: (show: boolean) => void;
   onTaskViewModeChange: (mode: TaskViewMode) => void;

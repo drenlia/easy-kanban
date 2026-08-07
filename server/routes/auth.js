@@ -82,7 +82,8 @@ router.post('/login', loginLimiter, async (req, res) => {
         roles: userRoles,
         avatarUrl: avatarUrl,
         authProvider: user.auth_provider || 'local',
-        googleAvatarUrl: user.google_avatar_url
+        googleAvatarUrl: user.google_avatar_url,
+        bio: user.bio || ''
       },
       token
     });
@@ -298,7 +299,8 @@ router.get('/me', authenticateToken, async (req, res) => {
         roles: userRoles,
         avatarUrl: avatarUrl,
         authProvider: user.authProvider || 'local',
-        googleAvatarUrl: user.googleAvatarUrl
+        googleAvatarUrl: user.googleAvatarUrl,
+        bio: user.bio || ''
       },
       token: token // Include fresh token with updated roles
     });
