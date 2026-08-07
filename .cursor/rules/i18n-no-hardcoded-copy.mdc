@@ -1,0 +1,30 @@
+---
+description: Always use i18n keys for user-facing copy; never hardcode one language
+alwaysApply: true
+---
+
+# Internationalization (no hardcoded copy)
+
+This project uses `react-i18next` / locale JSON under `src/i18n` (and related locale files).
+
+## Required
+
+- **Never hardcode user-facing text in a single language** in UI code (labels, buttons, headings, helper text, empty states, errors shown to users, `aria-label` / `title` / `placeholder` / `alt`, `document.title`, toasts, confirms).
+- Prefer `t('namespace.key')` (or equivalent) for all of the above.
+- When adding or changing copy, **add/update keys in every locale file** the app ships.
+- If you encounter hardcoded UI strings while working nearby, **extract them to locale keys** unless there is a clear reason to keep them hardcoded.
+
+## Acceptable hardcoding (rare)
+
+Only leave strings hardcoded when they are not language UI, for example:
+
+- Technical identifiers, API paths, env keys, CSS class names, analytics event names
+- Brand-invariant product names when intentionally shared via a single brand key
+- Developer-only logs / comments
+- Purely numeric or format tokens with no words
+
+## Checklist
+
+1. New UI string? → locale keys first (all languages)
+2. Component uses `t(...)` (or receives translated strings)
+3. Avoid English-only fallbacks like `t('key') || 'English fallback'` for primary UX copy

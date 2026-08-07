@@ -2,9 +2,7 @@
 
 **Agila**
 
-A collaborative **Kanban workspace** for teams: multi-board drag-and-drop, List and Gantt views, real-time collaboration, optional sprint timeboxing with burndown, and an optional **AI Agent** that can assist on tasks, work linked Git repos, or (for admins) run board automations. Built with React/TypeScript and Node.js/Express.
-
-Agila is **not** a full enterprise agile ALM (no required Epic/Story types, ceremony tooling, or hard methodology lock-in). Soft WIP limits, card aging, blocked flags, and column policy notes help teams keep flow healthy without ceremony overhead.
+A collaborative **Kanban workspace** for teams: multi-board drag-and-drop, List and Gantt views, real-time collaboration, optional sprint timeboxing with burndown, and an optional **AI Agent** that can assist on tasks, work linked Git repos, or (for admins) run board automations. Built with React/TypeScript, Node.js/Express, and PostgreSQL.
 
 <img src="/screenshots/overview.png" alt="Screenshot of easy-kanban" width="100%">
 
