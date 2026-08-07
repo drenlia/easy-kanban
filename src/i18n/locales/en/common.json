@@ -888,7 +888,8 @@
     "selected": "(selected)",
     "clickToSelect": "(click to select)",
     "copyEmail": "Copy email address",
-    "emailCopied": "Email copied"
+    "emailCopied": "Email copied",
+    "editMyProfile": "Edit my profile"
   },
   "columnFilterDropdown": {
     "filterColumns": "Filter columns",

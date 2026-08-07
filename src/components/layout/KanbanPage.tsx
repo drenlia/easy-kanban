@@ -148,6 +148,7 @@ interface KanbanPageProps {
   onToggleCollaborators: (include: boolean) => void;
   onToggleRequesters: (include: boolean) => void;
   onToggleSystem: (include: boolean) => void;
+  onEditOwnProfile?: () => void;
   showAgentTasks?: boolean;
   onToggleShowAgentTasks?: (show: boolean) => void;
   onTaskViewModeChange: (mode: TaskViewMode) => void;
@@ -303,6 +304,7 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
   onToggleCollaborators,
   onToggleRequesters,
   onToggleSystem,
+  onEditOwnProfile,
   showAgentTasks = true,
   onToggleShowAgentTasks,
   onTaskViewModeChange,
@@ -1223,6 +1225,7 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
               currentUserId={currentUser?.id}
               currentUser={currentUser}
               systemTaskCount={getSystemTaskCount}
+              onEditOwnProfile={onEditOwnProfile}
             />
           </div>
           <div className="w-[168px] shrink-0 flex">

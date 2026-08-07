@@ -888,7 +888,8 @@
     "selected": "(sélectionné)",
     "clickToSelect": "(cliquer pour sélectionner)",
     "copyEmail": "Copier l'adresse e-mail",
-    "emailCopied": "E-mail copié"
+    "emailCopied": "E-mail copié",
+    "editMyProfile": "Modifier mon profil"
   },
   "columnFilterDropdown": {
     "filterColumns": "Filtrer les colonnes",

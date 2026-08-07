@@ -4733,6 +4733,7 @@ function AppContent() {
         onToggleCollaborators={taskFilters.handleToggleCollaborators}
         onToggleRequesters={taskFilters.handleToggleRequesters}
         onToggleSystem={taskFilters.handleToggleSystem}
+        onEditOwnProfile={() => modalState.setShowProfileModal(true)}
         showAgentTasks={taskFilters.showAgentTasks}
         onToggleShowAgentTasks={taskFilters.handleToggleShowAgentTasks}
         onTaskViewModeChange={handleTaskViewModeChange}

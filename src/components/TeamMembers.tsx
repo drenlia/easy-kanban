@@ -61,6 +61,7 @@ interface TeamMembersProps {
   currentUserId?: string;
   currentUser?: any; // To check if user is admin
   systemTaskCount?: number;
+  onEditOwnProfile?: () => void;
 }
 
 function roleChipClass(active: boolean) {
@@ -91,9 +92,13 @@ function canShowMemberContactTooltip(member: TeamMember): boolean {
 function MemberContactTooltipBody({
   member,
   statusLabel,
+  isSelf,
+  onEditOwnProfile,
 }: {
   member: TeamMember;
   statusLabel: string;
+  isSelf?: boolean;
+  onEditOwnProfile?: () => void;
 }) {
   const { t } = useTranslation('common');
   const [copied, setCopied] = useState(false);
@@ -125,6 +130,12 @@ function MemberContactTooltipBody({
     }
   };
 
+  const editProfile = (e: MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    onEditOwnProfile?.();
+  };
+
   return (
     <div className="flex flex-col gap-1.5 min-w-0">
       <div className="font-semibold leading-snug break-words">{member.name}</div>
@@ -145,6 +156,15 @@ function MemberContactTooltipBody({
           {copied ? <Check size={13} strokeWidth={2.5} /> : <Copy size={13} strokeWidth={2} />}
         </button>
       </div>
+      {isSelf && onEditOwnProfile ? (
+        <button
+          type="button"
+          onClick={editProfile}
+          className="self-start text-left text-[11px] font-medium underline underline-offset-2 decoration-white/40 dark:decoration-black/30 hover:decoration-white/80 dark:hover:decoration-black/60 transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-white/40 dark:focus-visible:ring-black/30 rounded"
+        >
+          {t('teamMembers.editMyProfile')}
+        </button>
+      ) : null}
       {statusLabel ? (
         <div className={`text-[11px] ${CHROME_TOOLTIP_MUTED_TEXT_CLASS}`}>{statusLabel}</div>
       ) : null}
@@ -172,7 +192,8 @@ export default function TeamMembers({
   showAgentTasks = true,
   currentUserId,
   currentUser,
-  systemTaskCount = 0
+  systemTaskCount = 0,
+  onEditOwnProfile,
 }: TeamMembersProps) {
   const { t } = useTranslation('common');
   const rootRef = useRef<HTMLDivElement>(null);
@@ -416,11 +437,19 @@ export default function TeamMembers({
             ? t('teamMembers.selected')
             : t('teamMembers.clickToSelect');
           const showContact = canShowMemberContactTooltip(member);
+          const isSelf = Boolean(
+            currentUserId && member.user_id && member.user_id === currentUserId
+          );
           const tooltipProps = showContact
             ? {
                 interactive: true as const,
                 content: (
-                  <MemberContactTooltipBody member={member} statusLabel={statusLabel} />
+                  <MemberContactTooltipBody
+                    member={member}
+                    statusLabel={statusLabel}
+                    isSelf={isSelf}
+                    onEditOwnProfile={onEditOwnProfile}
+                  />
                 ),
               }
             : {

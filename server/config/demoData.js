@@ -244,6 +244,26 @@ export async function initializeDemoData(db, boardId, columns) {
     members.push({ id: memberId, name: `${user.firstName} ${user.lastName}`, userId: user.id });
   }
 
+  // Include bootstrap admin so the demo board has cards for the signed-in admin account
+  const adminMember = await wrapQuery(
+    db.prepare(`
+      SELECT m.id, m.name, m.user_id AS "userId"
+      FROM members m
+      JOIN users u ON u.id = m.user_id
+      WHERE u.email = 'admin@kanban.local'
+      LIMIT 1
+    `),
+    'SELECT'
+  ).get();
+  if (adminMember?.id) {
+    members.push({
+      id: adminMember.id,
+      name: adminMember.name,
+      userId: adminMember.userId
+    });
+    console.log(`✅ Included admin member in demo assignments: ${adminMember.name}`);
+  }
+
   console.log(`✅ Created ${members.length} team members`);
 
   // Get the project identifier for the board
@@ -267,7 +287,7 @@ export async function initializeDemoData(db, boardId, columns) {
       effort: 3,
       startDate: sprintStartForTasks, // Sprint start
       duedate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 7 days from now
-      assignedTo: 0 // John Smith
+      assignedTo: 3 // Alex Morgan (admin)
     },
     {
       title: 'Design user interface mockups',
@@ -304,7 +324,7 @@ export async function initializeDemoData(db, boardId, columns) {
       effort: 4,
       startDate: sprintStartForTasks, // Sprint start
       duedate: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 2 days from now
-      assignedTo: 0 // John Smith
+      assignedTo: 3 // Alex Morgan (admin)
     },
     {
       title: 'Set up CI/CD pipeline',
@@ -332,7 +352,7 @@ export async function initializeDemoData(db, boardId, columns) {
       effort: 3,
       startDate: sprintStartForTasks, // Sprint start
       duedate: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 2 days from now
-      assignedTo: 2 // Mike Davis
+      assignedTo: 3 // Alex Morgan (admin)
     },
     {
       title: 'Test cross-browser compatibility',
@@ -422,7 +442,7 @@ export async function initializeDemoData(db, boardId, columns) {
     const columnIndex = Math.floor(index / 3); // 0-4 for each column
     const positionInColumn = index % 3; // 0-2 within each column
     
-    const assignedMember = members[task.assignedTo];
+    const assignedMember = members[task.assignedTo % members.length];
     
     await wrapQuery(taskStmt, 'INSERT').run(
       taskId,
@@ -501,7 +521,7 @@ export async function initializeDemoData(db, boardId, columns) {
       startDate: sprintStartForTasks,
       dueDate: new Date(Date.now() + 6 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
       columnIndex: 0,
-      assignedTo: 1
+      assignedTo: 3
     },
     {
       title: 'Add keyboard shortcuts help',
@@ -531,7 +551,7 @@ export async function initializeDemoData(db, boardId, columns) {
       startDate: sprintStartForTasks,
       dueDate: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
       columnIndex: 1,
-      assignedTo: 0
+      assignedTo: 3
     },
     {
       title: 'Column WIP limit warnings',
@@ -572,7 +592,7 @@ export async function initializeDemoData(db, boardId, columns) {
       dueDate: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
       completedDate: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
       columnIndex: 3,
-      assignedTo: 1
+      assignedTo: 3
     }
   ];
 

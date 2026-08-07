@@ -556,6 +556,41 @@ const migrations = [
 
       console.log('✅ Migration 28: csp_reports table ready');
     }
+  },
+  {
+    version: 29,
+    name: 'rename_default_admin_display_name',
+    description:
+      'Rename bootstrap admin display from Admin User → Alex Morgan when still the stock name (admin@kanban.local)',
+    up: async (db) => {
+      await dbExec(
+        db,
+        `
+          UPDATE users
+          SET first_name = 'Alex',
+              last_name = 'Morgan',
+              updated_at = CURRENT_TIMESTAMP
+          WHERE email = 'admin@kanban.local'
+            AND first_name = 'Admin'
+            AND last_name = 'User'
+        `
+      );
+
+      await dbExec(
+        db,
+        `
+          UPDATE members m
+          SET name = 'Alex Morgan',
+              updated_at = CURRENT_TIMESTAMP
+          FROM users u
+          WHERE m.user_id = u.id
+            AND u.email = 'admin@kanban.local'
+            AND m.name = 'Admin User'
+        `
+      );
+
+      console.log('✅ Migration 29: default admin display → Alex Morgan (when still stock name)');
+    }
   }
 ];
 

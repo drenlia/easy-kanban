@@ -846,7 +846,7 @@ const initializeDefaultData = async (db, tenantId = null) => {
     await wrapQuery(db.prepare(`
       INSERT INTO users (id, email, password_hash, first_name, last_name, avatar_path) 
       VALUES (?, ?, ?, ?, ?, ?)
-    `), 'INSERT').run(adminId, 'admin@kanban.local', adminPasswordHash, 'Admin', 'User', adminAvatarPath);
+    `), 'INSERT').run(adminId, 'admin@kanban.local', adminPasswordHash, 'Alex', 'Morgan', adminAvatarPath);
 
     // Assign admin role to default user
     const adminRoleResult = await wrapQuery(db.prepare('SELECT id FROM roles WHERE name = ?'), 'SELECT').get('admin');
@@ -1088,11 +1088,11 @@ const initializeDefaultData = async (db, tenantId = null) => {
       }
     }
 
-    // Create admin member
+    // Create admin member (human display name; login remains admin@kanban.local)
     const adminMemberId = crypto.randomUUID();
     await wrapQuery(db.prepare('INSERT INTO members (id, name, color, user_id) VALUES (?, ?, ?, ?)'), 'INSERT').run(
       adminMemberId, 
-      'Admin User', 
+      'Alex Morgan', 
       '#FF6B6B', 
       adminId
     );
