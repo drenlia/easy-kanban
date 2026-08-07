@@ -3,7 +3,7 @@
  * Override with TENANT_DOMAIN; default is the public SaaS domain.
  */
 
-export const DEFAULT_TENANT_DOMAIN = 'docru.app';
+export const DEFAULT_TENANT_DOMAIN = 'agila.dev';
 
 export function getTenantDomain() {
   const fromEnv = String(process.env.TENANT_DOMAIN || '').trim();
@@ -17,6 +17,6 @@ export function getManagedSmtpSeedDefaults() {
     host: String(process.env.MANAGED_SMTP_HOST || '').trim() || `smtp.${domain}`,
     username: String(process.env.MANAGED_SMTP_USERNAME || '').trim() || `noreply@${domain}`,
     fromEmail: String(process.env.MANAGED_SMTP_FROM_EMAIL || '').trim() || `noreply@${domain}`,
-    fromName: String(process.env.MANAGED_SMTP_FROM_NAME || '').trim() || 'Docru',
+    fromName: String(process.env.MANAGED_SMTP_FROM_NAME || '').trim() || 'Agila',
   };
 }

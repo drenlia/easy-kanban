@@ -1,6 +1,8 @@
-# Docru rebrand & domain hard cutover
+# Agila rebrand & domain hard cutover
 
-Operator runbook for migrating from **Easy Kanban** / `ezkan.cloud` to **Docru** / `docru.app`.
+Operator runbook for migrating from **Docru** / `docru.app` to **Agila** / `agila.dev`.
+
+(Prior cutover: Easy Kanban / `ezkan.cloud` → Docru / `docru.app`. That domain should already be retired; this runbook assumes the live product host is `*.docru.app`.)
 
 This document describes:
 
@@ -8,7 +10,7 @@ This document describes:
 2. Docker cutover steps you can run locally.
 3. What the **on-machine Kubernetes agent** must still do under `k8s/` and on the cluster (**`k8s/` was intentionally left unchanged** in the rebrand PR).
 
-Hard cutover: after DNS flip, `*.ezkan.cloud` should stop serving the app. There is no dual-domain support in application code.
+Hard cutover: after DNS flip, `*.docru.app` should stop serving the app. There is no dual-domain support in application code.
 
 ---
 
@@ -16,12 +18,12 @@ Hard cutover: after DNS flip, `*.ezkan.cloud` should stop serving the app. There
 
 | Topic | Choice |
 |-------|--------|
-| Product name | **Docru** (display / seeds / i18n / docs). Internal names (`easy-kanban` images, crypto salts, `ek_media`, localStorage keys) unchanged. |
-| Domain | **`docru.app`** via `TENANT_DOMAIN` (default in code if unset). |
-| `SITE_NAME` | Rows exactly equal to `Easy Kanban` → `Docru`. Custom site names left alone. |
+| Product name | **Agila** (display / seeds / i18n / docs). Internal names (`easy-kanban` images, crypto salts, `ek_media`, localStorage keys) unchanged. |
+| Domain | **`agila.dev`** via `TENANT_DOMAIN` (default in code if unset). |
+| `SITE_NAME` | Rows exactly equal to `Docru` → `Agila`. Also maps leftover exact `Easy Kanban` → `Agila`. Custom site names left alone. |
 | Existing `SMTP_*` | **Not** rewritten by the cutover script — fix in Admin → Mail. |
 | New managed SMTP seeds | Env: `MANAGED_SMTP_HOST`, `MANAGED_SMTP_USERNAME`, `MANAGED_SMTP_FROM_EMAIL`, `MANAGED_SMTP_FROM_NAME`, `MANAGED_SMTP_PASSWORD` (fallbacks derived from `TENANT_DOMAIN`). |
-| Favicon | Still `public/kanban.ico` until a Docru asset is supplied. |
+| Favicon | Still `public/kanban.ico` until an Agila asset is supplied. |
 
 ---
 
@@ -29,23 +31,24 @@ Hard cutover: after DNS flip, `*.ezkan.cloud` should stop serving the app. There
 
 ### Application
 
-- Shared helper: [`server/utils/tenantDomain.js`](../server/utils/tenantDomain.js) — `getTenantDomain()`, `getManagedSmtpSeedDefaults()`.
-- Call sites use the helper instead of hardcoded `ezkan.cloud`: tenant routing, CSP, Socket.IO CORS, password-reset / invite / admin-portal URL builders.
-- DB seeds ([`server/config/database.js`](../server/config/database.js)): `SITE_NAME` / `SMTP_FROM_NAME` → `Docru`; `WEBSITE_URL` / `ADMIN_PORTAL_URL` from `TENANT_DOMAIN`; managed SMTP from env.
-- UI: `index.html` title, Header / email fallbacks, maintenance page, Admin mail noreply display fallback, owner-setup “custom identity” check vs `Docru`.
-- i18n EN/FR product strings → Docru.
-- [`README.md`](../README.md) / [`DOCKER.md`](../DOCKER.md) product naming → Docru.
+- Shared helper: [`server/utils/tenantDomain.js`](../server/utils/tenantDomain.js) — `getTenantDomain()`, `getManagedSmtpSeedDefaults()`; default domain → `agila.dev`.
+- Call sites use the helper instead of hardcoded hosts: tenant routing, CSP, Socket.IO CORS, password-reset / invite / admin-portal URL builders.
+- DB seeds ([`server/config/database.js`](../server/config/database.js)): `SITE_NAME` / `SMTP_FROM_NAME` → `Agila`; `WEBSITE_URL` / `ADMIN_PORTAL_URL` from `TENANT_DOMAIN`; managed SMTP from env.
+- UI: `index.html` title, Header / email fallbacks, Admin mail noreply display fallback, owner-setup “custom identity” check vs `Agila`.
+- i18n EN/FR product strings → Agila.
+- [`README.md`](../README.md) / [`DOCKER.md`](../DOCKER.md) product naming → Agila.
 
 ### Docker / env (not `k8s/`)
 
-- All `docker-compose*.yml`: `TENANT_DOMAIN=docru.app`; `admin.docru.app` where admin portal URLs appeared; licensed compose files pass through `MANAGED_SMTP_*`.
+- All `docker-compose*.yml`: `TENANT_DOMAIN=agila.dev`; `admin.agila.dev` where admin portal URLs appeared; licensed compose files pass through `MANAGED_SMTP_*`.
 - [`.env.example`](../.env.example): documents `TENANT_DOMAIN`, portal URL, `MANAGED_SMTP_*`.
 
 ### Cutover script
 
 - [`scripts/rebrand-domain-cutover.js`](../scripts/rebrand-domain-cutover.js)  
   - Updates `public` and every `tenant_*` schema that has `settings`.  
-  - `SITE_NAME` exact match; host rewrite on `APP_URL`, `GOOGLE_CALLBACK_URL`, `WEBSITE_URL`, `ADMIN_PORTAL_URL`.  
+  - `SITE_NAME` exact match (`Docru` or `Easy Kanban` → `Agila`).  
+  - Host rewrite on `APP_URL`, `GOOGLE_CALLBACK_URL`, `WEBSITE_URL`, `ADMIN_PORTAL_URL`.  
   - **Skips all `SMTP_*`.**
 
 ```bash
@@ -58,23 +61,40 @@ POSTGRES_HOST=localhost POSTGRES_PORT=5432 POSTGRES_DB=kanban \
 node scripts/rebrand-domain-cutover.js
 ```
 
-Optional: `OLD_DOMAIN=ezkan.cloud` `NEW_DOMAIN=docru.app` (defaults).
+Optional: `OLD_DOMAIN=docru.app` `NEW_DOMAIN=agila.dev` (defaults).
 
 ---
 
 ## Docker instance cutover
 
 1. Backup Postgres volume / `pg_dump`.
-2. Note Google OAuth redirect URIs for the current public origin.
+2. Note Google OAuth redirect URIs for the current public origin (`*.docru.app`).
 3. Deploy image that includes this rebrand; set compose / `.env`:
-   - `TENANT_DOMAIN=docru.app`
-   - `ALLOWED_ORIGINS` → new public host(s) only (no `ezkan.cloud`)
+   - `TENANT_DOMAIN=agila.dev`
+   - `ALLOWED_ORIGINS` → include new public host(s) (e.g. `kanban.agila.dev`); drop old hosts when retiring them
    - `MANAGED_SMTP_*` if this instance seeds managed mail for new DBs
-4. Point edge DNS/TLS at the same upstream under the new hostname; prepare to retire `ezkan.cloud`.
-5. Run `scripts/rebrand-domain-cutover.js` against the instance DB (dry-run first).
+4. Point edge DNS/TLS at the same upstream under the new hostname; prepare to retire `docru.app`.
+5. Run `scripts/rebrand-domain-cutover.js` against the instance DB (dry-run first). Defaults are `OLD_DOMAIN=docru.app` / `NEW_DOMAIN=agila.dev`.
 6. Update Google Cloud Console callbacks to the new origin; remove old URIs after smoke.
 7. Restart app; smoke: login, media (`ek_media` is host-only — users refresh session on new host), WebSocket, invite/reset links.
 8. Fix SMTP in Admin if needed; retire old hostname in DNS/proxy.
+
+### Docker / edge status (kanban.dev)
+
+Completed for the local pro compose + public edge:
+
+- App image / compose: `TENANT_DOMAIN=agila.dev`, `ALLOWED_ORIGINS` includes `kanban.agila.dev`
+- DB cutover applied (`APP_URL` / `GOOGLE_CALLBACK_URL` / `WEBSITE_URL` / `ADMIN_PORTAL_URL` → `agila.dev`; custom `SITE_NAME` unchanged)
+- web03: `kanban.agila.dev` vhost + cert; `kanban.docru.app` → permanent redirect to Agila
+- proxy.private.drenlia.com: `kanban.drenlia.dev` → permanent redirect to Agila
+- Tenants kept dual-domain on edge for now: `drenlia` / `amanda-pg` on both `*.docru.app` and `*.agila.dev` (app code still single-domain via `TENANT_DOMAIN`)
+
+Still operator-owned before calling kanban “fully done”:
+
+- Confirm Google OAuth authorized redirect includes `https://kanban.agila.dev/api/auth/google/callback`
+- Optional smoke: password login, Google SSO, WebSocket, media cookie on new host
+- SMTP rows were **not** rewritten (still may show legacy From addresses) — Admin → Mail if you care
+- `admin.agila.dev` / marketing `agila.dev` / clients — deferred
 
 ---
 
@@ -82,56 +102,66 @@ Optional: `OLD_DOMAIN=ezkan.cloud` `NEW_DOMAIN=docru.app` (defaults).
 
 **Do not assume these files were updated.** Edit and apply them on the ops host.
 
+### Edge notes (from Docru → Agila ops)
+
+- Public tenant/app vhosts for this stack are created on **web03** with `/root/bin/deploy.sh <host> <ip:port>` (not `/root/deploy.sh`). That writes under `/etc/nginx/sites-dev/`, enables the site, and runs certbot.
+- **Cloudflare Access** on `*.agila.dev` blocks Let’s Encrypt HTTP-01 until you bypass `/.well-known/acme-challenge/*` or temporarily grey-cloud / disable Access for issuance.
+- App code does **not** accept two base domains at once. For a soft cutover, keep old nginx vhosts (`*.docru.app`) proxying the same upstream while new `*.agila.dev` vhosts exist; flip `TENANT_DOMAIN` / ingress / DNS when ready. Optional permanent redirects (as done for `kanban.*`) after the new host is live.
+- `kanban.drenlia.dev` historically lived on **proxy.private.drenlia.com** (`/etc/nginx/sites-available/proxy`), not web03.
+
 ### A. Repo file edits under `k8s/`
 
-Replace `ezkan.cloud` with `docru.app` (and product strings where user-facing) in at least:
+Replace `docru.app` with `agila.dev` (and product strings where user-facing) in at least:
 
 | File | What to change |
 |------|----------------|
-| [`k8s/configmap.yaml`](../k8s/configmap.yaml) | `TENANT_DOMAIN`, `ALLOWED_ORIGINS`, `ADMIN_SERVICE_URL`, comments mentioning `*.ezkan.cloud` |
+| [`k8s/configmap.yaml`](../k8s/configmap.yaml) | `TENANT_DOMAIN`, `ALLOWED_ORIGINS`, `ADMIN_SERVICE_URL`, comments mentioning `*.docru.app` (or any leftover `*.ezkan.cloud`) |
 | [`k8s/configmap-pg.yaml`](../k8s/configmap-pg.yaml) | Same + `app-pg.…` origins |
-| [`k8s/app-deployment.yaml`](../k8s/app-deployment.yaml) | Probe `Host:` `app.ezkan.cloud` → `app.docru.app` (or actual probe host) |
-| [`k8s/app-deployment-pg.yaml`](../k8s/app-deployment-pg.yaml) | Probe `Host:` `app-pg.ezkan.cloud` → new host |
-| [`k8s/ingress-websocket.yaml`](../k8s/ingress-websocket.yaml) | Every `*.ezkan.cloud` host → `*.docru.app` |
-| [`k8s/deploy-pg.sh`](../k8s/deploy-pg.sh) | `DOMAIN="ezkan.cloud"` → `DOMAIN="${TENANT_DOMAIN:-docru.app}"`; example URLs / echo text |
+| [`k8s/app-deployment.yaml`](../k8s/app-deployment.yaml) | Probe `Host:` `app.docru.app` → `app.agila.dev` (or actual probe host) |
+| [`k8s/app-deployment-pg.yaml`](../k8s/app-deployment-pg.yaml) | Probe `Host:` → new host |
+| [`k8s/ingress-websocket.yaml`](../k8s/ingress-websocket.yaml) | Every `*.docru.app` host → `*.agila.dev` |
+| [`k8s/deploy-pg.sh`](../k8s/deploy-pg.sh) | `DOMAIN` / default → `DOMAIN="${TENANT_DOMAIN:-agila.dev}"`; example URLs / echo text |
 | [`k8s/deploy-instance-pg.sh`](../k8s/deploy-instance-pg.sh) | Example hostname in usage text |
 | [`k8s/deploy-instance.sh`](../k8s/deploy-instance.sh) | Same (legacy path if still used) |
-| [`k8s/remove-instance.sh`](../k8s/remove-instance.sh) / [`remove-instance-pg.sh`](../k8s/remove-instance-pg.sh) | `DOMAIN="ezkan.cloud"` |
+| [`k8s/remove-instance.sh`](../k8s/remove-instance.sh) / [`remove-instance-pg.sh`](../k8s/remove-instance-pg.sh) | `DOMAIN` default |
 | [`k8s/verify-tenant-routing-pg.sh`](../k8s/verify-tenant-routing-pg.sh) | Default `TENANT_DOMAIN` / comments |
 | [`k8s/migrate-tenant-to-pg.sh`](../k8s/migrate-tenant-to-pg.sh) | Default domain + final visit URL |
 | [`k8s/setup-nfs.sh`](../k8s/setup-nfs.sh) | Example `TENANT_DOMAIN` in echo |
-| [`k8s/reference-docs/*`](../k8s/reference-docs/) | Docs still saying `ezkan.cloud` / Easy Kanban (optional cleanup) |
+| [`k8s/reference-docs/*`](../k8s/reference-docs/) | Docs still saying `docru.app` / Docru / `ezkan.cloud` (optional cleanup) |
 
-Also add ConfigMap entries for managed SMTP if SaaS seeds new tenants:
+Also add/update ConfigMap entries for managed SMTP if SaaS seeds new tenants:
 
 ```yaml
-MANAGED_SMTP_HOST: "smtp.docru.app"
-MANAGED_SMTP_USERNAME: "noreply@docru.app"
-MANAGED_SMTP_FROM_EMAIL: "noreply@docru.app"
-MANAGED_SMTP_FROM_NAME: "Docru"
+MANAGED_SMTP_HOST: "smtp.agila.dev"
+MANAGED_SMTP_USERNAME: "noreply@agila.dev"
+MANAGED_SMTP_FROM_EMAIL: "noreply@agila.dev"
+MANAGED_SMTP_FROM_NAME: "Agila"
 # MANAGED_SMTP_PASSWORD via Secret, not plain ConfigMap, if used
 ```
 
 Quick inventory on the machine:
 
 ```bash
-rg -n 'ezkan\.cloud' k8s/
+rg -n 'docru\.app|ezkan\.cloud|Docru' k8s/
 ```
 
 ### B. Cluster cutover checklist
 
-1. DNS/certs for `*.docru.app` and `admin.docru.app` ready; plan to stop answering on `ezkan.cloud`.
-2. Inventory tenant settings (rollback):
+Suggested order for a **soft** dual-edge cutover (matches how kanban.dev was done):
+
+1. DNS/certs for `*.agila.dev` (and later `admin.agila.dev`) ready; plan when to stop answering on `docru.app`.
+2. On web03, add Agila vhosts **alongside** existing Docru ones (`/root/bin/deploy.sh <tenant>.agila.dev <same MetalLB ip:port>`). Keep Docru vhosts until cutover.
+3. Inventory tenant settings (rollback):
 
    ```sql
    -- example: list APP_URL / SITE_NAME per tenant schema
    SELECT nspname FROM pg_namespace WHERE nspname LIKE 'tenant_%';
    ```
 
-3. Google OAuth: add `https://{tenant}.docru.app/api/auth/google/callback` for each tenant before flip; remove old after.
-4. Deploy Docru image; apply updated ConfigMaps / deployments / ingresses so hosts are `{id}.docru.app`.
-5. Rollout pods with `TENANT_DOMAIN=docru.app`.
-6. Run cutover script against the cluster DB (port-forward or `kubectl exec` into Postgres), e.g.:
+4. Google OAuth: add `https://{tenant}.agila.dev/api/auth/google/callback` for each tenant before flip; remove old after smoke.
+5. Deploy Agila-branded image; update ConfigMaps / deployments / ingress generators so **new** hosts are `{id}.agila.dev`. During soft cutover you may still serve Docru hostnames from the old ingress until DNS flip.
+6. Rollout pods with `TENANT_DOMAIN=agila.dev` when you are ready for the app to treat Agila as the canonical base domain (invite/reset URL builders, CSP, tenant host parsing).
+7. Run cutover script against the cluster DB (port-forward or `kubectl exec` into Postgres), e.g.:
 
    ```bash
    # After port-forward to Postgres:
@@ -141,19 +171,19 @@ rg -n 'ezkan\.cloud' k8s/
    node scripts/rebrand-domain-cutover.js
    ```
 
-   Adjust DB name/user to match [`k8s/postgres-secret-pg.yaml`](../k8s/postgres-secret-pg.yaml) / live secrets.
+   Defaults are already `OLD_DOMAIN=docru.app` / `NEW_DOMAIN=agila.dev`. Adjust DB name/user to match [`k8s/postgres-secret-pg.yaml`](../k8s/postgres-secret-pg.yaml) / live secrets.
 
-7. Flip DNS so `*.ezkan.cloud` no longer serves the app.
-8. Smoke sample tenants: Host → correct schema, SSO, email links, Socket.IO, media.
-9. New deploys only create `*.docru.app` ingresses.
-10. Per-tenant SMTP still on old hosts: Admin → Mail (script does not touch `SMTP_*`).
+8. Smoke sample tenants on **both** hostnames if dual-edge, then on Agila only after redirect/DNS flip.
+9. Optional: permanent redirects `*.docru.app` → `*.agila.dev` on web03; then retire Docru DNS/vhosts.
+10. New deploys only create `*.agila.dev` ingresses / deploy.sh hosts.
+11. Per-tenant SMTP still on old hosts: Admin → Mail (script does not touch `SMTP_*`).
 
 ### C. Rollback (cluster)
 
-1. Revert ingress hosts + ConfigMap `TENANT_DOMAIN` + DNS to `ezkan.cloud`.
-2. Inverse host rewrite from inventory (`OLD_DOMAIN=docru.app` `NEW_DOMAIN=ezkan.cloud` with a careful one-off, or restore from backup).
-3. Reverse `SITE_NAME` only where inventory showed the old default.
-4. App image can remain Docru-branded; routing/DNS is the critical axis.
+1. Revert ingress hosts + ConfigMap `TENANT_DOMAIN` + DNS to `docru.app` (and keep/restore Docru nginx vhosts if removed).
+2. Inverse host rewrite from inventory (`OLD_DOMAIN=agila.dev` `NEW_DOMAIN=docru.app` with a careful one-off, or restore from backup).
+3. Reverse `SITE_NAME` only where inventory showed the old default (`Agila` → `Docru`).
+4. App image can remain Agila-branded; routing/DNS is the critical axis.
 
 ---
 
@@ -161,7 +191,7 @@ rg -n 'ezkan\.cloud' k8s/
 
 | Variable | Role |
 |----------|------|
-| `TENANT_DOMAIN` | Base domain for `{tenantId}.{domain}` routing, CSP, Socket.IO, URL fallbacks. Default in code: `docru.app`. |
+| `TENANT_DOMAIN` | Base domain for `{tenantId}.{domain}` routing, CSP, Socket.IO, URL fallbacks. Default in code: `agila.dev`. |
 | `ALLOWED_ORIGINS` | Extra Socket.IO / Vite origins (comma-separated). |
 | `ADMIN_SERVICE_URL` | Set in compose/ConfigMaps historically; runtime portal link uses DB `ADMIN_PORTAL_URL`. |
 | `MANAGED_SMTP_HOST` / `_USERNAME` / `_FROM_EMAIL` / `_FROM_NAME` / `_PASSWORD` | Seeds for **new** licensed tenants only. |
@@ -174,4 +204,4 @@ rg -n 'ezkan\.cloud' k8s/
 - Renaming Docker images, K8s namespaces, DB name `easykanban`, crypto salts, localStorage prefixes, `ek_media`
 - Dual-domain acceptance in `extractTenantId`
 - Migrating existing tenant `SMTP_*` rows
-- Replacing favicon until a Docru asset is provided
+- Replacing favicon until an Agila asset is provided

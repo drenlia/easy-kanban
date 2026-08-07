@@ -1,6 +1,6 @@
-# Docker Setup for Docru
+# Docker Setup for Agila
 
-This guide explains how to run the Docru application using Docker. **This application is designed to run exclusively in Docker containers** and includes all required services (Redis, database, etc.) automatically configured.
+This guide explains how to run the Agila application using Docker. **This application is designed to run exclusively in Docker containers** and includes all required services (Redis, database, etc.) automatically configured.
 
 ## Prerequisites
 
@@ -89,7 +89,7 @@ npm run docker:clean-legacy
 │         Docker Compose Stack                    │
 │                                                 │
 │  ┌──────────────────────────────────────────┐   │
-│  │      Docru Container               │   │
+│  │      Agila Container               │   │
 │  │  ┌─────────────────────────────┐         │   │
 │  │  │    Vite Dev Server          │         │   │  ← Port 3010
 │  │  │   (Hot Reloading)           │         │   │
@@ -259,7 +259,7 @@ For issues or questions:
 
 The Docker Compose setup automatically includes:
 
-1. **Docru Application**: Main application container with frontend and backend
+1. **Agila Application**: Main application container with frontend and backend
 2. **Redis**: In-memory data store for real-time updates and caching
 3. **Persistent Volumes**: Data persistence for database, attachments, avatars, and Redis
 

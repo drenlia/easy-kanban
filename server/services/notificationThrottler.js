@@ -323,7 +323,7 @@ class NotificationThrottler {
         this.db.prepare('SELECT value FROM settings WHERE key = ?'),
         'SELECT'
       ).get('SITE_NAME');
-      const siteName = siteNameSetting?.value || 'Docru';
+      const siteName = siteNameSetting?.value || 'Agila';
 
       // Recipient language: user pref → APP_LANGUAGE → en
       const recipientId = recipientUser.id || recipientUser.userId;
@@ -469,7 +469,7 @@ class NotificationThrottler {
         this.db.prepare('SELECT value FROM settings WHERE key = ?'),
         'SELECT'
       ).get('SITE_NAME');
-      const siteName = siteNameSetting?.value || 'Docru';
+      const siteName = siteNameSetting?.value || 'Agila';
 
       // Recipient language: user pref → APP_LANGUAGE → en
       const recipientId = recipientUser.id || recipientUser.userId;

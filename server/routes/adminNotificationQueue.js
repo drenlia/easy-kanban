@@ -137,7 +137,7 @@ router.post('/send', authenticateToken, requireRole(['admin']), async (req, res)
 
         // MIGRATED: Get site name using sqlManager
         const siteNameSetting = await helpers.getSetting(db, 'SITE_NAME');
-        const siteName = siteNameSetting || 'Docru';
+        const siteName = siteNameSetting || 'Agila';
 
         // Determine action type and details
         const actionType = notification.change_count > 1 ? 'consolidated_update' : notification.action;

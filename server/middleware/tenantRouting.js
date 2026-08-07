@@ -25,7 +25,7 @@ const isMultiTenant = () => {
  * Hostname used for tenant extraction (must match {tenantId}.{TENANT_DOMAIN}).
  * - Prefer X-Forwarded-Host / X-Original-Host / Host in that order (ingress usually sets these).
  * - If a header lists multiple hosts (comma-separated proxy chain), use the first hop (client-facing host).
- * - Strip port so tenant.docru.app:443 still resolves.
+ * - Strip port so tenant.agila.dev:443 still resolves.
  */
 function pickHostnameForTenant(req) {
   const forwardedHost = req.get('x-forwarded-host');
@@ -38,8 +38,8 @@ function pickHostnameForTenant(req) {
 
 // Extract tenant ID from hostname
 // Examples:
-//   customer1.docru.app -> customer1
-//   customer2.docru.app -> customer2
+//   customer1.agila.dev -> customer1
+//   customer2.agila.dev -> customer2
 //   localhost -> null (single-tenant mode)
 const extractTenantId = (hostname) => {
   if (!hostname) return null;

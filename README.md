@@ -1,10 +1,10 @@
-# Docru
+# Agila
 
-**Docru** *(pronounced “do-crew”)*
+**Agila**
 
 A collaborative **Kanban workspace** for teams: multi-board drag-and-drop, List and Gantt views, real-time collaboration, optional sprint timeboxing with burndown, and an optional **AI Agent** that can assist on tasks, work linked Git repos, or (for admins) run board automations. Built with React/TypeScript and Node.js/Express.
 
-Docru is **not** a full enterprise agile ALM (no required Epic/Story types, ceremony tooling, or hard methodology lock-in). Soft WIP limits, card aging, blocked flags, and column policy notes help teams keep flow healthy without ceremony overhead.
+Agila is **not** a full enterprise agile ALM (no required Epic/Story types, ceremony tooling, or hard methodology lock-in). Soft WIP limits, card aging, blocked flags, and column policy notes help teams keep flow healthy without ceremony overhead.
 
 <img src="/screenshots/overview.png" alt="Screenshot of easy-kanban" width="100%">
 
@@ -183,7 +183,7 @@ npm run docker:dev
 
 ## Database Backup & Restore
 
-**Breaking change:** Docru is **PostgreSQL-only**. SQLite (`kanban.db`) is no longer supported. All Docker editions (free, demo, basic, pro) run Postgres + Redis. Existing SQLite data must be migrated out-of-band or you must start with a fresh Postgres volume.
+**Breaking change:** Agila is **PostgreSQL-only**. SQLite (`kanban.db`) is no longer supported. All Docker editions (free, demo, basic, pro) run Postgres + Redis. Existing SQLite data must be migrated out-of-band or you must start with a fresh Postgres volume.
 
 ### Automated Backup Script
 
@@ -239,7 +239,7 @@ Developed with AI assistance
 
 MIT License
 
-Copyright (c) 2024–2026 Docru
+Copyright (c) 2024–2026 Agila
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

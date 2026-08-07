@@ -14,7 +14,7 @@
  *   node admin-tests/test-admin-portal.js <instance_url> <instance_token>
  * 
  * Example:
- *   node admin-tests/test-admin-portal.js https://my-company.docru.app kanban-token-12345
+ *   node admin-tests/test-admin-portal.js https://my-company.agila.dev kanban-token-12345
  * 
  * SMTP credentials are loaded from the project-root .env (see .env.example). Required variables:
  *   ADMIN_PORTAL_TEST_SMTP_USERNAME, ADMIN_PORTAL_TEST_SMTP_PASSWORD,
@@ -191,7 +191,7 @@ async function main() {
     console.log('Usage: node admin-tests/test-admin-portal.js <instance_url> <instance_token>');
     console.log('');
     console.log('Example:');
-    console.log('  node admin-tests/test-admin-portal.js https://my-company.docru.app kanban-token-12345');
+    console.log('  node admin-tests/test-admin-portal.js https://my-company.agila.dev kanban-token-12345');
     console.log('');
     console.log('To get the instance URL and token, run:');
     console.log('  ./k8s/deploy-instance.sh my-company kanban-token-12345');

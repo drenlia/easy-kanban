@@ -39,7 +39,7 @@ export const ROUTES = {
 
 // Default site settings
 export const DEFAULT_SITE_SETTINGS = {
-  SITE_NAME: 'Docru',
+  SITE_NAME: 'Agila',
   SITE_URL: 'http://localhost:3000'
 };
 

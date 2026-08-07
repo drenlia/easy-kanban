@@ -453,7 +453,7 @@ class TaskEmailNotificationService {
         this.db.prepare('SELECT value FROM settings WHERE key = ?'),
         'SELECT'
       ).get('SITE_NAME');
-      const siteName = siteNameSetting?.value || 'Docru';
+      const siteName = siteNameSetting?.value || 'Agila';
 
       const storagePaths = getTenantStoragePaths(this.tenantId);
       const authorAvatar = await buildEmailAuthorAvatar({
@@ -573,7 +573,7 @@ class TaskEmailNotificationService {
         this.db.prepare('SELECT value FROM settings WHERE key = ?'),
         'SELECT'
       ).get('SITE_NAME');
-      const siteName = siteNameSetting?.value || 'Docru';
+      const siteName = siteNameSetting?.value || 'Agila';
       const recipientTimeZone = await getUserTimeZone(this.db, recipientUserId);
 
       const { getTranslatorForUser } = await import('../utils/i18n.js');
@@ -727,7 +727,7 @@ class TaskEmailNotificationService {
         this.db.prepare('SELECT value FROM settings WHERE key = ?'),
         'SELECT'
       ).get('SITE_NAME');
-      const siteName = siteNameSetting?.value || 'Docru';
+      const siteName = siteNameSetting?.value || 'Agila';
 
       const { resolveCorrespondenceLanguage } = await import('../utils/i18n.js');
       const { formatDetailsForEmail } = await import('../utils/emailContent.js');
@@ -881,7 +881,7 @@ class TaskEmailNotificationService {
         this.db.prepare('SELECT value FROM settings WHERE key = ?'),
         'SELECT'
       ).get('SITE_NAME');
-      const siteName = siteNameSetting?.value || 'Docru';
+      const siteName = siteNameSetting?.value || 'Agila';
 
       const actorName =
         actor.name ||

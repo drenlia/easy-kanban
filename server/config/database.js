@@ -869,7 +869,7 @@ const initializeDefaultData = async (db, tenantId = null) => {
       ['APP_VERSION', '0'],
       ['ADMIN_PORTAL_URL', `https://admin.${tenantDomain}`],
       ['WEBSITE_URL', `https://${tenantDomain}`],
-      ['SITE_NAME', 'Docru'],
+      ['SITE_NAME', 'Agila'],
       ['SITE_URL', '/'],
       ['MAIL_ENABLED', 'false'],
       ['MAIL_MANAGED', 'false'], // Default to false, will be set to true for licensed instances
@@ -879,7 +879,7 @@ const initializeDefaultData = async (db, tenantId = null) => {
       ['SMTP_USERNAME', ''],
       ['SMTP_PASSWORD', ''],
       ['SMTP_FROM_EMAIL', ''],
-      ['SMTP_FROM_NAME', 'Docru'],
+      ['SMTP_FROM_NAME', 'Agila'],
       ['SMTP_SECURE', 'tls'],
       ['GOOGLE_CLIENT_ID', ''],
       ['GOOGLE_CLIENT_SECRET', ''],
@@ -1317,7 +1317,7 @@ const initializeDefaultData = async (db, tenantId = null) => {
 // Initialize database connection (PostgreSQL-only; single-tenant or multi-tenant)
 export const initializeDatabase = async (tenantId = null) => {
   if (!process.env.POSTGRES_HOST) {
-    throw new Error('POSTGRES_HOST is required. Docru is PostgreSQL-only.');
+    throw new Error('POSTGRES_HOST is required. Agila is PostgreSQL-only.');
   }
 
   console.log(`🐘 Using PostgreSQL for tenant: ${tenantId || 'default'}`);

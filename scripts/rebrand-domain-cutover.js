@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 /**
- * Docru domain / brand cutover for PostgreSQL settings.
+ * Agila domain / brand cutover for PostgreSQL settings.
  *
- * - SITE_NAME: exact 'Easy Kanban' → 'Docru' (custom names unchanged)
- * - Host rewrite ezkan.cloud → docru.app in:
+ * - SITE_NAME: exact 'Docru' or 'Easy Kanban' → 'Agila' (custom names unchanged)
+ * - Host rewrite OLD_DOMAIN → NEW_DOMAIN in:
  *     APP_URL, GOOGLE_CALLBACK_URL, WEBSITE_URL, ADMIN_PORTAL_URL
  * - Does NOT modify any SMTP_* keys (fix those in Admin → Mail)
  *
@@ -16,8 +16,8 @@
  *
  * Env (same defaults as other scripts / docker-compose):
  *   POSTGRES_HOST, POSTGRES_PORT, POSTGRES_DB, POSTGRES_USER, POSTGRES_PASSWORD
- *   OLD_DOMAIN (default: ezkan.cloud)
- *   NEW_DOMAIN (default: docru.app)
+ *   OLD_DOMAIN (default: docru.app)
+ *   NEW_DOMAIN (default: agila.dev)
  */
 
 import pg from 'pg';
@@ -25,8 +25,11 @@ import pg from 'pg';
 const { Pool } = pg;
 
 const DRY_RUN = process.argv.includes('--dry-run');
-const OLD_DOMAIN = String(process.env.OLD_DOMAIN || 'ezkan.cloud').trim();
-const NEW_DOMAIN = String(process.env.NEW_DOMAIN || 'docru.app').trim();
+const OLD_DOMAIN = String(process.env.OLD_DOMAIN || 'docru.app').trim();
+const NEW_DOMAIN = String(process.env.NEW_DOMAIN || 'agila.dev').trim();
+
+const SITE_NAME_FROM = ['Docru', 'Easy Kanban'];
+const SITE_NAME_TO = 'Agila';
 
 const URL_KEYS = ['APP_URL', 'GOOGLE_CALLBACK_URL', 'WEBSITE_URL', 'ADMIN_PORTAL_URL'];
 
@@ -80,6 +83,7 @@ async function cutoverSchema(client, schema) {
   const q = quoteIdent(schema);
   const summary = {
     schema,
+    siteNameFrom: null,
     siteNameUpdates: 0,
     urlUpdates: [],
   };
@@ -89,12 +93,13 @@ async function cutoverSchema(client, schema) {
     `SELECT value FROM ${q}.settings WHERE key = 'SITE_NAME' LIMIT 1`
   );
   const currentSite = siteSelect.rows[0]?.value;
-  if (currentSite === 'Easy Kanban') {
+  if (SITE_NAME_FROM.includes(currentSite)) {
+    summary.siteNameFrom = currentSite;
     summary.siteNameUpdates = 1;
     if (!DRY_RUN) {
       await client.query(
         `UPDATE ${q}.settings SET value = $1, updated_at = CURRENT_TIMESTAMP WHERE key = 'SITE_NAME' AND value = $2`,
-        ['Docru', 'Easy Kanban']
+        [SITE_NAME_TO, currentSite]
       );
     }
   }
@@ -122,9 +127,11 @@ async function cutoverSchema(client, schema) {
 }
 
 async function main() {
-  console.log(`Docru cutover (${DRY_RUN ? 'DRY RUN' : 'APPLY'})`);
+  console.log(`Agila cutover (${DRY_RUN ? 'DRY RUN' : 'APPLY'})`);
   console.log(`  Domain: ${OLD_DOMAIN} → ${NEW_DOMAIN}`);
-  console.log(`  SITE_NAME: 'Easy Kanban' → 'Docru' (exact match only)`);
+  console.log(
+    `  SITE_NAME: ${SITE_NAME_FROM.map((n) => `'${n}'`).join(' | ')} → '${SITE_NAME_TO}' (exact match only)`
+  );
   console.log(`  URL keys: ${URL_KEYS.join(', ')}`);
   console.log(`  SMTP_*: skipped`);
   console.log('');
@@ -152,7 +159,7 @@ async function main() {
       totalUrls += summary.urlUpdates.length;
       console.log(`✓ ${schema}:`);
       if (summary.siteNameUpdates) {
-        console.log(`    SITE_NAME: Easy Kanban → Docru`);
+        console.log(`    SITE_NAME: ${summary.siteNameFrom} → ${SITE_NAME_TO}`);
       }
       for (const u of summary.urlUpdates) {
         console.log(`    ${u.key}:`);

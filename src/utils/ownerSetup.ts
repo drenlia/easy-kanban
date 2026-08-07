@@ -571,7 +571,7 @@ export function computeOwnerSetupHints(input: {
   const s = input.siteSettings || {};
   const siteName = String(s.SITE_NAME || '').trim();
   // "/" is a valid relative site URL for most deployments — hint on renamed site
-  const siteIdentity = siteName.length > 0 && siteName !== 'Docru';
+  const siteIdentity = siteName.length > 0 && siteName !== 'Agila';
 
   const mailEnabled = String(s.MAIL_ENABLED || '').toLowerCase() === 'true';
   const smtpHost = String(s.SMTP_HOST || '').trim();

@@ -400,7 +400,7 @@ const ProfileDevTab: React.FC = () => {
         </div>
       </section>
 
-      {/* —— Docru API tokens (external → Kanban) —— */}
+      {/* —— Agila API tokens (external → Kanban) —— */}
       <section>
         <div className="mb-2">
           <h3 className="text-base font-medium text-gray-900 dark:text-gray-100">

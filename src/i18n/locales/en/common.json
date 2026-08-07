@@ -292,8 +292,8 @@
     "devSshGenerated": "SSH key generated",
     "devSshGenerateError": "Failed to generate SSH key",
     "devSshDownloadError": "Failed to download private key",
-    "devApiTokens": "Docru API tokens",
-    "devApiTokensHint": "For external tools calling this Docru instance (Authorization: Bearer). Not for GitHub.",
+    "devApiTokens": "Agila API tokens",
+    "devApiTokensHint": "For external tools calling this Agila instance (Authorization: Bearer). Not for GitHub.",
     "devDefaultTokenName": "Agent API token",
     "devTokenShowOnce": "Copy this token now — it will not be shown again.",
     "devGenerateToken": "Generate token",
@@ -433,7 +433,7 @@
     "status_undone": "Automation undone"
   },
   "help": {
-    "title": "Docru Help",
+    "title": "Agila Help",
     "pressF1": "Press F1 or ? anytime to open this help",
     "startTutorial": "Start Tutorial",
     "ownerSetup": "Configuration guide",
@@ -478,8 +478,8 @@
       "editorNav": "Normal text cursor navigation"
     },
     "overview": {
-      "whatIsEasyKanban": "What is Docru?",
-      "whatIsEasyKanbanDesc1": "Docru is a collaborative Kanban workspace with multi-board drag-and-drop, List and Gantt views, real-time collaboration, and optional sprint timeboxing with burndown reports. It is designed for small and mid-size teams — not a full enterprise agile ALM (no required Epic/Story hierarchy, ceremony suite, or hard methodology certification).",
+      "whatIsEasyKanban": "What is Agila?",
+      "whatIsEasyKanbanDesc1": "Agila is a collaborative Kanban workspace with multi-board drag-and-drop, List and Gantt views, real-time collaboration, and optional sprint timeboxing with burndown reports. It is designed for small and mid-size teams — not a full enterprise agile ALM (no required Epic/Story hierarchy, ceremony suite, or hard methodology certification).",
       "whatIsEasyKanbanDesc2": "Core flow aids include soft column WIP limits, card aging, a blocked flag, and short column policy notes. Advanced features include task relationships, filtering, file attachments, rich text, role-based permissions, and optional AI agent assignment.",
       "navigation": "Navigation & Interface",
       "boardSelector": "Board Selector: Switch between project boards using the tabs at the top. Each board has its own columns and tasks. Use the scroll arrows when you have many boards.",
@@ -1206,7 +1206,7 @@
       "switchedToKanban": "Switched to Kanban view",
       "switchedToList": "Switched to List View",
       "switchedToAdmin": "Switched to Admin panel",
-      "welcome": "Welcome to Docru! This is your main navigation area where you can switch between different boards.",
+      "welcome": "Welcome to Agila! This is your main navigation area where you can switch between different boards.",
       "boardTabs": "These are your board tabs. Click on any tab to switch between different project boards.",
       "kanbanColumns": "This is your Kanban board! Tasks are organized in columns. You can drag and drop tasks between columns to update their status.",
       "addTaskButton": "Click the \"+\" button on any column to add a new task. This is the main way to create new work items.",
