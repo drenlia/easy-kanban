@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { createPortal } from 'react-dom';
-import { Edit, Trash2, Crown, User as UserIcon } from 'lucide-react';
+import { Edit, Trash2, Crown, User as UserIcon, Mail, Loader2, Search, X, ArrowUp, ArrowDown, ChevronsUpDown } from 'lucide-react';
 import { getAuthenticatedAvatarUrl } from '../../utils/authImageUrl';
 import { AGENT_BOT_AVATAR_SRC } from '../../utils/agentMemberUi';
 import { toast } from '../../utils/toast';
@@ -9,6 +9,8 @@ import { CHROME_TOOLTIP_SURFACE_CLASS } from '../KanbanChromeTooltip';
 import { ModernCheckbox } from '../ModernCheckbox';
 import { useEscapeDismiss } from '../../hooks/useEscapeDismiss';
 import { useSettings } from '../../contexts/SettingsContext';
+import { ADMIN_TABLE_ROW_CLASS } from '../../utils/adminFieldLimits';
+import { formatToYYYYMMDDHHmmss } from '../../utils/dateUtils';
 
 interface User {
   id: string;
@@ -42,7 +44,7 @@ interface AdminUsersTabProps {
   onSaveUser: (userData: any) => Promise<void>;
   onColorChange: (userId: string, color: string) => Promise<void>;
   onRemoveAvatar: (userId: string) => Promise<void>;
-  onResendInvitation: (userId: string) => Promise<void>;
+  onResendInvitation: (userId: string) => Promise<{ email?: string } | void>;
 }
 
 const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
@@ -72,6 +74,157 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
     if (!Array.isArray(users)) return [];
     return aiEnabled ? users : users.filter((u) => u.email !== 'agent@local');
   }, [users, systemSettings?.AI_ENABLED]);
+
+  type StatusFilter = 'all' | 'active' | 'inactive';
+  type RoleFilter = 'all' | 'admin' | 'member';
+  type AuthFilter = 'all' | 'local' | 'google';
+  type SortKey = 'name' | 'status' | 'role' | 'auth' | 'joined';
+  type SortDir = 'asc' | 'desc';
+
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  const [roleFilter, setRoleFilter] = useState<RoleFilter>('all');
+  const [authFilter, setAuthFilter] = useState<AuthFilter>('all');
+  const [userSearch, setUserSearch] = useState('');
+  const [sortKey, setSortKey] = useState<SortKey>('name');
+  const [sortDir, setSortDir] = useState<SortDir>('asc');
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const filterToolbarRef = useRef<HTMLDivElement>(null);
+
+  const userSummary = useMemo(() => {
+    let active = 0;
+    let inactive = 0;
+    let admin = 0;
+    let member = 0;
+    let local = 0;
+    let google = 0;
+    for (const user of visibleUsers) {
+      if (user.isActive) active += 1;
+      else inactive += 1;
+      if (user.roles.includes('admin')) admin += 1;
+      else member += 1;
+      if (user.authProvider === 'google') google += 1;
+      else local += 1;
+    }
+    return { total: visibleUsers.length, active, inactive, admin, member, local, google };
+  }, [visibleUsers]);
+
+  const filteredUsers = useMemo(() => {
+    const q = userSearch.trim().toLowerCase();
+    return visibleUsers.filter((user) => {
+      if (statusFilter === 'active' && !user.isActive) return false;
+      if (statusFilter === 'inactive' && user.isActive) return false;
+      if (roleFilter === 'admin' && !user.roles.includes('admin')) return false;
+      if (roleFilter === 'member' && user.roles.includes('admin')) return false;
+      if (authFilter === 'local' && user.authProvider === 'google') return false;
+      if (authFilter === 'google' && user.authProvider !== 'google') return false;
+      if (!q) return true;
+      const haystack = [
+        user.firstName,
+        user.lastName,
+        user.displayName,
+        user.email,
+        `${user.firstName || ''} ${user.lastName || ''}`,
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+      return haystack.includes(q);
+    });
+  }, [visibleUsers, statusFilter, roleFilter, authFilter, userSearch]);
+
+  const displayedUsers = useMemo(() => {
+    const list = [...filteredUsers];
+    const dir = sortDir === 'asc' ? 1 : -1;
+    const nameOf = (u: User) =>
+      (u.displayName || `${u.firstName || ''} ${u.lastName || ''}`.trim() || u.email || '').toLowerCase();
+    const joinedOf = (u: User) => {
+      const raw = u.joined || u.createdAt || '';
+      const t = Date.parse(raw);
+      return Number.isFinite(t) ? t : 0;
+    };
+    const isPinnedBottom = (u: User) => {
+      const e = String(u.email || '').toLowerCase();
+      return e === 'agent@local' || e === 'system@local';
+    };
+    list.sort((a, b) => {
+      const aPin = isPinnedBottom(a) ? 1 : 0;
+      const bPin = isPinnedBottom(b) ? 1 : 0;
+      if (aPin !== bPin) return aPin - bPin;
+
+      let cmp = 0;
+      switch (sortKey) {
+        case 'status':
+          cmp = Number(b.isActive) - Number(a.isActive);
+          break;
+        case 'role':
+          cmp = Number(b.roles.includes('admin')) - Number(a.roles.includes('admin'));
+          break;
+        case 'auth':
+          cmp = (a.authProvider || 'local').localeCompare(b.authProvider || 'local');
+          break;
+        case 'joined':
+          cmp = joinedOf(a) - joinedOf(b);
+          break;
+        case 'name':
+        default:
+          cmp = nameOf(a).localeCompare(nameOf(b));
+          break;
+      }
+      if (cmp === 0 && sortKey !== 'name') {
+        cmp = nameOf(a).localeCompare(nameOf(b));
+      }
+      return cmp * dir;
+    });
+    return list;
+  }, [filteredUsers, sortKey, sortDir]);
+
+  const hasActiveFilters =
+    statusFilter !== 'all' ||
+    roleFilter !== 'all' ||
+    authFilter !== 'all' ||
+    userSearch.trim() !== '';
+
+  const clearUserFilters = () => {
+    setStatusFilter('all');
+    setRoleFilter('all');
+    setAuthFilter('all');
+    setUserSearch('');
+  };
+
+  const toggleStatusFilter = (next: Exclude<StatusFilter, 'all'>) => {
+    setStatusFilter((prev) => (prev === next ? 'all' : next));
+  };
+  const toggleRoleFilter = (next: Exclude<RoleFilter, 'all'>) => {
+    setRoleFilter((prev) => (prev === next ? 'all' : next));
+  };
+  const toggleAuthFilter = (next: Exclude<AuthFilter, 'all'>) => {
+    setAuthFilter((prev) => (prev === next ? 'all' : next));
+  };
+
+  const handleSort = (key: SortKey) => {
+    if (sortKey === key) {
+      setSortDir((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortKey(key);
+      setSortDir(key === 'joined' ? 'desc' : 'asc');
+    }
+  };
+
+  const filterGroupClass = (active: boolean) =>
+    `inline-flex flex-wrap items-center gap-x-1 gap-y-0.5 rounded-md px-1 py-0.5 transition-colors ${
+      active
+        ? 'bg-sky-50 ring-1 ring-sky-300/80 dark:bg-sky-950/40 dark:ring-sky-700'
+        : ''
+    }`;
+
+  const filterChipClass = (active: boolean, emphasize = false) =>
+    `rounded-md px-1.5 py-0.5 transition-colors ${
+      active
+        ? 'bg-sky-600 text-white shadow-sm dark:bg-sky-500 font-semibold'
+        : emphasize
+          ? 'text-amber-700 hover:bg-amber-50 dark:text-amber-400 dark:hover:bg-amber-950/40'
+          : 'hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200'
+    }`;
   const [showAddUserForm, setShowAddUserForm] = useState(false);
   const [showEditUserForm, setShowEditUserForm] = useState(false);
   const [showColorPicker, setShowColorPicker] = useState<string | null>(null);
@@ -80,9 +233,10 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [isAddingUser, setIsAddingUser] = useState(false);
   const [isResendingInvitation, setIsResendingInvitation] = useState<boolean>(false);
+  const [resendingUserId, setResendingUserId] = useState<string | null>(null);
   const [colorPickerPosition, setColorPickerPosition] = useState<{top: number, left: number, userId: string} | null>(null);
   const [avatarPreviewUrl, setAvatarPreviewUrl] = useState<string | null>(null);
-  const [hoveredButton, setHoveredButton] = useState<{userId: string, type: 'promote' | 'demote' | 'edit' | 'delete', position: {top: number, left: number}} | null>(null);
+  const [hoveredButton, setHoveredButton] = useState<{userId: string, type: 'promote' | 'demote' | 'edit' | 'delete' | 'resend', position: {top: number, left: number}} | null>(null);
   
   const [deleteReassignToUserId, setDeleteReassignToUserId] = useState<string>(''); // '' = System
   // Refs for button positioning and focus
@@ -109,7 +263,7 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
   };
 
   // Handle button hover for tooltips
-  const handleButtonMouseEnter = (userId: string, type: 'promote' | 'demote' | 'edit' | 'delete', e: React.MouseEvent<HTMLButtonElement>) => {
+  const handleButtonMouseEnter = (userId: string, type: 'promote' | 'demote' | 'edit' | 'delete' | 'resend', e: React.MouseEvent<HTMLButtonElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
     setHoveredButton({
       userId,
@@ -125,13 +279,13 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
     setHoveredButton(null);
   };
 
-  // Helper function to check if current user can modify a given user
+  // Helper function to check if current user can modify a given user (role / delete / activate)
   const canModifyUser = (userEmail: string) => {
     // Owner can only be modified by themselves
     if (isOwner(userEmail)) {
       return currentUser?.email === userEmail;
     }
-    // Pseudo-accounts: manage Agent identity under Admin → AI Settings
+    // Pseudo-accounts: profile-only edits (name / display name / avatar)
     if (userEmail === 'agent@local' || userEmail === 'system@local') {
       return false;
     }
@@ -139,8 +293,24 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
     return true;
   };
 
-  const isProtectedPseudoUser = (userEmail: string) =>
-    userEmail === 'agent@local' || userEmail === 'system@local';
+  /** Profile fields (names, avatar) — allowed for Agent / System; owner still self-only. */
+  const canEditUserProfile = (userEmail: string) => {
+    if (isOwner(userEmail)) {
+      return currentUser?.email === userEmail;
+    }
+    return true;
+  };
+
+  /** Pseudo @local accounts never receive invite emails. */
+  const isLocalPseudoAccount = (userEmail: string) =>
+    typeof userEmail === 'string' && userEmail.toLowerCase().endsWith('@local');
+
+  const canResendInvitation = (user: User) =>
+    !isDemoMode &&
+    user.authProvider === 'local' &&
+    !user.isActive &&
+    !isLocalPseudoAccount(user.email) &&
+    canModifyUser(user.email);
   
   // Focus the "No" button when any delete dialog opens and handle Enter key
   useEffect(() => {
@@ -436,17 +606,27 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
     });
   };
 
-  const handleResendInvitation = async () => {
+  const handleResendInvitation = async (userId?: string) => {
+    const targetId = userId || editingUserData.id;
+    if (!targetId || isResendingInvitation) return;
     try {
       setIsResendingInvitation(true);
-      await onResendInvitation(editingUserData.id);
-      toast.success(t('users.invitationEmailSentSuccessfully'), '');
+      setResendingUserId(targetId);
+      const result = await onResendInvitation(targetId);
+      const email = result?.email;
+      toast.success(
+        email
+          ? t('invitationEmailSent', { email })
+          : t('users.invitationEmailSentSuccessfully'),
+        ''
+      );
     } catch (err: any) {
       console.error('Failed to resend invitation:', err);
-      const errorMessage = err.response?.data?.error || t('failedToSendInvitationEmail');
+      const errorMessage = err.response?.data?.error || err.message || t('failedToSendInvitationEmail');
       toast.error(errorMessage, '');
     } finally {
       setIsResendingInvitation(false);
+      setResendingUserId(null);
     }
   };
 
@@ -466,6 +646,54 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
     },
     { enabled: (showAddUserForm || showEditUserForm) && !showDeleteConfirm }
   );
+
+  // ESC: search clears → blur; filters clear → blur focused chip (when no modal open)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || e.defaultPrevented) return;
+      if (showAddUserForm || showEditUserForm || showDeleteConfirm || showColorPicker) return;
+
+      const searchEl = searchInputRef.current;
+      const searchFocused = searchEl != null && document.activeElement === searchEl;
+
+      if (searchFocused) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (userSearch.trim() !== '') {
+          setUserSearch('');
+        } else {
+          searchEl.blur();
+        }
+        return;
+      }
+
+      if (hasActiveFilters) {
+        e.preventDefault();
+        e.stopPropagation();
+        clearUserFilters();
+        return;
+      }
+
+      const active = document.activeElement;
+      if (
+        active instanceof HTMLElement &&
+        filterToolbarRef.current?.contains(active)
+      ) {
+        e.preventDefault();
+        e.stopPropagation();
+        active.blur();
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [
+    showAddUserForm,
+    showEditUserForm,
+    showDeleteConfirm,
+    showColorPicker,
+    userSearch,
+    hasActiveFilters,
+  ]);
 
   const handleNewUserChange = (field: string, value: string) => {
     setNewUser(prev => ({ ...prev, [field]: value }));
@@ -521,42 +749,266 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
           </div>
         </div>
 
-        {/* Success and Error Messages */}
-        <div className="overflow-x-auto overflow-y-visible">
-          <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-            <thead className="bg-gray-50 dark:bg-gray-700">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-48">{t('users.tableHeaders.actions')}</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-16">{t('users.tableHeaders.avatar')}</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-20">{t('users.tableHeaders.status')}</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-32">{t('users.tableHeaders.name')}</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-48">{t('users.tableHeaders.email')}</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-32">{t('users.tableHeaders.displayName')}</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-20">{t('users.tableHeaders.role')}</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-24">{t('users.tableHeaders.authType')}</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-20">{t('users.tableHeaders.color')}</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-28">{t('users.tableHeaders.joined')}</th>
-              </tr>
-            </thead>
-            <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-              {visibleUsers.length > 0 ? (
-                visibleUsers.map((user) => (
-                <tr key={user.id}>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium w-48">
-                    <div className="flex items-center space-x-2">
+        {/* Users table */}
+        <div className="rounded-xl border border-slate-200/90 dark:border-slate-700/80 bg-white dark:bg-slate-900 shadow-sm overflow-hidden">
+          {!loading && visibleUsers.length > 0 && (
+            <div
+              ref={filterToolbarRef}
+              className="flex flex-wrap items-center gap-x-2 gap-y-1.5 px-4 py-2 border-b border-slate-100 dark:border-slate-800 text-[11px] leading-tight text-slate-500 dark:text-slate-400"
+              aria-label={t('users.summary.ariaLabel')}
+            >
+              <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 min-w-0 flex-1">
+                <button
+                  type="button"
+                  onClick={clearUserFilters}
+                  className={filterChipClass(!hasActiveFilters)}
+                  aria-pressed={!hasActiveFilters}
+                  title={t('users.summary.showAll')}
+                >
+                  {t('users.summary.total', { count: userSummary.total })}
+                </button>
+
+                <div className={filterGroupClass(statusFilter !== 'all')}>
+                  <button
+                    type="button"
+                    onClick={() => toggleStatusFilter('active')}
+                    className={filterChipClass(statusFilter === 'active')}
+                    aria-pressed={statusFilter === 'active'}
+                  >
+                    {t('users.summary.active', { count: userSummary.active })}
+                  </button>
+                  <span className="text-slate-300 dark:text-slate-600 select-none" aria-hidden>
+                    ·
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => toggleStatusFilter('inactive')}
+                    className={filterChipClass(statusFilter === 'inactive', userSummary.inactive > 0 && statusFilter !== 'inactive')}
+                    aria-pressed={statusFilter === 'inactive'}
+                  >
+                    {t('users.summary.inactive', { count: userSummary.inactive })}
+                  </button>
+                </div>
+
+                <span
+                  className="mx-0.5 h-3 w-px bg-slate-300 dark:bg-slate-600 shrink-0"
+                  aria-hidden
+                />
+
+                <div className={filterGroupClass(roleFilter !== 'all')}>
+                  <button
+                    type="button"
+                    onClick={() => toggleRoleFilter('admin')}
+                    className={filterChipClass(roleFilter === 'admin')}
+                    aria-pressed={roleFilter === 'admin'}
+                  >
+                    {t('users.summary.admin', { count: userSummary.admin })}
+                  </button>
+                  <span className="text-slate-300 dark:text-slate-600 select-none" aria-hidden>
+                    ·
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => toggleRoleFilter('member')}
+                    className={filterChipClass(roleFilter === 'member')}
+                    aria-pressed={roleFilter === 'member'}
+                  >
+                    {t('users.summary.member', { count: userSummary.member })}
+                  </button>
+                </div>
+
+                <span
+                  className="mx-0.5 h-3 w-px bg-slate-300 dark:bg-slate-600 shrink-0"
+                  aria-hidden
+                />
+
+                <div className={filterGroupClass(authFilter !== 'all')}>
+                  <button
+                    type="button"
+                    onClick={() => toggleAuthFilter('local')}
+                    className={filterChipClass(authFilter === 'local')}
+                    aria-pressed={authFilter === 'local'}
+                  >
+                    {t('users.summary.local', { count: userSummary.local })}
+                  </button>
+                  <span className="text-slate-300 dark:text-slate-600 select-none" aria-hidden>
+                    ·
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => toggleAuthFilter('google')}
+                    className={filterChipClass(authFilter === 'google')}
+                    aria-pressed={authFilter === 'google'}
+                  >
+                    {t('users.summary.google', { count: userSummary.google })}
+                  </button>
+                </div>
+
+                {hasActiveFilters && (
+                  <button
+                    type="button"
+                    onClick={clearUserFilters}
+                    className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-slate-500 hover:bg-slate-100 hover:text-slate-800 dark:hover:bg-slate-800 dark:hover:text-slate-100"
+                    title={t('users.clearFilters')}
+                    aria-label={t('users.clearFilters')}
+                  >
+                    <X size={12} />
+                    <span>{t('users.clearFilters')}</span>
+                  </button>
+                )}
+              </div>
+
+              <div className="relative ml-auto w-full sm:w-52 max-w-full">
+                <Search
+                  size={13}
+                  className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-slate-400"
+                  aria-hidden
+                />
+                <input
+                  ref={searchInputRef}
+                  type="search"
+                  value={userSearch}
+                  onChange={(e) => setUserSearch(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key !== 'Escape') return;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (userSearch.trim() !== '') {
+                      setUserSearch('');
+                    } else {
+                      e.currentTarget.blur();
+                    }
+                  }}
+                  placeholder={t('users.searchPlaceholder')}
+                  aria-label={t('users.searchPlaceholder')}
+                  className={`w-full rounded-md border bg-white dark:bg-slate-900 pl-7 pr-7 py-1 text-xs text-slate-800 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 ${
+                    userSearch.trim() !== ''
+                      ? 'border-sky-400 dark:border-sky-600'
+                      : 'border-slate-200 dark:border-slate-700'
+                  }`}
+                />
+                {userSearch.trim() !== '' && (
+                  <button
+                    type="button"
+                    onClick={() => setUserSearch('')}
+                    className="absolute right-1.5 top-1/2 -translate-y-1/2 p-0.5 rounded text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                    aria-label={t('users.clearSearch')}
+                  >
+                    <X size={12} />
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+          <div className="overflow-x-auto overflow-y-visible">
+            <table className="min-w-full">
+              <thead>
+                <tr className="border-b border-slate-200 dark:border-slate-700 bg-slate-50/90 dark:bg-slate-800/60">
+                  <th className="px-4 py-2.5 text-left text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide whitespace-nowrap">
+                    {t('users.tableHeaders.actions')}
+                  </th>
+                  {(
+                    [
+                      ['name', t('users.tableHeaders.name')],
+                      ['status', t('users.tableHeaders.status')],
+                      ['role', t('users.tableHeaders.role')],
+                      ['auth', t('users.tableHeaders.authType')],
+                    ] as const
+                  ).map(([key, label]) => {
+                    const active = sortKey === key;
+                    const SortIcon = !active ? ChevronsUpDown : sortDir === 'asc' ? ArrowUp : ArrowDown;
+                    return (
+                      <th
+                        key={key}
+                        className="px-4 py-2.5 text-left text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide whitespace-nowrap"
+                      >
+                        <button
+                          type="button"
+                          onClick={() => handleSort(key)}
+                          className={`inline-flex items-center gap-1 rounded-md -mx-1 px-1 py-0.5 hover:text-slate-800 dark:hover:text-slate-100 ${
+                            active ? 'text-slate-800 dark:text-slate-100' : ''
+                          }`}
+                          aria-sort={
+                            active ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'
+                          }
+                          title={
+                            active
+                              ? sortDir === 'asc'
+                                ? t('users.sortDescending')
+                                : t('users.sortAscending')
+                              : t('users.sortBy', { column: label })
+                          }
+                        >
+                          {label}
+                          <SortIcon
+                            size={12}
+                            className={active ? 'opacity-90' : 'opacity-40'}
+                            aria-hidden
+                          />
+                        </button>
+                      </th>
+                    );
+                  })}
+                  <th className="px-4 py-2.5 text-left text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide whitespace-nowrap">
+                    {t('users.tableHeaders.color')}
+                  </th>
+                  {(() => {
+                    const active = sortKey === 'joined';
+                    const SortIcon = !active ? ChevronsUpDown : sortDir === 'asc' ? ArrowUp : ArrowDown;
+                    const label = t('users.tableHeaders.joined');
+                    return (
+                      <th className="px-4 py-2.5 text-left text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide whitespace-nowrap">
+                        <button
+                          type="button"
+                          onClick={() => handleSort('joined')}
+                          className={`inline-flex items-center gap-1 rounded-md -mx-1 px-1 py-0.5 hover:text-slate-800 dark:hover:text-slate-100 ${
+                            active ? 'text-slate-800 dark:text-slate-100' : ''
+                          }`}
+                          aria-sort={
+                            active ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'
+                          }
+                          title={
+                            active
+                              ? sortDir === 'asc'
+                                ? t('users.sortDescending')
+                                : t('users.sortAscending')
+                              : t('users.sortBy', { column: label })
+                          }
+                        >
+                          {label}
+                          <SortIcon
+                            size={12}
+                            className={active ? 'opacity-90' : 'opacity-40'}
+                            aria-hidden
+                          />
+                        </button>
+                      </th>
+                    );
+                  })()}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                {displayedUsers.length > 0 ? (
+                  displayedUsers.map((user) => {
+                    const displayName = user.displayName || `${user.firstName} ${user.lastName}`.trim();
+                    const fullName = `${user.firstName} ${user.lastName}`.trim();
+                    return (
+                <tr key={user.id} data-user-id={user.id} className={ADMIN_TABLE_ROW_CLASS}>
+                  <td className="px-4 py-2.5 whitespace-nowrap">
+                    <div className="flex items-center gap-0.5">
                       {user.roles.includes('admin') ? (
                         <button
                           onClick={() => onRoleChange(user.id, 'demote')}
                           onMouseEnter={(e) => handleButtonMouseEnter(user.id, 'demote', e)}
                           onMouseLeave={handleButtonMouseLeave}
                           disabled={user.id === currentUser?.id || (!canModifyUser(user.email))}
-                          className={`p-1.5 rounded transition-colors ${
+                          className={`p-1.5 rounded-lg transition-colors ${
                             user.id === currentUser?.id || (!canModifyUser(user.email))
-                              ? 'text-gray-400 cursor-not-allowed'
-                              : 'text-red-600 hover:text-red-900 hover:bg-red-50'
+                              ? 'text-slate-300 dark:text-slate-600 cursor-not-allowed'
+                              : 'text-rose-600 hover:text-rose-800 hover:bg-rose-50 dark:hover:bg-rose-950/40'
                           }`}
                         >
-                          <UserIcon size={16} />
+                          <UserIcon size={15} />
                         </button>
                       ) : (
                         <button
@@ -564,27 +1016,27 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
                           onMouseEnter={(e) => handleButtonMouseEnter(user.id, 'promote', e)}
                           onMouseLeave={handleButtonMouseLeave}
                           disabled={!canModifyUser(user.email)}
-                          className={`p-1.5 rounded transition-colors ${
+                          className={`p-1.5 rounded-lg transition-colors ${
                             !canModifyUser(user.email)
-                              ? 'text-gray-400 cursor-not-allowed'
-                              : 'text-green-600 hover:text-green-900 hover:bg-green-50 dark:hover:bg-green-900'
+                              ? 'text-slate-300 dark:text-slate-600 cursor-not-allowed'
+                              : 'text-amber-600 hover:text-amber-800 hover:bg-amber-50 dark:hover:bg-amber-950/40'
                           }`}
                         >
-                          <Crown size={16} />
+                          <Crown size={15} />
                         </button>
                       )}
                       <button 
                         onClick={() => handleEditUserClick(user)}
                         onMouseEnter={(e) => handleButtonMouseEnter(user.id, 'edit', e)}
                         onMouseLeave={handleButtonMouseLeave}
-                        disabled={!canModifyUser(user.email)}
-                        className={`p-1.5 rounded transition-colors ${
-                          !canModifyUser(user.email)
-                            ? 'text-gray-400 cursor-not-allowed'
-                            : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100 dark:hover:bg-gray-700'
+                        disabled={!canEditUserProfile(user.email)}
+                        className={`p-1.5 rounded-lg transition-colors ${
+                          !canEditUserProfile(user.email)
+                            ? 'text-slate-300 dark:text-slate-600 cursor-not-allowed'
+                            : 'text-slate-500 hover:text-slate-800 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-slate-100 dark:hover:bg-slate-800'
                         }`}
                       >
-                        <Edit size={16} />
+                        <Edit size={15} />
                       </button>
                       <div className="relative">
                         <button
@@ -645,103 +1097,138 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
                           onMouseEnter={(e) => handleButtonMouseEnter(user.id, 'delete', e)}
                           onMouseLeave={handleButtonMouseLeave}
                           disabled={user.id === currentUser?.id || (!canModifyUser(user.email))}
-                          className={`p-1.5 rounded transition-colors ${
+                          className={`p-1.5 rounded-lg transition-colors ${
                             user.id === currentUser?.id || (!canModifyUser(user.email))
-                              ? 'text-gray-400 cursor-not-allowed'
-                              : 'text-red-600 hover:text-red-900 hover:bg-red-50'
+                              ? 'text-slate-300 dark:text-slate-600 cursor-not-allowed'
+                              : 'text-rose-600 hover:text-rose-800 hover:bg-rose-50 dark:hover:bg-rose-950/40'
                           }`}
                         >
-                          <Trash2 size={16} />
+                          <Trash2 size={15} />
                         </button>
-                        
                       </div>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap w-16">
-                    <div className="flex-shrink-0 h-10 w-10">
-                      {user.email === 'agent@local' ? (
-                        <img
-                          src={AGENT_BOT_AVATAR_SRC}
-                          alt={`${user.firstName} ${user.lastName}`}
-                          className="h-10 w-10 rounded-full object-cover"
-                        />
-                      ) : (user.googleAvatarUrl || user.avatarUrl) ? (
-                        <img
-                          src={getAuthenticatedAvatarUrl(user.googleAvatarUrl || user.avatarUrl)}
-                          alt={`${user.firstName} ${user.lastName}`}
-                          className="h-10 w-10 rounded-full object-cover"
-                        />
-                      ) : (
-                        <div 
-                          className="h-10 w-10 rounded-full flex items-center justify-center text-sm font-medium text-white"
-                          style={{ backgroundColor: user.memberColor || '#4ECDC4' }}
+                      {canResendInvitation(user) && (
+                        <button
+                          type="button"
+                          onClick={() => void handleResendInvitation(user.id)}
+                          onMouseEnter={(e) => handleButtonMouseEnter(user.id, 'resend', e)}
+                          onMouseLeave={handleButtonMouseLeave}
+                          disabled={isResendingInvitation}
+                          aria-busy={isResendingInvitation && resendingUserId === user.id}
+                          className={`p-1.5 rounded-lg transition-colors ${
+                            isResendingInvitation && resendingUserId !== user.id
+                              ? 'text-slate-300 dark:text-slate-600 cursor-not-allowed'
+                              : 'text-sky-600 hover:text-sky-800 hover:bg-sky-50 dark:text-sky-400 dark:hover:bg-sky-950/40 disabled:opacity-70 disabled:cursor-wait'
+                          }`}
+                          aria-label={
+                            isResendingInvitation && resendingUserId === user.id
+                              ? t('users.sendingInvitation')
+                              : t('users.resendInvitation')
+                          }
                         >
-                          {user.firstName?.[0]}{user.lastName?.[0]}
-                        </div>
+                          {isResendingInvitation && resendingUserId === user.id ? (
+                            <Loader2 size={15} className="animate-spin" aria-hidden />
+                          ) : (
+                            <Mail size={15} />
+                          )}
+                        </button>
                       )}
                     </div>
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap w-20">
-                    <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+                  <td className="px-4 py-2.5 min-w-[14rem]">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="shrink-0 h-9 w-9">
+                        {user.email === 'agent@local' && !(user.googleAvatarUrl || user.avatarUrl) ? (
+                          <img
+                            src={AGENT_BOT_AVATAR_SRC}
+                            alt={fullName}
+                            className="h-9 w-9 rounded-full object-cover ring-1 ring-slate-200 dark:ring-slate-600"
+                          />
+                        ) : (user.googleAvatarUrl || user.avatarUrl) ? (
+                          <img
+                            src={getAuthenticatedAvatarUrl(user.googleAvatarUrl || user.avatarUrl)}
+                            alt={fullName}
+                            className="h-9 w-9 rounded-full object-cover ring-1 ring-slate-200 dark:ring-slate-600"
+                          />
+                        ) : (
+                          <div 
+                            className="h-9 w-9 rounded-full flex items-center justify-center text-xs font-semibold text-white ring-1 ring-black/5"
+                            style={{ backgroundColor: user.memberColor || '#4ECDC4' }}
+                          >
+                            {user.firstName?.[0]}{user.lastName?.[0]}
+                          </div>
+                        )}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-sm font-medium text-slate-900 dark:text-slate-100 truncate">
+                          {displayName}
+                        </div>
+                        <div className="text-xs text-slate-500 dark:text-slate-400 truncate">
+                          {user.email}
+                        </div>
+                        {displayName !== fullName && fullName && (
+                          <div className="text-[11px] text-slate-400 dark:text-slate-500 truncate">
+                            {fullName}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-4 py-2.5 whitespace-nowrap">
+                    <span className={`inline-flex items-center px-2 py-0.5 text-[11px] font-medium rounded-md ${
                       user.isActive 
-                        ? 'bg-green-100 text-green-800' 
-                        : 'bg-red-100 text-red-800'
+                        ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300'
+                        : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'
                     }`}>
                       {user.isActive ? t('users.active') : t('users.inactive')}
                     </span>
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap w-32">
-                    <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
-                      {user.firstName} {user.lastName}
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100 w-48">
-                    {user.email}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100 w-32">
-                    {user.displayName || `${user.firstName} ${user.lastName}`}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap w-20">
-                    <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+                  <td className="px-4 py-2.5 whitespace-nowrap">
+                    <span className={`inline-flex items-center px-2 py-0.5 text-[11px] font-medium rounded-md ${
                       user.roles.includes('admin') 
-                        ? 'bg-green-100 text-green-800' 
-                        : 'bg-gray-100 text-gray-800'
+                        ? 'bg-violet-50 text-violet-700 dark:bg-violet-950/50 dark:text-violet-300'
+                        : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'
                     }`}>
                       {user.roles.includes('admin') ? t('users.admin') : t('users.user')}
                     </span>
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100 w-24">
-                    <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+                  <td className="px-4 py-2.5 whitespace-nowrap">
+                    <span className={`inline-flex items-center px-2 py-0.5 text-[11px] font-medium rounded-md ${
                       user.authProvider === 'google' 
-                        ? 'bg-blue-100 text-blue-800' 
-                        : 'bg-gray-100 text-gray-800'
+                        ? 'bg-sky-50 text-sky-700 dark:bg-sky-950/50 dark:text-sky-300'
+                        : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'
                     }`}>
                       {user.authProvider === 'google' ? t('users.google') : t('users.local')}
                     </span>
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap w-20">
+                  <td className="px-4 py-2.5 whitespace-nowrap">
                     <div 
                       ref={(el) => { colorButtonRefs.current[user.id] = el; }}
-                      className="w-6 h-6 rounded-full border-2 border-gray-200 dark:border-gray-600 cursor-pointer hover:scale-110 transition-transform"
+                      className="w-6 h-6 rounded-full border border-slate-200 dark:border-slate-600 cursor-pointer hover:scale-110 transition-transform shadow-sm"
                       style={{ backgroundColor: user.memberColor || '#4ECDC4' }}
                       onClick={(e) => handleColorChange(user.id, user.memberColor || '#4ECDC4', e)}
                       title={t('users.clickToChangeColor')}
                     />
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100 w-28">
-                    {user.joined}
+                  <td className="px-4 py-2.5 whitespace-nowrap text-xs font-mono tabular-nums text-slate-600 dark:text-slate-300">
+                    {formatToYYYYMMDDHHmmss(user.joined || user.createdAt)}
                   </td>
                 </tr>
-                ))
-              ) : (
+                    );
+                  })
+                ) : (
                 <tr>
-                  <td colSpan={10} className="px-6 py-4 text-center text-gray-500 dark:text-gray-400">
-                    {loading ? t('users.loadingUsers') : t('users.noUsersFound')}
+                  <td colSpan={7} className="px-4 py-8 text-center text-sm text-slate-500 dark:text-slate-400">
+                    {loading
+                      ? t('users.loadingUsers')
+                      : hasActiveFilters
+                        ? t('users.noMatchingUsers')
+                        : t('users.noUsersFound')}
                   </td>
                 </tr>
               )}
-            </tbody>
-          </table>
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
 
@@ -884,6 +1371,11 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
           <div className="relative top-20 mx-auto p-5 border border-gray-300 dark:border-gray-600 w-96 shadow-lg rounded-md bg-white dark:bg-gray-800">
             <div className="mt-3">
               <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">{t('users.editUser')}</h3>
+              {isLocalPseudoAccount(editingUserData.email) && (
+                <p className="mb-3 text-xs text-slate-600 dark:text-slate-400 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-md px-2.5 py-2">
+                  {t('users.pseudoProfileHint')}
+                </p>
+              )}
               <div className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('users.firstName')}</label>
@@ -922,19 +1414,28 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
                     {isOwner(editingUserData.email) && (
                       <span className="ml-2 text-xs text-amber-600 font-normal">{t('users.ownerCannotBeChanged')}</span>
                     )}
+                    {isLocalPseudoAccount(editingUserData.email) && (
+                      <span className="ml-2 text-xs text-amber-600 font-normal">{t('users.pseudoEmailLocked')}</span>
+                    )}
                   </label>
                   <input
                     type="email"
                     value={editingUserData.email}
                     onChange={(e) => setEditingUserData(prev => ({ ...prev, email: e.target.value }))}
-                    disabled={isOwner(editingUserData.email)}
+                    disabled={isOwner(editingUserData.email) || isLocalPseudoAccount(editingUserData.email)}
                     className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 ${
-                      isOwner(editingUserData.email)
+                      isOwner(editingUserData.email) || isLocalPseudoAccount(editingUserData.email)
                         ? 'bg-gray-100 dark:bg-gray-600 text-gray-500 dark:text-gray-400 cursor-not-allowed border-gray-300 dark:border-gray-500'
                         : 'bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 border-gray-300 dark:border-gray-600'
                     }`}
                     placeholder="user@example.com"
-                    title={isOwner(editingUserData.email) ? t('users.instanceOwnerEmailCannotBeChanged') : ''}
+                    title={
+                      isOwner(editingUserData.email)
+                        ? t('users.instanceOwnerEmailCannotBeChanged')
+                        : isLocalPseudoAccount(editingUserData.email)
+                          ? t('users.pseudoEmailLocked')
+                          : ''
+                    }
                   />
                   {isOwner(editingUserData.email) && (
                     <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">
@@ -942,6 +1443,7 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
                     </p>
                   )}
                 </div>
+                {!isLocalPseudoAccount(editingUserData.email) && (
                 <div>
                   <label className="flex items-center">
                     <ModernCheckbox
@@ -951,6 +1453,7 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
                     <span className="ml-2 text-sm text-gray-700">{t('users.active')}</span>
                   </label>
                 </div>
+                )}
                 
                 {/* Avatar Section */}
                 <div>
@@ -962,6 +1465,12 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
                         <img
                           src={avatarPreviewUrl}
                           alt="Avatar preview"
+                          className="w-12 h-12 rounded-full object-cover"
+                        />
+                      ) : editingUserData.email === 'agent@local' && !(editingUserData.googleAvatarUrl || editingUserData.avatarUrl) ? (
+                        <img
+                          src={AGENT_BOT_AVATAR_SRC}
+                          alt="Agent avatar"
                           className="w-12 h-12 rounded-full object-cover"
                         />
                       ) : (editingUserData.googleAvatarUrl || editingUserData.avatarUrl) ? (
@@ -1012,20 +1521,24 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
                   </div>
                 </div>
               </div>
-              {/* Show resend invitation button for inactive local users */}
-              {editingUserData.authProvider === 'local' && !editingUserData.isActive && (
-                <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-md">
-                  <div className="flex items-center justify-between">
+              {/* Resend invite — never for @local pseudo accounts */}
+              {canResendInvitation(editingUserData) && (
+                <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-md dark:bg-amber-950/30 dark:border-amber-800">
+                  <div className="flex items-center justify-between gap-3">
                     <div>
-                      <p className="text-sm font-medium text-amber-800">{t('users.accountPendingActivation')}</p>
-                      <p className="text-xs text-amber-600">{t('users.accountNotActivatedYet')}</p>
+                      <p className="text-sm font-medium text-amber-800 dark:text-amber-200">{t('users.accountPendingActivation')}</p>
+                      <p className="text-xs text-amber-600 dark:text-amber-400">{t('users.accountNotActivatedYet')}</p>
                     </div>
                     <button
-                      onClick={handleResendInvitation}
+                      onClick={() => void handleResendInvitation()}
                       disabled={isResendingInvitation || isSubmitting}
-                      className="px-3 py-1 text-xs bg-amber-600 text-white rounded hover:bg-amber-700 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                      aria-busy={isResendingInvitation}
+                      className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1 text-xs bg-amber-600 text-white rounded hover:bg-amber-700 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-wait"
                     >
-                      {isResendingInvitation ? t('users.sending') : t('users.resendInvitation')}
+                      {isResendingInvitation && (
+                        <Loader2 size={12} className="animate-spin" aria-hidden />
+                      )}
+                      {isResendingInvitation ? t('users.sendingInvitation') : t('users.resendInvitation')}
                     </button>
                   </div>
                 </div>
@@ -1232,7 +1745,15 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
                     ? t('users.cannotDemoteInstanceOwner') 
                     : t('users.demoteToUser');
               case 'edit':
-                return !canModifyUser(user.email) ? t('users.onlyOwnerCanEditProfile') : t('users.editUser');
+                return !canEditUserProfile(user.email)
+                  ? t('users.onlyOwnerCanEditProfile')
+                  : isLocalPseudoAccount(user.email)
+                    ? t('users.editPseudoProfile')
+                    : t('users.editUser');
+              case 'resend':
+                return isResendingInvitation && resendingUserId === hoveredButton.userId
+                  ? t('users.sendingInvitation')
+                  : t('users.resendInvitation');
               case 'delete':
                 return user.id === currentUser?.id 
                   ? t('cannotDeleteOwnAccount') 

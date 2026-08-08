@@ -85,8 +85,9 @@ import { useWebSocketConnection } from './hooks/useWebSocketConnection';
 import { generateUUID } from './utils/uuid';
 import { formatToYYYYMMDD } from './utils/dateUtils';
 import websocketClient from './services/websocketClient';
+import { resolveActivityFeedPosition } from './utils/activityFeedPosition';
 import { loadUserPreferences, loadUserPreferencesAsync, mergeClearedKanbanVisibilityFilters, saveUserPreferences, updateUserPreference, updateActivityFeedPreference, loadAdminDefaults, TaskViewMode, ViewMode, isGloballySavingPreferences, registerSavingStateCallback, UserPreferences, clearAllUserPreferenceCookies } from './utils/userPreferences';
-import { resolveGuestLanguage, normalizeAppLanguage } from './utils/guestLanguage';
+import { resolveGuestLanguage, normalizeAppLanguage, getExplicitGuestLanguage, setExplicitGuestLanguage } from './utils/guestLanguage';
 import { versionDetection } from './utils/versionDetection';
 import { getAllPriorities, getAllTags, getTags, getPriorities, getSettings, getTaskWatchers, getTaskCollaborators, addTagToTask, removeTagFromTask, getBoardTaskRelationships, getTaskRelationships, getAllSprints, getUserSettings, removeTaskRelationship } from './api';
 import { 
@@ -730,6 +731,54 @@ function AppContent() {
   
   // Initialize Activity Feed hook now that currentUser is available
   const activityFeed = useActivityFeed(currentUser?.id || null);
+  /** Session-only: we auto-minimized because TaskDetails overlapped the feed. */
+  const activityFeedAutoMinForTaskRef = useRef(false);
+
+  // When TaskDetails would cover the feed, auto-minimize (do not persist). Restore on close.
+  useEffect(() => {
+    if (!activityFeed.showActivityFeed || typeof window === 'undefined') return;
+
+    if (!selectedTask) {
+      if (activityFeedAutoMinForTaskRef.current) {
+        activityFeedAutoMinForTaskRef.current = false;
+        activityFeed.setActivityFeedMinimized(false);
+      }
+      return;
+    }
+
+    if (activityFeed.activityFeedMinimized) return;
+
+    const prefs = loadUserPreferences(currentUser?.id || null);
+    const prefWidth = Number(prefs.taskDetailsWidth) || 480;
+    const mobile = window.matchMedia('(max-width: 1023px)').matches;
+    const detailsWidth = Math.min(
+      window.innerWidth,
+      mobile ? Math.max(prefWidth, Math.round(window.innerWidth * 0.88)) : prefWidth
+    );
+    const taskLeft = window.innerWidth - detailsWidth;
+    const feedW = activityFeed.activityFeedDimensions.width;
+    const feedH = activityFeed.activityFeedDimensions.height;
+    const abs = resolveActivityFeedPosition(
+      activityFeed.activityFeedPosition,
+      feedW,
+      window.innerWidth
+    );
+    const overlapsHorizontally = abs.x + feedW > taskLeft + 8 && abs.x < window.innerWidth - 8;
+    const overlapsVertically = abs.y < window.innerHeight - 8 && abs.y + feedH > 66;
+
+    if (overlapsHorizontally && overlapsVertically) {
+      activityFeedAutoMinForTaskRef.current = true;
+      activityFeed.setActivityFeedMinimized(true);
+    }
+  }, [
+    selectedTask,
+    activityFeed.showActivityFeed,
+    activityFeed.activityFeedMinimized,
+    activityFeed.activityFeedPosition,
+    activityFeed.activityFeedDimensions.width,
+    activityFeed.activityFeedDimensions.height,
+    currentUser?.id,
+  ]);
 
   // User status update handler with force logout functionality
   const handleUserStatusUpdate = (newUserStatus: UserStatus) => {
@@ -882,21 +931,20 @@ function AppContent() {
   // Note: Activity feed settings are now loaded together with other user preferences
   // in the consolidated useEffect below to avoid duplicate API calls
 
-  // Load admin defaults for new user preferences (only for admin users)
+  // Load admin defaults for new user preferences (all authenticated users)
   useEffect(() => {
-    if (!isAuthenticated || !currentUser?.roles?.includes('admin')) return;
+    if (!isAuthenticated) return;
     
     const initializeAdminDefaults = async () => {
       try {
         await loadAdminDefaults();
-        // console.log('Admin defaults loaded for admin users');
       } catch (error) {
         // console.warn('Failed to load admin defaults:', error);
       }
     };
     
     initializeAdminDefaults();
-  }, [isAuthenticated, currentUser?.roles, userStatus?.isAdmin]); // Run when authentication status, user roles, or admin status change
+  }, [isAuthenticated]); // Run when authentication status changes
 
   // Initialize i18n and change language based on user preferences or browser language
   const { i18n } = useTranslation();
@@ -909,22 +957,31 @@ function AppContent() {
           // Load preferences from database (not just cookies)
           const prefs = await loadUserPreferencesAsync(currentUser.id);
           
-          // Language:
-          // - If DB has a saved preferred language, use it (do not overwrite)
-          // - Otherwise seed once from guest UI resolution (explicit → APP_LANGUAGE → browser)
-          //   so first login matches emails / login screen on FR instances
+          // Language sync (login ↔ app):
+          // 1) Explicit choice made on login/guest screens wins and is saved as user pref
+          // 2) Else existing user pref from DB
+          // 3) Else seed from browser → APP_LANGUAGE and save once
           const dbSettings = await getUserSettings();
           const dbLang = normalizeAppLanguage(dbSettings?.language);
+          const explicitGuest = getExplicitGuestLanguage();
           let languageToUse: 'en' | 'fr';
 
-          if (dbLang) {
+          if (explicitGuest) {
+            languageToUse = explicitGuest;
+            if (dbLang !== explicitGuest) {
+              await updateUserPreference('language', explicitGuest, currentUser.id);
+            }
+          } else if (dbLang) {
             languageToUse = dbLang;
+            // Keep login screen aligned after logout
+            setExplicitGuestLanguage(dbLang);
           } else {
             languageToUse = resolveGuestLanguage({
               appLanguage: siteSettings?.APP_LANGUAGE || systemSettings?.APP_LANGUAGE,
               browserLanguage: navigator.language || (navigator as any).userLanguage,
             });
             await updateUserPreference('language', languageToUse, currentUser.id);
+            setExplicitGuestLanguage(languageToUse);
           }
           
           // Change i18n language if needed
@@ -2019,7 +2076,9 @@ function AppContent() {
         activityFeed.setShowActivityFeed(userSpecificPrefs.appSettings.showActivityFeed !== undefined 
           ? userSpecificPrefs.appSettings.showActivityFeed 
           : defaultFromSystem);
-        activityFeed.setActivityFeedMinimized(userSpecificPrefs.activityFeed.minimized);
+        activityFeed.setActivityFeedMinimized(
+          userSpecificPrefs.activityFeed.isMinimized === true
+        );
         activityFeed.setLastSeenActivityId(userSpecificPrefs.activityFeed.lastSeenActivityId);
         activityFeed.setClearActivityId(userSpecificPrefs.activityFeed.clearActivityId);
         activityFeed.setActivityFeedPosition(userSpecificPrefs.activityFeed.position);
@@ -4935,7 +4994,13 @@ function AppContent() {
         isVisible={activityFeed.showActivityFeed}
         onClose={() => activityFeed.setShowActivityFeed(false)}
         isMinimized={activityFeed.activityFeedMinimized}
-        onMinimizedChange={activityFeed.handleActivityFeedMinimizedChange}
+        onMinimizedChange={(minimized) => {
+          // User expanded while TaskDetails open → don't force-restore later
+          if (!minimized) {
+            activityFeedAutoMinForTaskRef.current = false;
+          }
+          activityFeed.handleActivityFeedMinimizedChange(minimized);
+        }}
         activities={activityFeed.activities}
         lastSeenActivityId={activityFeed.lastSeenActivityId}
         clearActivityId={activityFeed.clearActivityId}

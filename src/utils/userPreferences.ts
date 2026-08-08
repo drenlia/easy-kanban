@@ -331,7 +331,7 @@ const BASE_DEFAULT_PREFERENCES: UserPreferences = {
   },
   activityFeed: {
     isMinimized: false,
-    position: { x: 10, y: 220 }, // Position on left side with 10px margin
+    position: { x: 10, y: 66 }, // Signed X: positive = inset from left (clear of TaskDetails)
     width: 160, // Default width (now supports 120-600px range)
     height: 400, // Default height (matches database default)
     lastSeenActivityId: 0,
@@ -343,30 +343,9 @@ const BASE_DEFAULT_PREFERENCES: UserPreferences = {
 // Admin-configurable default preferences (loaded from system settings)
 let ADMIN_DEFAULT_PREFERENCES: Partial<UserPreferences> | null = null;
 
-// Helper function to check if user is admin by checking token payload
-const checkIsAdminFromToken = (): boolean => {
-  try {
-    const token = localStorage.getItem('authToken');
-    if (!token) return false;
-    
-    // Decode JWT token to check roles (simple base64 decode, no verification needed for client-side check)
-    const payload = JSON.parse(atob(token.split('.')[1]));
-    return payload.roles && Array.isArray(payload.roles) && payload.roles.includes('admin');
-  } catch (error) {
-    return false;
-  }
-};
-
-// Function to load admin defaults from system settings
+// Function to load admin defaults from system settings (all authenticated users)
 export const loadAdminDefaults = async (): Promise<void> => {
   try {
-    // Only load admin defaults if user is actually an admin
-    // Non-admin users don't need admin-configured defaults
-    if (!checkIsAdminFromToken()) {
-      ADMIN_DEFAULT_PREFERENCES = {};
-      return;
-    }
-    
     // Use the cached getSettings function to prevent duplicate calls with SettingsContext
     const { getSettings } = await import('../api');
     const settings = await getSettings();
@@ -389,9 +368,14 @@ export const loadAdminDefaults = async (): Promise<void> => {
     // Example: Admin can set default activity feed position
     if (settings.DEFAULT_ACTIVITY_FEED_POSITION) {
       try {
+        const { normalizeStoredActivityFeedPosition, DEFAULT_ACTIVITY_FEED_STORED_POSITION } =
+          await import('./activityFeedPosition');
         ADMIN_DEFAULT_PREFERENCES.activityFeed = {
           ...BASE_DEFAULT_PREFERENCES.activityFeed,
-          position: JSON.parse(settings.DEFAULT_ACTIVITY_FEED_POSITION)
+          position: normalizeStoredActivityFeedPosition(
+            JSON.parse(settings.DEFAULT_ACTIVITY_FEED_POSITION),
+            DEFAULT_ACTIVITY_FEED_STORED_POSITION
+          ),
         };
       } catch (e) {
         console.warn('Failed to parse DEFAULT_ACTIVITY_FEED_POSITION:', e);
@@ -400,10 +384,16 @@ export const loadAdminDefaults = async (): Promise<void> => {
     
     // Example: Admin can set default activity feed dimensions
     if (settings.DEFAULT_ACTIVITY_FEED_WIDTH || settings.DEFAULT_ACTIVITY_FEED_HEIGHT) {
+      const widthRaw = settings.DEFAULT_ACTIVITY_FEED_WIDTH;
+      const heightRaw = settings.DEFAULT_ACTIVITY_FEED_HEIGHT;
       ADMIN_DEFAULT_PREFERENCES.activityFeed = {
-        ...ADMIN_DEFAULT_PREFERENCES.activityFeed || BASE_DEFAULT_PREFERENCES.activityFeed,
-        width: settings.DEFAULT_ACTIVITY_FEED_WIDTH || BASE_DEFAULT_PREFERENCES.activityFeed.width,
-        height: settings.DEFAULT_ACTIVITY_FEED_HEIGHT || BASE_DEFAULT_PREFERENCES.activityFeed.height
+        ...(ADMIN_DEFAULT_PREFERENCES.activityFeed || BASE_DEFAULT_PREFERENCES.activityFeed),
+        width: widthRaw != null && widthRaw !== ''
+          ? Number(widthRaw)
+          : (ADMIN_DEFAULT_PREFERENCES.activityFeed?.width ?? BASE_DEFAULT_PREFERENCES.activityFeed.width),
+        height: heightRaw != null && heightRaw !== ''
+          ? Number(heightRaw)
+          : (ADMIN_DEFAULT_PREFERENCES.activityFeed?.height ?? BASE_DEFAULT_PREFERENCES.activityFeed.height),
       };
     }
     
@@ -800,6 +790,12 @@ const isDefaultValue = (cookieValue: any, defaultValue: any): boolean => {
 // Load preferences from cookie and database (for authenticated users)
 export const loadUserPreferencesAsync = async (userId: string | null = null): Promise<UserPreferences> => {
   const resolvedUserId = resolvePreferencesUserId(userId);
+  // Tenant admin defaults must be available before merge (all users)
+  try {
+    await loadAdminDefaults();
+  } catch {
+    // keep base defaults
+  }
   // Start with cookie + localStorage preferences
   let preferences = loadUserPreferences(resolvedUserId);
   let needsCookieUpdate = false;
@@ -1006,14 +1002,47 @@ export const loadUserPreferencesAsync = async (userId: string | null = null): Pr
         // Activity Feed Settings
         activityFeed: {
           ...preferences.activityFeed,
-          isMinimized: smartMerge(preferences.activityFeed.isMinimized, dbSettings.activityFeedMinimized, defaults.activityFeed.isMinimized),
-          position: smartMerge(preferences.activityFeed.position, dbSettings.activityFeedPosition ? JSON.parse(dbSettings.activityFeedPosition) : undefined, defaults.activityFeed.position),
-          // Validate and clamp width to valid range (120-200px) to prevent corrupted values
+          isMinimized: (() => {
+            const coerceBool = (v: unknown): boolean | undefined => {
+              if (v === undefined || v === null) return undefined;
+              if (v === true || v === 'true' || v === 1 || v === '1') return true;
+              if (v === false || v === 'false' || v === 0 || v === '0') return false;
+              return undefined;
+            };
+            // Prefer DB when present so refresh restores minimized chrome correctly
+            const fromDb = coerceBool(dbSettings.activityFeedMinimized);
+            if (fromDb !== undefined) {
+              if (fromDb !== preferences.activityFeed.isMinimized) {
+                needsCookieUpdate = true;
+              }
+              return fromDb;
+            }
+            return preferences.activityFeed.isMinimized === true;
+          })(),
+          position: (() => {
+            let dbPos: { x: number; y: number } | undefined;
+            try {
+              dbPos = dbSettings.activityFeedPosition
+                ? JSON.parse(dbSettings.activityFeedPosition)
+                : undefined;
+            } catch {
+              dbPos = undefined;
+            }
+            return smartMerge(
+              preferences.activityFeed.position,
+              dbPos,
+              defaults.activityFeed.position
+            );
+          })(),
+          // Validate and clamp width to valid range (120-600px) to prevent corrupted values
           width: (() => {
             const mergedWidth = smartMerge(preferences.activityFeed.width, dbSettings.activityFeedWidth, defaults.activityFeed.width);
-            return Math.max(120, Math.min(200, mergedWidth));
+            return Math.max(120, Math.min(600, Number(mergedWidth) || defaults.activityFeed.width));
           })(),
-          height: smartMerge(preferences.activityFeed.height, dbSettings.activityFeedHeight, defaults.activityFeed.height),
+          height: (() => {
+            const mergedHeight = smartMerge(preferences.activityFeed.height, dbSettings.activityFeedHeight, defaults.activityFeed.height);
+            return Math.max(200, Math.min(800, Number(mergedHeight) || defaults.activityFeed.height));
+          })(),
           lastSeenActivityId: smartMerge(preferences.activityFeed.lastSeenActivityId, dbSettings.lastSeenActivityId, defaults.activityFeed.lastSeenActivityId),
           clearActivityId: smartMerge(preferences.activityFeed.clearActivityId, dbSettings.clearActivityId, defaults.activityFeed.clearActivityId),
           filterText: smartMerge(preferences.activityFeed.filterText, dbSettings.activityFilterText, defaults.activityFeed.filterText),
@@ -1036,6 +1065,41 @@ export const loadUserPreferencesAsync = async (userId: string | null = null): Pr
           );
         })()
       };
+
+      // One-time layout migration: right-edge signed X (v2). Resets stored positions
+      // after server clears activityFeedPosition and updates defaults.
+      try {
+        const {
+          ACTIVITY_FEED_LAYOUT_VERSION,
+          activityFeedLayoutVersionKey,
+          normalizeStoredActivityFeedPosition,
+          DEFAULT_ACTIVITY_FEED_STORED_POSITION,
+        } = await import('./activityFeedPosition');
+        const layoutKey = activityFeedLayoutVersionKey(resolvedUserId);
+        const currentLayout = Number(localStorage.getItem(layoutKey) || '1');
+        if (currentLayout < ACTIVITY_FEED_LAYOUT_VERSION) {
+          preferences.activityFeed = {
+            ...preferences.activityFeed,
+            position: normalizeStoredActivityFeedPosition(
+              defaults.activityFeed.position,
+              DEFAULT_ACTIVITY_FEED_STORED_POSITION
+            ),
+          };
+          localStorage.setItem(layoutKey, String(ACTIVITY_FEED_LAYOUT_VERSION));
+          needsCookieUpdate = true;
+          try {
+            const { updateUserSetting } = await import('../api');
+            await updateUserSetting(
+              'activityFeedPosition',
+              JSON.stringify(preferences.activityFeed.position)
+            );
+          } catch (e) {
+            console.warn('Failed to persist migrated activity feed position:', e);
+          }
+        }
+      } catch (e) {
+        console.warn('Activity feed layout migration skipped:', e);
+      }
       
       // Persist merged values back to the appropriate client stores
       if (needsCookieUpdate) {

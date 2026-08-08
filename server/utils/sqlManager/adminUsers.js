@@ -266,7 +266,7 @@ export async function deleteUser(db, userId) {
 export async function createSystemMember(db, systemMemberId, systemUserId) {
   const query = `
     INSERT INTO members (id, name, color, user_id) 
-    VALUES ($1, 'SYSTEM', '#1E40AF', $2)
+    VALUES ($1, 'System', '#1E40AF', $2)
     ON CONFLICT (id) DO NOTHING
   `;
   

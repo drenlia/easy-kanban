@@ -3,19 +3,34 @@ import { useTranslation } from 'react-i18next';
 import { Search } from 'lucide-react';
 import type { AdminSearchEntry } from '../../constants/adminSearchIndex';
 import {
+  scrollToAdminEntity,
   scrollToAdminSetting,
-  searchAdminIndex,
+  searchAdminAll,
+  type AdminContentHit,
+  type AdminSearchContentSources,
   type AdminSearchHit,
+  type AdminUnifiedSearchHit,
 } from '../../utils/adminSettingsSearch';
 
 interface AdminSettingsSearchProps {
   activeTab: string;
   onNavigate: (tab: string, hash: string) => void;
+  contentSources?: AdminSearchContentSources;
+}
+
+function isContentHit(hit: AdminUnifiedSearchHit): hit is AdminContentHit {
+  return (
+    hit.kind === 'user' ||
+    hit.kind === 'tag' ||
+    hit.kind === 'priority' ||
+    hit.kind === 'settingValue'
+  );
 }
 
 const AdminSettingsSearch: React.FC<AdminSettingsSearchProps> = ({
   activeTab,
   onNavigate,
+  contentSources,
 }) => {
   const { t } = useTranslation('admin');
   const [query, setQuery] = useState('');
@@ -25,8 +40,11 @@ const AdminSettingsSearch: React.FC<AdminSettingsSearchProps> = ({
   const inputRef = useRef<HTMLInputElement>(null);
 
   const hits = useMemo(
-    () => (query.trim() ? searchAdminIndex(query, (key) => t(key)) : []),
-    [query, t]
+    () =>
+      query.trim()
+        ? searchAdminAll(query, (key) => t(key), contentSources || {}, 12)
+        : [],
+    [query, t, contentSources]
   );
 
   useEffect(() => {
@@ -63,13 +81,49 @@ const AdminSettingsSearch: React.FC<AdminSettingsSearchProps> = ({
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
-  const selectHit = (entry: AdminSearchEntry | AdminSearchHit) => {
+  const selectHit = (entry: AdminSearchEntry | AdminSearchHit | AdminContentHit) => {
     setOpen(false);
     setQuery('');
     onNavigate(entry.tab, entry.hash);
+
+    if (isContentHit(entry as AdminUnifiedSearchHit)) {
+      const content = entry as AdminContentHit;
+      window.setTimeout(() => {
+        if (content.kind === 'user' && content.entityId) {
+          scrollToAdminEntity('data-user-id', content.entityId);
+        } else if (content.kind === 'tag' && content.entityId) {
+          scrollToAdminEntity('data-tag-id', content.entityId);
+        } else if (content.kind === 'priority' && content.entityId) {
+          scrollToAdminEntity('data-priority-id', content.entityId);
+        } else if (content.kind === 'settingValue' && content.settingKey) {
+          scrollToAdminSetting(content.settingKey);
+        }
+      }, 80);
+      return;
+    }
+
     if (entry.settingKey) {
       // Allow tab mount + hash-driven sub-tab switch
       window.setTimeout(() => scrollToAdminSetting(entry.settingKey!), 80);
+    }
+  };
+
+  const kindLabel = (hit: AdminUnifiedSearchHit): string => {
+    switch (hit.kind) {
+      case 'tab':
+        return t('search.tab');
+      case 'setting':
+        return t('search.setting');
+      case 'user':
+        return t('search.user');
+      case 'tag':
+        return t('search.tag');
+      case 'priority':
+        return t('search.priority');
+      case 'settingValue':
+        return t('search.settingValue');
+      default:
+        return t('search.setting');
     }
   };
 
@@ -147,8 +201,13 @@ const AdminSettingsSearch: React.FC<AdminSettingsSearchProps> = ({
                   onClick={() => selectHit(hit)}
                 >
                   <span className="font-medium leading-tight">{hit.displayLabel}</span>
+                  {hit.detail && (
+                    <span className="text-xs text-gray-600 dark:text-gray-300 truncate max-w-full">
+                      {hit.detail}
+                    </span>
+                  )}
                   <span className="text-xs text-gray-500 dark:text-gray-400">
-                    {hit.kind === 'tab' ? t('search.tab') : t('search.setting')}
+                    {kindLabel(hit)}
                     {hit.tab !== activeTab
                       ? ` · ${t(`tabs.${tabLabelKey(hit.tab)}`)}`
                       : ''}

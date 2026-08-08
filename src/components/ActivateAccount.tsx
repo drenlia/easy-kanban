@@ -3,6 +3,13 @@ import { useTranslation } from 'react-i18next';
 import { ArrowLeft, Eye, EyeOff, CheckCircle } from 'lucide-react';
 import { login } from '../api';
 import { setExplicitGuestLanguage } from '../utils/guestLanguage';
+import { useSettings } from '../contexts/SettingsContext';
+import { resolvePublicBrandLogoSrc } from '../utils/brandLogo';
+
+function readDocumentTheme(): 'light' | 'dark' {
+  if (typeof document === 'undefined') return 'light';
+  return document.documentElement.classList.contains('dark') ? 'dark' : 'light';
+}
 
 interface ActivateAccountProps {
   token: string;
@@ -14,6 +21,10 @@ interface ActivateAccountProps {
 
 export default function ActivateAccount({ token, email, onBackToLogin, onAutoLogin, isLoading: isLoadingProps }: ActivateAccountProps) {
   const { t, i18n } = useTranslation('auth');
+  const { siteSettings } = useSettings();
+  const [theme, setTheme] = useState<'light' | 'dark'>(readDocumentTheme);
+  const logoSrc = resolvePublicBrandLogoSrc(siteSettings, theme);
+  const siteName = String(siteSettings?.SITE_NAME ?? '').trim();
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -23,6 +34,17 @@ export default function ActivateAccount({ token, email, onBackToLogin, onAutoLog
   const [tokenValid, setTokenValid] = useState<boolean | null>(null);
   const [success, setSuccess] = useState(false);
   const [googleOAuthEnabled, setGoogleOAuthEnabled] = useState(false);
+
+  useEffect(() => {
+    const syncTheme = () => setTheme(readDocumentTheme());
+    syncTheme();
+    const observer = new MutationObserver(syncTheme);
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['class'],
+    });
+    return () => observer.disconnect();
+  }, []);
 
   const currentLanguage = (i18n.language || 'en').toLowerCase().startsWith('fr') ? 'fr' : 'en';
   const handleLanguageToggle = async () => {
@@ -273,12 +295,14 @@ export default function ActivateAccount({ token, email, onBackToLogin, onAutoLog
       {languageToggle}
       <div className="max-w-md w-full space-y-8">
         <div>
-          <div className="mx-auto h-12 w-12 bg-blue-600 rounded-full flex items-center justify-center">
-            <svg className="h-8 w-8 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-          </div>
-          <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
+          {logoSrc ? (
+            <img
+              src={logoSrc}
+              alt={siteName || 'Agila'}
+              className="mx-auto h-12 w-auto max-w-[220px] object-contain"
+            />
+          ) : null}
+          <h2 className={`${logoSrc ? 'mt-6' : ''} text-center text-3xl font-extrabold text-gray-900`}>
             {t('activateAccount.title')}
           </h2>
           <p className="mt-2 text-center text-sm text-gray-600">

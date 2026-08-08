@@ -1,12 +1,31 @@
 /** Shared Admin numeric limits and clamp helpers (type freely; clamp on blur/save). */
 
+import {
+  ACTIVITY_FEED_INSET,
+  ACTIVITY_FEED_POS_Y,
+  DEFAULT_ACTIVITY_FEED_STORED_POSITION,
+  activityFeedEdgeFromStored,
+  activityFeedInsetFromStored,
+  storedActivityFeedPositionFromEdge,
+  type ActivityFeedPosition,
+} from './activityFeedPosition';
+
 export const ADMIN_NUMERIC_INPUT_CLASS =
   'admin-numeric-input [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none';
 
+/**
+ * Admin data-table row hover (matches ListView / board tables).
+ * Box-shadow on bare table rows is unreliable across browsers; use background shade.
+ */
+export const ADMIN_TABLE_ROW_CLASS =
+  'hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors duration-150';
+
 export const ACTIVITY_FEED_WIDTH = { min: 120, max: 400 } as const;
 export const ACTIVITY_FEED_HEIGHT = { min: 200, max: 800 } as const;
-export const ACTIVITY_FEED_POS_X = { min: 0, max: 120 } as const;
-export const ACTIVITY_FEED_POS_Y = { min: 66, max: 800 } as const;
+/** @deprecated Prefer ACTIVITY_FEED_INSET — kept for any leftover imports */
+export const ACTIVITY_FEED_POS_X = ACTIVITY_FEED_INSET;
+export { ACTIVITY_FEED_INSET, ACTIVITY_FEED_POS_Y };
+export type { ActivityFeedPosition };
 
 /** Max upload size in MB (stored as bytes in settings). */
 export const UPLOAD_MAX_MB = { min: 0, max: 1024 } as const;
@@ -72,38 +91,87 @@ export function clampIntToString(
   return String(clampInt(raw, min, max, fallback));
 }
 
-export type ActivityFeedPosition = { x: number; y: number };
+export type ActivityFeedPositionDraft = {
+  edge: 'left' | 'right';
+  inset: string | number;
+  y: string | number;
+};
 
 /** Read position for display while typing (not clamped). */
 export function readActivityFeedPositionRaw(
   raw: string | undefined
-): { x: string | number; y: string | number } {
+): ActivityFeedPositionDraft {
   try {
-    const parsed = JSON.parse(raw || '{"x":10,"y":66}');
+    const parsed = JSON.parse(
+      raw || JSON.stringify(DEFAULT_ACTIVITY_FEED_STORED_POSITION)
+    ) as { x?: unknown; y?: unknown };
+    const xRaw = parsed?.x;
+    const yRaw = parsed?.y;
+    const xNum = xRaw === '' || xRaw === undefined || xRaw === null ? null : Number(xRaw);
+    const edge: 'left' | 'right' =
+      xNum !== null && Number.isFinite(xNum)
+        ? xNum < 0
+          ? 'right'
+          : 'left'
+        : 'left';
     return {
-      x: parsed?.x === undefined || parsed?.x === null ? 10 : parsed.x,
-      y: parsed?.y === undefined || parsed?.y === null ? 66 : parsed.y,
+      edge,
+      inset:
+        xRaw === '' || xRaw === undefined || xRaw === null
+          ? ''
+          : Number.isFinite(xNum)
+            ? Math.abs(xNum as number)
+            : activityFeedInsetFromStored(DEFAULT_ACTIVITY_FEED_STORED_POSITION),
+      y:
+        yRaw === '' || yRaw === undefined || yRaw === null
+          ? ''
+          : Number.isFinite(Number(yRaw))
+            ? Number(yRaw)
+            : DEFAULT_ACTIVITY_FEED_STORED_POSITION.y,
     };
   } catch {
-    return { x: 10, y: 66 };
+    return {
+      edge: 'left',
+      inset: activityFeedInsetFromStored(DEFAULT_ACTIVITY_FEED_STORED_POSITION),
+      y: DEFAULT_ACTIVITY_FEED_STORED_POSITION.y,
+    };
   }
 }
 
 export function parseActivityFeedPosition(
   raw: string | undefined
 ): ActivityFeedPosition {
-  const rawPos = readActivityFeedPositionRaw(raw);
-  return {
-    x: clampInt(rawPos.x, ACTIVITY_FEED_POS_X.min, ACTIVITY_FEED_POS_X.max, 10),
-    y: clampInt(rawPos.y, ACTIVITY_FEED_POS_Y.min, ACTIVITY_FEED_POS_Y.max, 66),
-  };
+  const draft = readActivityFeedPositionRaw(raw);
+  const inset = clampInt(
+    draft.inset,
+    ACTIVITY_FEED_INSET.min,
+    ACTIVITY_FEED_INSET.max,
+    activityFeedInsetFromStored(DEFAULT_ACTIVITY_FEED_STORED_POSITION)
+  );
+  const y = clampInt(
+    draft.y,
+    ACTIVITY_FEED_POS_Y.min,
+    ACTIVITY_FEED_POS_Y.max,
+    DEFAULT_ACTIVITY_FEED_STORED_POSITION.y
+  );
+  return storedActivityFeedPositionFromEdge(draft.edge, inset, y);
 }
 
 export function stringifyActivityFeedPosition(pos: ActivityFeedPosition): string {
-  return JSON.stringify({
-    x: clampInt(pos.x, ACTIVITY_FEED_POS_X.min, ACTIVITY_FEED_POS_X.max, 10),
-    y: clampInt(pos.y, ACTIVITY_FEED_POS_Y.min, ACTIVITY_FEED_POS_Y.max, 66),
-  });
+  const edge = activityFeedEdgeFromStored(pos);
+  const inset = clampInt(
+    activityFeedInsetFromStored(pos),
+    ACTIVITY_FEED_INSET.min,
+    ACTIVITY_FEED_INSET.max,
+    activityFeedInsetFromStored(DEFAULT_ACTIVITY_FEED_STORED_POSITION)
+  );
+  const y = clampInt(
+    pos.y,
+    ACTIVITY_FEED_POS_Y.min,
+    ACTIVITY_FEED_POS_Y.max,
+    DEFAULT_ACTIVITY_FEED_STORED_POSITION.y
+  );
+  return JSON.stringify(storedActivityFeedPositionFromEdge(edge, inset, y));
 }
 
 /** Normalize activity-feed defaults in a settings draft before save. */

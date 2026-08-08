@@ -890,7 +890,7 @@ const initializeDefaultData = async (db, tenantId = null) => {
       // Admin-configurable user preference defaults
       ['DEFAULT_VIEW_MODE', 'kanban'], // Default view mode for new users
       ['DEFAULT_TASK_VIEW_MODE', 'expand'], // Default task view mode for new users
-      ['DEFAULT_ACTIVITY_FEED_POSITION', '{"x": 10, "y": 220}'], // Default activity feed position
+      ['DEFAULT_ACTIVITY_FEED_POSITION', '{"x": 10, "y": 66}'], // Signed X: inset from left (clear of TaskDetails)
       ['DEFAULT_ACTIVITY_FEED_WIDTH', '160'], // Default activity feed width
       ['DEFAULT_ACTIVITY_FEED_HEIGHT', '400'], // Default activity feed height
       // Project and task identification settings
@@ -1122,7 +1122,7 @@ const initializeDefaultData = async (db, tenantId = null) => {
 
       // Create system member record
       const systemMemberStmt = db.prepare('INSERT INTO members (id, name, color, user_id) VALUES (?, ?, ?, ?)');
-      await dbRun(systemMemberStmt, systemMemberId, 'SYSTEM', '#1E40AF', systemUserId);
+      await dbRun(systemMemberStmt, systemMemberId, 'System', '#1E40AF', systemUserId);
       
       console.log('🤖 System account created for orphaned task management');
     }

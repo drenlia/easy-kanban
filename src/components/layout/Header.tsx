@@ -7,13 +7,19 @@ import { useTheme } from '../../contexts/ThemeContext';
 import { getSystemInfo } from '../../api';
 import SprintSelector from '../SprintSelector';
 import HeaderTaskSearch from './HeaderTaskSearch';
-import { loadUserPreferences, loadUserPreferencesAsync, updateUserPreference, updateAppSettingsPreference } from '../../utils/userPreferences';
+import { updateAppSettingsPreference, updateUserPreference, loadUserPreferences, loadUserPreferencesAsync } from '../../utils/userPreferences';
+import { setExplicitGuestLanguage } from '../../utils/guestLanguage';
 import { feDebug } from '../../utils/clientDebug';
 import ResetCountdown from '../ResetCountdown';
 import { KanbanChromeTooltip } from '../KanbanChromeTooltip';
 import { toast } from '../../utils/toast';
 import { getAuthenticatedAvatarUrl } from '../../utils/authImageUrl';
-import { DEFAULT_SITE_LOGO, DEFAULT_SITE_LOGO_DARK, isPublicBrandAssetPath } from '../../constants';
+import {
+  AGILA_GITHUB_URL,
+  DEFAULT_SITE_LOGO,
+  DEFAULT_SITE_LOGO_DARK,
+  isPublicBrandAssetPath,
+} from '../../constants';
 
 interface SystemInfo {
   memory: {
@@ -152,6 +158,8 @@ const Header: React.FC<HeaderProps> = ({
     const newLanguage = currentLanguage === 'en' ? 'fr' : 'en';
     // Switch UI immediately — do not wait on the preference API
     await i18n.changeLanguage(newLanguage);
+    // Keep login/guest screens in sync after logout
+    setExplicitGuestLanguage(newLanguage);
     if (currentUser) {
       // Persist in background (cookie updates sync; DB write can lag)
       void updateUserPreference('language', newLanguage, currentUser.id);
@@ -858,7 +866,7 @@ const Header: React.FC<HeaderProps> = ({
             {siteSettings.HIDE_GITHUB_LINK !== 'true' && (
               <KanbanChromeTooltip label={t('navigation.github')} wrapperClassName="relative hidden lg:inline-flex">
                 <a
-                  href="https://github.com/drenlia/easy-kanban"
+                  href={AGILA_GITHUB_URL}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex p-1.5 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 transition-colors"
@@ -918,7 +926,7 @@ const Header: React.FC<HeaderProps> = ({
                   {siteSettings.HIDE_GITHUB_LINK !== 'true' && (
                     <a
                       role="menuitem"
-                      href="https://github.com/drenlia/easy-kanban"
+                      href={AGILA_GITHUB_URL}
                       target="_blank"
                       rel="noopener noreferrer"
                       onClick={() => setShowMoreMenu(false)}

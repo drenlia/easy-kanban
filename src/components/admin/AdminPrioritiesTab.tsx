@@ -1,12 +1,13 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { createPortal } from 'react-dom';
-import { Edit, Trash2 } from 'lucide-react';
+import { Edit, Trash2, GripVertical } from 'lucide-react';
 import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, DragEndEvent } from '@dnd-kit/core';
 import { arrayMove, SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { useEscapeDismiss } from '../../hooks/useEscapeDismiss';
+import { ADMIN_TABLE_ROW_CLASS } from '../../utils/adminFieldLimits';
 
 interface Priority {
   id: string;
@@ -146,98 +147,120 @@ const SortablePriorityRow = ({
   };
 
   return (
-    <tr ref={setNodeRef} style={style} className={isDragging ? 'z-50' : ''}>
-      <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-        <div className="flex items-center space-x-2">
+    <tr
+      ref={setNodeRef}
+      style={style}
+      data-priority-id={priority.id}
+      className={`${ADMIN_TABLE_ROW_CLASS}${isDragging ? ' z-50' : ''}`}
+    >
+      <td className="px-4 py-2.5 whitespace-nowrap">
+        <div className="flex items-center gap-0.5">
           <button
+            type="button"
             onClick={() => onEdit(priority)}
-            className="p-1.5 rounded transition-colors text-blue-600 hover:text-blue-900 hover:bg-blue-50"
+            className="p-1.5 rounded-lg transition-colors text-slate-500 hover:text-slate-800 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-slate-100 dark:hover:bg-slate-800"
             title={t('priorities.editPriority')}
+            aria-label={t('priorities.editPriority')}
           >
-            <Edit size={16} />
+            <Edit size={15} />
           </button>
           <button
+            type="button"
             ref={deleteButtonRef}
             onClick={handleDeleteClick}
             disabled={!!priority.isDefault || !!priority.initial}
-            className={`p-1.5 rounded transition-colors ${
+            className={`p-1.5 rounded-lg transition-colors ${
               priority.isDefault || priority.initial
-                ? 'text-gray-400 cursor-not-allowed opacity-50'
-                : 'text-red-600 hover:text-red-900 hover:bg-red-50'
+                ? 'text-slate-300 dark:text-slate-600 cursor-not-allowed'
+                : 'text-rose-600 hover:text-rose-800 hover:bg-rose-50 dark:hover:bg-rose-950/40'
             }`}
             title={
               priority.isDefault || priority.initial
                 ? t('priorities.cannotDeleteDefault')
                 : t('priorities.deletePriority')
             }
+            aria-label={
+              priority.isDefault || priority.initial
+                ? t('priorities.cannotDeleteDefault')
+                : t('priorities.deletePriority')
+            }
             data-priority-id={priority.id}
           >
-            <Trash2 size={16} />
+            <Trash2 size={15} />
           </button>
         </div>
       </td>
-      <td className="px-6 py-4 whitespace-nowrap">
+      <td className="px-4 py-2.5 whitespace-nowrap min-w-[12rem]">
         <div className="flex items-center gap-2">
-          <div 
+          <button
+            type="button"
             {...attributes}
             {...listeners}
-            className="cursor-grab hover:cursor-grabbing p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-400 dark:text-gray-500 text-xs"
+            className="cursor-grab active:cursor-grabbing p-1 rounded-md text-slate-400 hover:text-slate-600 hover:bg-slate-100 dark:hover:text-slate-300 dark:hover:bg-slate-800 touch-none"
             title={t('priorities.dragToReorder')}
+            aria-label={t('priorities.dragToReorder')}
           >
-            ⋮⋮
-          </div>
-          <div 
-            className="w-4 h-4 rounded-full border border-gray-300 dark:border-gray-600"
-            style={{ backgroundColor: priority.color }}
+            <GripVertical size={15} />
+          </button>
+          <div
+            className="h-3.5 w-3.5 rounded-full shrink-0 ring-1 ring-black/10 dark:ring-white/15 shadow-sm"
+            style={{ backgroundColor: priority.color || '#94a3b8' }}
+            aria-hidden
           />
-          <span className="text-sm font-medium text-gray-900 dark:text-gray-100">{priority.priority}</span>
+          <span className="text-sm font-medium text-slate-900 dark:text-slate-100">
+            {priority.priority}
+          </span>
+          <span
+            className="px-2 py-0.5 rounded-md text-[11px] font-semibold inline-block border shrink-0"
+            style={(() => {
+              if (!priority.color) {
+                return { backgroundColor: '#f1f5f9', color: '#64748b', borderColor: '#e2e8f0' };
+              }
+              try {
+                const hex = priority.color.replace('#', '');
+                if (hex.length !== 6) {
+                  return { backgroundColor: '#f1f5f9', color: '#64748b', borderColor: '#e2e8f0' };
+                }
+                const r = parseInt(hex.substring(0, 2), 16);
+                const g = parseInt(hex.substring(2, 4), 16);
+                const b = parseInt(hex.substring(4, 6), 16);
+                if (isNaN(r) || isNaN(g) || isNaN(b)) {
+                  return { backgroundColor: '#f1f5f9', color: '#64748b', borderColor: '#e2e8f0' };
+                }
+                return {
+                  backgroundColor: `rgba(${r}, ${g}, ${b}, 0.12)`,
+                  color: priority.color,
+                  borderColor: `rgba(${r}, ${g}, ${b}, 0.28)`,
+                };
+              } catch {
+                return { backgroundColor: '#f1f5f9', color: '#64748b', borderColor: '#e2e8f0' };
+              }
+            })()}
+          >
+            {priority.priority}
+          </span>
         </div>
       </td>
-      <td className="px-6 py-4 whitespace-nowrap">
-        <div 
-          className="px-2 py-1 rounded-full text-xs font-medium inline-block"
-          style={(() => {
-            if (!priority.color) {
-              return { backgroundColor: '#f3f4f6', color: '#6b7280', border: '1px solid #d1d5db' };
-            }
-            try {
-              // Convert hex to RGB for rgba - safer approach
-              const hex = priority.color.replace('#', '');
-              if (hex.length !== 6) {
-                return { backgroundColor: '#f3f4f6', color: '#6b7280', border: '1px solid #d1d5db' };
-              }
-              const r = parseInt(hex.substring(0, 2), 16);
-              const g = parseInt(hex.substring(2, 4), 16);
-              const b = parseInt(hex.substring(4, 6), 16);
-              
-              // Validate RGB values
-              if (isNaN(r) || isNaN(g) || isNaN(b)) {
-                return { backgroundColor: '#f3f4f6', color: '#6b7280', border: '1px solid #d1d5db' };
-              }
-              
-              return {
-                backgroundColor: `rgba(${r}, ${g}, ${b}, 0.1)`,
-                color: priority.color,
-                border: `1px solid rgba(${r}, ${g}, ${b}, 0.2)`
-              };
-            } catch (error) {
-              // Fallback to gray if any error occurs
-              return { backgroundColor: '#f3f4f6', color: '#6b7280', border: '1px solid #d1d5db' };
-            }
-          })()}
-        >
-          {priority.priority}
-        </div>
-      </td>
-      <td className="px-6 py-4 whitespace-nowrap text-center">
-        <input
-          type="radio"
-          name="defaultPriority"
-          checked={!!priority.initial}
-          onChange={() => onSetDefault(priority.id)}
-          className="w-4 h-4 text-blue-600 dark:text-blue-400 bg-gray-100 dark:bg-gray-700 border-gray-300 dark:border-gray-600 focus:ring-blue-500 focus:ring-2 cursor-pointer"
-          title={priority.initial ? t('priorities.isDefaultPriority') : t('priorities.setAsDefault')}
-        />
+      <td className="px-4 py-2.5 whitespace-nowrap">
+        <label className="inline-flex items-center gap-2 cursor-pointer">
+          <input
+            type="radio"
+            name="defaultPriority"
+            checked={!!priority.initial}
+            onChange={() => onSetDefault(priority.id)}
+            className="w-3.5 h-3.5 text-sky-600 dark:text-sky-400 bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-600 focus:ring-sky-500 focus:ring-2 cursor-pointer"
+            title={priority.initial ? t('priorities.isDefaultPriority') : t('priorities.setAsDefault')}
+          />
+          {priority.initial ? (
+            <span className="inline-flex items-center px-2 py-0.5 text-[11px] font-medium rounded-md bg-sky-50 text-sky-700 dark:bg-sky-950/50 dark:text-sky-300">
+              {t('priorities.tableHeaders.default')}
+            </span>
+          ) : (
+            <span className="text-[11px] text-slate-400 dark:text-slate-500">
+              {t('priorities.setAsDefault')}
+            </span>
+          )}
+        </label>
       </td>
       
       {/* Portal-based Delete Confirmation Dialog */}
@@ -398,68 +421,74 @@ const AdminPrioritiesTab: React.FC<AdminPrioritiesTabProps> = ({
     <>
       <div className="p-6">
         <div className="mb-6">
-          <div className="flex justify-between items-start">
+          <div className="flex justify-between items-start gap-4">
             <div>
-              <p className="text-gray-600 dark:text-gray-400">
+              <p className="text-sm text-gray-600 dark:text-gray-400 leading-snug">
                 {t('priorities.description')}
               </p>
             </div>
             <button
               onClick={() => setShowAddPriorityForm(true)}
               data-owner-setup="add-priority"
-              className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+              className="shrink-0 px-3 py-1.5 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
             >
               {t('priorities.addPriority')}
             </button>
           </div>
         </div>
 
-
         {/* Priorities Table with Drag and Drop */}
-        <div className="bg-white dark:bg-gray-800 shadow overflow-hidden sm:rounded-md">
+        <div className="rounded-xl border border-slate-200/90 dark:border-slate-700/80 bg-white dark:bg-slate-900 shadow-sm overflow-hidden">
           <DndContext
             sensors={sensors}
             collisionDetection={closestCenter}
             onDragEnd={handlePriorityDragEnd}
           >
-            <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-              <thead className="bg-gray-50 dark:bg-gray-700">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-32">{t('priorities.tableHeaders.actions')}</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-32">{t('priorities.tableHeaders.priority')}</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-32">{t('priorities.tableHeaders.preview')}</th>
-                  <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-24">{t('priorities.tableHeaders.default')}</th>
-                </tr>
-              </thead>
-              <SortableContext
-                items={priorities.filter(p => p && p.id).map(p => p.id)}
-                strategy={verticalListSortingStrategy}
-              >
-                <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-                  {Array.isArray(priorities) && priorities.length > 0 ? (
-                    priorities.map((priority) => (
-                      <SortablePriorityRow 
-                        key={priority.id} 
-                        priority={priority}
-                        onEdit={handleEditClick}
-                        onDelete={onDeletePriority}
-                        onSetDefault={onSetDefaultPriority}
-                        showDeletePriorityConfirm={showDeletePriorityConfirm}
-                        priorityUsageCounts={priorityUsageCounts}
-                        onConfirmDeletePriority={onConfirmDeletePriority}
-                        onCancelDeletePriority={onCancelDeletePriority}
-                      />
-                    ))
-                  ) : (
-                    <tr>
-                      <td colSpan={4} className="px-6 py-4 text-center text-gray-500">
-                        {loading ? t('priorities.loadingPriorities') : t('priorities.noPrioritiesFound')}
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </SortableContext>
-            </table>
+            <div className="overflow-x-auto">
+              <table className="min-w-full">
+                <thead>
+                  <tr className="border-b border-slate-200 dark:border-slate-700 bg-slate-50/90 dark:bg-slate-800/60">
+                    <th className="px-4 py-2.5 text-left text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide whitespace-nowrap">
+                      {t('priorities.tableHeaders.actions')}
+                    </th>
+                    <th className="px-4 py-2.5 text-left text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide whitespace-nowrap">
+                      {t('priorities.tableHeaders.priority')}
+                    </th>
+                    <th className="px-4 py-2.5 text-left text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide whitespace-nowrap">
+                      {t('priorities.tableHeaders.default')}
+                    </th>
+                  </tr>
+                </thead>
+                <SortableContext
+                  items={priorities.filter(p => p && p.id).map(p => p.id)}
+                  strategy={verticalListSortingStrategy}
+                >
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                    {Array.isArray(priorities) && priorities.length > 0 ? (
+                      priorities.map((priority) => (
+                        <SortablePriorityRow 
+                          key={priority.id} 
+                          priority={priority}
+                          onEdit={handleEditClick}
+                          onDelete={onDeletePriority}
+                          onSetDefault={onSetDefaultPriority}
+                          showDeletePriorityConfirm={showDeletePriorityConfirm}
+                          priorityUsageCounts={priorityUsageCounts}
+                          onConfirmDeletePriority={onConfirmDeletePriority}
+                          onCancelDeletePriority={onCancelDeletePriority}
+                        />
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan={3} className="px-4 py-8 text-center text-sm text-slate-500 dark:text-slate-400">
+                          {loading ? t('priorities.loadingPriorities') : t('priorities.noPrioritiesFound')}
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </SortableContext>
+              </table>
+            </div>
           </DndContext>
         </div>
       </div>

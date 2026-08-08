@@ -1,9 +1,15 @@
 /**
  * UI / correspondence language helpers.
  *
- * Guest UI:     explicit toggle → APP_LANGUAGE → browser → en
+ * Guest UI:     explicit toggle → browser → APP_LANGUAGE → en
  * Logged-in UI: user pref → APP_LANGUAGE → browser → en
  * Emails:       user pref → APP_LANGUAGE → en  (server: resolveCorrespondenceLanguage)
+ *
+ * Login ↔ app sync:
+ * - Toggling language on login stores an explicit guest choice (`ekLanguageExplicit`).
+ * - On login, that explicit choice is written to the user language pref.
+ * - Toggling language while signed in also updates the guest explicit key so logout
+ *   keeps the same UI language on the login screen.
  */
 
 export const GUEST_LANGUAGE_EXPLICIT_KEY = 'ekLanguageExplicit';
@@ -37,7 +43,7 @@ export function setExplicitGuestLanguage(lang: AppUiLanguage): void {
 
 /**
  * Resolve language for unauthenticated screens.
- * 1) Explicit guest toggle  2) APP_LANGUAGE  3) browser  4) en
+ * 1) Explicit guest toggle  2) browser  3) APP_LANGUAGE (site default)  4) en
  */
 export function resolveGuestLanguage(opts: {
   appLanguage?: string | null;
@@ -46,11 +52,11 @@ export function resolveGuestLanguage(opts: {
   const explicit = getExplicitGuestLanguage();
   if (explicit) return explicit;
 
-  const fromApp = normalizeAppLanguage(opts.appLanguage);
-  if (fromApp) return fromApp;
-
   const fromBrowser = normalizeAppLanguage(opts.browserLanguage);
   if (fromBrowser) return fromBrowser;
+
+  const fromApp = normalizeAppLanguage(opts.appLanguage);
+  if (fromApp) return fromApp;
 
   return 'en';
 }

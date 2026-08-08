@@ -3,7 +3,11 @@
  */
 
 import { useState } from 'react';
-import { updateActivityFeedPreference } from '../utils/userPreferences';
+import {
+  loadUserPreferences,
+  updateActivityFeedPreference,
+} from '../utils/userPreferences';
+import { DEFAULT_ACTIVITY_FEED_STORED_POSITION } from '../utils/activityFeedPosition';
 
 export interface UseActivityFeedReturn {
   // State
@@ -31,32 +35,56 @@ export interface UseActivityFeedReturn {
   handleActivityFeedClearAll: (activityId: number) => Promise<void>;
 }
 
+function readActivityFeedPrefs(userId: string | null) {
+  try {
+    const prefs = loadUserPreferences(userId);
+    const width = Math.max(120, Math.min(600, Number(prefs.activityFeed?.width) || 160));
+    const height = Math.max(200, Math.min(800, Number(prefs.activityFeed?.height) || 400));
+    return {
+      isMinimized: prefs.activityFeed?.isMinimized === true,
+      position: prefs.activityFeed?.position || DEFAULT_ACTIVITY_FEED_STORED_POSITION,
+      width,
+      height,
+      lastSeenActivityId: Number(prefs.activityFeed?.lastSeenActivityId) || 0,
+      clearActivityId: Number(prefs.activityFeed?.clearActivityId) || 0,
+      showActivityFeed: prefs.appSettings?.showActivityFeed === true,
+    };
+  } catch {
+    return {
+      isMinimized: false,
+      position: DEFAULT_ACTIVITY_FEED_STORED_POSITION,
+      width: 160,
+      height: 400,
+      lastSeenActivityId: 0,
+      clearActivityId: 0,
+      showActivityFeed: false,
+    };
+  }
+}
+
 export const useActivityFeed = (currentUserId: string | null): UseActivityFeedReturn => {
-  const [showActivityFeed, setShowActivityFeed] = useState<boolean>(false);
-  const [activityFeedMinimized, setActivityFeedMinimized] = useState<boolean>(false);
-  const [activityFeedPosition, setActivityFeedPosition] = useState<{ x: number; y: number }>({ 
-    x: 10, // Position on left side with 10px margin (matches userPreferences.ts default)
-    y: 66 
-  });
+  const [initial] = useState(() => readActivityFeedPrefs(currentUserId));
+  const [showActivityFeed, setShowActivityFeed] = useState<boolean>(initial.showActivityFeed);
+  const [activityFeedMinimized, setActivityFeedMinimized] = useState<boolean>(initial.isMinimized);
+  const [activityFeedPosition, setActivityFeedPosition] = useState<{ x: number; y: number }>(
+    initial.position
+  );
   const [activityFeedDimensions, setActivityFeedDimensions] = useState<{ width: number; height: number }>({
-    width: 208,
-    height: 400
+    width: initial.width,
+    height: initial.height,
   });
   const [activities, setActivities] = useState<any[]>([]);
-  const [lastSeenActivityId, setLastSeenActivityId] = useState<number>(0);
-  const [clearActivityId, setClearActivityId] = useState<number>(0);
+  const [lastSeenActivityId, setLastSeenActivityId] = useState<number>(initial.lastSeenActivityId);
+  const [clearActivityId, setClearActivityId] = useState<number>(initial.clearActivityId);
 
-  // Activity feed toggle handler
   const handleActivityFeedToggle = (enabled: boolean) => {
     setShowActivityFeed(enabled);
   };
 
-  // Activity feed minimized state handler
   const handleActivityFeedMinimizedChange = (minimized: boolean) => {
     setActivityFeedMinimized(minimized);
   };
 
-  // Activity feed mark as read handler
   const handleActivityFeedMarkAsRead = async (activityId: number) => {
     try {
       await updateActivityFeedPreference('lastSeenActivityId', activityId, currentUserId);
@@ -66,11 +94,8 @@ export const useActivityFeed = (currentUserId: string | null): UseActivityFeedRe
     }
   };
 
-  // Activity feed clear all handler
   const handleActivityFeedClearAll = async (activityId: number) => {
     try {
-      // Set both clear point and read point to the same value
-      // This ensures new activities after clear will show as unread
       await updateActivityFeedPreference('clearActivityId', activityId, currentUserId);
       await updateActivityFeedPreference('lastSeenActivityId', activityId, currentUserId);
       setClearActivityId(activityId);
@@ -81,7 +106,6 @@ export const useActivityFeed = (currentUserId: string | null): UseActivityFeedRe
   };
 
   return {
-    // State
     showActivityFeed,
     activityFeedMinimized,
     activityFeedPosition,
@@ -89,8 +113,6 @@ export const useActivityFeed = (currentUserId: string | null): UseActivityFeedRe
     activities,
     lastSeenActivityId,
     clearActivityId,
-    
-    // Setters
     setShowActivityFeed,
     setActivityFeedMinimized,
     setActivityFeedPosition,
@@ -98,12 +120,9 @@ export const useActivityFeed = (currentUserId: string | null): UseActivityFeedRe
     setActivities,
     setLastSeenActivityId,
     setClearActivityId,
-    
-    // Handlers
     handleActivityFeedToggle,
     handleActivityFeedMinimizedChange,
     handleActivityFeedMarkAsRead,
     handleActivityFeedClearAll,
   };
 };
-

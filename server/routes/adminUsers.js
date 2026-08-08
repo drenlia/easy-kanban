@@ -13,10 +13,12 @@ import { getTranslator } from '../utils/i18n.js';
 import { getTenantId, getRequestDatabase } from '../middleware/tenantRouting.js';
 import { getTenantDomain } from '../utils/tenantDomain.js';
 // MIGRATED: Import sqlManager modules
-import { users as userQueries, tasks as taskQueries, adminUsers as adminUserQueries, auth as authQueries, helpers } from '../utils/sqlManager/index.js';
+import { users as userQueries, tasks as taskQueries, adminUsers as adminUserQueries, auth as authQueries, helpers, settings as settingsQueries } from '../utils/sqlManager/index.js';
 import { commitUploadedFile, getRequestStoragePaths } from '../services/storage/index.js';
 import { validateUploadedFileMagic } from '../utils/fileMagicBytes.js';
 import { deleteAvatarFileIfUnused } from '../utils/avatarCleanup.js';
+import { AGENT_USER_ID } from '../constants/agentIdentity.js';
+import { AI_SETTING_KEYS } from '../constants/aiSettings.js';
 import {
   parseBody,
   adminCreateUserBodySchema,
@@ -112,6 +114,24 @@ router.put('/:userId/member-name', authenticateToken, requireRole(['admin']), as
       console.log('❌ No member found for user:', userId);
       return res.status(404).json({ error: 'Member not found' });
     }
+
+    // Keep AI_AGENT_NAME in sync when Agent display name changes from Users admin
+    if (userId === AGENT_USER_ID) {
+      try {
+        await settingsQueries.upsertSetting(db, AI_SETTING_KEYS.AI_AGENT_NAME, trimmedDisplayName);
+        await notificationService.publish(
+          'settings-updated',
+          {
+            key: AI_SETTING_KEYS.AI_AGENT_NAME,
+            value: trimmedDisplayName,
+            timestamp: new Date().toISOString(),
+          },
+          getTenantId(req)
+        );
+      } catch (syncErr) {
+        console.warn('Failed to sync AI_AGENT_NAME from Agent display name:', syncErr?.message || syncErr);
+      }
+    }
     
     // Publish notification for real-time updates (uses PostgreSQL or Redis based on DB_TYPE)
     console.log(`📤 Publishing member-updated via ${getNotificationSystem()} for name change`);
@@ -161,8 +181,16 @@ router.put('/:userId', authenticateToken, requireRole(['admin']), async (req, re
       return res.status(404).json({ error: 'User not found' });
     }
 
+    const currentEmail = String(currentUser.email || '').toLowerCase();
+    const isPseudoAccount =
+      currentEmail === 'agent@local' || currentEmail === 'system@local';
+
+    // Pseudo accounts: allow name edits only — never change email or activation
+    const nextEmail = isPseudoAccount ? currentUser.email : email;
+    const nextIsActive = isPseudoAccount ? !!currentUser.is_active : !!isActive;
+
     // Check if user is being activated (changing from inactive to active)
-    const isBeingActivated = !currentUser.is_active && isActive;
+    const isBeingActivated = !currentUser.is_active && nextIsActive;
     
     if (isBeingActivated) {
       // Check user limit before allowing activation (only if licensing is enabled)
@@ -183,13 +211,18 @@ router.put('/:userId', authenticateToken, requireRole(['admin']), async (req, re
     }
 
     // MIGRATED: Check if email already exists using sqlManager (case-insensitive)
-    const existingUser = await userQueries.checkEmailExists(db, email, userId);
+    const existingUser = await userQueries.checkEmailExists(db, nextEmail, userId);
     if (existingUser) {
-      return res.status(400).json({ error: `User with email ${email} already exists` });
+      return res.status(400).json({ error: `User with email ${nextEmail} already exists` });
     }
 
     // MIGRATED: Update user using sqlManager
-    await userQueries.updateUser(db, userId, { email, firstName, lastName, isActive });
+    await userQueries.updateUser(db, userId, {
+      email: nextEmail,
+      firstName,
+      lastName,
+      isActive: nextIsActive,
+    });
 
     // Note: Member name is updated separately via /api/admin/users/:userId/member-name
     // This allows for custom display names that differ from firstName + lastName
@@ -199,10 +232,10 @@ router.put('/:userId', authenticateToken, requireRole(['admin']), async (req, re
     await notificationService.publish('user-updated', {
       user: { 
         id: userId, 
-        email, 
+        email: nextEmail, 
         firstName, 
         lastName, 
-        isActive: !!isActive,
+        isActive: nextIsActive,
         timestamp: new Date().toISOString()
       },
       timestamp: new Date().toISOString()
@@ -336,6 +369,10 @@ router.post('/', authenticateToken, requireRole(['admin']), async (req, res) => 
   const isActive = process.env.DEMO_ENABLED === 'true' ? true : !!parsed.data.isActive;
   const db = getRequestDatabase(req);
   const t = getTranslator(db);
+
+  if (String(email || '').toLowerCase().endsWith('@local')) {
+    return res.status(400).json({ error: 'Cannot create users with @local email addresses' });
+  }
 
   if (isActive && !password) {
     return res.status(400).json({ error: 'Password is required' });
@@ -595,9 +632,14 @@ router.post('/:userId/resend-invitation', authenticateToken, requireRole(['admin
       return res.status(404).json({ error: 'User not found' });
     }
 
-    // Only allow resending for inactive local users
+    // Only allow resending for inactive local users (never for @local pseudo accounts)
     if (user.auth_provider !== 'local') {
       return res.status(400).json({ error: 'Cannot resend invitation for non-local accounts' });
+    }
+
+    const email = String(user.email || '').toLowerCase();
+    if (email.endsWith('@local')) {
+      return res.status(400).json({ error: 'Cannot send invitations to @local accounts' });
     }
 
     if (user.is_active) {
@@ -724,7 +766,7 @@ router.delete("/:userId", authenticateToken, requireRole(["admin"]), async (req,
 
     // Resolve reassignment target (default: System). Must be a different user with a member row.
     let reassignMemberId = systemMemberId;
-    let reassignLabel = 'SYSTEM';
+    let reassignLabel = 'System';
     if (reassignToUserId && reassignToUserId !== userId && reassignToUserId !== SYSTEM_USER_ID) {
       const targetMember = await userQueries.getMemberByUserId(db, reassignToUserId);
       if (!targetMember?.id) {

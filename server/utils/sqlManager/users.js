@@ -207,6 +207,23 @@ export async function deleteUserSetting(db, userId, settingKey) {
 }
 
 /**
+ * Delete a setting key for all users (one-time layout / preference resets).
+ *
+ * @param {Database} db - Database connection
+ * @param {string} settingKey - Setting key
+ * @returns {Promise<Object>} Result object
+ */
+export async function deleteUserSettingsByKey(db, settingKey) {
+  const query = `
+    DELETE FROM user_settings
+    WHERE setting_key = $1
+  `;
+
+  const stmt = wrapQuery(db.prepare(query), 'DELETE');
+  return await stmt.run(settingKey);
+}
+
+/**
  * Get tasks assigned to or requested by a member
  * 
  * @param {Database} db - Database connection

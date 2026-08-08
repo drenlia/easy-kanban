@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { createPortal } from 'react-dom';
 import { Edit, Trash2 } from 'lucide-react';
 import { useEscapeDismiss } from '../../hooks/useEscapeDismiss';
+import { ADMIN_TABLE_ROW_CLASS } from '../../utils/adminFieldLimits';
 
 interface Tag {
   id: number;
@@ -207,16 +208,16 @@ const AdminTagsTab: React.FC<AdminTagsTabProps> = ({
     <>
       <div className="p-6">
         <div className="mb-6">
-          <div className="flex justify-between items-start">
+          <div className="flex justify-between items-start gap-4">
             <div>
-              <p className="text-gray-600 dark:text-gray-400">
+              <p className="text-sm text-gray-600 dark:text-gray-400 leading-snug">
                 {t('tags.description')}
               </p>
             </div>
             <button
               onClick={() => setShowAddTagForm(true)}
               data-owner-setup="add-tag"
-              className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+              className="shrink-0 px-3 py-1.5 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
             >
               {t('tags.addTag')}
             </button>
@@ -224,85 +225,98 @@ const AdminTagsTab: React.FC<AdminTagsTabProps> = ({
         </div>
 
         {/* Tags Table */}
-        <div className="bg-white dark:bg-gray-800 shadow overflow-hidden sm:rounded-md">
-          <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-            <thead className="bg-gray-50 dark:bg-gray-700">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-32">{t('tags.tableHeaders.actions')}</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-32">{t('tags.tableHeaders.tag')}</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{t('tags.tableHeaders.description')}</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-32">{t('tags.tableHeaders.preview')}</th>
-              </tr>
-            </thead>
-            <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-              {Array.isArray(tags) && tags.length > 0 ? (
-                tags.map((tag) => (
-                  <tr key={tag.id}>
-                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                      <div className="flex items-center space-x-2">
+        <div className="rounded-xl border border-slate-200/90 dark:border-slate-700/80 bg-white dark:bg-slate-900 shadow-sm overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="min-w-full">
+              <thead>
+                <tr className="border-b border-slate-200 dark:border-slate-700 bg-slate-50/90 dark:bg-slate-800/60">
+                  <th className="px-4 py-2.5 text-left text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide whitespace-nowrap">
+                    {t('tags.tableHeaders.actions')}
+                  </th>
+                  <th className="px-4 py-2.5 text-left text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide whitespace-nowrap">
+                    {t('tags.tableHeaders.tag')}
+                  </th>
+                  <th className="px-4 py-2.5 text-left text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">
+                    {t('tags.tableHeaders.description')}
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                {Array.isArray(tags) && tags.length > 0 ? (
+                  tags.map((tag) => {
+                    const bgColor = tag.color || '#4ECDC4';
+                    const textColor = getTextColor(bgColor);
+                    return (
+                  <tr key={tag.id} data-tag-id={tag.id} className={ADMIN_TABLE_ROW_CLASS}>
+                    <td className="px-4 py-2.5 whitespace-nowrap">
+                      <div className="flex items-center gap-0.5">
                         <button
+                          type="button"
                           onClick={() => {
                             setEditingTag(tag);
                             setShowEditTagForm(true);
                           }}
-                          className="p-1.5 rounded transition-colors text-blue-600 hover:text-blue-900 hover:bg-blue-50"
+                          className="p-1.5 rounded-lg transition-colors text-slate-500 hover:text-slate-800 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-slate-100 dark:hover:bg-slate-800"
                           title={t('tags.editTag')}
+                          aria-label={t('tags.editTag')}
                         >
-                          <Edit size={16} />
+                          <Edit size={15} />
                         </button>
-                        <div className="relative">
-                          <button
-                            ref={(el) => { deleteButtonRefs.current[tag.id] = el; }}
-                            onClick={(e) => handleDeleteClick(tag.id, e)}
-                            className="p-1.5 rounded transition-colors text-red-600 hover:text-red-900 hover:bg-red-50"
-                            title={t('tags.deleteTag')}
-                            data-tag-id={tag.id}
-                          >
-                            <Trash2 size={16} />
-                          </button>
-                          
-                        </div>
+                        <button
+                          type="button"
+                          ref={(el) => { deleteButtonRefs.current[tag.id] = el; }}
+                          onClick={(e) => handleDeleteClick(tag.id, e)}
+                          className="p-1.5 rounded-lg transition-colors text-rose-600 hover:text-rose-800 hover:bg-rose-50 dark:hover:bg-rose-950/40"
+                          title={t('tags.deleteTag')}
+                          aria-label={t('tags.deleteTag')}
+                          data-tag-id={tag.id}
+                        >
+                          <Trash2 size={15} />
+                        </button>
                       </div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex items-center gap-2">
-                        <div 
-                          className="w-4 h-4 rounded-full border border-gray-300"
-                          style={{ backgroundColor: tag.color || '#4ECDC4' }}
+                    <td className="px-4 py-2.5 whitespace-nowrap min-w-[10rem]">
+                      <div className="flex items-center gap-2.5">
+                        <div
+                          className="h-3.5 w-3.5 rounded-full shrink-0 ring-1 ring-black/10 dark:ring-white/15 shadow-sm"
+                          style={{ backgroundColor: bgColor }}
+                          aria-hidden
                         />
-                        <span className="text-sm font-medium text-gray-900 dark:text-gray-100">{tag.tag}</span>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4">
-                      <span className="text-sm text-gray-600 dark:text-gray-300">{tag.description || '-'}</span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div
-                        className="px-2 py-1 rounded-full text-xs font-bold inline-block border"
-                        style={(() => {
-                          const bgColor = tag.color || '#4ECDC4';
-                          const textColor = getTextColor(bgColor);
-                          return {
+                        <span className="text-sm font-medium text-slate-900 dark:text-slate-100">
+                          {tag.tag}
+                        </span>
+                        <span
+                          className="px-2 py-0.5 rounded-md text-[11px] font-semibold inline-block border shrink-0"
+                          style={{
                             backgroundColor: bgColor,
                             color: textColor,
-                            borderColor: textColor === '#374151' ? '#d1d5db' : 'rgba(255, 255, 255, 0.3)'
-                          };
-                        })()}
-                      >
-                        {tag.tag}
+                            borderColor: textColor === '#374151' ? '#d1d5db' : 'rgba(255, 255, 255, 0.25)',
+                          }}
+                        >
+                          {tag.tag}
+                        </span>
                       </div>
                     </td>
+                    <td className="px-4 py-2.5">
+                      <span className="text-sm text-slate-600 dark:text-slate-300">
+                        {tag.description || (
+                          <span className="text-slate-400 dark:text-slate-500">—</span>
+                        )}
+                      </span>
+                    </td>
                   </tr>
-                ))
-              ) : (
-                <tr>
-                  <td colSpan={4} className="px-6 py-4 text-center text-gray-500 dark:text-gray-400">
-                    {loading ? t('tags.loadingTags') : t('tags.noTagsFound')}
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+                    );
+                  })
+                ) : (
+                  <tr>
+                    <td colSpan={3} className="px-4 py-8 text-center text-sm text-slate-500 dark:text-slate-400">
+                      {loading ? t('tags.loadingTags') : t('tags.noTagsFound')}
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
 

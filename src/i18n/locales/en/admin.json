@@ -47,10 +47,14 @@
     "projectSubtab": "Project"
   },
   "search": {
-    "placeholder": "Search settings…",
-    "noResults": "No matching settings",
+    "placeholder": "Search settings & content…",
+    "noResults": "No matching settings or content",
     "tab": "Tab",
-    "setting": "Setting"
+    "setting": "Setting",
+    "settingValue": "Value",
+    "user": "User",
+    "tag": "Tag",
+    "priority": "Priority"
   },
   "failedToLoadAdminData": "Failed to load admin data",
   "failedToPromoteUser": "Failed to promote user",
@@ -107,6 +111,27 @@
     "sendingInvitation": "Sending invitation…",
     "creatingUser": "Creating user…",
     "invitationEmailSentSuccessfully": "Invitation email sent successfully!",
+    "summary": {
+      "ariaLabel": "Filter users by status, role, and auth type",
+      "showAll": "Show all users",
+      "total": "{{count}} user",
+      "total_plural": "{{count}} users",
+      "active": "{{count}} active",
+      "inactive": "{{count}} inactive",
+      "admin": "{{count}} admin",
+      "admin_plural": "{{count}} admins",
+      "member": "{{count}} user",
+      "member_plural": "{{count}} users",
+      "local": "{{count}} local",
+      "google": "{{count}} Google"
+    },
+    "searchPlaceholder": "Search users…",
+    "clearSearch": "Clear search",
+    "clearFilters": "Clear filters",
+    "noMatchingUsers": "No users match the current filters",
+    "sortBy": "Sort by {{column}}",
+    "sortAscending": "Sort ascending",
+    "sortDescending": "Sort descending",
     "failedToCheckUserLimit": "Failed to check user limit. Please try again.",
     "userLimitReached": "User limit reached. Cannot create more users.",
     "tableHeaders": {
@@ -173,7 +198,11 @@
     "cannotDemoteYourself": "You cannot demote yourself",
     "cannotDemoteInstanceOwner": "Cannot demote instance owner",
     "demoteToUser": "Demote to user",
-    "onlyOwnerCanEditProfile": "Only owner can edit their profile"
+    "onlyOwnerCanEditProfile": "Only owner can edit their profile",
+    "editPseudoProfile": "Edit name and avatar",
+    "pseudoProfileHint": "System accounts can update name, display name, and avatar only. Email, role, and status stay locked.",
+    "pseudoEmailLocked": "(cannot be changed)",
+    "cannotDeleteInstanceOwner": "Cannot delete instance owner"
   },
   "tags": {
     "title": "Tags Management",
@@ -550,7 +579,11 @@
     "defaultVisibility": "Default Visibility",
     "defaultVisibilityDescription": "Whether the activity feed is shown by default",
     "defaultPosition": "Default Position",
-    "defaultPositionDescription": "Default activity feed position from the top-left (X: 0–120, Y: 66–800)",
+    "defaultPositionDescription": "Which side to dock to, how far from that edge ({{min}}–{{max}}px), and how far from the top ({{yMin}}–{{yMax}}px). Inset is the gap from the edge — separate from panel width.",
+    "positionEdge": "Edge",
+    "positionEdgeLeft": "Left",
+    "positionEdgeRight": "Right",
+    "positionInset": "Inset",
     "defaultWidth": "Default Width",
     "defaultWidthDescription": "Default width in pixels ({{min}}–{{max}})",
     "defaultHeight": "Default Height",

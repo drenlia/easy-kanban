@@ -633,6 +633,25 @@ const migrations = [
         console.log(`✅ Migration 31: SITE_NAME left unchanged (${current || 'empty'})`);
       }
     }
+  },
+  {
+    version: 32,
+    name: 'rename_system_member_display_name',
+    description: 'Rename System member display from SYSTEM → System when still the stock name',
+    up: async (db) => {
+      const { SYSTEM_MEMBER_ID } = await import('../constants/agentIdentity.js');
+      await dbExec(
+        db,
+        `
+          UPDATE members
+          SET name = 'System',
+              updated_at = CURRENT_TIMESTAMP
+          WHERE id = '${SYSTEM_MEMBER_ID}'
+            AND name = 'SYSTEM'
+        `
+      );
+      console.log('✅ Migration 32: System member display SYSTEM → System (when still stock name)');
+    }
   }
 ];
 

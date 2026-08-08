@@ -20,6 +20,7 @@ import {
   PERF_TESTS_USER_SETTING_KEY,
 } from '../../perfTests';
 import { toast } from '../../utils/toast';
+import { ADMIN_TABLE_ROW_CLASS } from '../../utils/adminFieldLimits';
 
 type TroubleshootKey = FeClientDebugKey | ServerDebugKey;
 
@@ -409,7 +410,7 @@ const AdminTroubleshootingTab: React.FC<AdminTroubleshootingTabProps> = ({
               </thead>
               <tbody className="divide-y divide-gray-50 dark:divide-gray-700/80">
                 {cspReports.map((row) => (
-                  <tr key={row.id} className="align-top text-gray-800 dark:text-gray-200">
+                  <tr key={row.id} className={`align-top text-gray-800 dark:text-gray-200 ${ADMIN_TABLE_ROW_CLASS}`}>
                     <td className="py-1.5 pr-3 whitespace-nowrap text-gray-500 dark:text-gray-400">
                       {row.createdAt
                         ? new Date(row.createdAt).toLocaleString()

@@ -20,6 +20,7 @@ import { Board, Task } from '../../types';
 import { formatToYYYYMMDDHHmm } from '../../utils/dateUtils';
 import {
   ADMIN_NUMERIC_INPUT_CLASS,
+  ADMIN_TABLE_ROW_CLASS,
   LIFECYCLE_RETENTION_DAYS,
   clampIntToString,
   parseOptionalInt,
@@ -797,7 +798,7 @@ const AdminLifecycleTab: React.FC<AdminLifecycleTabProps> = ({
                 </tr>
               ) : (
                 filteredTasks.map((task) => (
-                  <tr key={task.id} className="hover:bg-gray-50 dark:hover:bg-gray-900/40">
+                  <tr key={task.id} className={ADMIN_TABLE_ROW_CLASS}>
                     <td className="px-3 py-2">
                       <ModernCheckbox
                         checked={selectedTaskIds.has(task.id)}
@@ -943,7 +944,7 @@ const AdminLifecycleTab: React.FC<AdminLifecycleTabProps> = ({
                 {boards.map((board) => {
                   const taskCount = board.trashTaskCount ?? board.taskCount ?? 0;
                   return (
-                    <tr key={board.id} className="hover:bg-gray-50 dark:hover:bg-gray-900/40">
+                    <tr key={board.id} className={ADMIN_TABLE_ROW_CLASS}>
                       <td className="px-3 py-2">
                         <ModernCheckbox
                           checked={selectedDeletedBoardIds.has(board.id)}

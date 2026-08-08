@@ -8,6 +8,7 @@ import { ModernCheckbox } from '../ModernCheckbox';
 import { useSettings } from '../../contexts/SettingsContext';
 import {
   ADMIN_NUMERIC_INPUT_CLASS,
+  ADMIN_TABLE_ROW_CLASS,
   NOTIFICATION_QUEUE_RETENTION_DAYS,
   clampIntToString,
   parseOptionalInt,
@@ -591,7 +592,7 @@ const AdminNotificationQueueTab: React.FC<AdminNotificationQueueTabProps> = ({
               {filteredNotifications.slice(0, displayLimit).map((notification) => (
                 <tr
                   key={notification.id}
-                  className={`hover:bg-gray-50 dark:hover:bg-gray-700 ${
+                  className={`${ADMIN_TABLE_ROW_CLASS} ${
                     selectedIds.has(notification.id) ? 'bg-blue-50 dark:bg-blue-900/20' : ''
                   }`}
                 >

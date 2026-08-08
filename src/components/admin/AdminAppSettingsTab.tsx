@@ -12,7 +12,7 @@ import {
 } from '../../utils/adminSettingsDirty';
 import {
   ACTIVITY_FEED_HEIGHT,
-  ACTIVITY_FEED_POS_X,
+  ACTIVITY_FEED_INSET,
   ACTIVITY_FEED_POS_Y,
   ACTIVITY_FEED_WIDTH,
   ADMIN_NUMERIC_INPUT_CLASS,
@@ -412,15 +412,28 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
   };
 
   // Manual save fields (no auto-save) - position, width, height
-  const handleActivityFeedPosChange = (axis: 'x' | 'y', value: string) => {
+  const handleActivityFeedPosChange = (
+    field: 'edge' | 'inset' | 'y',
+    value: string
+  ) => {
     const current = readActivityFeedPositionRaw(editingSettings.DEFAULT_ACTIVITY_FEED_POSITION);
-    const next = {
-      x: axis === 'x' ? (value === '' ? '' : Number(value)) : current.x,
-      y: axis === 'y' ? (value === '' ? '' : Number(value)) : current.y,
-    };
+    const edge = field === 'edge' ? (value as 'left' | 'right') : current.edge;
+    const inset = field === 'inset' ? value : current.inset;
+    const y = field === 'y' ? value : current.y;
+    const insetNum =
+      inset === '' || inset === undefined || inset === null
+        ? ''
+        : Number(inset);
+    const yNum = y === '' || y === undefined || y === null ? '' : Number(y);
+    const signedX =
+      insetNum === ''
+        ? ''
+        : edge === 'right'
+          ? -Math.abs(Number(insetNum) || 0)
+          : Math.abs(Number(insetNum) || 0);
     onSettingsChange({
       ...editingSettings,
-      DEFAULT_ACTIVITY_FEED_POSITION: JSON.stringify(next),
+      DEFAULT_ACTIVITY_FEED_POSITION: JSON.stringify({ x: signedX, y: yNum }),
     });
   };
 
@@ -651,20 +664,40 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
                         />
                       </label>
                       <p className="text-xs text-gray-500 dark:text-gray-400 leading-snug">
-                        {t('appSettings.defaultPositionDescription')}
+                        {t('appSettings.defaultPositionDescription', {
+                          min: ACTIVITY_FEED_INSET.min,
+                          max: ACTIVITY_FEED_INSET.max,
+                          yMin: ACTIVITY_FEED_POS_Y.min,
+                          yMax: ACTIVITY_FEED_POS_Y.max,
+                        })}
                       </p>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2 justify-end">
                       <label className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
-                        X
+                        <span className="sr-only">{t('appSettings.positionEdge')}</span>
+                        <select
+                          value={activityFeedPos.edge}
+                          onChange={(e) =>
+                            handleActivityFeedPosChange('edge', e.target.value)
+                          }
+                          onBlur={clampActivityFeedPosOnBlur}
+                          className={`w-24 ${adminInputClass}`}
+                          aria-label={t('appSettings.positionEdge')}
+                        >
+                          <option value="left">{t('appSettings.positionEdgeLeft')}</option>
+                          <option value="right">{t('appSettings.positionEdgeRight')}</option>
+                        </select>
+                      </label>
+                      <label className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
+                        {t('appSettings.positionInset')}
                         <input
                           type="number"
                           inputMode="numeric"
-                          value={activityFeedPos.x}
-                          onChange={(e) => handleActivityFeedPosChange('x', e.target.value)}
+                          value={activityFeedPos.inset}
+                          onChange={(e) => handleActivityFeedPosChange('inset', e.target.value)}
                           onBlur={clampActivityFeedPosOnBlur}
                           className={`w-16 ${adminInputClass} ${ADMIN_NUMERIC_INPUT_CLASS}`}
-                          aria-label={`${t('appSettings.defaultPosition')} X (${ACTIVITY_FEED_POS_X.min}–${ACTIVITY_FEED_POS_X.max})`}
+                          aria-label={`${t('appSettings.positionInset')} (${ACTIVITY_FEED_INSET.min}–${ACTIVITY_FEED_INSET.max})`}
                         />
                       </label>
                       <label className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400">

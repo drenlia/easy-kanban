@@ -1,11 +1,39 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { createPortal } from 'react-dom';
-import { X, Activity, Clock, ChevronDown, ChevronUp, GripVertical, Search } from 'lucide-react';
+import {
+  X,
+  Activity,
+  Clock,
+  Minus,
+  Maximize2,
+  GripVertical,
+  Search,
+  Plus,
+  Pencil,
+  Trash2,
+  Tag,
+  FileText,
+  CheckCircle2,
+  AlertTriangle,
+  ArrowRightLeft,
+} from 'lucide-react';
 import { updateActivityFeedPreference } from '../utils/userPreferences';
 import DOMPurify from 'dompurify';
-import { CHROME_TOOLTIP_RICH_SURFACE_CLASS, KanbanChromeTooltip } from './KanbanChromeTooltip';
+import { KanbanChromeTooltip } from './KanbanChromeTooltip';
 import { generateTaskUrl } from '../utils/routingUtils';
+import {
+  DEFAULT_ACTIVITY_FEED_STORED_POSITION,
+  resolveActivityFeedPosition,
+  toStoredActivityFeedPosition,
+} from '../utils/activityFeedPosition';
+
+const MINIMIZED_HEIGHT = 40;
+const BOTTOM_MARGIN = 12;
+const HEADER_CLEARANCE = 66;
+/** Below Tour nudge / Owner guide (9000), Joyride (10000), Perf toolbox (10050). */
+const ACTIVITY_FEED_Z = 8500;
+const ACTIVITY_FEED_CHROME_Z = 8600;
 
 interface ActivityItem {
   id: number;
@@ -37,7 +65,8 @@ function escapeHtml(text: string): string {
  */
 function linkTaskTicketsInHtml(
   text: string,
-  projectId?: string | null
+  projectId?: string | null,
+  linkClass = 'text-blue-600 dark:text-blue-400 hover:underline font-medium'
 ): string {
   const escaped = escapeHtml(text);
   const projectFromText = escaped.match(/\b(PROJ-\d+)\b/i)?.[1];
@@ -46,7 +75,7 @@ function linkTaskTicketsInHtml(
   return escaped.replace(/\b(TASK-\d+)\b/gi, (ticket) => {
     const normalized = ticket.toUpperCase();
     const href = generateTaskUrl(normalized, resolvedProject);
-    return `<a href="${href}" class="text-blue-600 dark:text-blue-400 hover:underline font-medium" title="${normalized}">${ticket}</a>`;
+    return `<a href="${href}" class="${linkClass}" title="${normalized}">${ticket}</a>`;
   });
 }
 
@@ -96,7 +125,7 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
   clearActivityId = 0,
   onMarkAsRead,
   onClearAll,
-  position = { x: window.innerWidth - 220, y: 66 },
+  position = DEFAULT_ACTIVITY_FEED_STORED_POSITION,
   onPositionChange,
   dimensions = { width: 208, height: 400 },
   onDimensionsChange,
@@ -105,35 +134,85 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
   const { t } = useTranslation('common');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [isMinimized, setIsMinimized] = useState(initialIsMinimized);
-  const [showTooltip, setShowTooltip] = useState(false);
-  const [tooltipPosition, setTooltipPosition] = useState<{top: number, left: number} | null>(null);
-  const [showMinimizeDropdown, setShowMinimizeDropdown] = useState(false);
-  const [dropdownPosition, setDropdownPosition] = useState<{x: number, y: number} | null>(null);
+  // Prop is source of truth (parent restores from user prefs on refresh)
+  const isMinimized = initialIsMinimized;
   const [isDragging, setIsDragging] = useState(false);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
-  const [isResizing, setIsResizing] = useState<'width' | 'height' | 'height-top' | 'both' | 'both-top' | null>(null);
-  const [resizeOffset, setResizeOffset] = useState({ x: 0, y: 0 });
+  const [isResizing, setIsResizing] = useState<
+    'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw' | null
+  >(null);
+  /** Absolute viewport coords while dragging/resizing; null uses resolved stored position. */
+  const [liveAbsolutePosition, setLiveAbsolutePosition] = useState<{ x: number; y: number } | null>(null);
   const currentDragPositionRef = useRef<{ x: number; y: number } | null>(null);
   const currentDragDimensionsRef = useRef<{ width: number; height: number } | null>(null);
-  const tooltipRef = useRef<HTMLDivElement>(null);
   const feedRef = useRef<HTMLDivElement>(null);
   const [showDimensionsTooltip, setShowDimensionsTooltip] = useState(false);
+  const [viewportSize, setViewportSize] = useState(() => ({
+    w: typeof window !== 'undefined' ? window.innerWidth : 1200,
+    h: typeof window !== 'undefined' ? window.innerHeight : 800,
+  }));
   
   // Filter state
   const [filterText, setFilterText] = useState('');
 
-  // Sync with prop changes
   useEffect(() => {
-    setIsMinimized(initialIsMinimized);
-  }, [initialIsMinimized]);
+    const onResize = () => setViewportSize({ w: window.innerWidth, h: window.innerHeight });
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+
+  // Clear live override when stored position changes from outside (e.g. prefs load)
+  useEffect(() => {
+    if (!isDragging && !isResizing) {
+      setLiveAbsolutePosition(null);
+    }
+  }, [position.x, position.y, isDragging, isResizing]);
+
+  const persistStoredPosition = async (absolute: { x: number; y: number }, width: number) => {
+    const stored = toStoredActivityFeedPosition(absolute, width);
+    onPositionChange?.(stored);
+    try {
+      await updateActivityFeedPreference('position', stored, userId);
+    } catch (error) {
+      console.error('Failed to save activity feed position:', error);
+    }
+  };
+
+  // Utility function to ensure ActivityFeed stays within viewport and above header
+  function constrainAbsolute(pos: { x: number; y: number }, dims: { width: number; height: number }) {
+    const viewportWidth = viewportSize.w;
+    const viewportHeight = viewportSize.h;
+    const margin = 10;
+    const constrainedX = Math.max(margin, Math.min(viewportWidth - dims.width - margin, pos.x));
+    const minY = HEADER_CLEARANCE;
+    const maxY = Math.max(minY, viewportHeight - dims.height - margin);
+    const constrainedY = Math.max(minY, Math.min(maxY, pos.y));
+    return { x: constrainedX, y: constrainedY };
+  }
+
+  const resolvedAbsolute = resolveActivityFeedPosition(
+    position,
+    dimensions.width,
+    viewportSize.w
+  );
+  // Minimized shares the same preferred X; only Y is pinned to the bottom
+  const dockAbsolute = constrainAbsolute(
+    {
+      x: resolvedAbsolute.x,
+      y: viewportSize.h - MINIMIZED_HEIGHT - BOTTOM_MARGIN,
+    },
+    { width: dimensions.width, height: MINIMIZED_HEIGHT }
+  );
+
+  const displayAbsolute =
+    liveAbsolutePosition ||
+    (isMinimized ? dockAbsolute : resolvedAbsolute);
 
   // Load saved filter preference on mount
   useEffect(() => {
     const loadFilterPreference = async () => {
       if (userId) {
         try {
-          // Import the loadUserPreferences function to access saved filter
           const { loadUserPreferences } = await import('../utils/userPreferences');
           const userPrefs = loadUserPreferences(userId);
           if (userPrefs.activityFeed.filterText) {
@@ -148,151 +227,29 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
     loadFilterPreference();
   }, [userId]);
 
-  // Utility function to ensure ActivityFeed stays within viewport and above dev tools
-  const constrainToViewport = (pos: { x: number; y: number }, dims: { width: number; height: number }) => {
-    const viewportWidth = window.innerWidth;
-    const viewportHeight = window.innerHeight;
-    
-    // Add margin from edges to ensure visibility
-    const margin = 10;
-    
-    // Constrain X position
-    const constrainedX = Math.max(margin, Math.min(viewportWidth - dims.width - margin, pos.x));
-    
-    // Constrain Y position - be more aggressive about keeping it visible
-    // If dev tools are open (detected by reduced viewport height), adjust accordingly
-    const minY = 66; // Header height + margin
-    const maxY = viewportHeight - dims.height - margin;
-    const constrainedY = Math.max(minY, Math.min(maxY, pos.y));
-    
-    return { x: constrainedX, y: constrainedY };
+  const handleMinimize = async () => {
+    // Shared position pref stays as-is; minimized only changes chrome + bottom Y
+    await handleMinimizedChange(true);
   };
 
-  // Ensure ActivityFeed stays visible when viewport changes (dev tools open/close)
-  useEffect(() => {
-    const handleResize = () => {
-      const currentDims = isMinimized ? { width: dimensions.width, height: 60 } : dimensions;
-      const constrainedPosition = constrainToViewport(position, currentDims);
-      
-      // Only update if position actually changed to avoid infinite loops
-      if (constrainedPosition.x !== position.x || constrainedPosition.y !== position.y) {
-        onPositionChange?.(constrainedPosition);
-      }
-    };
-
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, [position, dimensions, isMinimized, onPositionChange]);
-
-  // Handle minimize/expand with user setting persistence
-  const handleMinimizeInPlace = async () => {
-    await handleMinimizedChange(true, false);
-  };
-
-  const handleMinimizeToBottom = async () => {
-    // Move to bottom of viewport first
-    const bottomPosition = {
-      x: position.x,
-      y: window.innerHeight - 80 // 60px height + 20px margin
-    };
-    
-    onPositionChange?.(bottomPosition);
-    
-    // Save the new position
-    try {
-      await updateActivityFeedPreference('position', bottomPosition, userId);
-    } catch (error) {
-      console.error('Failed to save bottom position:', error);
-    }
-    
-    // Then minimize
-    await handleMinimizedChange(true, true);
-  };
-
-  const handleMinimizedChange = async (minimized: boolean, isBottomMinimize: boolean = false) => {
-    setIsMinimized(minimized);
+  const handleMinimizedChange = async (minimized: boolean) => {
     onMinimizedChange?.(minimized);
     
-    // When maximizing, check if the expanded height would go off-screen
     if (!minimized) {
-      const currentY = position.y;
-      const expandedHeight = dimensions.height;
-      const viewportHeight = window.innerHeight;
-      
-      // If the bottom of the expanded feed would be off-screen, move it up
-      if (currentY + expandedHeight > viewportHeight - 20) {
-        const newY = Math.max(66, viewportHeight - expandedHeight - 20); // 66 is header height + gap
-        const adjustedPosition = { x: position.x, y: newY };
-        
-        onPositionChange?.(adjustedPosition);
-        
-        // Save the adjusted position
-        try {
-          await updateActivityFeedPreference('position', adjustedPosition, userId);
-        } catch (error) {
-          console.error('Failed to save adjusted position:', error);
-        }
-      }
+      // Expand to the same preferred X/Y (updated if the pill was dragged)
+      setLiveAbsolutePosition(null);
+      const adjusted = constrainAbsolute(
+        resolveActivityFeedPosition(position, dimensions.width, viewportSize.w),
+        dimensions
+      );
+      await persistStoredPosition(adjusted, dimensions.width);
     }
     
-    // Save minimized state to user preferences (unified system)
     try {
       await updateActivityFeedPreference('isMinimized', minimized, userId);
     } catch (error) {
       console.error('Failed to save activity feed minimized state:', error);
     }
-  };
-
-  // Calculate smart tooltip position to stay within viewport
-  const calculateTooltipPosition = (rect: DOMRect): {top: number, left: number} => {
-    const tooltipWidth = 320; // Approximate tooltip width (max-w-sm = 384px, but content is smaller)
-    const tooltipHeight = 120; // Approximate tooltip height
-    const viewportWidth = window.innerWidth;
-    const viewportHeight = window.innerHeight;
-    const margin = 8; // Margin from viewport edges
-    
-    // Default: centered above the element
-    let tooltipX = rect.left + rect.width / 2 - tooltipWidth / 2;
-    let tooltipY = rect.top - tooltipHeight - 10; // 10px gap above
-    
-    // Check horizontal boundaries
-    if (tooltipX < margin) {
-      // Too far left, align to left edge with margin
-      tooltipX = margin;
-    } else if (tooltipX + tooltipWidth > viewportWidth - margin) {
-      // Too far right, align to right edge with margin
-      tooltipX = viewportWidth - tooltipWidth - margin;
-    }
-    
-    // Check vertical boundaries
-    if (tooltipY < margin) {
-      // Too close to top, position below instead
-      tooltipY = rect.bottom + 10; // 10px gap below
-    }
-    
-    // Double-check if positioning below would go off bottom
-    if (tooltipY + tooltipHeight > viewportHeight - margin) {
-      // Position at the best available spot
-      tooltipY = Math.max(margin, viewportHeight - tooltipHeight - margin);
-    }
-    
-    return {
-      top: tooltipY,
-      left: tooltipX
-    };
-  };
-
-  // Tooltip handlers
-  const handleMouseEnter = (event: React.MouseEvent<HTMLDivElement>) => {
-    const rect = event.currentTarget.getBoundingClientRect();
-    const smartPosition = calculateTooltipPosition(rect);
-    setTooltipPosition(smartPosition);
-    setShowTooltip(true);
-  };
-
-  const handleMouseLeave = () => {
-    setShowTooltip(false);
-    setTooltipPosition(null);
   };
 
   // Drag functionality
@@ -315,13 +272,16 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
     if (!isDragging) return;
     
     const newX = e.clientX - dragOffset.x;
-    const newY = e.clientY - dragOffset.y;
-    
-    // Constrain to viewport using the new utility function
-    const feedDims = isMinimized ? { width: dimensions.width, height: 60 } : dimensions;
-    const newPosition = constrainToViewport({ x: newX, y: newY }, feedDims);
+    const feedDims = isMinimized
+      ? { width: dimensions.width, height: MINIMIZED_HEIGHT }
+      : dimensions;
+    // Minimized: stay on the bottom edge; free horizontal placement
+    const newY = isMinimized
+      ? viewportSize.h - MINIMIZED_HEIGHT - BOTTOM_MARGIN
+      : e.clientY - dragOffset.y;
+    const newPosition = constrainAbsolute({ x: newX, y: newY }, feedDims);
     currentDragPositionRef.current = newPosition;
-    onPositionChange?.(newPosition);
+    setLiveAbsolutePosition(newPosition);
   };
 
   const handleDragEnd = async () => {
@@ -329,82 +289,105 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
     setIsDragging(false);
     setShowDimensionsTooltip(false);
     
-    // Use the position that was actually set during dragging
-    const positionToSave = currentDragPositionRef.current || position;
-    
-    // Save current position to user preferences (unified system)
-    try {
-      await updateActivityFeedPreference('position', positionToSave, userId);
-    } catch (error) {
-      console.error('Failed to save activity feed position:', error);
-    }
-    
-    // Clear the drag position
+    const absoluteToSave = currentDragPositionRef.current || displayAbsolute;
     currentDragPositionRef.current = null;
+
+    if (isMinimized) {
+      const bottomY = viewportSize.h - MINIMIZED_HEIGHT - BOTTOM_MARGIN;
+      const clamped = constrainAbsolute(
+        { x: absoluteToSave.x, y: bottomY },
+        { width: dimensions.width, height: MINIMIZED_HEIGHT }
+      );
+      // Update shared preferred position: new X, keep expanded Y
+      const stored = toStoredActivityFeedPosition(
+        { x: clamped.x, y: position.y },
+        dimensions.width
+      );
+      stored.y = position.y;
+      onPositionChange?.(stored);
+      setLiveAbsolutePosition(null);
+      try {
+        await updateActivityFeedPreference('position', stored, userId);
+      } catch (error) {
+        console.error('Failed to save activity feed position:', error);
+      }
+      return;
+    }
+
+    setLiveAbsolutePosition(null);
+    await persistStoredPosition(absoluteToSave, dimensions.width);
   };
 
-  // Resize functionality
-  const handleResizeStart = (e: React.MouseEvent, resizeType: 'width' | 'height' | 'height-top' | 'both' | 'both-top') => {
+  // Resize functionality — any edge or corner
+  const handleResizeStart = (
+    e: React.MouseEvent,
+    resizeType: 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw'
+  ) => {
     if (!feedRef.current) return;
-    
-    const rect = feedRef.current.getBoundingClientRect();
-    setResizeOffset({
-      x: e.clientX - rect.right, // Distance from right edge
-      y: e.clientY - rect.bottom  // Distance from bottom edge
-    });
     setIsResizing(resizeType);
     setShowDimensionsTooltip(true);
-    
-    // Prevent text selection
     e.preventDefault();
-    e.stopPropagation(); // Prevent drag from starting
+    e.stopPropagation();
   };
 
   const handleResizeMove = (e: MouseEvent) => {
     if (!isResizing || !feedRef.current) return;
-    
-    const rect = feedRef.current.getBoundingClientRect();
+
+    const minW = 120;
+    const maxW = 600;
+    const minH = 200;
+    const maxH = viewportSize.h * 0.8;
+    const right = displayAbsolute.x + dimensions.width;
+    const bottom = displayAbsolute.y + dimensions.height;
+
     let newWidth = dimensions.width;
     let newHeight = dimensions.height;
-    let newPosition = position;
-    
-    // Calculate new dimensions based on resize type
-    if (isResizing === 'width' || isResizing === 'both' || isResizing === 'both-top') {
-      // Allow much smaller widths with more flexible constraints
-      newWidth = Math.max(120, Math.min(600, e.clientX - rect.left));
+    let newX = displayAbsolute.x;
+    let newY = displayAbsolute.y;
+
+    const resizeE = isResizing === 'e' || isResizing === 'ne' || isResizing === 'se';
+    const resizeW = isResizing === 'w' || isResizing === 'nw' || isResizing === 'sw';
+    const resizeS = isResizing === 's' || isResizing === 'se' || isResizing === 'sw';
+    const resizeN = isResizing === 'n' || isResizing === 'ne' || isResizing === 'nw';
+
+    if (resizeE) {
+      newWidth = Math.max(minW, Math.min(maxW, e.clientX - displayAbsolute.x));
     }
-    
-    if (isResizing === 'height' || isResizing === 'both') {
-      // Resize from bottom - normal behavior
-      newHeight = Math.max(200, Math.min(window.innerHeight * 0.8, e.clientY - rect.top));
-    }
-    
-    if (isResizing === 'height-top' || isResizing === 'both-top') {
-      // Resize from top - adjust both height and position
-      const deltaY = e.clientY - rect.top;
-      const proposedHeight = dimensions.height - deltaY;
-      const constrainedHeight = Math.max(200, Math.min(window.innerHeight * 0.8, proposedHeight));
-      
-      // Only move position if we're not hitting the minimum height constraint
-      if (proposedHeight >= 200) {
-        newPosition = {
-          x: position.x,
-          y: Math.max(66, position.y + (dimensions.height - constrainedHeight)) // Don't go above header
-        };
+
+    if (resizeW) {
+      const proposedWidth = Math.max(minW, Math.min(maxW, right - e.clientX));
+      newWidth = proposedWidth;
+      newX = right - proposedWidth;
+      // Keep within left margin
+      if (newX < 10) {
+        newX = 10;
+        newWidth = Math.max(minW, Math.min(maxW, right - newX));
       }
-      
-      newHeight = constrainedHeight;
     }
-    
+
+    if (resizeS) {
+      newHeight = Math.max(minH, Math.min(maxH, e.clientY - displayAbsolute.y));
+    }
+
+    if (resizeN) {
+      const proposedHeight = Math.max(minH, Math.min(maxH, bottom - e.clientY));
+      newHeight = proposedHeight;
+      newY = bottom - proposedHeight;
+      if (newY < HEADER_CLEARANCE) {
+        newY = HEADER_CLEARANCE;
+        newHeight = Math.max(minH, Math.min(maxH, bottom - newY));
+      }
+    }
+
     const newDimensions = { width: newWidth, height: newHeight };
+    const newPosition = constrainAbsolute(
+      { x: newX, y: newY },
+      newDimensions
+    );
     currentDragDimensionsRef.current = newDimensions;
+    currentDragPositionRef.current = newPosition;
     onDimensionsChange?.(newDimensions);
-    
-    // Update position if resizing from top
-    if ((isResizing === 'height-top' || isResizing === 'both-top') && newPosition !== position) {
-      currentDragPositionRef.current = newPosition;
-      onPositionChange?.(newPosition);
-    }
+    setLiveAbsolutePosition(newPosition);
   };
 
   const handleResizeEnd = async () => {
@@ -414,17 +397,16 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
     
     // Use the dimensions that were actually set during resizing
     const dimensionsToSave = currentDragDimensionsRef.current || dimensions;
-    const positionToSave = currentDragPositionRef.current || position;
+    const absoluteToSave = currentDragPositionRef.current || displayAbsolute;
     
     // Save current dimensions to user preferences
     try {
       await updateActivityFeedPreference('width', dimensionsToSave.width, userId);
       await updateActivityFeedPreference('height', dimensionsToSave.height, userId);
       
-      // Save position if it was changed (for top resize)
-      if (currentDragPositionRef.current) {
-        await updateActivityFeedPreference('position', positionToSave, userId);
-      }
+      // Persist signed position (left-edge resize changes absolute X)
+      setLiveAbsolutePosition(null);
+      await persistStoredPosition(absoluteToSave, dimensionsToSave.width);
     } catch (error) {
       console.error('Failed to save activity feed dimensions/position:', error);
     }
@@ -464,25 +446,6 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
       };
     }
   }, [isResizing]);
-
-  // Close dropdown when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (showMinimizeDropdown) {
-        const target = event.target as Element;
-        // Check if click is not on the button or dropdown
-        const isClickOnButton = target.closest('.minimize-dropdown');
-        const isClickOnDropdown = target.closest('[data-minimize-dropdown]');
-        
-        if (!isClickOnButton && !isClickOnDropdown) {
-          setShowMinimizeDropdown(false);
-        }
-      }
-    };
-
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [showMinimizeDropdown]);
 
   const formatTimeAgo = (timestamp: string | undefined, short: boolean = false) => {
     if (!timestamp) {
@@ -536,9 +499,13 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
     return { name, description, descriptionHtml, viaApi: Boolean(viaApi) };
   };
 
-  const renderActivityHtml = (html: string, searchTerm: string) => (
+  const renderActivityHtml = (
+    html: string,
+    searchTerm: string,
+    textClassName = 'text-slate-700 dark:text-slate-200'
+  ) => (
     <span
-      className="text-gray-700 dark:text-gray-200 break-words"
+      className={`${textClassName} break-words`}
       style={{ wordBreak: 'break-word', overflowWrap: 'anywhere' }}
       onClick={(e) => {
         // Keep link clicks from triggering parent row handlers
@@ -556,13 +523,29 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
   );
 
   const getActionIcon = (action: string) => {
-    if (action.includes('agent_job_done')) return '✅';
-    if (action.includes('agent_job_failed')) return '⚠️';
-    if (action.includes('create')) return '➕';
-    if (action.includes('update') || action.includes('move')) return '✏️';
-    if (action.includes('delete')) return '🗑️';
-    if (action.includes('tag')) return '🏷️';
-    return '📝';
+    const className = 'w-3.5 h-3.5 shrink-0';
+    if (action.includes('agent_job_done')) {
+      return <CheckCircle2 className={`${className} text-emerald-600 dark:text-emerald-400`} />;
+    }
+    if (action.includes('agent_job_failed')) {
+      return <AlertTriangle className={`${className} text-amber-600 dark:text-amber-400`} />;
+    }
+    if (action.includes('create')) {
+      return <Plus className={`${className} text-sky-600 dark:text-sky-400`} />;
+    }
+    if (action.includes('move')) {
+      return <ArrowRightLeft className={`${className} text-indigo-600 dark:text-indigo-400`} />;
+    }
+    if (action.includes('update')) {
+      return <Pencil className={`${className} text-slate-500 dark:text-slate-400`} />;
+    }
+    if (action.includes('delete')) {
+      return <Trash2 className={`${className} text-rose-600 dark:text-rose-400`} />;
+    }
+    if (action.includes('tag')) {
+      return <Tag className={`${className} text-violet-600 dark:text-violet-400`} />;
+    }
+    return <FileText className={`${className} text-slate-500 dark:text-slate-400`} />;
   };
 
   // Filter activities based on text input
@@ -606,60 +589,6 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
     }
   };
 
-  // Calculate optimal dropdown position to stay within viewport
-  const calculateDropdownPosition = (): {x: number, y: number} => {
-    if (!feedRef.current) return {x: 0, y: 0};
-    
-    const feedRect = feedRef.current.getBoundingClientRect();
-    const dropdownWidth = 140; // min-w-[140px] from the dropdown
-    const dropdownHeight = 80; // Approximate height for 2 buttons
-    const viewportWidth = window.innerWidth;
-    const viewportHeight = window.innerHeight;
-    const margin = 8; // Small margin from viewport edge
-    
-    // Calculate button position (it's in the top-right area of the feed)
-    const buttonX = feedRect.right - 25; // Approximate button center
-    const buttonY = feedRect.top + 20; // Approximate button center
-    
-    // Default: position dropdown to the right and below the button
-    let dropdownX = buttonX;
-    let dropdownY = buttonY + 6; // 6px below button
-    
-    // Check if dropdown would go off-screen on the right
-    if (dropdownX + dropdownWidth > viewportWidth - margin) {
-      // Position to the left of the button instead
-      dropdownX = buttonX - dropdownWidth;
-    }
-    
-    // Ensure it doesn't go off-screen on the left
-    if (dropdownX < margin) {
-      dropdownX = margin;
-    }
-    
-    // Check if dropdown would go off-screen on the bottom
-    if (dropdownY + dropdownHeight > viewportHeight - margin) {
-      // Position above the button instead
-      dropdownY = buttonY - dropdownHeight - 6;
-    }
-    
-    // Ensure it doesn't go off-screen on the top
-    if (dropdownY < margin) {
-      dropdownY = margin;
-    }
-    
-    return {x: dropdownX, y: dropdownY};
-  };
-
-  // Handle minimize dropdown toggle with position calculation
-  const handleMinimizeDropdownToggle = () => {
-    if (!showMinimizeDropdown) {
-      // Calculate position before showing
-      const optimalPosition = calculateDropdownPosition();
-      setDropdownPosition(optimalPosition);
-    }
-    setShowMinimizeDropdown(!showMinimizeDropdown);
-  };
-
   // Highlight search terms in text - returns React components for regular display
   const highlightText = (text: string, searchTerm: string): React.ReactNode => {
     if (!searchTerm.trim() || !text) {
@@ -699,6 +628,7 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
   // Step 3: Within filtered activities, determine which are "unread"
   const unreadActivities = filteredActivities.filter(activity => activity.id > lastSeenActivityId);
   const unreadCount = unreadActivities.length;
+  const unreadBadgeLabel = unreadCount > 99 ? '99+' : String(unreadCount);
   
   // Use filtered activities for display
   const displayActivities = filteredActivities;
@@ -721,203 +651,172 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
       onClearAll(clearId);
     }
   };
+
+  const isNarrowMode = dimensions.width <= 160;
+  const isExtraNarrowMode = dimensions.width <= 130;
   
   if (isMinimized) {
+    const preview =
+      latestActivity
+        ? `${latestActivity.memberName || t('activityFeed.unknownUser')}${
+            latestActivity.details ? ` · ${latestActivity.details}` : ''
+          }`
+        : t('activityFeed.noRecentActivity');
+
     return (
       <div 
         ref={feedRef}
-        className={`fixed bg-white dark:bg-gray-800 shadow-lg rounded border border-gray-200 dark:border-gray-700 z-[9999] ${isDragging ? 'cursor-grabbing' : ''}`}
+        className={`fixed flex items-center gap-1 rounded-full border border-slate-200/80 dark:border-slate-600/80 bg-white/95 dark:bg-slate-900/95 shadow-lg backdrop-blur-md px-1.5 ${isDragging ? 'cursor-grabbing' : ''}`}
         style={{
-          left: position.x,
-          top: position.y,
+          left: displayAbsolute.x,
+          top: displayAbsolute.y,
           width: dimensions.width,
-          height: 60, // Fixed height for minimized
+          height: MINIMIZED_HEIGHT,
+          zIndex: ACTIVITY_FEED_Z,
         }}
       >
-        {/* Minimized Header - Same title and pill as maximized */}
-        <div className="flex items-center justify-between p-2 bg-gray-50 dark:bg-gray-700 rounded-t">
-          {/* Left side - Activity title and unread count */}
-          <div className="flex items-center space-x-2">
-            <div 
-              className="cursor-grab active:cursor-grabbing"
-              onMouseDown={handleDragStart}
-            >
-              <GripVertical className="w-3 h-3 text-gray-400 dark:text-gray-500" />
-            </div>
-            <Activity className="w-3 h-3 text-blue-600 dark:text-blue-400" />
-            {dimensions.width >= 155 && (
-              <span className="text-xs font-medium text-gray-900 dark:text-gray-100">{t('activityFeed.title')}</span>
-            )}
-            {unreadCount > 0 && (
-              <div className="bg-blue-500 text-white text-xs rounded-full px-1.5 py-0.5 min-w-[16px] h-4 flex items-center justify-center leading-none">
-                {unreadCount}
-              </div>
-            )}
-          </div>
-
-          {/* Right side - Simple action buttons */}
-          <div className="flex items-center space-x-0.5">
-            <KanbanChromeTooltip label={t('activityFeed.expand')}>
-              <button
-                onClick={() => handleMinimizedChange(false)}
-                className="p-0.5 hover:bg-gray-200 dark:hover:bg-gray-600 rounded transition-colors"
-              >
-                <ChevronUp className="w-2.5 h-2.5 text-gray-500 dark:text-gray-400" />
-              </button>
-            </KanbanChromeTooltip>
-            <KanbanChromeTooltip label={t('activityFeed.close')}>
-              <button
-                onClick={onClose}
-                className="p-0.5 hover:bg-gray-200 dark:hover:bg-gray-600 rounded transition-colors"
-              >
-                <X className="w-2.5 h-2.5 text-gray-500 dark:text-gray-400" />
-              </button>
-            </KanbanChromeTooltip>
-          </div>
-        </div>
-        
-        {/* Latest Activity Content */}
-        <div 
-          className="px-2 py-1 bg-white dark:bg-gray-800 cursor-help flex-1 flex items-center"
-          onMouseEnter={latestActivity ? handleMouseEnter : undefined}
-          onMouseLeave={latestActivity ? handleMouseLeave : undefined}
+        <div
+          className="cursor-grab active:cursor-grabbing p-1 rounded-full text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 shrink-0"
+          onMouseDown={handleDragStart}
+          aria-hidden
         >
-          <div className="min-w-0 flex-1">
-            {latestActivity ? (
-              <div className="text-xs text-gray-700 dark:text-gray-200 truncate">
-                <span className="font-medium text-blue-600 dark:text-blue-400">
-                  {highlightText(latestActivity.memberName || t('activityFeed.unknownUser'), filterText)}
-                </span>
-                {latestActivity.viaApi && (
-                  <span className="ml-1 text-gray-400 font-normal">{t('activityFeed.viaApi')}</span>
-                )}
-                {' '}
-                {renderActivityHtml(
-                  linkTaskTicketsInHtml(
-                    latestActivity.details || '',
-                    latestActivity.projectId
-                  ),
-                  filterText
-                )}
-              </div>
-            ) : (
-              <span className="text-xs text-gray-500">{t('activityFeed.noRecentActivity')}</span>
-            )}
-          </div>
+          <GripVertical className="w-3.5 h-3.5" />
         </div>
-        
-        {/* Tooltip for latest activity details */}
-        {showTooltip && latestActivity && tooltipPosition && createPortal(
-          <div
-            ref={tooltipRef}
-            className={`fixed z-[10000] ${CHROME_TOOLTIP_RICH_SURFACE_CLASS}`}
-            style={{
-              top: tooltipPosition.top,
-              left: tooltipPosition.left
-            }}
+
+        <button
+          type="button"
+          onClick={() => void handleMinimizedChange(false)}
+          className="min-w-0 flex-1 flex items-center gap-1.5 text-left rounded-full px-1 py-0.5 hover:bg-slate-50 dark:hover:bg-slate-800/80 transition-colors"
+          aria-label={t('activityFeed.expand')}
+        >
+          <KanbanChromeTooltip
+            delayMs={200}
+            placement="top"
+            portalZIndex={ACTIVITY_FEED_CHROME_Z}
+            wrapperClassName="relative inline-flex shrink-0"
+            content={
+              <div className="max-w-[min(18rem,calc(100vw-2rem))] space-y-1">
+                <div className="font-semibold text-white dark:text-gray-900">
+                  {t('activityFeed.title')}
+                  {unreadCount > 0 ? ` · ${unreadCount}` : ''}
+                </div>
+                <div className="text-white/90 dark:text-gray-800 break-words whitespace-normal">
+                  {preview}
+                </div>
+              </div>
+            }
           >
-            <div className="space-y-1">
-              <div className="flex items-center space-x-1">
-                {getActionIcon(latestActivity.action)}
-                <span className="font-medium">{highlightText(latestActivity.memberName || t('activityFeed.unknownUser'), filterText)}</span>
-                {latestActivity.viaApi && (
-                  <span className="text-gray-400 font-normal">{t('activityFeed.viaApi')}</span>
-                )}
-              </div>
-              <div className="text-gray-300 [&_a]:text-blue-300 [&_a]:underline">
-                {renderActivityHtml(
-                  linkTaskTicketsInHtml(
-                    latestActivity.details || '',
-                    latestActivity.projectId
-                  ),
-                  filterText
-                )}
-              </div>
-              {latestActivity.boardTitle && (
-                <div className="text-gray-400">{t('activityFeed.in')} {highlightText(latestActivity.boardTitle, filterText)}</div>
-              )}
-              <div className="flex items-center space-x-1 text-gray-400">
-                <Clock className="w-2 h-2" />
-                <span>{formatTimeAgo(latestActivity.createdAt)}</span>
-              </div>
-            </div>
-          </div>,
-          document.body
-        )}
+            <span className="relative flex h-6 w-6 items-center justify-center rounded-full bg-sky-50 dark:bg-sky-950/50 text-sky-600 dark:text-sky-400">
+              {latestActivity ? getActionIcon(latestActivity.action) : <Activity className="w-3.5 h-3.5" />}
+              <span
+                className={`absolute -top-1 -right-1.5 min-w-[1.15rem] h-4 px-1 rounded-full text-[9px] font-semibold leading-4 text-center tabular-nums ${
+                  unreadCount > 0
+                    ? 'bg-sky-600 text-white'
+                    : 'bg-slate-300 text-slate-700 dark:bg-slate-600 dark:text-slate-100'
+                }`}
+              >
+                {unreadBadgeLabel}
+              </span>
+            </span>
+          </KanbanChromeTooltip>
+          <span className="min-w-0 flex-1 text-[11px] font-semibold text-slate-800 dark:text-slate-100 truncate">
+            {t('activityFeed.titleShort')}
+          </span>
+        </button>
+
+        <div className="flex items-center shrink-0">
+          <KanbanChromeTooltip label={t('activityFeed.expand')} placement="top" portalZIndex={ACTIVITY_FEED_CHROME_Z}>
+            <button
+              type="button"
+              onClick={() => void handleMinimizedChange(false)}
+              className="p-1.5 rounded-full text-slate-500 hover:text-slate-800 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+              aria-label={t('activityFeed.expand')}
+            >
+              <Maximize2 className="w-3.5 h-3.5" />
+            </button>
+          </KanbanChromeTooltip>
+          <KanbanChromeTooltip label={t('activityFeed.close')} placement="top" portalZIndex={ACTIVITY_FEED_CHROME_Z}>
+            <button
+              type="button"
+              onClick={onClose}
+              className="p-1.5 rounded-full text-slate-500 hover:text-slate-800 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+              aria-label={t('activityFeed.close')}
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </KanbanChromeTooltip>
+        </div>
       </div>
     );
   }
 
-  // Determine if we're in narrow mode for responsive styling
-  const isNarrowMode = dimensions.width <= 160;
-  const isExtraNarrowMode = dimensions.width <= 130;
-
   return (
     <div 
       ref={feedRef}
-      className={`fixed bg-white dark:bg-gray-800 shadow-xl rounded border border-gray-200 dark:border-gray-700 z-[9999] flex flex-col ${isDragging ? 'cursor-grabbing' : ''} ${isResizing ? 'select-none' : ''}`}
+      className={`fixed flex flex-col overflow-hidden rounded-2xl border border-slate-200/90 dark:border-slate-600/80 bg-white dark:bg-slate-900 shadow-2xl shadow-slate-900/10 dark:shadow-black/40 ${isDragging ? 'cursor-grabbing' : ''} ${isResizing ? 'select-none' : ''}`}
       style={{
-        left: position.x,
-        top: position.y,
+        left: displayAbsolute.x,
+        top: displayAbsolute.y,
         width: dimensions.width,
         height: dimensions.height,
+        zIndex: ACTIVITY_FEED_Z,
       }}
     >
       {/* Header */}
-      <div className="flex items-center justify-between p-2 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-700 rounded-t">
-        {/* Drag Handle */}
+      <div className="flex items-center gap-1.5 px-2.5 py-2 border-b border-slate-100 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-950/40">
         <div 
-          className="cursor-grab active:cursor-grabbing flex items-center mr-1"
+          className="cursor-grab active:cursor-grabbing p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800"
           onMouseDown={handleDragStart}
         >
-          <GripVertical className="w-3 h-3 text-gray-400 dark:text-gray-500" />
+          <GripVertical className="w-3.5 h-3.5" />
         </div>
         
-        <div className="flex items-center space-x-1.5 flex-1 min-w-0">
-          <Activity className="w-3 h-3 text-blue-600 dark:text-blue-400 flex-shrink-0" />
+        <div className="flex items-center gap-2 flex-1 min-w-0">
+          <span className="shrink-0 flex h-6 w-6 items-center justify-center rounded-full bg-sky-100 dark:bg-sky-950/60 text-sky-600 dark:text-sky-400">
+            <Activity className="w-3.5 h-3.5" />
+          </span>
           {!isExtraNarrowMode && (
-            <h3 className="font-medium text-gray-900 dark:text-gray-100 text-xs truncate">
+            <h3 className="font-semibold text-slate-900 dark:text-slate-100 text-xs truncate tracking-tight">
               {isNarrowMode ? t('activityFeed.titleShort') : t('activityFeed.title')}
             </h3>
           )}
           {unreadCount > 0 && (
-            <div className="bg-red-500 text-white text-xs rounded-full w-4 h-4 flex items-center justify-center flex-shrink-0">
-              <span className="text-xs leading-none">{unreadCount > 9 ? '9+' : unreadCount}</span>
-            </div>
+            <span className="shrink-0 min-w-[1.25rem] h-5 px-1.5 rounded-full bg-sky-600 text-white text-[10px] font-semibold leading-5 text-center tabular-nums">
+              {unreadBadgeLabel}
+            </span>
           )}
         </div>
-        <div className="flex items-center space-x-0.5">
-          {/* Minimize Dropdown */}
-          <div className="relative minimize-dropdown">
-            <KanbanChromeTooltip label={t('activityFeed.minimizeOptions')}>
-              <button
-                onClick={handleMinimizeDropdownToggle}
-                className="p-0.5 hover:bg-gray-200 dark:hover:bg-gray-600 rounded transition-colors flex items-center"
-              >
-                <ChevronDown className="w-2.5 h-2.5 text-gray-500 dark:text-gray-400" />
-              </button>
-            </KanbanChromeTooltip>
-            
-            {/* Dropdown rendered here for positioning context, but content is in portal */}
-          </div>
+        <div className="flex items-center gap-0.5">
+          <KanbanChromeTooltip label={t('activityFeed.minimize')}>
+            <button
+              type="button"
+              onClick={() => void handleMinimize()}
+              className="p-1.5 rounded-lg text-slate-500 hover:text-slate-800 dark:hover:text-slate-100 hover:bg-slate-200/70 dark:hover:bg-slate-800 transition-colors"
+              aria-label={t('activityFeed.minimize')}
+            >
+              <Minus className="w-3.5 h-3.5" />
+            </button>
+          </KanbanChromeTooltip>
           
           <KanbanChromeTooltip label={t('activityFeed.close')}>
             <button
+              type="button"
               onClick={onClose}
-              className="p-0.5 hover:bg-gray-200 dark:hover:bg-gray-600 rounded transition-colors"
+              className="p-1.5 rounded-lg text-slate-500 hover:text-slate-800 dark:hover:text-slate-100 hover:bg-slate-200/70 dark:hover:bg-slate-800 transition-colors"
+              aria-label={t('activityFeed.close')}
             >
-              <X className="w-2.5 h-2.5 text-gray-500 dark:text-gray-400" />
+              <X className="w-3.5 h-3.5" />
             </button>
           </KanbanChromeTooltip>
         </div>
       </div>
 
-      {/* Filter Input - Responsive */}
-      <div className={`border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 ${isNarrowMode ? 'p-1' : 'p-2'}`}>
+      {/* Filter */}
+      <div className={`border-b border-slate-100 dark:border-slate-800 ${isNarrowMode ? 'p-1.5' : 'p-2'}`}>
         <div className="relative">
           {!isExtraNarrowMode && (
-            <div className="absolute inset-y-0 left-0 pl-2 flex items-center pointer-events-none">
-              <Search className="h-3 w-3 text-gray-400" />
+            <div className="absolute inset-y-0 left-0 pl-2.5 flex items-center pointer-events-none">
+              <Search className="h-3 w-3 text-slate-400" />
             </div>
           )}
           <input
@@ -925,49 +824,50 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
             placeholder={isNarrowMode ? t('activityFeed.filterShort') : t('activityFeed.filter')}
             value={filterText}
             onChange={(e) => handleFilterChange(e.target.value)}
-            className={`block w-full py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded-md leading-4 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 ${
-              isExtraNarrowMode ? 'pl-2 pr-6' : 'pl-7 pr-7'
+            className={`block w-full py-1.5 text-xs border border-slate-200 dark:border-slate-700 rounded-xl leading-4 bg-slate-50 dark:bg-slate-950/50 text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500/30 focus:border-sky-500 ${
+              isExtraNarrowMode ? 'pl-2.5 pr-7' : 'pl-8 pr-7'
             }`}
           />
           {filterText && (
             <KanbanChromeTooltip label={t('activityFeed.clearFilter')} wrapperClassName="absolute inset-y-0 right-0 pr-2 flex items-center">
               <button
+                type="button"
                 onClick={clearFilter}
-                className="flex items-center"
+                className="flex items-center p-0.5 rounded hover:bg-slate-200/80 dark:hover:bg-slate-800"
               >
-                <X className="h-3 w-3 text-gray-400 hover:text-gray-600" />
+                <X className="h-3 w-3 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200" />
               </button>
             </KanbanChromeTooltip>
           )}
         </div>
         {filterText && !isNarrowMode && (
-          <div className="mt-1 text-xs text-gray-500">
+          <div className="mt-1.5 text-[11px] text-slate-500 dark:text-slate-400">
             {t('activityFeed.activitiesShown', { showing: displayActivities.length, total: visibleActivities.length })}
           </div>
         )}
         {filterText && isNarrowMode && (
-          <div className="mt-1 text-xs text-gray-500 text-center">
+          <div className="mt-1 text-[11px] text-slate-500 text-center">
             {displayActivities.length}/{visibleActivities.length}
           </div>
         )}
       </div>
 
       {/* Content */}
-      <div className={`flex-1 overflow-y-auto ${isNarrowMode ? 'p-1' : 'p-2'}`}>
+      <div className={`flex-1 overflow-y-auto ${isNarrowMode ? 'p-1.5' : 'p-2'}`}>
         {loading && activities.length === 0 && (
-          <div className="flex items-center justify-center py-4">
-            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+          <div className="flex items-center justify-center py-8">
+            <div className="animate-spin rounded-full h-5 w-5 border-2 border-sky-600 border-t-transparent" />
           </div>
         )}
 
         {error && (
-          <div className="text-red-600 text-xs text-center py-2">
+          <div className="text-rose-600 dark:text-rose-400 text-xs text-center py-3">
             {error}
           </div>
         )}
 
         {!loading && displayActivities.length === 0 && (
-          <div className="text-gray-500 text-xs text-center py-4">
+          <div className="text-slate-500 dark:text-slate-400 text-xs text-center py-8 px-2">
             {clearActivityId > 0 ? t('activityFeed.feedClearedNew') : t('activityFeed.noRecentActivity')}
           </div>
         )}
@@ -979,55 +879,55 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
             return (
               <div 
                 key={activity.id} 
-                className={`flex items-start rounded hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors ${
-                  isNarrowMode ? 'space-x-1 p-1' : 'space-x-1.5 p-1.5'
+                className={`flex items-start rounded-xl transition-colors ${
+                  isNarrowMode ? 'gap-1.5 p-1.5' : 'gap-2 p-2'
                 } ${
                   isUnread 
-                    ? 'bg-blue-50 dark:bg-blue-900/20 border-l-2 border-blue-500' 
-                    : 'bg-gray-50 dark:bg-gray-700/50'
+                    ? 'bg-sky-50/90 dark:bg-sky-950/30 ring-1 ring-inset ring-sky-200/70 dark:ring-sky-800/50' 
+                    : 'hover:bg-slate-50 dark:hover:bg-slate-800/60'
                 }`}
               >
                 {!isExtraNarrowMode && (
-                  <div className="text-xs flex-shrink-0 mt-0.5">
+                  <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-slate-100 dark:bg-slate-800">
                     {getActionIcon(activity.action)}
                   </div>
                 )}
                 <div className="flex-1 min-w-0">
-                  <div className="text-xs text-gray-900 dark:text-gray-100 leading-tight">
+                  <div className="text-xs text-slate-800 dark:text-slate-100 leading-snug">
                     {isNarrowMode ? (
-                      // Compact layout for narrow widths
                       <div className="space-y-0.5">
-                        <div className={`font-medium truncate ${isUnread ? 'text-blue-700 dark:text-blue-300' : 'text-blue-600 dark:text-blue-400'}`}>
+                        <div className={`font-semibold truncate ${isUnread ? 'text-sky-800 dark:text-sky-200' : 'text-slate-800 dark:text-slate-100'}`}>
                           {highlightText(name, filterText)}
                           {viaApi && (
-                            <span className="ml-1 text-gray-400 dark:text-gray-500 font-normal">{t('activityFeed.viaApi')}</span>
+                            <span className="ml-1 text-slate-400 dark:text-slate-500 font-normal">{t('activityFeed.viaApi')}</span>
                           )}
                         </div>
-                        <div className="text-xs leading-tight">
+                        <div className="text-xs leading-snug text-slate-600 dark:text-slate-300">
                           {renderActivityHtml(descriptionHtml, filterText)}
                         </div>
                       </div>
                     ) : (
-                      // Normal layout
                       <>
-                        <span className={`font-medium ${isUnread ? 'text-blue-700 dark:text-blue-300' : 'text-blue-600 dark:text-blue-400'}`}>
+                        <span className={`font-semibold ${isUnread ? 'text-sky-800 dark:text-sky-200' : 'text-slate-800 dark:text-slate-100'}`}>
                           {highlightText(name, filterText)}
                         </span>
                         {viaApi && (
-                          <span className="ml-1 text-gray-400 dark:text-gray-500 font-normal">{t('activityFeed.viaApi')}</span>
+                          <span className="ml-1 text-slate-400 dark:text-slate-500 font-normal">{t('activityFeed.viaApi')}</span>
                         )}
                         {' '}
-                        {renderActivityHtml(descriptionHtml, filterText)}
+                        <span className="text-slate-600 dark:text-slate-300">
+                          {renderActivityHtml(descriptionHtml, filterText)}
+                        </span>
                       </>
                     )}
                   </div>
-                  <div className={`flex items-center mt-0.5 ${isNarrowMode ? 'space-x-0.5' : 'space-x-1'}`}>
-                    <Clock className="w-2 h-2 text-gray-400 dark:text-gray-500 flex-shrink-0" />
-                    <span className="text-xs text-gray-500 dark:text-gray-400 leading-none truncate">
+                  <div className={`flex items-center mt-1 ${isNarrowMode ? 'gap-1' : 'gap-1.5'}`}>
+                    <Clock className="w-2.5 h-2.5 text-slate-400 dark:text-slate-500 flex-shrink-0" />
+                    <span className="text-[11px] text-slate-500 dark:text-slate-400 leading-none truncate">
                       {isNarrowMode ? formatTimeAgo(activity.createdAt, true) : formatTimeAgo(activity.createdAt)}
                     </span>
                     {isUnread && (
-                      <div className="w-1.5 h-1.5 bg-blue-500 rounded-full flex-shrink-0"></div>
+                      <span className="w-1.5 h-1.5 bg-sky-500 rounded-full flex-shrink-0" aria-hidden />
                     )}
                   </div>
                 </div>
@@ -1038,121 +938,116 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
       </div>
 
       {/* Footer */}
-      <div className={`border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-700/50 rounded-b space-y-1 ${isNarrowMode ? 'p-1' : 'p-1.5'}`}>
+      <div className={`border-t border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/30 ${isNarrowMode ? 'p-1.5' : 'p-2'}`}>
         {unreadCount > 0 ? (
           <button
+            type="button"
             onClick={handleMarkAsRead}
-            className="w-full text-xs text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 font-medium py-0.5 bg-green-50 dark:bg-green-900/20 hover:bg-green-100 dark:hover:bg-green-900/30 rounded transition-colors"
+            className="w-full text-xs font-semibold py-1.5 rounded-xl text-sky-800 dark:text-sky-200 bg-sky-100/80 dark:bg-sky-950/50 hover:bg-sky-100 dark:hover:bg-sky-900/50 transition-colors"
           >
             {isNarrowMode ? `✓ ${unreadCount}` : t('activityFeed.markAsRead', { count: unreadCount })}
           </button>
         ) : displayActivities.length > 0 ? (
           <button
+            type="button"
             onClick={handleClearAll}
-            className="w-full text-xs text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 font-medium py-0.5 bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/30 rounded transition-colors"
+            className="w-full text-xs font-medium py-1.5 rounded-xl text-slate-600 dark:text-slate-300 hover:text-rose-700 dark:hover:text-rose-300 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors"
           >
             {isNarrowMode ? t('activityFeed.clearShort') : t('activityFeed.clearAll')}
           </button>
         ) : (
-          <div className="text-xs text-gray-500 dark:text-gray-400 text-center py-1">
+          <div className="text-[11px] text-slate-500 dark:text-slate-400 text-center py-1">
             {clearActivityId > 0 ? t('activityFeed.feedCleared') : (isNarrowMode ? t('activityFeed.autoRefreshShort') : t('activityFeed.autoRefresh'))}
           </div>
         )}
       </div>
 
-      {/* Resize Handles */}
-      {/* Top edge resize handle */}
+      {/* Resize handles — all edges and corners */}
       <div
-        className="absolute top-0 left-0 w-full h-1 cursor-ns-resize hover:bg-blue-200 transition-colors"
-        onMouseDown={(e) => handleResizeStart(e, 'height-top')}
+        className="absolute left-3 right-3 h-1 cursor-ns-resize hover:bg-sky-300/50 transition-colors z-10"
+        onMouseDown={(e) => handleResizeStart(e, 'n')}
         style={{ top: -2 }}
       />
-      
-      {/* Right edge resize handle */}
       <div
-        className="absolute top-0 right-0 w-1 h-full cursor-ew-resize hover:bg-blue-200 transition-colors"
-        onMouseDown={(e) => handleResizeStart(e, 'width')}
-        style={{ right: -2 }}
-      />
-      
-      {/* Bottom edge resize handle */}
-      <div
-        className="absolute bottom-0 left-0 w-full h-1 cursor-ns-resize hover:bg-blue-200 transition-colors"
-        onMouseDown={(e) => handleResizeStart(e, 'height')}
+        className="absolute left-3 right-3 h-1 cursor-ns-resize hover:bg-sky-300/50 transition-colors z-10"
+        onMouseDown={(e) => handleResizeStart(e, 's')}
         style={{ bottom: -2 }}
       />
-      
-      {/* Bottom-right corner resize handle */}
       <div
-        className="absolute bottom-0 right-0 w-3 h-3 cursor-nw-resize hover:bg-blue-300 transition-colors"
-        onMouseDown={(e) => handleResizeStart(e, 'both')}
+        className="absolute top-3 bottom-3 w-1 cursor-ew-resize hover:bg-sky-300/50 transition-colors z-10"
+        onMouseDown={(e) => handleResizeStart(e, 'e')}
+        style={{ right: -2 }}
+      />
+      <div
+        className="absolute top-3 bottom-3 w-1 cursor-ew-resize hover:bg-sky-300/50 transition-colors z-10"
+        onMouseDown={(e) => handleResizeStart(e, 'w')}
+        style={{ left: -2 }}
+      />
+      <div
+        className="absolute w-3 h-3 cursor-nw-resize hover:bg-sky-400/60 transition-colors rounded-tl-2xl z-20"
+        onMouseDown={(e) => handleResizeStart(e, 'nw')}
+        style={{ top: -2, left: -2 }}
+      />
+      <div
+        className="absolute w-3 h-3 cursor-ne-resize hover:bg-sky-400/60 transition-colors rounded-tr-2xl z-20"
+        onMouseDown={(e) => handleResizeStart(e, 'ne')}
+        style={{ top: -2, right: -2 }}
+      />
+      <div
+        className="absolute w-3 h-3 cursor-sw-resize hover:bg-sky-400/60 transition-colors rounded-bl-2xl z-20"
+        onMouseDown={(e) => handleResizeStart(e, 'sw')}
+        style={{ bottom: -2, left: -2 }}
+      />
+      <div
+        className="absolute w-3 h-3 cursor-se-resize hover:bg-sky-400/60 transition-colors rounded-br-2xl z-20"
+        onMouseDown={(e) => handleResizeStart(e, 'se')}
         style={{ bottom: -2, right: -2 }}
       />
       
-      {/* Top-right corner resize handle */}
-      <div
-        className="absolute top-0 right-0 w-3 h-3 cursor-ne-resize hover:bg-blue-300 transition-colors"
-        onMouseDown={(e) => handleResizeStart(e, 'both-top')}
-        style={{ top: -2, right: -2 }}
-      />
-      
-      {/* Dimensions Tooltip - shown while dragging or resizing */}
-      {showDimensionsTooltip && (isDragging || isResizing) && createPortal(
-        <div 
-          className="fixed bg-white/90 dark:bg-gray-800/90 backdrop-blur-sm border border-gray-200/50 dark:border-gray-700/50 rounded-md shadow-lg z-[10002] px-2 py-1 pointer-events-none"
-          style={{
-            left: position.x + dimensions.width / 2,
-            top: position.y - 35,
-            transform: 'translateX(-50%)',
-          }}
-        >
-          <div className="font-mono text-gray-700 dark:text-gray-300 space-y-0.5" style={{ fontSize: '6px' }}>
-            <div className="flex items-center gap-1">
-              <span className="text-gray-500 dark:text-gray-400">{t('activityFeed.position')}:</span>
-              <span className="font-medium">x: {Math.round(position.x)}, y: {Math.round(position.y)}</span>
-            </div>
-            <div className="flex items-center gap-1">
-              <span className="text-gray-500 dark:text-gray-400">{t('activityFeed.size')}:</span>
-              <span className="font-medium">w: {Math.round(dimensions.width)}, h: {Math.round(dimensions.height)}</span>
-            </div>
-          </div>
-        </div>,
-        document.body
-      )}
-      
-      {/* Minimize Dropdown Portal - rendered outside the feed to avoid clipping */}
-      {showMinimizeDropdown && dropdownPosition && createPortal(
-        <div 
-          className="fixed bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md shadow-lg z-[10001] py-1 min-w-[140px]"
-          data-minimize-dropdown
-          style={{
-            left: dropdownPosition.x,
-            top: dropdownPosition.y,
-          }}
-        >
-          <button
-            onClick={() => {
-              handleMinimizeInPlace();
-              setShowMinimizeDropdown(false);
+      {showDimensionsTooltip && (isDragging || isResizing) && (() => {
+        const tipW = 148;
+        const tipH = 44;
+        const gap = 8;
+        const feedH = isMinimized ? MINIMIZED_HEIGHT : dimensions.height;
+        let left = displayAbsolute.x + dimensions.width / 2 - tipW / 2;
+        let top = displayAbsolute.y - tipH - gap;
+        // Prefer above the feed; if clipped, stick below
+        if (top < gap) {
+          top = displayAbsolute.y + feedH + gap;
+        }
+        left = Math.max(gap, Math.min(left, viewportSize.w - tipW - gap));
+        top = Math.max(gap, Math.min(top, viewportSize.h - tipH - gap));
+        const fmt = (n: number) => String(Math.round(n)).padStart(4, '\u00A0');
+
+        return createPortal(
+          <div
+            className="fixed pointer-events-none rounded-lg border border-slate-200/80 dark:border-slate-700/80 bg-white/95 dark:bg-slate-900/95 shadow-lg backdrop-blur-sm px-2.5 py-1.5 box-border"
+            style={{
+              left,
+              top,
+              width: tipW,
+              height: tipH,
+              zIndex: ACTIVITY_FEED_CHROME_Z,
             }}
-            className="w-full text-left px-3 py-1.5 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center"
           >
-            <ChevronDown className="w-3 h-3 mr-2" />
-            {t('activityFeed.inPlace')}
-          </button>
-          <button
-            onClick={() => {
-              handleMinimizeToBottom();
-              setShowMinimizeDropdown(false);
-            }}
-            className="w-full text-left px-3 py-1.5 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center"
-          >
-            <ChevronDown className="w-3 h-3 mr-2" />
-            {t('activityFeed.bottom')}
-          </button>
-        </div>,
-        document.body
-      )}
+            <div className="font-mono text-[10px] tabular-nums text-slate-700 dark:text-slate-300 leading-snug h-full flex flex-col justify-center gap-0.5">
+              <div className="flex items-baseline gap-1.5 whitespace-nowrap">
+                <span className="w-3 shrink-0 text-slate-500">{t('activityFeed.position')}</span>
+                <span className="font-medium">
+                  x:{fmt(displayAbsolute.x)} y:{fmt(displayAbsolute.y)}
+                </span>
+              </div>
+              <div className="flex items-baseline gap-1.5 whitespace-nowrap">
+                <span className="w-3 shrink-0 text-slate-500">{t('activityFeed.size')}</span>
+                <span className="font-medium">
+                  w:{fmt(dimensions.width)} h:{fmt(dimensions.height)}
+                </span>
+              </div>
+            </div>
+          </div>,
+          document.body
+        );
+      })()}
     </div>
   );
 };

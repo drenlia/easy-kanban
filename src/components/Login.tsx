@@ -4,6 +4,13 @@ import { login } from '../api';
 import { RefreshCw, Github } from 'lucide-react';
 import { useSettings } from '../contexts/SettingsContext';
 import { setExplicitGuestLanguage } from '../utils/guestLanguage';
+import { AGILA_GITHUB_URL } from '../constants';
+import { resolvePublicBrandLogoSrc } from '../utils/brandLogo';
+
+function readDocumentTheme(): 'light' | 'dark' {
+  if (typeof document === 'undefined') return 'light';
+  return document.documentElement.classList.contains('dark') ? 'dark' : 'light';
+}
 
 interface LoginProps {
   onLogin: (userData: any, token: string) => Promise<void>;
@@ -17,6 +24,10 @@ export default function Login({ onLogin, siteSettings, hasDefaultAdmin = true, i
   const { t, i18n } = useTranslation('auth');
   const { t: tCommon } = useTranslation('common');
   const { siteSettings: contextSiteSettings, isLoading: settingsLoading } = useSettings();
+  const [theme, setTheme] = useState<'light' | 'dark'>(readDocumentTheme);
+  const brandSettings = contextSiteSettings || siteSettings;
+  const logoSrc = resolvePublicBrandLogoSrc(brandSettings, theme);
+  const siteName = String(brandSettings?.SITE_NAME ?? '').trim();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -40,6 +51,17 @@ export default function Login({ onLogin, siteSettings, hasDefaultAdmin = true, i
   };
 
   const errorMessage = errorKey ? t(errorKey) : errorRaw;
+
+  useEffect(() => {
+    const syncTheme = () => setTheme(readDocumentTheme());
+    syncTheme();
+    const observer = new MutationObserver(syncTheme);
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['class'],
+    });
+    return () => observer.disconnect();
+  }, []);
   
   // Get current language for toggle
   const currentLanguage = (i18n.language || 'en').toLowerCase().startsWith('fr') ? 'fr' : 'en';
@@ -338,7 +360,7 @@ export default function Login({ onLogin, siteSettings, hasDefaultAdmin = true, i
       <div className="absolute top-4 right-4 flex items-center gap-2 z-10">
         {!hideGithubLink && (
           <a
-            href="https://github.com/drenlia/easy-kanban"
+            href={AGILA_GITHUB_URL}
             target="_blank"
             rel="noopener noreferrer"
             className="p-1.5 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-full transition-colors border border-transparent hover:border-gray-300 dark:hover:border-gray-600"
@@ -359,12 +381,14 @@ export default function Login({ onLogin, siteSettings, hasDefaultAdmin = true, i
       
       <div className="max-w-md w-full space-y-8">
         <div>
-          <div className="mx-auto h-12 w-12 bg-blue-600 rounded-full flex items-center justify-center">
-            <svg className="h-8 w-8 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-            </svg>
-          </div>
-          <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900 dark:text-gray-100">
+          {logoSrc ? (
+            <img
+              src={logoSrc}
+              alt={siteName || 'Agila'}
+              className="mx-auto h-12 w-auto max-w-[220px] object-contain"
+            />
+          ) : null}
+          <h2 className={`${logoSrc ? 'mt-6' : ''} text-center text-3xl font-extrabold text-gray-900 dark:text-gray-100`}>
             {t('login.signInToAccount')}
           </h2>
           <p className="mt-2 text-center text-sm text-gray-600 dark:text-gray-400">

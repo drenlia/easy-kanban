@@ -50,8 +50,8 @@ export const CHROME_TOOLTIP_DIVIDER_CLASS =
 export const CHROME_TOOLTIP_POPOVER_CLASS =
   `absolute left-0 z-[70] ${CHROME_TOOLTIP_SURFACE_CLASS}`;
 
-/** Below portaled dropdowns (9999), above task chrome (DONE/LATE ~30, toolbar stacking). */
-const CHROME_TOOLTIP_PORTAL_Z = 9980;
+/** Above floating panels such as Activity Feed (z-9999). */
+const CHROME_TOOLTIP_PORTAL_Z = 10050;
 
 /** ~native `title` delay */
 export const CHROME_TOOLTIP_DELAY_MS = 650;
@@ -94,6 +94,7 @@ export function KanbanChromeTooltip({
   portalZIndex = CHROME_TOOLTIP_PORTAL_Z,
 }: KanbanChromeTooltipProps) {
   const [visible, setVisible] = useState(false);
+  /** Positioned + ready to show (avoids off-screen → clamp jump). */
   const [portalStyle, setPortalStyle] = useState<React.CSSProperties | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -158,26 +159,38 @@ export function KanbanChromeTooltip({
       return;
     }
 
+    const margin = 8;
+
     const update = () => {
       const el = anchorRef.current;
-      if (!el) return;
+      const tip = tooltipRef.current;
+      if (!el || !tip) return;
+
       const rect = el.getBoundingClientRect();
-      if (placement === 'bottom') {
-        setPortalStyle({
-          position: 'fixed',
-          top: rect.bottom + 4,
-          left: rect.left,
-          zIndex: portalZIndex,
-        });
-      } else {
-        setPortalStyle({
-          position: 'fixed',
-          top: rect.top - 4,
-          left: rect.left,
-          zIndex: portalZIndex,
-          transform: 'translateY(-100%)',
-        });
+      // Tip is mounted (possibly opacity 0) so measurements are real — no estimate → clamp jump
+      const tipW = Math.max(1, tip.offsetWidth);
+      const tipH = Math.max(1, tip.offsetHeight);
+
+      let placeBottom = placement === 'bottom';
+      if (placeBottom && rect.bottom + 4 + tipH > window.innerHeight - margin) {
+        placeBottom = false;
+      } else if (!placeBottom && rect.top - 4 - tipH < margin) {
+        placeBottom = true;
       }
+
+      let left = rect.left + rect.width / 2 - tipW / 2;
+      left = Math.max(margin, Math.min(left, window.innerWidth - tipW - margin));
+
+      const top = placeBottom
+        ? rect.bottom + 4
+        : Math.max(margin, rect.top - 4 - tipH);
+
+      setPortalStyle({
+        position: 'fixed',
+        top,
+        left,
+        zIndex: portalZIndex,
+      });
     };
 
     update();
@@ -187,7 +200,7 @@ export function KanbanChromeTooltip({
       window.removeEventListener('scroll', update, true);
       window.removeEventListener('resize', update);
     };
-  }, [visible, placement, portalZIndex]);
+  }, [visible, placement, portalZIndex, label, content]);
 
   useEffect(
     () => () => {
@@ -210,14 +223,22 @@ export function KanbanChromeTooltip({
       ? CHROME_TOOLTIP_MULTILINE_SURFACE_CLASS
       : CHROME_TOOLTIP_SURFACE_CLASS;
 
+  // Mount while visible so we can measure before revealing (opacity 0 until positioned)
   const portal =
-    visible && portalStyle && typeof document !== 'undefined'
+    visible && typeof document !== 'undefined'
       ? createPortal(
           <span
             ref={tooltipRef}
             role="tooltip"
             className={tooltipClassName}
-            style={portalStyle}
+            style={{
+              position: 'fixed',
+              top: portalStyle?.top ?? 0,
+              left: portalStyle?.left ?? 0,
+              zIndex: portalZIndex,
+              opacity: portalStyle ? 1 : 0,
+              pointerEvents: portalStyle && interactive ? 'auto' : 'none',
+            }}
             onMouseEnter={interactive ? show : undefined}
             onMouseLeave={interactive ? scheduleHide : undefined}
           >

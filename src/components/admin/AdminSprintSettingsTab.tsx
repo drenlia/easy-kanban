@@ -6,6 +6,7 @@ import { toast } from '../../utils/toast';
 import { getSprintUsage, deleteSprint } from '../../api';
 import { ModernCheckbox } from '../ModernCheckbox';
 import { useEscapeDismiss } from '../../hooks/useEscapeDismiss';
+import { ADMIN_TABLE_ROW_CLASS } from '../../utils/adminFieldLimits';
 
 interface PlanningPeriod {
   id: string;
@@ -523,7 +524,7 @@ const AdminSprintSettingsTab: React.FC = () => {
               </thead>
               <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
                 {sprints.map((sprint) => (
-                  <tr key={sprint.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
+                  <tr key={sprint.id} className={ADMIN_TABLE_ROW_CLASS}>
                     <td className="px-6 py-4 whitespace-nowrap text-sm">
                       <div className="flex gap-2">
                         <button

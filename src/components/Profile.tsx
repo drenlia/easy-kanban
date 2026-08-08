@@ -8,6 +8,7 @@ import { getAuthenticatedAvatarUrl } from '../utils/authImageUrl';
 import { useSettings } from '../contexts/SettingsContext';
 import ProfileDevTab from './profile/ProfileDevTab';
 import { useEscapeDismiss } from '../hooks/useEscapeDismiss';
+import { setExplicitGuestLanguage } from '../utils/guestLanguage';
 
 type NotificationPreferenceKey = keyof UserPreferences['notifications'];
 
@@ -355,6 +356,7 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
   const handleLanguageChange = async (lang: 'en' | 'fr') => {
     try {
       await i18n.changeLanguage(lang);
+      setExplicitGuestLanguage(lang);
       await updateUserPreference('language', lang, currentUser?.id);
       setUserPrefs((prev) => ({ ...prev, language: lang }));
     } catch (err) {

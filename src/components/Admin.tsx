@@ -1051,14 +1051,13 @@ const Admin: React.FC<AdminProps> = ({
 
   const handleResendInvitation = async (userId: string) => {
     try {
-      
       // Check email server status first
       const emailStatusResponse = await fetch('/api/admin/email-status', {
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('authToken')}`
         }
       });
-      
+
       if (emailStatusResponse.ok) {
         const emailStatus = await emailStatusResponse.json();
         if (!emailStatus.available) {
@@ -1066,25 +1065,24 @@ const Admin: React.FC<AdminProps> = ({
         }
       } else {
         console.warn('Could not check email status, proceeding with resend');
-        // If we can't check status, we should still try but warn the user
         console.warn('Email status check failed with status:', emailStatusResponse.status);
       }
 
       const result = await resendUserInvitation(userId);
-      
-      // Verify the result actually indicates success
-      // The API returns { success: true, email: ... } on success or { success: false, error: ... } on failure
+
+      // API: { success: true, email } on success — toast is owned by AdminUsersTab
       if (result && result.success === true && result.email) {
-        toast.success(t('invitationEmailSent', { email: result.email }), '');
-      } else {
-        // Check for error in response data (from axios error handling)
-        const errorMessage = result?.error || result?.details || t('failedToSendInvitationEmail');
-        throw new Error(errorMessage);
+        return { email: result.email as string };
       }
+
+      throw new Error(result?.error || result?.details || t('failedToSendInvitationEmail'));
     } catch (err: any) {
       console.error('Failed to resend invitation:', err);
-      const errorMessage = err.response?.data?.error || err.message || t('failedToSendInvitationEmail');
-      toast.error(errorMessage, '');
+      const message =
+        err.response?.data?.error || err.message || t('failedToSendInvitationEmail');
+      const wrapped = new Error(message);
+      (wrapped as any).response = err.response;
+      throw wrapped;
     }
   };
 
@@ -1332,6 +1330,16 @@ const Admin: React.FC<AdminProps> = ({
     window.location.hash = adminHashForTabId(tab);
   };
 
+  const adminSearchContentSources = useMemo(
+    () => ({
+      users,
+      tags,
+      priorities,
+      settings: editingSettings as Record<string, string | undefined | null>,
+    }),
+    [users, tags, priorities, editingSettings]
+  );
+
   /** Navigate from settings search (supports System / Project / App sub-hashes). */
   const handleSearchNavigate = (tab: string, hash: string) => {
     const stickyOffset = 56;
@@ -1435,6 +1443,7 @@ const Admin: React.FC<AdminProps> = ({
                 <AdminSettingsSearch
                   activeTab={activeTab}
                   onNavigate={handleSearchNavigate}
+                  contentSources={adminSearchContentSources}
                 />
               </div>
             </div>

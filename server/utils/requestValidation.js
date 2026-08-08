@@ -37,6 +37,17 @@ const booleanish = z.preprocess((v) => {
   return v;
 }, z.boolean().optional());
 
+/** Standard emails, plus reserved *@local pseudo accounts (system@local, agent@local). */
+const emailOrLocalSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .max(320)
+  .refine(
+    (v) => /^[^\s@]+@local$/.test(v) || z.string().email().safeParse(v).success,
+    { message: 'Invalid email address' }
+  );
+
 const attachmentSchema = z.object({
   id: z.string().min(1).max(128),
   name: z.string().min(1).max(512),
@@ -177,7 +188,7 @@ export const adminCreateUserBodySchema = z.object({
 }).passthrough();
 
 export const adminUpdateUserBodySchema = z.object({
-  email: z.string().trim().toLowerCase().email().max(320),
+  email: emailOrLocalSchema,
   firstName: z.string().min(1).max(100),
   lastName: z.string().min(1).max(100),
   isActive: booleanish
