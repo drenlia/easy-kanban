@@ -304,7 +304,11 @@ export function buildEmailSiteLogo({
   let src = '';
   if (/^https?:\/\//i.test(raw)) {
     src = raw;
-  } else if (raw.startsWith('/kanban') || raw.startsWith('/assets/')) {
+  } else if (
+    raw.startsWith('/agila') ||
+    raw.startsWith('/kanban') ||
+    raw.startsWith('/assets/')
+  ) {
     // Built-in defaults — not a custom site logo
     return { html: '', attachments: [] };
   } else {

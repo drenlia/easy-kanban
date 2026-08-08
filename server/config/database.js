@@ -870,7 +870,7 @@ const initializeDefaultData = async (db, tenantId = null) => {
       ['APP_VERSION', '0'],
       ['ADMIN_PORTAL_URL', `https://admin.${tenantDomain}`],
       ['WEBSITE_URL', `https://${tenantDomain}`],
-      ['SITE_NAME', 'Agila'],
+      ['SITE_NAME', ''], // blank by default — wordmark logo carries the product name
       ['SITE_URL', '/'],
       ['MAIL_ENABLED', 'false'],
       ['MAIL_MANAGED', 'false'], // Default to false, will be set to true for licensed instances

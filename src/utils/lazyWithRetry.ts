@@ -30,10 +30,13 @@ export function lazyWithRetry<T extends ComponentType<any>>(
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
 
+      // Vite serves app modules from /src/... — that path in the URL is normal, not a
+      // server failure. Only treat real HTTP/server failure signals as non-retryable.
       const isServerError =
-        errorMessage.includes('500') ||
-        errorMessage.includes('/src/') ||
-        errorMessage.includes('Internal Server Error');
+        /\b500\b/.test(errorMessage) ||
+        errorMessage.includes('Internal Server Error') ||
+        errorMessage.includes('502 Bad Gateway') ||
+        errorMessage.includes('503 Service Unavailable');
 
       const isVersionMismatch =
         error instanceof TypeError &&

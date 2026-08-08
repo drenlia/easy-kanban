@@ -39,9 +39,25 @@ export const ROUTES = {
 
 // Default site settings
 export const DEFAULT_SITE_SETTINGS = {
-  SITE_NAME: 'Agila',
+  SITE_NAME: '',
   SITE_URL: 'http://localhost:3000'
 };
+
+/** Built-in brand mark when SITE_LOGO is empty / cleared */
+export const DEFAULT_SITE_LOGO = '/agila-logo.png';
+/** Built-in brand mark for dark UI when SITE_LOGO_DARK is empty / cleared */
+export const DEFAULT_SITE_LOGO_DARK = '/agila-logo-dark.png';
+/** Browser tab icon (index.html + any runtime favicon updates) */
+export const DEFAULT_FAVICON = '/agila-favicon.png';
+
+/** Public static brand paths — do not rewrite through avatar media auth */
+export function isPublicBrandAssetPath(value: string): boolean {
+  return (
+    value.startsWith('/agila') ||
+    value.startsWith('/kanban') || // legacy default (kanban.ico)
+    value.startsWith('/assets/')
+  );
+}
 
 // Polling configuration
 export const POLLING_INTERVAL = 15000; // 15 seconds (backup only, WebSocket handles real-time)

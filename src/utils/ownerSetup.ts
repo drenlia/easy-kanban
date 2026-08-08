@@ -570,8 +570,9 @@ export function computeOwnerSetupHints(input: {
 }): OwnerSetupHints {
   const s = input.siteSettings || {};
   const siteName = String(s.SITE_NAME || '').trim();
-  // "/" is a valid relative site URL for most deployments — hint on renamed site
-  const siteIdentity = siteName.length > 0 && siteName !== 'Agila';
+  // Blank is the stock default (logo carries the name). Only the legacy "Agila"
+  // text default still needs attention in the owner checklist.
+  const siteIdentity = siteName !== 'Agila';
 
   const mailEnabled = String(s.MAIL_ENABLED || '').toLowerCase() === 'true';
   const smtpHost = String(s.SMTP_HOST || '').trim();

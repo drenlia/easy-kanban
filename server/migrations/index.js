@@ -613,6 +613,26 @@ const migrations = [
         console.log('✅ Migration 30: users.bio already present');
       }
     }
+  },
+  {
+    version: 31,
+    name: 'clear_default_site_name',
+    description:
+      'Clear SITE_NAME when still the stock product name (logo wordmark replaces header text)',
+    up: async (db) => {
+      const { settings: settingsQueries } = await import('../utils/sqlManager/index.js');
+      const existing = await settingsQueries.getSettingByKey(db, 'SITE_NAME');
+      const current = String(existing?.value ?? '').trim();
+      if (current === 'Agila') {
+        await settingsQueries.updateSetting(db, 'SITE_NAME', '');
+        console.log('✅ Migration 31: SITE_NAME cleared (was Agila)');
+      } else if (!existing) {
+        await settingsQueries.createSetting(db, 'SITE_NAME', '');
+        console.log('✅ Migration 31: SITE_NAME created as empty');
+      } else {
+        console.log(`✅ Migration 31: SITE_NAME left unchanged (${current || 'empty'})`);
+      }
+    }
   }
 ];
 

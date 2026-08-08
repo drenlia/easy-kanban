@@ -8,12 +8,18 @@ import { adminSettingsHaveChanges } from '../../utils/adminSettingsDirty';
 import { revertAdminSettingField } from '../../utils/adminSettingsDirty';
 import { AdminFieldDraftControls } from './AdminFieldDraftControls';
 import { AdminUnsavedHint } from './AdminUnsavedChanges';
+import AdminLogoCropModal from './AdminLogoCropModal';
 import {
   AdminActionsBar,
   AdminPageShell,
   AdminSection,
   adminInputFullClass,
 } from './AdminSection';
+import {
+  DEFAULT_SITE_LOGO,
+  DEFAULT_SITE_LOGO_DARK,
+  isPublicBrandAssetPath,
+} from '../../constants';
 
 interface Settings {
   SITE_NAME?: string;
@@ -36,6 +42,25 @@ interface AdminSiteSettingsTabProps {
   onAutoSave?: (key: string, value: string) => Promise<void>;
 }
 
+const LOGO_MAX_BYTES = 5 * 1024 * 1024;
+const LOGO_ALLOWED_MIME = new Set([
+  'image/jpeg',
+  'image/png',
+  'image/gif',
+  'image/webp',
+  'image/bmp',
+  'image/avif',
+  'image/heic',
+  'image/heif',
+]);
+
+type LogoCropSession = {
+  variant: 'light' | 'dark';
+  imageSrc: string;
+  /** True when imageSrc is a blob: URL we must revoke on close */
+  revokeOnClose: boolean;
+};
+
 const AdminSiteSettingsTab: React.FC<AdminSiteSettingsTabProps> = ({
   settings,
   editingSettings,
@@ -50,12 +75,11 @@ const AdminSiteSettingsTab: React.FC<AdminSiteSettingsTabProps> = ({
   const darkFileRef = useRef<HTMLInputElement>(null);
   const [uploadingLight, setUploadingLight] = useState(false);
   const [uploadingDark, setUploadingDark] = useState(false);
+  const [cropSession, setCropSession] = useState<LogoCropSession | null>(null);
   const hasChanges = useMemo(
     () => adminSettingsHaveChanges(settings, editingSettings),
     [settings, editingSettings]
   );
-
-  const DEFAULT_SITE_LOGO = '/kanban.ico';
 
   const handleInputChange = (key: string, value: string) => {
     onSettingsChange({ ...editingSettings, [key]: value });
@@ -71,33 +95,94 @@ const AdminSiteSettingsTab: React.FC<AdminSiteSettingsTabProps> = ({
       if (
         trimmed.startsWith('http://') ||
         trimmed.startsWith('https://') ||
-        trimmed.startsWith('/kanban') ||
-        trimmed.startsWith('/assets/')
+        isPublicBrandAssetPath(trimmed)
       ) {
         return trimmed;
       }
       // Never fall back to bare `/avatars/...` (Express returns 404 for that path)
-      return getAuthenticatedAvatarUrl(trimmed) || DEFAULT_SITE_LOGO;
+      return (
+        getAuthenticatedAvatarUrl(trimmed) ||
+        (variant === 'dark' ? DEFAULT_SITE_LOGO_DARK : DEFAULT_SITE_LOGO)
+      );
     }
-    // Match header fallback: dark → light custom → default ico
+    // Match header fallback: dark → light custom → theme default Agila logo
     if (variant === 'dark') {
       const light = editingSettings.SITE_LOGO?.trim() || '';
       if (light) {
         if (
           light.startsWith('http://') ||
           light.startsWith('https://') ||
-          light.startsWith('/kanban') ||
-          light.startsWith('/assets/')
+          isPublicBrandAssetPath(light)
         ) {
           return light;
         }
-        return getAuthenticatedAvatarUrl(light) || DEFAULT_SITE_LOGO;
+        return getAuthenticatedAvatarUrl(light) || DEFAULT_SITE_LOGO_DARK;
       }
+      return DEFAULT_SITE_LOGO_DARK;
     }
     return DEFAULT_SITE_LOGO;
   };
 
-  const uploadLogo = async (file: File, variant: 'light' | 'dark') => {
+  const closeCropSession = () => {
+    setCropSession((current) => {
+      if (current?.revokeOnClose) {
+        URL.revokeObjectURL(current.imageSrc);
+      }
+      return null;
+    });
+  };
+
+  const validateLogoFile = (file: File): string | null => {
+    const mime = String(file.type || '')
+      .split(';')[0]
+      .trim()
+      .toLowerCase();
+    if (!LOGO_ALLOWED_MIME.has(mime)) {
+      return t('siteSettings.logoInvalidType');
+    }
+    if (file.size > LOGO_MAX_BYTES) {
+      return t('siteSettings.logoTooLarge');
+    }
+    const name = file.name.toLowerCase();
+    if (name.endsWith('.svg') || name.endsWith('.svgz')) {
+      return t('siteSettings.logoInvalidType');
+    }
+    return null;
+  };
+
+  const openCropForFile = (file: File, variant: 'light' | 'dark') => {
+    const validationError = validateLogoFile(file);
+    if (validationError) {
+      alert(validationError);
+      return;
+    }
+    const imageSrc = URL.createObjectURL(file);
+    setCropSession({ variant, imageSrc, revokeOnClose: true });
+  };
+
+  const openCropForPreview = (variant: 'light' | 'dark') => {
+    const settingKey = variant === 'dark' ? 'SITE_LOGO_DARK' : 'SITE_LOGO';
+    const value = editingSettings[settingKey]?.trim() || '';
+    if (!value) {
+      // No custom logo yet — start an upload instead
+      const ref = variant === 'dark' ? darkFileRef : lightFileRef;
+      ref.current?.click();
+      return;
+    }
+    const imageSrc = resolvePreviewSrc(value, variant);
+    if (
+      !imageSrc ||
+      imageSrc === DEFAULT_SITE_LOGO ||
+      imageSrc === DEFAULT_SITE_LOGO_DARK
+    ) {
+      const ref = variant === 'dark' ? darkFileRef : lightFileRef;
+      ref.current?.click();
+      return;
+    }
+    setCropSession({ variant, imageSrc, revokeOnClose: false });
+  };
+
+  const uploadLogo = async (file: File, variant: 'light' | 'dark'): Promise<boolean> => {
     const setUploading = variant === 'dark' ? setUploadingDark : setUploadingLight;
     const settingKey = variant === 'dark' ? 'SITE_LOGO_DARK' : 'SITE_LOGO';
     setUploading(true);
@@ -110,9 +195,12 @@ const AdminSiteSettingsTab: React.FC<AdminSiteSettingsTabProps> = ({
       const path = response.data?.value || '';
       handleInputChange(settingKey, path);
       updateSiteSetting(settingKey, path);
+      closeCropSession();
+      return true;
     } catch (error) {
       console.error(`Failed to upload ${variant} logo:`, error);
       alert(t('siteSettings.logoUploadFailed'));
+      return false;
     } finally {
       setUploading(false);
     }
@@ -143,6 +231,7 @@ const AdminSiteSettingsTab: React.FC<AdminSiteSettingsTabProps> = ({
     const value = editingSettings[settingKey] || '';
     const src = resolvePreviewSrc(value, variant);
     const isDefaultPreview = !value.trim() && (variant === 'light' || !(editingSettings.SITE_LOGO || '').trim());
+    const canRecrop = Boolean(value.trim());
 
     return (
       <div data-setting-key={settingKey}>
@@ -169,11 +258,11 @@ const AdminSiteSettingsTab: React.FC<AdminSiteSettingsTabProps> = ({
               <input
                 ref={fileRef}
                 type="file"
-                accept="image/*"
+                accept="image/png,image/jpeg,image/gif,image/webp,image/bmp,image/avif,.png,.jpg,.jpeg,.gif,.webp,.bmp,.avif"
                 className="hidden"
                 onChange={(e) => {
                   const file = e.target.files?.[0];
-                  if (file) uploadLogo(file, variant);
+                  if (file) openCropForFile(file, variant);
                   e.target.value = '';
                 }}
               />
@@ -198,18 +287,39 @@ const AdminSiteSettingsTab: React.FC<AdminSiteSettingsTabProps> = ({
               )}
             </div>
           </div>
-          <div className="w-28 h-14 flex flex-col items-center justify-center rounded-md border border-dashed border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-800 overflow-hidden px-1">
+          <button
+            type="button"
+            onClick={() => openCropForPreview(variant)}
+            disabled={uploading}
+            title={
+              canRecrop
+                ? t('siteSettings.logoPreviewCropTitle')
+                : t('siteSettings.logoPreviewUploadTitle')
+            }
+            aria-label={
+              canRecrop
+                ? t('siteSettings.logoPreviewCropTitle')
+                : t('siteSettings.logoPreviewUploadTitle')
+            }
+            className="w-28 h-14 flex flex-col items-center justify-center rounded-md border border-dashed border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-800 overflow-hidden px-1 transition-colors hover:border-blue-400 hover:bg-blue-50/60 dark:hover:border-blue-500 dark:hover:bg-gray-700 disabled:opacity-50"
+          >
             {src ? (
               <>
-                <img src={src} alt="" className="max-h-10 max-w-full object-contain" />
-                {isDefaultPreview && (
-                  <span className="text-[10px] text-gray-400 mt-0.5">{t('siteSettings.defaultLogoPreview')}</span>
+                <img src={src} alt="" className="max-h-10 max-w-full object-contain pointer-events-none" />
+                {isDefaultPreview ? (
+                  <span className="text-[10px] text-gray-400 mt-0.5">
+                    {t('siteSettings.defaultLogoPreview')}
+                  </span>
+                ) : (
+                  <span className="text-[10px] text-blue-600 dark:text-blue-400 mt-0.5">
+                    {t('siteSettings.logoPreviewCropHint')}
+                  </span>
                 )}
               </>
             ) : (
               <span className="text-xs text-gray-400 px-2 text-center">{t('siteSettings.noLogoPreview')}</span>
             )}
-          </div>
+          </button>
         </div>
       </div>
     );
@@ -255,6 +365,11 @@ const AdminSiteSettingsTab: React.FC<AdminSiteSettingsTabProps> = ({
   const opensNewTab =
     editingSettings.SITE_OPENS_NEW_TAB === 'true' ||
     editingSettings.SITE_OPENS_NEW_TAB === undefined;
+
+  const cropTitle =
+    cropSession?.variant === 'dark'
+      ? t('siteSettings.logoCropTitleDark')
+      : t('siteSettings.logoCropTitle');
 
   return (
     <AdminPageShell description={t('siteSettings.description')}>
@@ -435,6 +550,19 @@ const AdminSiteSettingsTab: React.FC<AdminSiteSettingsTabProps> = ({
           </button>
         </div>
       </AdminActionsBar>
+
+      {cropSession && (
+        <AdminLogoCropModal
+          isOpen
+          imageSrc={cropSession.imageSrc}
+          fileName={
+            cropSession.variant === 'dark' ? 'site-logo-dark.png' : 'site-logo.png'
+          }
+          title={cropTitle}
+          onCancel={closeCropSession}
+          onApply={async (file) => uploadLogo(file, cropSession.variant)}
+        />
+      )}
     </AdminPageShell>
   );
 };

@@ -173,7 +173,12 @@ router.get('/site-logo', async (req, res, next) => {
         ? (dark?.value || light?.value || '').trim()
         : (light?.value || '').trim();
 
-    if (!logoPath || logoPath.startsWith('/kanban') || logoPath.startsWith('/assets/')) {
+    if (
+      !logoPath ||
+      logoPath.startsWith('/agila') ||
+      logoPath.startsWith('/kanban') ||
+      logoPath.startsWith('/assets/')
+    ) {
       return res.status(404).json({ error: 'No site logo configured' });
     }
 

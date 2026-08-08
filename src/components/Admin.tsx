@@ -973,7 +973,7 @@ const Admin: React.FC<AdminProps> = ({
       
       // Update the settings state
       setSettings(prev => ({ ...prev, [key]: value }));
-      // Keep header/branding in sync immediately (empty logo → default ico without full reload)
+      // Keep header/branding in sync immediately (empty logo → default Agila logo without full reload)
       updateSiteSetting(key, value);
       
       // Update the parent component's site settings immediately

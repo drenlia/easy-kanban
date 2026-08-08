@@ -13,6 +13,7 @@ import ResetCountdown from '../ResetCountdown';
 import { KanbanChromeTooltip } from '../KanbanChromeTooltip';
 import { toast } from '../../utils/toast';
 import { getAuthenticatedAvatarUrl } from '../../utils/authImageUrl';
+import { DEFAULT_SITE_LOGO, DEFAULT_SITE_LOGO_DARK, isPublicBrandAssetPath } from '../../constants';
 
 interface SystemInfo {
   memory: {
@@ -460,7 +461,9 @@ const Header: React.FC<HeaderProps> = ({
 
   return (
     <header className="sticky top-0 z-[60] bg-white dark:bg-gray-800 shadow-sm border-b border-gray-100 dark:border-gray-700" data-tour-id="navigation">
-      <div className="app-page-shell app-page-inline-gutter py-2.5 flex justify-between items-center gap-2 min-w-0 max-w-full">
+      {/* Gutter outside shell — same nesting as MainLayout so brand aligns with page content */}
+      <div className="app-page-inline-gutter">
+      <div className="app-page-shell py-2.5 flex justify-between items-center gap-2 min-w-0 max-w-full">
         <div className="flex items-center gap-2 sm:gap-3 min-w-0 shrink">
           <a
             href={siteSettings.SITE_URL || '#'}
@@ -478,20 +481,18 @@ const Header: React.FC<HeaderProps> = ({
               const isDark = theme === 'dark';
               const configuredLight = siteSettings.SITE_LOGO?.trim() || '';
               const configuredDark = siteSettings.SITE_LOGO_DARK?.trim() || '';
-              const defaultLogo = '/kanban.ico';
               const rawLogo = hideLogo
                 ? ''
                 : isDark
-                  ? (configuredDark || configuredLight || defaultLogo)
-                  : (configuredLight || defaultLogo);
+                  ? (configuredDark || configuredLight || DEFAULT_SITE_LOGO_DARK)
+                  : (configuredLight || DEFAULT_SITE_LOGO);
 
               const resolveBrandLogo = (value: string) => {
                 // Public static / external URLs — do not rewrite through avatar file auth
                 if (
                   value.startsWith('http://') ||
                   value.startsWith('https://') ||
-                  value.startsWith('/kanban') ||
-                  value.startsWith('/assets/')
+                  isPublicBrandAssetPath(value)
                 ) {
                   return value;
                 }
@@ -500,10 +501,8 @@ const Header: React.FC<HeaderProps> = ({
               };
 
               const logoSrc = rawLogo ? resolveBrandLogo(rawLogo) : undefined;
-              // Missing SITE_NAME → "Agila"; explicit empty string → hide name
-              const siteName = siteSettings.SITE_NAME === undefined
-                ? 'Agila'
-                : siteSettings.SITE_NAME;
+              // Blank / missing SITE_NAME → logo only (wordmark includes the product name)
+              const siteName = siteSettings.SITE_NAME ?? '';
               const showName = siteName.trim().length > 0;
 
               if (!logoSrc && !showName) {
@@ -1017,6 +1016,7 @@ const Header: React.FC<HeaderProps> = ({
             </div>
           )}
         </div>
+      </div>
       </div>
       
       {/* System Usage Panel - Vertical Compact for Admins (Toggleable) */}
