@@ -21,7 +21,7 @@ interface AdminUnsavedChangesBannerProps {
   onSave: () => void;
   onDiscard: () => void;
   isSaving?: boolean;
-  /** When true, Save is disabled (e.g. only local-tab drafts like AI/Reporting). */
+  /** When true, Save is disabled (e.g. while another save is in flight). */
   saveDisabled?: boolean;
 }
 

@@ -39,6 +39,7 @@ type LifecycleConfirmDialog = {
 
 interface AdminLifecycleTabProps {
   onLocalDirtyChange?: (dirty: boolean) => void;
+  onRegisterLocalSave?: (save: (() => Promise<void>) | null) => void;
   discardNonce?: number;
   onPendingChange?: () => void | Promise<void>;
   /** True when Lifecycle is the visible Admin sub-tab (refresh on re-entry). */
@@ -47,6 +48,7 @@ interface AdminLifecycleTabProps {
 
 const AdminLifecycleTab: React.FC<AdminLifecycleTabProps> = ({
   onLocalDirtyChange,
+  onRegisterLocalSave,
   discardNonce = 0,
   onPendingChange,
   isActive = true,
@@ -282,6 +284,22 @@ const AdminLifecycleTab: React.FC<AdminLifecycleTabProps> = ({
       setSavingKey(null);
     }
   };
+
+  const saveLocalDraftsRef = useRef<() => Promise<void>>(async () => {});
+  saveLocalDraftsRef.current = async () => {
+    if (deletedDays.trim() !== savedDeletedDays.trim()) {
+      await saveRetention('LIFECYCLE_DELETED_RETENTION_DAYS', deletedDays);
+    }
+    if (archivedDays.trim() !== savedArchivedDays.trim()) {
+      await saveRetention('LIFECYCLE_ARCHIVED_RETENTION_DAYS', archivedDays);
+    }
+  };
+
+  useEffect(() => {
+    if (!onRegisterLocalSave) return;
+    onRegisterLocalSave(() => saveLocalDraftsRef.current());
+    return () => onRegisterLocalSave(null);
+  }, [onRegisterLocalSave]);
 
   const resolveBoardName = (boardId: string) => {
     const deletedBoard = boards.find((b) => b.id === boardId);

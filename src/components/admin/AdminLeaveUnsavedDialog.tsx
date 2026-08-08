@@ -6,7 +6,10 @@ import { AlertTriangle } from 'lucide-react';
 export type AdminDraftGate = {
   hasSharedDirty: boolean;
   hasLocalDirty: boolean;
-  /** Persist shared editingSettings; resolves with whether tab-local drafts remain. */
+  /**
+   * Persist shared editingSettings and registered tab-local drafts.
+   * Resolves with whether any tab-local drafts remain (e.g. validation blocked a local save).
+   */
   saveShared: () => Promise<{ hasLocalDirtyStill: boolean }>;
   discardAll: () => void;
 };
@@ -21,8 +24,7 @@ interface AdminLeaveUnsavedDialogProps {
 
 /**
  * Prompt when leaving Admin with unsaved drafts.
- * Stay / Discard & leave / Save & leave (shared settings).
- * Local-only drafts (AI, Reporting, Lifecycle) must be saved on their tabs or discarded here.
+ * Stay / Discard & leave / Save & leave (shared + tab-local drafts).
  */
 export const AdminLeaveUnsavedDialog: React.FC<AdminLeaveUnsavedDialogProps> = ({
   open,
@@ -74,7 +76,8 @@ export const AdminLeaveUnsavedDialog: React.FC<AdminLeaveUnsavedDialogProps> = (
   if (!open) return null;
 
   const onlyLocal = !gate.hasSharedDirty && gate.hasLocalDirty;
-  const showSave = gate.hasSharedDirty && !localRemaining;
+  const showSave =
+    (gate.hasSharedDirty || gate.hasLocalDirty) && !localRemaining;
 
   const message = localRemaining
     ? t('leaveUnsavedSharedSavedLocalHint')
@@ -88,7 +91,7 @@ export const AdminLeaveUnsavedDialog: React.FC<AdminLeaveUnsavedDialogProps> = (
   };
 
   const handleSave = async () => {
-    if (!gate.hasSharedDirty) return;
+    if (!gate.hasSharedDirty && !gate.hasLocalDirty) return;
     setSaving(true);
     try {
       const { hasLocalDirtyStill } = await gate.saveShared();

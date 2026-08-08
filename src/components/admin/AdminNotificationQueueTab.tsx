@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Send, Trash2, CheckSquare, Square, RefreshCw, ChevronDown, Search } from 'lucide-react';
 import { getNotificationQueue, sendNotificationsImmediately, deleteNotifications, updateSetting } from '../../api';
@@ -46,11 +46,13 @@ interface NotificationQueueItem {
 
 interface AdminNotificationQueueTabProps {
   onLocalDirtyChange?: (dirty: boolean) => void;
+  onRegisterLocalSave?: (save: (() => Promise<void>) | null) => void;
   discardNonce?: number;
 }
 
 const AdminNotificationQueueTab: React.FC<AdminNotificationQueueTabProps> = ({
   onLocalDirtyChange,
+  onRegisterLocalSave,
   discardNonce = 0,
 }) => {
   const { t } = useTranslation('admin');
@@ -132,6 +134,19 @@ const AdminNotificationQueueTab: React.FC<AdminNotificationQueueTabProps> = ({
       setSavingRetention(false);
     }
   };
+
+  const saveLocalDraftsRef = useRef<() => Promise<void>>(async () => {});
+  saveLocalDraftsRef.current = async () => {
+    if (retentionDirty) {
+      await saveRetention();
+    }
+  };
+
+  useEffect(() => {
+    if (!onRegisterLocalSave) return;
+    onRegisterLocalSave(() => saveLocalDraftsRef.current());
+    return () => onRegisterLocalSave(null);
+  }, [onRegisterLocalSave]);
 
   // Filter notifications based on search query
   const filteredNotifications = notifications.filter((notification: NotificationQueueItem) => {

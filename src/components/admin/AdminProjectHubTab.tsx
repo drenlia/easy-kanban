@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import AdminProjectSettingsTab from './AdminProjectSettingsTab';
 import AdminSprintSettingsTab from './AdminSprintSettingsTab';
@@ -20,6 +20,7 @@ interface AdminProjectHubTabProps {
   onCancel: () => void;
   onAutoSave?: (key: string, value: string) => Promise<void>;
   onLocalDirtyChange?: (dirty: boolean) => void;
+  onRegisterLocalSave?: (save: (() => Promise<void>) | null) => void;
   discardNonce?: number;
   lifecyclePendingCount?: number;
   onLifecyclePendingRefresh?: () => void | Promise<void>;
@@ -58,6 +59,7 @@ const AdminProjectHubTab: React.FC<AdminProjectHubTabProps> = ({
   onCancel,
   onAutoSave,
   onLocalDirtyChange,
+  onRegisterLocalSave,
   discardNonce = 0,
   lifecyclePendingCount = 0,
   onLifecyclePendingRefresh,
@@ -75,6 +77,32 @@ const AdminProjectHubTab: React.FC<AdminProjectHubTabProps> = ({
   );
   const [reportingLocalDirty, setReportingLocalDirty] = useState(false);
   const [lifecycleLocalDirty, setLifecycleLocalDirty] = useState(false);
+  const reportingSaveRef = useRef<(() => Promise<void>) | null>(null);
+  const lifecycleSaveRef = useRef<(() => Promise<void>) | null>(null);
+  const reportingLocalDirtyRef = useRef(reportingLocalDirty);
+  const lifecycleLocalDirtyRef = useRef(lifecycleLocalDirty);
+  reportingLocalDirtyRef.current = reportingLocalDirty;
+  lifecycleLocalDirtyRef.current = lifecycleLocalDirty;
+
+  const registerReportingSave = useCallback((save: (() => Promise<void>) | null) => {
+    reportingSaveRef.current = save;
+  }, []);
+  const registerLifecycleSave = useCallback((save: (() => Promise<void>) | null) => {
+    lifecycleSaveRef.current = save;
+  }, []);
+
+  useEffect(() => {
+    if (!onRegisterLocalSave) return;
+    onRegisterLocalSave(async () => {
+      if (reportingLocalDirtyRef.current && reportingSaveRef.current) {
+        await reportingSaveRef.current();
+      }
+      if (lifecycleLocalDirtyRef.current && lifecycleSaveRef.current) {
+        await lifecycleSaveRef.current();
+      }
+    });
+    return () => onRegisterLocalSave(null);
+  }, [onRegisterLocalSave]);
 
   useEffect(() => {
     setVisitedSubTabs((prev) => {
@@ -187,6 +215,7 @@ const AdminProjectHubTab: React.FC<AdminProjectHubTabProps> = ({
         >
           <AdminReportingTab
             onLocalDirtyChange={setReportingLocalDirty}
+            onRegisterLocalSave={registerReportingSave}
             discardNonce={discardNonce}
           />
         </div>
@@ -199,6 +228,7 @@ const AdminProjectHubTab: React.FC<AdminProjectHubTabProps> = ({
         >
           <AdminLifecycleTab
             onLocalDirtyChange={setLifecycleLocalDirty}
+            onRegisterLocalSave={registerLifecycleSave}
             discardNonce={discardNonce}
             onPendingChange={onLifecyclePendingRefresh}
             isActive={isActive && activeSubTab === 'lifecycle'}

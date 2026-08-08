@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Sparkles } from 'lucide-react';
 import api from '../../api';
@@ -27,6 +27,8 @@ interface AdminAISettingsTabProps {
   onApplySettingsPatch?: (patch: Record<string, string | undefined>) => void;
   onAutoSave: (key: string, value: string) => Promise<void>;
   onLocalDirtyChange?: (dirty: boolean) => void;
+  /** Register a save callback for the Admin header / leave-dialog Save. */
+  onRegisterLocalSave?: (save: (() => Promise<void>) | null) => void;
   discardNonce?: number;
 }
 
@@ -52,6 +54,7 @@ const AdminAISettingsTab: React.FC<AdminAISettingsTabProps> = ({
   onSettingsChange,
   onApplySettingsPatch,
   onLocalDirtyChange,
+  onRegisterLocalSave,
   discardNonce = 0,
 }) => {
   const { t } = useTranslation('admin');
@@ -344,6 +347,22 @@ const AdminAISettingsTab: React.FC<AdminAISettingsTabProps> = ({
       setSavingConfig(false);
     }
   };
+
+  const saveLocalDraftsRef = useRef<() => Promise<void>>(async () => {});
+  saveLocalDraftsRef.current = async () => {
+    if (configDirty) {
+      await saveConfiguration();
+    }
+    if (agentNameDirty) {
+      await applyAgentName();
+    }
+  };
+
+  useEffect(() => {
+    if (!onRegisterLocalSave) return;
+    onRegisterLocalSave(() => saveLocalDraftsRef.current());
+    return () => onRegisterLocalSave(null);
+  }, [onRegisterLocalSave]);
 
   const runValidate = async () => {
     const { data } = await api.post('/admin/settings/ai/validate', draftPayload());

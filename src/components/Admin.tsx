@@ -1145,6 +1145,8 @@ const Admin: React.FC<AdminProps> = ({
 
   /** Local draft dirty flags for tabs that do not use shared editingSettings. */
   const [localDirtyTabs, setLocalDirtyTabs] = useState<Record<string, boolean>>({});
+  const [isSavingAllDrafts, setIsSavingAllDrafts] = useState(false);
+  const localSaveByTabRef = useRef<Map<string, () => Promise<void>>>(new Map());
 
   const handleTabLocalDirty = useCallback((tabId: string, dirty: boolean) => {
     setLocalDirtyTabs((prev) => {
@@ -1152,6 +1154,14 @@ const Admin: React.FC<AdminProps> = ({
       return { ...prev, [tabId]: dirty };
     });
   }, []);
+
+  const registerTabLocalSave = useCallback(
+    (tabId: string, save: (() => Promise<void>) | null) => {
+      if (save) localSaveByTabRef.current.set(tabId, save);
+      else localSaveByTabRef.current.delete(tabId);
+    },
+    []
+  );
 
   const hasUnsavedSettings = useMemo(
     () => adminSettingsHaveChanges(settings, editingSettings),
@@ -1165,12 +1175,48 @@ const Admin: React.FC<AdminProps> = ({
 
   const hasAnyUnsavedDrafts = hasUnsavedSettings || hasAnyLocalDirty;
 
+  const hasUnsavedSettingsRef = useRef(hasUnsavedSettings);
+  hasUnsavedSettingsRef.current = hasUnsavedSettings;
   const hasAnyLocalDirtyRef = useRef(hasAnyLocalDirty);
   hasAnyLocalDirtyRef.current = hasAnyLocalDirty;
+  const localDirtyTabsRef = useRef(localDirtyTabs);
+  localDirtyTabsRef.current = localDirtyTabs;
   const handleSaveSettingsRef = useRef(handleSaveSettings);
   handleSaveSettingsRef.current = handleSaveSettings;
   const handleCancelSettingsRef = useRef(handleCancelSettings);
   handleCancelSettingsRef.current = handleCancelSettings;
+
+  /** Save shared editingSettings (if dirty) then any registered tab-local drafts. */
+  const saveAllAdminDrafts = useCallback(async (): Promise<{ hasLocalDirtyStill: boolean }> => {
+    if (hasUnsavedSettingsRef.current) {
+      const ok = await handleSaveSettingsRef.current();
+      if (!ok) {
+        throw new Error('Failed to save admin settings');
+      }
+    }
+    for (const [tabId, dirty] of Object.entries(localDirtyTabsRef.current)) {
+      if (!dirty) continue;
+      const save = localSaveByTabRef.current.get(tabId);
+      if (save) await save();
+    }
+    // Allow child dirty effects to flush before reporting leftover local drafts
+    await new Promise<void>((resolve) => {
+      window.setTimeout(() => resolve(), 0);
+    });
+    return { hasLocalDirtyStill: hasAnyLocalDirtyRef.current };
+  }, []);
+
+  const handleHeaderSaveAllDrafts = useCallback(async () => {
+    if (isSavingAllDrafts) return;
+    setIsSavingAllDrafts(true);
+    try {
+      await saveAllAdminDrafts();
+    } catch {
+      // Individual saves toast; keep banner open
+    } finally {
+      setIsSavingAllDrafts(false);
+    }
+  }, [isSavingAllDrafts, saveAllAdminDrafts]);
 
   // Expose draft gate to App for leave-Admin confirmation
   useEffect(() => {
@@ -1178,17 +1224,11 @@ const Admin: React.FC<AdminProps> = ({
     onDraftGateChange({
       hasSharedDirty: hasUnsavedSettings,
       hasLocalDirty: hasAnyLocalDirty,
-      saveShared: async () => {
-        const ok = await handleSaveSettingsRef.current();
-        if (!ok) {
-          throw new Error('Failed to save admin settings');
-        }
-        return { hasLocalDirtyStill: hasAnyLocalDirtyRef.current };
-      },
+      saveShared: () => saveAllAdminDrafts(),
       discardAll: () => handleCancelSettingsRef.current(),
     });
     return () => onDraftGateChange(null);
-  }, [hasUnsavedSettings, hasAnyLocalDirty, onDraftGateChange]);
+  }, [hasUnsavedSettings, hasAnyLocalDirty, onDraftGateChange, saveAllAdminDrafts]);
 
   const dirtySettingsTabs = useMemo(
     () => getDirtyAdminSettingsTabs(settings, editingSettings),
@@ -1434,10 +1474,10 @@ const Admin: React.FC<AdminProps> = ({
               <AdminUnsavedChangesBanner
                 visible={hasAnyUnsavedDrafts}
                 onSave={() => {
-                  void handleSaveSettings();
+                  void handleHeaderSaveAllDrafts();
                 }}
                 onDiscard={handleCancelSettings}
-                saveDisabled={!hasUnsavedSettings}
+                isSaving={isSavingAllDrafts}
               />
               <div className="w-full sm:w-auto sm:max-w-xs">
                 <AdminSettingsSearch
@@ -1552,6 +1592,9 @@ const Admin: React.FC<AdminProps> = ({
                 onLocalDirtyChange={(dirty) =>
                   handleTabLocalDirty('system-settings', dirty)
                 }
+                onRegisterLocalSave={(save) =>
+                  registerTabLocalSave('system-settings', save)
+                }
                 discardNonce={settingsDiscardNonce}
               />
             </AdminTabPanel>
@@ -1616,6 +1659,9 @@ const Admin: React.FC<AdminProps> = ({
                 onAutoSave={handleAutoSaveSetting}
                 onLocalDirtyChange={(dirty) =>
                   handleTabLocalDirty('project-settings', dirty)
+                }
+                onRegisterLocalSave={(save) =>
+                  registerTabLocalSave('project-settings', save)
                 }
                 discardNonce={settingsDiscardNonce}
                 lifecyclePendingCount={lifecyclePendingCount}

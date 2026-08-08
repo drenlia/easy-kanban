@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Sparkles } from 'lucide-react';
 import AdminSSOTab from './AdminSSOTab';
@@ -37,6 +37,7 @@ interface AdminSystemSettingsTabProps {
   testEmailError: string;
   onCloseTestErrorModal: () => void;
   onLocalDirtyChange?: (dirty: boolean) => void;
+  onRegisterLocalSave?: (save: (() => Promise<void>) | null) => void;
   discardNonce?: number;
 }
 
@@ -91,6 +92,7 @@ const AdminSystemSettingsTab: React.FC<AdminSystemSettingsTabProps> = ({
   testEmailError,
   onCloseTestErrorModal,
   onLocalDirtyChange,
+  onRegisterLocalSave,
   discardNonce = 0,
 }) => {
   const { t } = useTranslation('admin');
@@ -105,6 +107,32 @@ const AdminSystemSettingsTab: React.FC<AdminSystemSettingsTabProps> = ({
   );
   const [aiLocalDirty, setAiLocalDirty] = useState(false);
   const [queueRetentionLocalDirty, setQueueRetentionLocalDirty] = useState(false);
+  const aiSaveRef = useRef<(() => Promise<void>) | null>(null);
+  const queueSaveRef = useRef<(() => Promise<void>) | null>(null);
+  const aiLocalDirtyRef = useRef(aiLocalDirty);
+  const queueRetentionLocalDirtyRef = useRef(queueRetentionLocalDirty);
+  aiLocalDirtyRef.current = aiLocalDirty;
+  queueRetentionLocalDirtyRef.current = queueRetentionLocalDirty;
+
+  const registerAiSave = useCallback((save: (() => Promise<void>) | null) => {
+    aiSaveRef.current = save;
+  }, []);
+  const registerQueueSave = useCallback((save: (() => Promise<void>) | null) => {
+    queueSaveRef.current = save;
+  }, []);
+
+  useEffect(() => {
+    if (!onRegisterLocalSave) return;
+    onRegisterLocalSave(async () => {
+      if (aiLocalDirtyRef.current && aiSaveRef.current) {
+        await aiSaveRef.current();
+      }
+      if (queueRetentionLocalDirtyRef.current && queueSaveRef.current) {
+        await queueSaveRef.current();
+      }
+    });
+    return () => onRegisterLocalSave(null);
+  }, [onRegisterLocalSave]);
 
   useEffect(() => {
     setVisitedSubTabs((prev) => {
@@ -274,6 +302,7 @@ const AdminSystemSettingsTab: React.FC<AdminSystemSettingsTabProps> = ({
             onApplySettingsPatch={onApplySettingsPatch}
             onAutoSave={onAutoSave}
             onLocalDirtyChange={setAiLocalDirty}
+            onRegisterLocalSave={registerAiSave}
             discardNonce={discardNonce}
           />
         </div>
@@ -301,6 +330,7 @@ const AdminSystemSettingsTab: React.FC<AdminSystemSettingsTabProps> = ({
         >
           <AdminNotificationQueueTab
             onLocalDirtyChange={setQueueRetentionLocalDirty}
+            onRegisterLocalSave={registerQueueSave}
             discardNonce={discardNonce}
           />
         </div>

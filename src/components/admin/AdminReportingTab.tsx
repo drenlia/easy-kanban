@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from '../../utils/toast';
 import { Save, Trophy, TrendingUp, Settings, Database, Eye, EyeOff } from 'lucide-react';
@@ -35,6 +35,7 @@ interface ReportingSettings {
 
 interface AdminReportingTabProps {
   onLocalDirtyChange?: (dirty: boolean) => void;
+  onRegisterLocalSave?: (save: (() => Promise<void>) | null) => void;
   discardNonce?: number;
 }
 
@@ -52,6 +53,7 @@ const REPORTS_POINTS_KEYS: Record<string, string> = {
 
 const AdminReportingTab: React.FC<AdminReportingTabProps> = ({
   onLocalDirtyChange,
+  onRegisterLocalSave,
   discardNonce = 0,
 }) => {
   const { t } = useTranslation('admin');
@@ -319,6 +321,19 @@ const AdminReportingTab: React.FC<AdminReportingTabProps> = ({
   useEffect(() => {
     onLocalDirtyChange?.(hasChanges);
   }, [hasChanges, onLocalDirtyChange]);
+
+  const saveLocalDraftsRef = useRef<() => Promise<void>>(async () => {});
+  saveLocalDraftsRef.current = async () => {
+    if (hasChanges) {
+      await handleSave();
+    }
+  };
+
+  useEffect(() => {
+    if (!onRegisterLocalSave) return;
+    onRegisterLocalSave(() => saveLocalDraftsRef.current());
+    return () => onRegisterLocalSave(null);
+  }, [onRegisterLocalSave]);
 
   return (
     <div>
