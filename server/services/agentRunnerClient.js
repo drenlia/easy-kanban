@@ -32,7 +32,7 @@ export async function resolveRunnerConfig(db, overrides = {}) {
   if (isMultiTenant()) {
     let url = String(process.env.AI_RUNNER_URL || process.env.RUNNER_URL || '').trim();
     if (!url) {
-      url = 'http://kanban-runner:8080';
+      url = 'http://agila-runner:8080';
     }
     const token = String(process.env.RUNNER_TOKEN || process.env.AI_RUNNER_TOKEN || '').trim();
     return { url: url.replace(/\/+$/, ''), token };
@@ -46,7 +46,7 @@ export async function resolveRunnerConfig(db, overrides = {}) {
     url = String(process.env.AI_RUNNER_URL || process.env.RUNNER_URL || '').trim();
   }
   if (!url) {
-    url = 'http://kanban-runner:8080';
+    url = 'http://agila-runner:8080';
   }
   url = url.replace(/\/+$/, '');
 
@@ -138,7 +138,7 @@ export function buildCallbackUrl(opts = {}) {
     base = `https://${opts.tenantId}.${process.env.TENANT_DOMAIN}`;
   }
   if (!base) {
-    base = 'http://kanban-app:3222';
+    base = 'http://agila-app:3222';
   }
   return `${base}/api/agent/runner/callback`;
 }

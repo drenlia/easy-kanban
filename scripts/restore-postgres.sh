@@ -5,7 +5,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$(cd "$SCRIPT_DIR/.." && pwd)"
 
-CONTAINER_NAME="${POSTGRES_CONTAINER:-easy-kanban-postgres}"
+CONTAINER_NAME="${POSTGRES_CONTAINER:-agila-postgres}"
 BACKUP_DIR="${BACKUP_DIR:-./backups}"
 LATEST_LINK="${BACKUP_DIR}/kanban-latest.sql.gz"
 

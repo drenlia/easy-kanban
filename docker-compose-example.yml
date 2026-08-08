@@ -1,7 +1,7 @@
 services:
-  kanban-app:
+  agila-app:
     build: .
-    container_name: easy-kanban
+    container_name: agila
     ports:
       - "3010:3010"
       - "3222:3222"
@@ -33,8 +33,8 @@ services:
       # Application version (optional, will override database value if set)
       - APP_VERSION=1.0.0
       # Push agent runner (optional — enable AI in Admin → App Settings)
-      - AI_RUNNER_URL=http://kanban-runner:8080
-      - AI_CALLBACK_BASE_URL=http://kanban-app:3222
+      - AI_RUNNER_URL=http://agila-runner:8080
+      - AI_CALLBACK_BASE_URL=http://agila-app:3222
       - RUNNER_TOKEN=${RUNNER_TOKEN:-kanban-runner-dev-token-change-me}
     volumes:
       - .:/app
@@ -47,13 +47,13 @@ services:
         condition: service_healthy
       redis:
         condition: service_started
-      kanban-runner:
+      agila-runner:
         condition: service_started
     restart: unless-stopped
 
-  kanban-runner:
+  agila-runner:
     build: ./runner
-    container_name: easy-kanban-runner
+    container_name: agila-runner
     environment:
       - PORT=8080
       - MAX_CONCURRENT=1
@@ -63,7 +63,7 @@ services:
 
   postgres:
     image: postgres:15-alpine
-    container_name: easy-kanban-postgres
+    container_name: agila-postgres
     environment:
       - POSTGRES_DB=kanban
       - POSTGRES_USER=kanban_user
@@ -79,7 +79,7 @@ services:
 
   redis:
     image: redis:7-alpine
-    container_name: easy-kanban-redis
+    container_name: agila-redis
     ports:
       - "6379:6379"
     volumes:

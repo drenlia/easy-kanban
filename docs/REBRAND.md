@@ -18,7 +18,7 @@ Hard cutover: after DNS flip, `*.docru.app` should stop serving the app. There i
 
 | Topic | Choice |
 |-------|--------|
-| Product name | **Agila** (display / seeds / i18n / docs). Internal names (`easy-kanban` images, crypto salts, `ek_media`, localStorage keys) unchanged. |
+| Product name | **Agila** (display / seeds / i18n / docs). Docker compose service/`container_name` → Agila; crypto salts, `ek_media`, localStorage keys, k8s IDs unchanged. |
 | Domain | **`agila.dev`** via `TENANT_DOMAIN` (default in code if unset). |
 | `SITE_NAME` | Rows exactly equal to `Docru` → `Agila`. Also maps leftover exact `Easy Kanban` → `Agila`. Custom site names left alone. |
 | Existing `SMTP_*` | **Not** rewritten by the cutover script — fix in Admin → Mail. |
@@ -220,15 +220,18 @@ These are not branding — changing them breaks data or sessions:
 - `ek_media` cookie / localStorage-style prefixes unless you ship an explicit migration
 - S3 probe key prefixes that already exist in buckets (optional later; not required for Agila UX)
 
-### Docker — easy (hours, mostly cosmetic)
+### Docker — done (operator-facing)
 
-Compose **service** names are already neutral (`kanban-app`, `postgres`, `redis`). What still says Easy Kanban is mainly:
+Compose files now use Agila names:
 
-- `container_name: easy-kanban` (+ runner / postgres / redis) across `docker-compose*.yml`
-- Published image tags if anything still builds/pushes `easy-kanban:latest`
-- App defaults such as `INSTANCE_NAME` fallback `easy-kanban-app` (optional)
+- Services: `agila-app`, `agila-runner` (+ neutral `postgres`, `redis`)
+- `container_name`: `agila`, `agila-runner`, `agila-postgres`, `agila-redis`
+- Internal URLs: `http://agila-runner:8080`, `http://agila-app:3222`
+- Local image tag helpers (`package.json` / `scripts/build.sh`): `agila` / `agila:latest`
 
-Networking inside Compose uses **service** names, so renaming containers does not break Redis/Postgres DNS. Test stacks recreate on next `docker compose up`. **Low risk; safe anytime** if you want operator-facing Agila names on Docker.
+**Volumes intentionally unchanged** (`kanban-data`, `postgres_data`, …) so recreating containers keeps existing data.
+
+Still optional later: App `INSTANCE_NAME` fallback `easy-kanban-app`; k8s registry tags that still say `easy-kanban:latest`.
 
 ### Kubernetes — two scopes
 

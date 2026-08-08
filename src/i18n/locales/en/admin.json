@@ -611,7 +611,7 @@
     "aiMaxConcurrent": "Max concurrent agent jobs",
     "aiMaxConcurrentDescription": "How many Agent tasks this tenant may run at once (1–10). The runner also has a pool limit.",
     "aiRunnerUrl": "Agent runner URL",
-    "aiRunnerUrlDescription": "Internal URL of the push runner (Docker: http://kanban-runner:8080). Leave blank to use the platform default from the environment.",
+    "aiRunnerUrlDescription": "Internal URL of the push runner (Docker: http://agila-runner:8080). Leave blank to use the platform default from the environment.",
     "aiRunnerToken": "Runner bearer token",
     "aiRunnerTokenDescription": "Shared secret so only Agila can launch jobs. Leave blank to use RUNNER_TOKEN from the environment.",
     "aiRunnerTokenPlaceholder": "Same value as runner RUNNER_TOKEN",

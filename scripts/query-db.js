@@ -8,7 +8,7 @@
  *     POSTGRES_DB=kanban node scripts/query-db.js "SELECT count(*) FROM tasks;"
  *
  * In Docker:
- *   docker exec -it easy-kanban node /app/scripts/query-db.js "SELECT id, email FROM users LIMIT 5;"
+ *   docker exec -it agila node /app/scripts/query-db.js "SELECT id, email FROM users LIMIT 5;"
  */
 
 import pg from 'pg';

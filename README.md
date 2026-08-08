@@ -202,7 +202,7 @@ npm run docker:dev
 ### Manual Backup
 
 ```bash
-docker exec easy-kanban-postgres pg_dump -U kanban_user -d kanban --clean --if-exists \
+docker exec agila-postgres pg_dump -U kanban_user -d kanban --clean --if-exists \
   | gzip > ./backups/kanban-manual.sql.gz
 ```
 
@@ -210,7 +210,7 @@ docker exec easy-kanban-postgres pg_dump -U kanban_user -d kanban --clean --if-e
 
 ```bash
 gunzip -c ./backups/kanban-latest.sql.gz \
-  | docker exec -i easy-kanban-postgres psql -U kanban_user -d kanban
+  | docker exec -i agila-postgres psql -U kanban_user -d kanban
 ```
 
 **Important:** Prefer restoring while the app is stopped or briefly unavailable to avoid concurrent writes during restore.

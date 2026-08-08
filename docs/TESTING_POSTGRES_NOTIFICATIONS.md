@@ -59,7 +59,7 @@ Test LISTEN/NOTIFY directly from PostgreSQL:
 
 ### Terminal 1: Listen for notifications
 ```bash
-docker exec -it easy-kanban-postgres psql -U kanban_user -d kanban
+docker exec -it agila-postgres psql -U kanban_user -d kanban
 
 # In psql:
 LISTEN test_channel;
@@ -67,7 +67,7 @@ LISTEN test_channel;
 
 ### Terminal 2: Send a notification
 ```bash
-docker exec -it easy-kanban-postgres psql -U kanban_user -d kanban
+docker exec -it agila-postgres psql -U kanban_user -d kanban
 
 # In psql:
 SELECT pg_notify('test_channel', '{"message": "Hello from psql!"}');

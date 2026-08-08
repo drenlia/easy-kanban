@@ -73,7 +73,7 @@ const AdminAISettingsTab: React.FC<AdminAISettingsTabProps> = ({
     editingSettings.AI_MAX_CONCURRENT || '1'
   );
   const [runnerUrl, setRunnerUrl] = useState(
-    editingSettings.AI_RUNNER_URL || 'http://kanban-runner:8080'
+    editingSettings.AI_RUNNER_URL || 'http://agila-runner:8080'
   );
   const [modelMode, setModelMode] = useState<'list' | 'custom'>('custom');
   const [models, setModels] = useState<AiModelOption[]>([]);
@@ -95,7 +95,7 @@ const AdminAISettingsTab: React.FC<AdminAISettingsTabProps> = ({
     setModel(editingSettings.AI_MODEL || '');
     setApiKeyDraft(editingSettings.AI_API_KEY || '');
     setMaxConcurrent(editingSettings.AI_MAX_CONCURRENT || '1');
-    setRunnerUrl(editingSettings.AI_RUNNER_URL || 'http://kanban-runner:8080');
+    setRunnerUrl(editingSettings.AI_RUNNER_URL || 'http://agila-runner:8080');
     setRunnerTokenDraft(editingSettings.AI_RUNNER_TOKEN || '');
     setBaseUrlEditable(false);
     setApiKeyEditable(false);
@@ -113,7 +113,7 @@ const AdminAISettingsTab: React.FC<AdminAISettingsTabProps> = ({
     setModel(editingSettings.AI_MODEL || '');
     setApiKeyDraft(editingSettings.AI_API_KEY || '');
     setMaxConcurrent(editingSettings.AI_MAX_CONCURRENT || '1');
-    setRunnerUrl(editingSettings.AI_RUNNER_URL || 'http://kanban-runner:8080');
+    setRunnerUrl(editingSettings.AI_RUNNER_URL || 'http://agila-runner:8080');
     setRunnerTokenDraft(editingSettings.AI_RUNNER_TOKEN || '');
     setBaseUrlEditable(false);
     setApiKeyEditable(false);
@@ -175,7 +175,7 @@ const AdminAISettingsTab: React.FC<AdminAISettingsTabProps> = ({
     maxConcurrent.trim() !== (editingSettings.AI_MAX_CONCURRENT || '1') ||
     (!platformRunnerManaged &&
       runnerUrl.trim() !==
-        (editingSettings.AI_RUNNER_URL || 'http://kanban-runner:8080')) ||
+        (editingSettings.AI_RUNNER_URL || 'http://agila-runner:8080')) ||
     keyReplaced ||
     runnerTokenReplaced;
 
@@ -513,7 +513,7 @@ const AdminAISettingsTab: React.FC<AdminAISettingsTabProps> = ({
   const savedModel = editingSettings.AI_MODEL || '';
   const savedMaxConcurrent = editingSettings.AI_MAX_CONCURRENT || '1';
   const savedRunnerUrl =
-    editingSettings.AI_RUNNER_URL || 'http://kanban-runner:8080';
+    editingSettings.AI_RUNNER_URL || 'http://agila-runner:8080';
 
   const aiFieldLabel = (
     label: string,
@@ -932,7 +932,7 @@ const AdminAISettingsTab: React.FC<AdminAISettingsTabProps> = ({
               t('appSettings.aiRunnerUrl'),
               !platformRunnerManaged &&
                 runnerUrl.trim() !==
-                  (editingSettings.AI_RUNNER_URL || 'http://kanban-runner:8080'),
+                  (editingSettings.AI_RUNNER_URL || 'http://agila-runner:8080'),
               savedRunnerUrl,
               () => setRunnerUrl(savedRunnerUrl)
             )}
@@ -948,7 +948,7 @@ const AdminAISettingsTab: React.FC<AdminAISettingsTabProps> = ({
                 onChange={(e) => setRunnerUrl(e.target.value)}
                 readOnly={platformRunnerManaged}
                 disabled={platformRunnerManaged}
-                placeholder="http://kanban-runner:8080"
+                placeholder="http://agila-runner:8080"
                 className={`block min-w-0 flex-1 max-w-xl px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm font-mono text-gray-900 dark:text-gray-100 ${
                   platformRunnerManaged
                     ? 'bg-gray-100 dark:bg-gray-800 cursor-not-allowed opacity-90'

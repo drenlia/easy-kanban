@@ -158,7 +158,7 @@ fi
 
 # Build the development image
 echo "📦 Building Docker image..."
-docker build -t easy-kanban:latest .
+docker build -t agila:latest .
 
 if [ $? -eq 0 ]; then
     echo "✅ Docker image built successfully!"

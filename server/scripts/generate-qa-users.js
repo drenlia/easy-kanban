@@ -4,13 +4,13 @@
  * Script to generate SQL INSERT statements for 25 generic QA users
  * 
  * Usage (inside Docker container):
- *   1. docker exec -it easy-kanban node /app/server/scripts/generate-qa-users.js > qa-users.sql
- *   2. Get the user role ID: docker exec -it easy-kanban-postgres psql -U kanban_user -d kanban -c "SELECT id FROM roles WHERE name = 'user';"
+ *   1. docker exec -it agila node /app/server/scripts/generate-qa-users.js > qa-users.sql
+ *   2. Get the user role ID: docker exec -it agila-postgres psql -U kanban_user -d kanban -c "SELECT id FROM roles WHERE name = 'user';"
  *   3. Replace <ROLE_ID> in qa-users.sql with the actual role ID
- *   4. Execute: docker exec -i easy-kanban-postgres psql -U kanban_user -d kanban < qa-users.sql
+ *   4. Execute: docker exec -i agila-postgres psql -U kanban_user -d kanban < qa-users.sql
  * 
  * Or run interactively:
- *   docker exec -it easy-kanban node /app/server/scripts/generate-qa-users.js
+ *   docker exec -it agila node /app/server/scripts/generate-qa-users.js
  *   (then copy/paste the output and replace <ROLE_ID>)
  * 
  * Password for all users: TestPassword123!
@@ -62,7 +62,7 @@ async function generateSQL() {
   console.log('--   3. Execute the statements in your database');
   console.log('--');
   console.log('-- To execute in Docker:');
-  console.log('--   docker exec -i easy-kanban-postgres psql -U kanban_user -d kanban < output.sql');
+  console.log('--   docker exec -i agila-postgres psql -U kanban_user -d kanban < output.sql');
   console.log('--');
   console.log('-- Or connect to the database and paste these statements');
   console.log('-- ============================================');

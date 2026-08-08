@@ -98,9 +98,9 @@ Used when tenant settings are empty, or for Docker networking:
 
 | Env | Role |
 |-----|------|
-| `AI_RUNNER_URL` / `RUNNER_URL` | Default runner URL (compose: `http://kanban-runner:8080`) |
+| `AI_RUNNER_URL` / `RUNNER_URL` | Default runner URL (compose: `http://agila-runner:8080`) |
 | `AI_RUNNER_TOKEN` / `RUNNER_TOKEN` | Shared secret; must match runner `RUNNER_TOKEN` |
-| `AI_CALLBACK_BASE_URL` | Absolute base for runner→app callbacks (compose: `http://kanban-app:3222`) |
+| `AI_CALLBACK_BASE_URL` | Absolute base for runner→app callbacks (compose: `http://agila-app:3222`) |
 | Runner `PORT`, `MAX_CONCURRENT` | Runner listen port and local job pool size |
 
 See `docker-compose-pro.yml`, `docker-compose-free.yml`, `docker-compose-example.yml`, or `docker-compose-dev.yml` (`kanban-app` + `kanban-runner`). Basic and demo compose files omit the runner by default.

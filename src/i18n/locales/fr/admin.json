@@ -612,7 +612,7 @@
     "aiMaxConcurrent": "Tâches agent simultanées max",
     "aiMaxConcurrentDescription": "Nombre de tâches Agent que ce locataire peut exécuter à la fois (1–10). Le runner a aussi une limite de pool.",
     "aiRunnerUrl": "URL du runner agent",
-    "aiRunnerUrlDescription": "URL interne du runner push (Docker : http://kanban-runner:8080). Laissez vide pour la valeur plateforme de l'environnement.",
+    "aiRunnerUrlDescription": "URL interne du runner push (Docker : http://agila-runner:8080). Laissez vide pour la valeur plateforme de l'environnement.",
     "aiRunnerToken": "Jeton bearer du runner",
     "aiRunnerTokenDescription": "Secret partagé pour que seul Agila puisse lancer des tâches. Laissez vide pour utiliser RUNNER_TOKEN de l'environnement.",
     "aiRunnerTokenPlaceholder": "Même valeur que RUNNER_TOKEN du runner",

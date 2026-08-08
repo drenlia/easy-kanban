@@ -251,7 +251,7 @@ router.get('/', authenticateToken, requireRole(['admin']), async (req, res, next
     if (process.env.MULTI_TENANT === 'true') {
       settingsObj.AI_RUNNER_PLATFORM_MANAGED = 'true';
       const platformUrl = String(
-        process.env.AI_RUNNER_URL || process.env.RUNNER_URL || 'http://kanban-runner:8080'
+        process.env.AI_RUNNER_URL || process.env.RUNNER_URL || 'http://agila-runner:8080'
       ).trim();
       settingsObj.AI_RUNNER_URL = platformUrl.replace(/\/+$/, '');
       const platformToken = String(

@@ -165,10 +165,10 @@ docker compose ps
 ```bash
 # Check Postgres is healthy
 docker compose ps postgres
-docker exec easy-kanban-postgres pg_isready -U kanban_user -d kanban
+docker exec agila-postgres pg_isready -U kanban_user -d kanban
 
 # Run an ad-hoc query
-docker exec -it easy-kanban node /app/scripts/query-db.js "SELECT count(*) FROM users;"
+docker exec -it agila node /app/scripts/query-db.js "SELECT count(*) FROM users;"
 ```
 
 ### Redis connection issues
@@ -180,7 +180,7 @@ docker compose ps redis
 docker compose logs redis
 
 # Verify Redis is accessible (check application logs for connection errors)
-docker compose logs easy-kanban | grep -i redis
+docker compose logs agila-app | grep -i redis
 ```
 
 ### Port conflicts
